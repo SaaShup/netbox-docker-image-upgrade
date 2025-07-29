@@ -1,0 +1,15 @@
+{
+    "name": "netbox-docker-image-upgrade",
+    "version": "0.1.0",
+    "description": "App to deploy new image to all containers",
+    "author": "vincent@saashup.com",
+    "homepage": "https://github.com/SaaShup/netbox-docker-image-upgrade",
+    "bugs": {
+        "url": "https://github.com/SaaShup/netbox-docker-image-upgrade",
+        "email": "contact@saashup.com"
+    },
+    "license": "BSD-3-Clause",
+    "dependencies": {
+        "node-red": "*"
+    }
+}
