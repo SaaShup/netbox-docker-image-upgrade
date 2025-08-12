@@ -32,7 +32,7 @@
         "fieldType": "msg",
         "format": "handlebars",
         "syntax": "mustache",
-        "template": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <title>Form UI</title>\n  <style>\n    body {\n      font-family: \"Segoe UI\", Tahoma, Geneva, Verdana, sans-serif;\n      background-color: #f4f6f9;\n      margin: 40px;\n    }\n\n    .form-container {\n      background-color: #ffffff;\n      padding: 30px 40px;\n      border-bottom-left-radius: 12px;\n      border-bottom-right-radius: 12px;\n      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);\n    }\n\n    .form-container h2 {\n      margin-top: 0;\n      margin-bottom: 20px;\n      font-size: 24px;\n      color: #333;\n      text-align: center;\n    }\n\n    .form-group {\n      margin-bottom: 15px;\n    }\n\n    label {\n      display: block;\n      margin-bottom: 6px;\n      font-weight: 500;\n      color: #555;\n    }\n\n    input[type=\"text\"] {\n      width: 100%;\n      padding: 10px 12px;\n      border: 1px solid #ccc;\n      border-radius: 8px;\n      box-sizing: border-box;\n      font-size: 14px;\n    }\n\n    .button-row {\n      display: flex;\n      justify-content: flex-end;\n      gap: 10px;\n      margin-top: 20px;\n    }\n\n    .btn {\n      padding: 10px 20px;\n      border: none;\n      border-radius: 8px;\n      cursor: pointer;\n      font-size: 16px;\n      color: white;\n    }\n\n    .btn-save {\n      background-color: #007bff;\n    }\n\n    .btn-save:hover {\n      background-color: #0056b3;\n    }\n\n    .btn-upgrade {\n      background-color: #dc3545;\n    }\n\n    .btn-upgrade:hover {\n      background-color: #a71d2a;\n    }\n\n    .menu {\n      color: white;\n      text-decoration: none;\n      padding: 8px 12px;\n      display: block;\n    }\n  </style>\n</head>\n<body>\n      <nav style=\"background-color: #333; padding:10px;\">\n  <ul style=\"list-style: none; margin: 0; padding: 0; display: flex;\">\n    <li><a href=\"#\" class=\"menu\" id=\"menu_create\">Create</a></li>\n    <li><a href=\"#\" class=\"menu\" id=\"menu_recreate\" style=\"color: grey;\">Upgrade</a></li>\n  </ul>\n</nav>\n<div class=\"form-container\" id=\"create\">\n    <form action=\"/\" method=\"post\">\n      <div class=\"form-group\">\n        <label for=\"netbox\">Netbox URL</label>\n        <input type=\"text\" value=\"{{payload.netbox}}\" id=\"netbox\" name=\"netbox\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"token\">Netbox Token</label>\n        <input type=\"text\" value=\"{{payload.token}}\" id=\"token\" name=\"token\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"hostname\">Host</label>\n        <input type=\"text\" value=\"{{payload.hostname}}\" id=\"hostname\" name=\"hostname\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"network\">Network</label>\n        <input type=\"text\" value=\"{{payload.network}}\" id=\"network\" name=\"network\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Instance Name</label>\n        <input type=\"text\" value=\"{{payload.instance}}\" id=\"instance\" name=\"instance\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Image Name</label>\n        <input type=\"text\" value=\"{{payload.image}}\" id=\"image\" name=\"image\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"oldversion\">Version</label>\n        <input type=\"text\" value=\"{{payload.version}}\" id=\"version\" name=\"version\">\n      </div>\n\n      <div class=\"button-row\">\n        <input type=\"submit\" class=\"btn btn-save\" value=\"Save\">\n    </form>\n    <form action=\"/create\" method=\"get\">\n        <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Create\">\n      </div>\n    </form>\n  </div>\n\n  <div class=\"form-container\" id=\"recreate\" style=\"display: none;\">\n    <form action=\"/\" method=\"post\">\n      <div class=\"form-group\">\n        <label for=\"netbox\">Netbox URL</label>\n        <input type=\"text\" value=\"{{payload.netbox}}\" id=\"netbox\" name=\"netbox\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"token\">Netbox Token</label>\n        <input type=\"text\" value=\"{{payload.token}}\" id=\"token\" name=\"token\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"hostname\">Host</label>\n        <input type=\"text\" value=\"{{payload.hostname}}\" id=\"hostname\" name=\"hostname\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Image Name</label>\n        <input type=\"text\" value=\"{{payload.image}}\" id=\"image\" name=\"image\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"oldversion\">Old Version</label>\n        <input type=\"text\" value=\"{{payload.oldversion}}\" id=\"oldversion\" name=\"oldversion\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"version\">New Version</label>\n        <input type=\"text\" value=\"{{payload.version}}\" id=\"version\" name=\"version\">\n      </div>\n\n      <div class=\"button-row\">\n        <input type=\"submit\" class=\"btn btn-save\" value=\"Save\">\n    </form>\n    <form action=\"/recreate\" method=\"get\">\n        <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Recreate\">\n      </div>\n    </form>\n  </div>\n  <script>\n    document.getElementById('menu_create').onclick = function() {\n      document.getElementById('create').style.display='block';\n      document.getElementById('recreate').style.display='none';\n      document.getElementById('menu_create').style.color ='white';\n      document.getElementById('menu_recreate').style.color = 'grey';\n    }\n    document.getElementById('menu_recreate').onclick = function() {\n      document.getElementById('recreate').style.display='block';\n      document.getElementById('create').style.display='none';\n      document.getElementById('menu_recreate').style.color ='white';\n      document.getElementById('menu_create').style.color = 'grey';\n    }\n  </script>\n</body>\n</html>\n",
+        "template": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <title>Form UI</title>\n  <style>\n    body {\n      font-family: \"Segoe UI\", Tahoma, Geneva, Verdana, sans-serif;\n      background-color: #f4f6f9;\n      margin: 40px;\n    }\n\n    .form-container {\n      background-color: #ffffff;\n      padding: 30px 40px;\n      border-bottom-left-radius: 12px;\n      border-bottom-right-radius: 12px;\n      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);\n    }\n\n    .form-container h2 {\n      margin-top: 0;\n      margin-bottom: 20px;\n      font-size: 24px;\n      color: #333;\n      text-align: center;\n    }\n\n    .form-group {\n      margin-bottom: 15px;\n    }\n\n    label {\n      display: block;\n      margin-bottom: 6px;\n      font-weight: 500;\n      color: #555;\n    }\n\n    input[type=\"text\"] {\n      width: 100%;\n      padding: 10px 12px;\n      border: 1px solid #ccc;\n      border-radius: 8px;\n      box-sizing: border-box;\n      font-size: 14px;\n    }\n\n    .button-row {\n      display: flex;\n      justify-content: flex-end;\n      gap: 10px;\n      margin-top: 20px;\n    }\n\n    .btn {\n      padding: 10px 20px;\n      border: none;\n      border-radius: 8px;\n      cursor: pointer;\n      font-size: 16px;\n      color: white;\n    }\n\n    .btn-upgrade {\n      background-color: #dc3545;\n    }\n\n    .btn-upgrade:hover {\n      background-color: #a71d2a;\n    }\n    \n    .notif {\n      width: 80%;\n      border: 1px;\n      border-radius: 8px;\n      background-color: lightblue;\n      color: black;\n      font-weight: bold;\n      margin: 12px;\n      padding: 8px 12px;\n      display: flex;\n\t    justify-content: center;\n\t    align-items: center;\n    }\n\n    .menu {\n      color: white;\n      text-decoration: none;\n      padding: 8px 12px;\n      display: block;\n    }\n  </style>\n</head>\n<body>\n      <nav style=\"background-color: #333; padding:10px;\">\n  <ul style=\"list-style: none; margin: 0; padding: 0; display: flex;\">\n    <li><a href=\"#\" class=\"menu\" id=\"menu_create\">Create</a></li>\n    <li><a href=\"#\" class=\"menu\" id=\"menu_recreate\" style=\"color: grey;\">Upgrade</a></li>\n    <li><a href=\"#\" class=\"menu\" id=\"menu_delete\" style=\"color: grey;\">Delete</a></li>\n  </ul>\n</nav>\n<div align=\"center\">\n  <div class=\"notif\" id=\"notif\">\n    Welcome !\n  </div>\n</div>\n<div class=\"form-container\" id=\"create\">\n    <form action=\"/create\" method=\"get\">\n      <div class=\"form-group\">\n        <label for=\"netbox\">Netbox URL</label>\n        <input type=\"text\" value=\"{{payload.netbox}}\" id=\"netbox\" name=\"netbox\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"token\">Netbox Token</label>\n        <input type=\"text\" value=\"{{payload.token}}\" id=\"token\" name=\"token\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"hostname\">Host</label>\n        <input type=\"text\" value=\"{{payload.hostname}}\" id=\"hostname\" name=\"hostname\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"network\">Network</label>\n        <input type=\"text\" value=\"{{payload.network}}\" id=\"network\" name=\"network\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Guide Name</label>\n        <input type=\"text\" value=\"{{payload.instance}}\" id=\"instance\" name=\"instance\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Image Name</label>\n        <input type=\"text\" value=\"{{payload.image}}\" id=\"image\" name=\"image\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"oldversion\">Version</label>\n        <input type=\"text\" value=\"{{payload.version}}\" id=\"version\" name=\"version\">\n      </div>\n   \n        <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Create\">\n      </div>\n    </form>\n  </div>\n\n  <div class=\"form-container\" id=\"recreate\" style=\"display: none;\">\n    <form action=\"/recreate\" method=\"get\">\n      <div class=\"form-group\">\n        <label for=\"netbox\">Netbox URL</label>\n        <input type=\"text\" value=\"{{payload.netbox}}\" id=\"netbox\" name=\"netbox\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"token\">Netbox Token</label>\n        <input type=\"text\" value=\"{{payload.token}}\" id=\"token\" name=\"token\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"hostname\">Host</label>\n        <input type=\"text\" value=\"{{payload.hostname}}\" id=\"hostname\" name=\"hostname\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Image Name</label>\n        <input type=\"text\" value=\"{{payload.image}}\" id=\"image\" name=\"image\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"oldversion\">Old Version</label>\n        <input type=\"text\" value=\"{{payload.oldversion}}\" id=\"oldversion\" name=\"oldversion\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"version\">New Version</label>\n        <input type=\"text\" value=\"{{payload.version}}\" id=\"version\" name=\"version\">\n      </div>\n    \n        <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Recreate\">\n      </div>\n    </form>\n  </div>\n  <script>\n    const url = new URL(window.location.href);\n    const urlParams = new URLSearchParams(window.location.search);\n    const action = urlParams.get('action');\n    if (action) {\n      document.getElementById('notif').innerHTML = action;\n      document.getElementById('notif').style.backgroundColor = 'lightgreen';\n    }\n    url.searchParams.delete('action');\n    history.replaceState(history.state, '', url.href);\n\n    document.getElementById('menu_create').onclick = function() {\n      document.getElementById('create').style.display='block';\n      document.getElementById('recreate').style.display='none';\n      document.getElementById('menu_create').style.color ='white';\n      document.getElementById('menu_recreate').style.color = 'grey';\n    }\n    document.getElementById('menu_recreate').onclick = function() {\n      document.getElementById('recreate').style.display='block';\n      document.getElementById('create').style.display='none';\n      document.getElementById('menu_recreate').style.color ='white';\n      document.getElementById('menu_create').style.color = 'grey';\n    }\n  </script>\n</body>\n</html>\n",
         "output": "str",
         "x": 560,
         "y": 100,
@@ -96,70 +96,6 @@
         "x": 730,
         "y": 100,
         "wires": []
-    },
-    {
-        "id": "b15d2435672fd9f8",
-        "type": "http in",
-        "z": "6a2996a3259d440a",
-        "name": "",
-        "url": "/",
-        "method": "post",
-        "upload": false,
-        "swaggerDoc": "",
-        "x": 190,
-        "y": 160,
-        "wires": [
-            [
-                "cf7b6ca90362062a"
-            ]
-        ]
-    },
-    {
-        "id": "fdff38112d54d601",
-        "type": "http response",
-        "z": "6a2996a3259d440a",
-        "name": "",
-        "statusCode": "302",
-        "headers": {
-            "location": "/"
-        },
-        "x": 620,
-        "y": 160,
-        "wires": []
-    },
-    {
-        "id": "cf7b6ca90362062a",
-        "type": "change",
-        "z": "6a2996a3259d440a",
-        "name": "",
-        "rules": [
-            {
-                "t": "set",
-                "p": "config",
-                "pt": "msg",
-                "to": "payload",
-                "tot": "msg"
-            },
-            {
-                "t": "set",
-                "p": "config",
-                "pt": "global",
-                "to": "config",
-                "tot": "msg"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 420,
-        "y": 160,
-        "wires": [
-            [
-                "fdff38112d54d601"
-            ]
-        ]
     },
     {
         "id": "f9bc478e2bbd17a7",
@@ -277,12 +213,14 @@
         "url": "/recreate",
         "method": "get",
         "upload": false,
+        "skipBodyParsing": false,
         "swaggerDoc": "",
         "x": 170,
         "y": 160,
         "wires": [
             [
-                "04f9910eb4320af9"
+                "cf7b6ca90362062a",
+                "cde029ae5b763def"
             ]
         ]
     },
@@ -556,9 +494,7 @@
             [
                 "bc5907aebb882d2a"
             ],
-            [
-                "a303310397684374"
-            ]
+            []
         ]
     },
     {
@@ -737,19 +673,6 @@
         ]
     },
     {
-        "id": "c154c9993f6ae756",
-        "type": "http response",
-        "z": "a0840e5d7cd65ea0",
-        "name": "",
-        "statusCode": "302",
-        "headers": {
-            "location": "/"
-        },
-        "x": 1200,
-        "y": 180,
-        "wires": []
-    },
-    {
         "id": "d837a0475dee45dc",
         "type": "change",
         "z": "a0840e5d7cd65ea0",
@@ -860,9 +783,7 @@
             [
                 "45e0558750363197"
             ],
-            [
-                "a303310397684374"
-            ]
+            []
         ]
     },
     {
@@ -913,17 +834,6 @@
         ]
     },
     {
-        "id": "b11745e77189e30e",
-        "type": "http response",
-        "z": "a0840e5d7cd65ea0",
-        "name": "",
-        "statusCode": "202",
-        "headers": {},
-        "x": 1260,
-        "y": 360,
-        "wires": []
-    },
-    {
         "id": "bfb586da4d7113d1",
         "type": "change",
         "z": "a0840e5d7cd65ea0",
@@ -945,21 +855,8 @@
         "x": 1060,
         "y": 360,
         "wires": [
-            [
-                "b11745e77189e30e"
-            ]
+            []
         ]
-    },
-    {
-        "id": "a303310397684374",
-        "type": "http response",
-        "z": "a0840e5d7cd65ea0",
-        "name": "",
-        "statusCode": "404",
-        "headers": {},
-        "x": 1080,
-        "y": 420,
-        "wires": []
     },
     {
         "id": "3e60e0d59090800a",
@@ -1131,10 +1028,55 @@
         "x": 1180,
         "y": 260,
         "wires": [
+            []
+        ]
+    },
+    {
+        "id": "cf7b6ca90362062a",
+        "type": "change",
+        "z": "a0840e5d7cd65ea0",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "config",
+                "pt": "msg",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "config",
+                "pt": "global",
+                "to": "config",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 400,
+        "y": 160,
+        "wires": [
             [
-                "c154c9993f6ae756"
+                "04f9910eb4320af9"
             ]
         ]
+    },
+    {
+        "id": "cde029ae5b763def",
+        "type": "http response",
+        "z": "a0840e5d7cd65ea0",
+        "name": "",
+        "statusCode": "302",
+        "headers": {
+            "location": "/?action=Recreate%20Requested"
+        },
+        "x": 380,
+        "y": 100,
+        "wires": []
     },
     {
         "id": "f05b71c9da3eac07",
@@ -1144,13 +1086,14 @@
         "url": "/create",
         "method": "get",
         "upload": false,
+        "skipBodyParsing": false,
         "swaggerDoc": "",
-        "x": 250,
+        "x": 130,
         "y": 100,
         "wires": [
             [
-                "2dcca2a38409fe43",
-                "65a29b0cc15fece2"
+                "65a29b0cc15fece2",
+                "21ba28191fa83a48"
             ]
         ]
     },
@@ -1165,7 +1108,7 @@
         "once": false,
         "onceDelay": 0.1,
         "topic": "",
-        "x": 270,
+        "x": 150,
         "y": 160,
         "wires": [
             [
@@ -1375,9 +1318,7 @@
         "x": 1310,
         "y": 160,
         "wires": [
-            [
-                "2e1a8cd8ea10a880"
-            ]
+            []
         ]
     },
     {
@@ -1968,7 +1909,7 @@
                 "t": "set",
                 "p": "payload",
                 "pt": "msg",
-                "to": "[{\t   \"id\": msg.container.id,\t   \"host\": msg.host_id,\t    \"network_settings\": [\t    {\t      \"network\": {\t        \"host\": msg.host_id,\t        \"name\": \"curio-city-guide\"\t      }\t    }\t  ],\t   \"mounts\": [\t    {\t      \"source\": \"/app/data\",\t      \"volume\": {\t        \"name\": msg.instanceShort & \"-data\"\t      },\t      \"read_only\": false\t    }\t  ],\t   \"env\": [\t    {\t      \"var_name\": \"CITIES_API\",\t      \"value\": \"https://api.curioo.city\"\t    }\t  ],\t  \"labels\": [\t    {\t      \"key\": \"traefik.enable\",\t      \"value\": \"true\"\t    },\t    {\t      \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".rule\",\t      \"value\": \"Host(`\" & msg.instance & \"`)\"\t    },\t    {\t      \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".entrypoints\",\t      \"value\": \"http\"\t   },\t   {\t      \"key\": \"traefik.http.services.\" & msg.instanceShort & \".loadbalancer.server.port\",\t      \"value\": \"3000\"\t    },\t    {\t      \"key\": \"traefik.http.middlewares.\" & msg.instanceShort & \".ipallowlist.sourcerange\",\t      \"value\": \"173.245.48.0/20, 103.21.244.0/22, 103.22.200.0/22, 103.31.4.0/22, 141.101.64.0/18, 108.162.192.0/18, 190.93.240.0/20, 188.114.96.0/20, 197.234.240.0/22, 198.41.128.0/17, 162.158.0.0/15, 104.16.0.0/13, 104.24.0.0/14, 172.64.0.0/13, 131.0.72.0/22, 2400:cb00::/32, 2606:4700::/32, 2803:f800::/32, 2405:b500::/32, 2405:8100::/32, 2a06:98c0::/29, 2c0f:f248::/32\"\t    },\t    {\t      \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".middlewares\",\t      \"value\": msg.instanceShort & \"@docker\"\t    }\t  ]\t}]",
+                "to": "[\t   {\t       \"id\": msg.container.id,\t       \"host\": msg.host_id,\t       \"network_settings\": [\t           {\t               \"network\": {\t                   \"host\": msg.host_id,\t                   \"name\": \"curio-city-guide\"      \t               }    \t           }  \t       ],\t       \"mounts\": [\t           {\t               \"source\": \"/app/data\",\t               \"volume\": {\t                   \"name\": msg.instanceShort & \"-data\"      \t               },\t               \"read_only\": false    \t           }  \t       ],\t       \"env\": [\t           {\t               \"var_name\": \"CITIES_API\",\t               \"value\": \"https://api.curioo.city\"    \t           }  \t       ],\t       \"labels\": [\t           {\t               \"key\": \"traefik.enable\",\t               \"value\": \"true\"    \t           },\t           {\t               \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".rule\",\t               \"value\": \"Host(`\" & msg.instance & \"`)\"    \t           },\t           {\t               \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".entrypoints\",\t               \"value\": \"http\"   \t           },\t           {\t               \"key\": \"traefik.http.services.\" & msg.instanceShort & \".loadbalancer.server.port\",\t               \"value\": \"3000\"    \t           },\t           {\t               \"key\": \"traefik.http.middlewares.\" & msg.instanceShort &\t               \".ipallowlist.sourcerange\",\t               \"value\": \"173.245.48.0/20, 103.21.244.0/22, 103.22.200.0/22, 103.31.4.0/22, 141.101.64.0/18, 108.162.192.0/18, 190.93.240.0/20, 188.114.96.0/20, 197.234.240.0/22, 198.41.128.0/17, 162.158.0.0/15, 104.16.0.0/13, 104.24.0.0/14, 172.64.0.0/13, 131.0.72.0/22, 2400:cb00::/32, 2606:4700::/32, 2803:f800::/32, 2405:b500::/32, 2405:8100::/32, 2a06:98c0::/29, 2c0f:f248::/32\"    \t           },\t           {\t               \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".middlewares\",\t               \"value\": msg.instanceShort & \"@docker\"    \t           }  \t       ]\t   }\t]",
                 "tot": "jsonata"
             },
             {
@@ -2006,23 +1947,42 @@
         "name": "",
         "statusCode": "302",
         "headers": {
-            "location": "/"
+            "location": "/?action=Create%20Requested"
         },
-        "x": 380,
+        "x": 280,
         "y": 40,
         "wires": []
     },
     {
-        "id": "2e1a8cd8ea10a880",
-        "type": "http response",
+        "id": "21ba28191fa83a48",
+        "type": "change",
         "z": "d5158039611d4b98",
         "name": "",
-        "statusCode": "302",
-        "headers": {
-            "location": "/"
-        },
-        "x": 1260,
-        "y": 240,
-        "wires": []
+        "rules": [
+            {
+                "t": "set",
+                "p": "config",
+                "pt": "msg",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "config",
+                "pt": "global",
+                "to": "config",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 340,
+        "y": 100,
+        "wires": [
+            []
+        ]
     }
 ]
