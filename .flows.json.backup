@@ -16,6 +16,14 @@
         "env": []
     },
     {
+        "id": "d5158039611d4b98",
+        "type": "tab",
+        "label": "CREATE",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
         "id": "82e54e9cffdc52c0",
         "type": "template",
         "z": "6a2996a3259d440a",
@@ -24,7 +32,7 @@
         "fieldType": "msg",
         "format": "handlebars",
         "syntax": "mustache",
-        "template": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <title>Form UI</title>\n  <style>\n    body {\n      font-family: \"Segoe UI\", Tahoma, Geneva, Verdana, sans-serif;\n      background-color: #f4f6f9;\n      padding: 40px;\n      display: flex;\n      justify-content: center;\n    }\n\n    .form-container {\n      background-color: #ffffff;\n      padding: 30px 40px;\n      border-radius: 12px;\n      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);\n      max-width: 500px;\n      width: 100%;\n    }\n\n    .form-container h2 {\n      margin-top: 0;\n      margin-bottom: 20px;\n      font-size: 24px;\n      color: #333;\n      text-align: center;\n    }\n\n    .form-group {\n      margin-bottom: 15px;\n    }\n\n    label {\n      display: block;\n      margin-bottom: 6px;\n      font-weight: 500;\n      color: #555;\n    }\n\n    input[type=\"text\"] {\n      width: 100%;\n      padding: 10px 12px;\n      border: 1px solid #ccc;\n      border-radius: 8px;\n      box-sizing: border-box;\n      font-size: 14px;\n    }\n\n    .button-row {\n      display: flex;\n      justify-content: flex-end;\n      gap: 10px;\n      margin-top: 20px;\n    }\n\n    .btn {\n      padding: 10px 20px;\n      border: none;\n      border-radius: 8px;\n      cursor: pointer;\n      font-size: 16px;\n      color: white;\n    }\n\n    .btn-save {\n      background-color: #007bff;\n    }\n\n    .btn-save:hover {\n      background-color: #0056b3;\n    }\n\n    .btn-upgrade {\n      background-color: #dc3545;\n    }\n\n    .btn-upgrade:hover {\n      background-color: #a71d2a;\n    }\n  </style>\n</head>\n<body>\n  <div class=\"form-container\">\n    <form action=\"/\" method=\"post\">\n      <div class=\"form-group\">\n        <label for=\"netbox\">Netbox URL</label>\n        <input type=\"text\" value=\"{{payload.netbox}}\" id=\"netbox\" name=\"netbox\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"token\">Netbox Token</label>\n        <input type=\"text\" value=\"{{payload.token}}\" id=\"token\" name=\"token\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"hostname\">Host</label>\n        <input type=\"text\" value=\"{{payload.hostname}}\" id=\"hostname\" name=\"hostname\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Image Name</label>\n        <input type=\"text\" value=\"{{payload.image}}\" id=\"image\" name=\"image\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"oldversion\">Old Version</label>\n        <input type=\"text\" value=\"{{payload.oldversion}}\" id=\"oldversion\" name=\"oldversion\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"version\">New Version</label>\n        <input type=\"text\" value=\"{{payload.version}}\" id=\"version\" name=\"version\">\n      </div>\n\n      <div class=\"button-row\">\n        <input type=\"submit\" class=\"btn btn-save\" value=\"Save\">\n    </form>\n    <form action=\"/exec\" method=\"get\">\n        <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Recreate\">\n      </div>\n    </form>\n  </div>\n</body>\n</html>\n",
+        "template": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <title>Form UI</title>\n  <style>\n    body {\n      font-family: \"Segoe UI\", Tahoma, Geneva, Verdana, sans-serif;\n      background-color: #f4f6f9;\n      margin: 40px;\n    }\n\n    .form-container {\n      background-color: #ffffff;\n      padding: 30px 40px;\n      border-bottom-left-radius: 12px;\n      border-bottom-right-radius: 12px;\n      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);\n    }\n\n    .form-container h2 {\n      margin-top: 0;\n      margin-bottom: 20px;\n      font-size: 24px;\n      color: #333;\n      text-align: center;\n    }\n\n    .form-group {\n      margin-bottom: 15px;\n    }\n\n    label {\n      display: block;\n      margin-bottom: 6px;\n      font-weight: 500;\n      color: #555;\n    }\n\n    input[type=\"text\"] {\n      width: 100%;\n      padding: 10px 12px;\n      border: 1px solid #ccc;\n      border-radius: 8px;\n      box-sizing: border-box;\n      font-size: 14px;\n    }\n\n    .button-row {\n      display: flex;\n      justify-content: flex-end;\n      gap: 10px;\n      margin-top: 20px;\n    }\n\n    .btn {\n      padding: 10px 20px;\n      border: none;\n      border-radius: 8px;\n      cursor: pointer;\n      font-size: 16px;\n      color: white;\n    }\n\n    .btn-upgrade {\n      background-color: #dc3545;\n    }\n\n    .btn-upgrade:hover {\n      background-color: #a71d2a;\n    }\n    \n    .notif {\n      width: 80%;\n      border: 1px;\n      border-radius: 8px;\n      background-color: lightblue;\n      color: black;\n      font-weight: bold;\n      margin: 12px;\n      padding: 8px 12px;\n      display: flex;\n\t    justify-content: center;\n\t    align-items: center;\n    }\n\n    .menu {\n      color: white;\n      text-decoration: none;\n      padding: 8px 12px;\n      display: block;\n    }\n  </style>\n</head>\n<body>\n      <nav style=\"background-color: #333; padding:10px;\">\n  <ul style=\"list-style: none; margin: 0; padding: 0; display: flex;\">\n    <li><a href=\"#\" class=\"menu\" id=\"menu_create\">Create</a></li>\n    <li><a href=\"#\" class=\"menu\" id=\"menu_recreate\" style=\"color: grey;\">Upgrade</a></li>\n    <li><a href=\"#\" class=\"menu\" id=\"menu_delete\" style=\"color: grey;\">Delete</a></li>\n  </ul>\n</nav>\n<div align=\"center\">\n  <div class=\"notif\" id=\"notif\">\n    Welcome !\n  </div>\n</div>\n<div class=\"form-container\" id=\"create\">\n    <form action=\"/create\" method=\"get\">\n      <div class=\"form-group\">\n        <label for=\"netbox\">Netbox URL</label>\n        <input type=\"text\" value=\"{{payload.netbox}}\" id=\"netbox\" name=\"netbox\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"token\">Netbox Token</label>\n        <input type=\"text\" value=\"{{payload.token}}\" id=\"token\" name=\"token\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"hostname\">Host</label>\n        <input type=\"text\" value=\"{{payload.hostname}}\" id=\"hostname\" name=\"hostname\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"network\">Network</label>\n        <input type=\"text\" value=\"{{payload.network}}\" id=\"network\" name=\"network\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Instance Name</label>\n        <input type=\"text\" value=\"{{payload.instance}}\" id=\"instance\" name=\"instance\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Image Name</label>\n        <input type=\"text\" value=\"{{payload.image}}\" id=\"image\" name=\"image\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"oldversion\">Version</label>\n        <input type=\"text\" value=\"{{payload.version}}\" id=\"version\" name=\"version\">\n      </div>\n   \n        <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Create\">\n      </div>\n    </form>\n  </div>\n\n  <div class=\"form-container\" id=\"recreate\" style=\"display: none;\">\n    <form action=\"/recreate\" method=\"get\">\n      <div class=\"form-group\">\n        <label for=\"netbox\">Netbox URL</label>\n        <input type=\"text\" value=\"{{payload.netbox}}\" id=\"netbox\" name=\"netbox\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"token\">Netbox Token</label>\n        <input type=\"text\" value=\"{{payload.token}}\" id=\"token\" name=\"token\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"hostname\">Host</label>\n        <input type=\"text\" value=\"{{payload.hostname}}\" id=\"hostname\" name=\"hostname\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Image Name</label>\n        <input type=\"text\" value=\"{{payload.image}}\" id=\"image\" name=\"image\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"oldversion\">Old Version</label>\n        <input type=\"text\" value=\"{{payload.oldversion}}\" id=\"oldversion\" name=\"oldversion\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"version\">New Version</label>\n        <input type=\"text\" value=\"{{payload.version}}\" id=\"version\" name=\"version\">\n      </div>\n    \n        <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Recreate\">\n      </div>\n    </form>\n  </div>\n  <script>\n    const url = new URL(window.location.href);\n    const urlParams = new URLSearchParams(window.location.search);\n    const action = urlParams.get('action');\n    if (action) {\n      document.getElementById('notif').innerHTML = action;\n      document.getElementById('notif').style.backgroundColor = 'lightgreen';\n    }\n    url.searchParams.delete('action');\n    history.replaceState(history.state, '', url.href);\n\n    document.getElementById('menu_create').onclick = function() {\n      document.getElementById('create').style.display='block';\n      document.getElementById('recreate').style.display='none';\n      document.getElementById('menu_create').style.color ='white';\n      document.getElementById('menu_recreate').style.color = 'grey';\n    }\n    document.getElementById('menu_recreate').onclick = function() {\n      document.getElementById('recreate').style.display='block';\n      document.getElementById('create').style.display='none';\n      document.getElementById('menu_recreate').style.color ='white';\n      document.getElementById('menu_create').style.color = 'grey';\n    }\n  </script>\n</body>\n</html>\n",
         "output": "str",
         "x": 560,
         "y": 100,
@@ -90,70 +98,6 @@
         "wires": []
     },
     {
-        "id": "b15d2435672fd9f8",
-        "type": "http in",
-        "z": "6a2996a3259d440a",
-        "name": "",
-        "url": "/",
-        "method": "post",
-        "upload": false,
-        "swaggerDoc": "",
-        "x": 190,
-        "y": 160,
-        "wires": [
-            [
-                "cf7b6ca90362062a"
-            ]
-        ]
-    },
-    {
-        "id": "fdff38112d54d601",
-        "type": "http response",
-        "z": "6a2996a3259d440a",
-        "name": "",
-        "statusCode": "302",
-        "headers": {
-            "location": "/"
-        },
-        "x": 620,
-        "y": 160,
-        "wires": []
-    },
-    {
-        "id": "cf7b6ca90362062a",
-        "type": "change",
-        "z": "6a2996a3259d440a",
-        "name": "",
-        "rules": [
-            {
-                "t": "set",
-                "p": "config",
-                "pt": "msg",
-                "to": "payload",
-                "tot": "msg"
-            },
-            {
-                "t": "set",
-                "p": "config",
-                "pt": "global",
-                "to": "config",
-                "tot": "msg"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 420,
-        "y": 160,
-        "wires": [
-            [
-                "fdff38112d54d601"
-            ]
-        ]
-    },
-    {
         "id": "f9bc478e2bbd17a7",
         "type": "change",
         "z": "6a2996a3259d440a",
@@ -172,7 +116,7 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 420,
+        "x": 570,
         "y": 220,
         "wires": [
             []
@@ -213,6 +157,16 @@
                 "p": "config.oldversion",
                 "v": "v1.4.0",
                 "vt": "str"
+            },
+            {
+                "p": "config.instance",
+                "v": "newInstance",
+                "vt": "str"
+            },
+            {
+                "p": "config.network",
+                "v": "bridge",
+                "vt": "str"
             }
         ],
         "repeat": "",
@@ -221,6 +175,29 @@
         "onceDelay": 0.1,
         "topic": "",
         "x": 210,
+        "y": 220,
+        "wires": [
+            [
+                "3e40bf60a2ac7bf9"
+            ]
+        ]
+    },
+    {
+        "id": "3e40bf60a2ac7bf9",
+        "type": "switch",
+        "z": "6a2996a3259d440a",
+        "name": "",
+        "property": "config",
+        "propertyType": "global",
+        "rules": [
+            {
+                "t": "empty"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 1,
+        "x": 380,
         "y": 220,
         "wires": [
             [
@@ -233,15 +210,17 @@
         "type": "http in",
         "z": "a0840e5d7cd65ea0",
         "name": "",
-        "url": "/exec",
+        "url": "/recreate",
         "method": "get",
         "upload": false,
+        "skipBodyParsing": false,
         "swaggerDoc": "",
-        "x": 160,
+        "x": 170,
         "y": 160,
         "wires": [
             [
-                "04f9910eb4320af9"
+                "cf7b6ca90362062a",
+                "cde029ae5b763def"
             ]
         ]
     },
@@ -354,7 +333,7 @@
         "z": "a0840e5d7cd65ea0",
         "name": "",
         "method": "GET",
-        "ret": "txt",
+        "ret": "obj",
         "paytoqs": "ignore",
         "url": "",
         "tls": "",
@@ -515,9 +494,7 @@
             [
                 "bc5907aebb882d2a"
             ],
-            [
-                "a303310397684374"
-            ]
+            []
         ]
     },
     {
@@ -696,19 +673,6 @@
         ]
     },
     {
-        "id": "c154c9993f6ae756",
-        "type": "http response",
-        "z": "a0840e5d7cd65ea0",
-        "name": "",
-        "statusCode": "302",
-        "headers": {
-            "location": "/"
-        },
-        "x": 1200,
-        "y": 180,
-        "wires": []
-    },
-    {
         "id": "d837a0475dee45dc",
         "type": "change",
         "z": "a0840e5d7cd65ea0",
@@ -819,9 +783,7 @@
             [
                 "45e0558750363197"
             ],
-            [
-                "a303310397684374"
-            ]
+            []
         ]
     },
     {
@@ -872,17 +834,6 @@
         ]
     },
     {
-        "id": "b11745e77189e30e",
-        "type": "http response",
-        "z": "a0840e5d7cd65ea0",
-        "name": "",
-        "statusCode": "202",
-        "headers": {},
-        "x": 1260,
-        "y": 360,
-        "wires": []
-    },
-    {
         "id": "bfb586da4d7113d1",
         "type": "change",
         "z": "a0840e5d7cd65ea0",
@@ -904,21 +855,8 @@
         "x": 1060,
         "y": 360,
         "wires": [
-            [
-                "b11745e77189e30e"
-            ]
+            []
         ]
-    },
-    {
-        "id": "a303310397684374",
-        "type": "http response",
-        "z": "a0840e5d7cd65ea0",
-        "name": "",
-        "statusCode": "404",
-        "headers": {},
-        "x": 1080,
-        "y": 420,
-        "wires": []
     },
     {
         "id": "3e60e0d59090800a",
@@ -928,9 +866,16 @@
         "rules": [
             {
                 "t": "set",
+                "p": "host_id",
+                "pt": "msg",
+                "to": "payload.results[0].id",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
                 "p": "url",
                 "pt": "msg",
-                "to": "msg.netbox & \"/api/plugins/docker/images/?name=\" & msg.image & \"&version=\" & msg.version",
+                "to": "msg.netbox & \"/api/plugins/docker/images/?name=\" & msg.image & \"&version=\" & msg.version & \"&host_id=\" & msg.host_id",
                 "tot": "jsonata"
             },
             {
@@ -1083,9 +1028,961 @@
         "x": 1180,
         "y": 260,
         "wires": [
+            []
+        ]
+    },
+    {
+        "id": "cf7b6ca90362062a",
+        "type": "change",
+        "z": "a0840e5d7cd65ea0",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "config",
+                "pt": "msg",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "config",
+                "pt": "global",
+                "to": "config",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 400,
+        "y": 160,
+        "wires": [
             [
-                "c154c9993f6ae756"
+                "04f9910eb4320af9"
             ]
+        ]
+    },
+    {
+        "id": "cde029ae5b763def",
+        "type": "http response",
+        "z": "a0840e5d7cd65ea0",
+        "name": "",
+        "statusCode": "302",
+        "headers": {
+            "location": "/?action=Recreate%20Requested"
+        },
+        "x": 380,
+        "y": 100,
+        "wires": []
+    },
+    {
+        "id": "f05b71c9da3eac07",
+        "type": "http in",
+        "z": "d5158039611d4b98",
+        "name": "",
+        "url": "/create",
+        "method": "get",
+        "upload": false,
+        "skipBodyParsing": false,
+        "swaggerDoc": "",
+        "x": 130,
+        "y": 100,
+        "wires": [
+            [
+                "65a29b0cc15fece2",
+                "21ba28191fa83a48"
+            ]
+        ]
+    },
+    {
+        "id": "7699279bd8c062ff",
+        "type": "inject",
+        "z": "d5158039611d4b98",
+        "name": "",
+        "props": [],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "x": 150,
+        "y": 160,
+        "wires": [
+            [
+                "2dcca2a38409fe43"
+            ]
+        ]
+    },
+    {
+        "id": "2dcca2a38409fe43",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "netbox",
+                "pt": "msg",
+                "to": "config.netbox",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "token",
+                "pt": "msg",
+                "to": "config.token",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "hostname",
+                "pt": "msg",
+                "to": "config.hostname",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "version",
+                "pt": "msg",
+                "to": "config.version",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "network",
+                "pt": "msg",
+                "to": "config.network",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "instance",
+                "pt": "msg",
+                "to": "config.instance",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "instanceShort",
+                "pt": "msg",
+                "to": "$substringBefore(msg.instance, \".\")",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "instanceZone",
+                "pt": "msg",
+                "to": "$substringAfter(msg.instance, \".\")",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "image",
+                "pt": "msg",
+                "to": "config.image",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "http",
+                "pt": "msg",
+                "to": "true",
+                "tot": "bool"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 480,
+        "y": 140,
+        "wires": [
+            [
+                "458387080417f52a",
+                "c9baa00a19d15c11"
+            ]
+        ]
+    },
+    {
+        "id": "458387080417f52a",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "get hostid",
+        "rules": [
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & \"/api/plugins/docker/hosts/?name=\" & msg.hostname",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 680,
+        "y": 140,
+        "wires": [
+            [
+                "73f3e5f34c6f1b39"
+            ]
+        ]
+    },
+    {
+        "id": "73f3e5f34c6f1b39",
+        "type": "http request",
+        "z": "d5158039611d4b98",
+        "name": "",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 870,
+        "y": 140,
+        "wires": [
+            [
+                "c251aba3024d56f3"
+            ]
+        ]
+    },
+    {
+        "id": "c251aba3024d56f3",
+        "type": "switch",
+        "z": "d5158039611d4b98",
+        "name": "",
+        "property": "payload.count",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "gt",
+                "v": "0",
+                "vt": "num"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 1050,
+        "y": 140,
+        "wires": [
+            [
+                "c023f5d33cc1a8f6"
+            ],
+            [
+                "2fe361060970c3e8"
+            ]
+        ]
+    },
+    {
+        "id": "2fe361060970c3e8",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "{}",
+                "tot": "json"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1310,
+        "y": 160,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "c023f5d33cc1a8f6",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "get imageid",
+        "rules": [
+            {
+                "t": "set",
+                "p": "host_id",
+                "pt": "msg",
+                "to": "payload.results[0].id",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & \"/api/plugins/docker/images/?name=\" & msg.image & \"&version=\" & msg.version & \"&host_id=\" & msg.host_id",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 370,
+        "y": 220,
+        "wires": [
+            [
+                "01e92d6b0fcb76bf"
+            ]
+        ]
+    },
+    {
+        "id": "01e92d6b0fcb76bf",
+        "type": "http request",
+        "z": "d5158039611d4b98",
+        "name": "",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 570,
+        "y": 220,
+        "wires": [
+            [
+                "62e25cd5752991bc"
+            ]
+        ]
+    },
+    {
+        "id": "62e25cd5752991bc",
+        "type": "switch",
+        "z": "d5158039611d4b98",
+        "name": "",
+        "property": "payload.count",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "eq",
+                "v": "1",
+                "vt": "num"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 810,
+        "y": 220,
+        "wires": [
+            [
+                "3cf9824c67655d6f"
+            ],
+            [
+                "2fe361060970c3e8"
+            ]
+        ]
+    },
+    {
+        "id": "b2b06675311655f7",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "configure container",
+        "rules": [
+            {
+                "t": "set",
+                "p": "volume",
+                "pt": "msg",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & \"/api/plugins/docker/containers/\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "{\t   \"host\": msg.host_id,\t   \"name\": msg.instanceShort,\t   \"image\": msg.input.results[0].id,\t   \"restart_policy\": \"unless-stopped\"\t}",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "POST",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 790,
+        "y": 320,
+        "wires": [
+            [
+                "9f73f45cd7734d7f"
+            ]
+        ]
+    },
+    {
+        "id": "9f73f45cd7734d7f",
+        "type": "http request",
+        "z": "d5158039611d4b98",
+        "name": "",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 1030,
+        "y": 320,
+        "wires": [
+            [
+                "21f97ac5da6a1ea8"
+            ]
+        ]
+    },
+    {
+        "id": "6d6c5f8c0e8bc79a",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "recreate container",
+        "rules": [
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & \"/api/plugins/docker/containers/\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "[\t   {\t       \"operation\": \"recreate\",\t       \"id\": msg.container.id\t   }\t]",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "PATCH",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 990,
+        "y": 400,
+        "wires": [
+            [
+                "e0ec5be02bee7c3e"
+            ]
+        ]
+    },
+    {
+        "id": "e0ec5be02bee7c3e",
+        "type": "http request",
+        "z": "d5158039611d4b98",
+        "name": "",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 1210,
+        "y": 400,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "3cf9824c67655d6f",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "create volume",
+        "rules": [
+            {
+                "t": "set",
+                "p": "input",
+                "pt": "msg",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & \"/api/plugins/docker/volumes/\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "{\t   \"host\": msg.host_id,\t   \"name\": msg.instanceShort & \"-data\"\t}",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "POST",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 320,
+        "y": 320,
+        "wires": [
+            [
+                "1233e36c1ed40b2c"
+            ]
+        ]
+    },
+    {
+        "id": "1233e36c1ed40b2c",
+        "type": "http request",
+        "z": "d5158039611d4b98",
+        "name": "",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 570,
+        "y": 320,
+        "wires": [
+            [
+                "b2b06675311655f7"
+            ]
+        ]
+    },
+    {
+        "id": "21f97ac5da6a1ea8",
+        "type": "delay",
+        "z": "d5158039611d4b98",
+        "name": "",
+        "pauseType": "delay",
+        "timeout": "5",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 120,
+        "y": 380,
+        "wires": [
+            [
+                "1d13b67923d9a132"
+            ]
+        ]
+    },
+    {
+        "id": "ed7ddb2630845e28",
+        "type": "delay",
+        "z": "d5158039611d4b98",
+        "name": "",
+        "pauseType": "delay",
+        "timeout": "5",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 740,
+        "y": 400,
+        "wires": [
+            [
+                "6d6c5f8c0e8bc79a"
+            ]
+        ]
+    },
+    {
+        "id": "ddfa991fa8e68500",
+        "type": "http request",
+        "z": "d5158039611d4b98",
+        "name": "",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 550,
+        "y": 400,
+        "wires": [
+            [
+                "ed7ddb2630845e28"
+            ]
+        ]
+    },
+    {
+        "id": "2bc10654858e4154",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "zoneid",
+                "pt": "msg",
+                "to": "payload.results[0].id",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & \"/api/plugins/cloudflare/dns/records/\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "{\t  \"zone\": msg.zoneid,\t  \"name\": msg.instance,\t  \"type\": \"CNAME\",\t  \"content\": msg.hostname & \".\" & msg.instanceZone,\t  \"ttl\": 60,\t  \"proxied\": true\t}",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1160,
+        "y": 60,
+        "wires": [
+            [
+                "9a0bc1c9cbbaf0e2"
+            ]
+        ]
+    },
+    {
+        "id": "9a0bc1c9cbbaf0e2",
+        "type": "http request",
+        "z": "d5158039611d4b98",
+        "name": "",
+        "method": "POST",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 1390,
+        "y": 60,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "c9baa00a19d15c11",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "get recordid",
+        "rules": [
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & \"/api/plugins/cloudflare/dns/accounts/?name=\" & msg.instanceZone",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 550,
+        "y": 60,
+        "wires": [
+            [
+                "b649b3aae6375b6d"
+            ]
+        ]
+    },
+    {
+        "id": "b649b3aae6375b6d",
+        "type": "http request",
+        "z": "d5158039611d4b98",
+        "name": "",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 770,
+        "y": 60,
+        "wires": [
+            [
+                "08a921bf4f9a4dc0"
+            ]
+        ]
+    },
+    {
+        "id": "08a921bf4f9a4dc0",
+        "type": "switch",
+        "z": "d5158039611d4b98",
+        "name": "",
+        "property": "payload.count",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "gt",
+                "v": "0",
+                "vt": "num"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 960,
+        "y": 60,
+        "wires": [
+            [
+                "2bc10654858e4154"
+            ],
+            [
+                "2fe361060970c3e8"
+            ]
+        ]
+    },
+    {
+        "id": "1d13b67923d9a132",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "configure container",
+        "rules": [
+            {
+                "t": "set",
+                "p": "container",
+                "pt": "msg",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "volume",
+                "pt": "msg",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & \"/api/plugins/docker/containers/\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "[\t   {\t       \"id\": msg.container.id,\t       \"host\": msg.host_id,\t       \"network_settings\": [\t           {\t               \"network\": {\t                   \"host\": msg.host_id,\t                   \"name\": \"curio-city-guide\"      \t               }    \t           }  \t       ],\t       \"mounts\": [\t           {\t               \"source\": \"/app/data\",\t               \"volume\": {\t                   \"name\": msg.instanceShort & \"-data\"      \t               },\t               \"read_only\": false    \t           }  \t       ],\t       \"env\": [\t           {\t               \"var_name\": \"CITIES_API\",\t               \"value\": \"https://api.curioo.city\"    \t           }  \t       ],\t       \"labels\": [\t           {\t               \"key\": \"traefik.enable\",\t               \"value\": \"true\"    \t           },\t           {\t               \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".rule\",\t               \"value\": \"Host(`\" & msg.instance & \"`)\"    \t           },\t           {\t               \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".entrypoints\",\t               \"value\": \"http\"   \t           },\t           {\t               \"key\": \"traefik.http.services.\" & msg.instanceShort & \".loadbalancer.server.port\",\t               \"value\": \"3000\"    \t           },\t           {\t               \"key\": \"traefik.http.middlewares.\" & msg.instanceShort &\t               \".ipallowlist.sourcerange\",\t               \"value\": \"173.245.48.0/20, 103.21.244.0/22, 103.22.200.0/22, 103.31.4.0/22, 141.101.64.0/18, 108.162.192.0/18, 190.93.240.0/20, 188.114.96.0/20, 197.234.240.0/22, 198.41.128.0/17, 162.158.0.0/15, 104.16.0.0/13, 104.24.0.0/14, 172.64.0.0/13, 131.0.72.0/22, 2400:cb00::/32, 2606:4700::/32, 2803:f800::/32, 2405:b500::/32, 2405:8100::/32, 2a06:98c0::/29, 2c0f:f248::/32\"    \t           },\t           {\t               \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".middlewares\",\t               \"value\": msg.instanceShort & \"@docker\"    \t           }  \t       ]\t   }\t]",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "PATCH",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 330,
+        "y": 380,
+        "wires": [
+            [
+                "ddfa991fa8e68500"
+            ]
+        ]
+    },
+    {
+        "id": "65a29b0cc15fece2",
+        "type": "http response",
+        "z": "d5158039611d4b98",
+        "name": "",
+        "statusCode": "302",
+        "headers": {
+            "location": "/?action=Create%20Requested"
+        },
+        "x": 280,
+        "y": 40,
+        "wires": []
+    },
+    {
+        "id": "21ba28191fa83a48",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "config",
+                "pt": "msg",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "config",
+                "pt": "global",
+                "to": "config",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 340,
+        "y": 100,
+        "wires": [
+            []
         ]
     }
 ]
