@@ -213,7 +213,6 @@
         "url": "/recreate",
         "method": "get",
         "upload": false,
-        "skipBodyParsing": false,
         "swaggerDoc": "",
         "x": 170,
         "y": 160,
@@ -682,7 +681,7 @@
                 "t": "set",
                 "p": "url",
                 "pt": "msg",
-                "to": "msg.netbox & \"/api/plugins/docker/images/?name=\" & msg.image & \"&version=\" & msg.oldversion",
+                "to": "msg.netbox & \"/api/plugins/docker/images/?name=\" & msg.image & \"&version=\" & msg.oldversion & \"&host_id=\" & msg.host_id",
                 "tot": "jsonata"
             },
             {
@@ -1086,7 +1085,6 @@
         "url": "/create",
         "method": "get",
         "upload": false,
-        "skipBodyParsing": false,
         "swaggerDoc": "",
         "x": 130,
         "y": 100,
