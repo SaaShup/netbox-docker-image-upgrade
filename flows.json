@@ -681,7 +681,7 @@
         "id": "d837a0475dee45dc",
         "type": "change",
         "z": "a0840e5d7cd65ea0",
-        "name": "get imageid",
+        "name": "get old imageid",
         "rules": [
             {
                 "t": "set",
@@ -703,7 +703,7 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 150,
+        "x": 160,
         "y": 400,
         "wires": [
             [
@@ -867,7 +867,7 @@
         "id": "3e60e0d59090800a",
         "type": "change",
         "z": "a0840e5d7cd65ea0",
-        "name": "get imageid",
+        "name": "get new imageid",
         "rules": [
             {
                 "t": "set",
@@ -896,7 +896,7 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 310,
+        "x": 320,
         "y": 300,
         "wires": [
             [
@@ -2099,7 +2099,7 @@
         "y": 180,
         "wires": [
             [
-                "0bc452107b041894"
+                "90e279516261e3c3"
             ],
             []
         ]
@@ -2110,6 +2110,13 @@
         "z": "64ed409ae244327b",
         "name": "stop container",
         "rules": [
+            {
+                "t": "set",
+                "p": "container.id",
+                "pt": "msg",
+                "to": "payload.results[0].id",
+                "tot": "msg"
+            },
             {
                 "t": "set",
                 "p": "url",
@@ -2144,8 +2151,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 1120,
-        "y": 180,
+        "x": 460,
+        "y": 320,
         "wires": [
             [
                 "48244cfac6e87985"
@@ -2168,8 +2175,8 @@
         "authType": "",
         "senderr": false,
         "headers": [],
-        "x": 1350,
-        "y": 180,
+        "x": 690,
+        "y": 320,
         "wires": [
             [
                 "ce466fc9782d3b86"
@@ -2216,8 +2223,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 340,
-        "y": 240,
+        "x": 920,
+        "y": 320,
         "wires": [
             [
                 "68d767e300ed1980"
@@ -2240,8 +2247,8 @@
         "authType": "",
         "senderr": false,
         "headers": [],
-        "x": 570,
-        "y": 240,
+        "x": 1150,
+        "y": 320,
         "wires": [
             []
         ]
@@ -2341,16 +2348,9 @@
         "rules": [
             {
                 "t": "set",
-                "p": "zoneid",
-                "pt": "msg",
-                "to": "payload.results[0].id",
-                "tot": "msg"
-            },
-            {
-                "t": "set",
                 "p": "url",
                 "pt": "msg",
-                "to": "msg.netbox & \"/api/plugins/cloudflare/dns/records/\" & msg.results[0].id & \"/\"",
+                "to": "msg.netbox & \"/api/plugins/cloudflare/dns/records/\" & msg.payload.results[0].id & \"/\"",
                 "tot": "jsonata"
             },
             {
@@ -2492,6 +2492,114 @@
                 "51d47d8a40445af3",
                 "3a570a8b367dbe4a"
             ]
+        ]
+    },
+    {
+        "id": "90e279516261e3c3",
+        "type": "change",
+        "z": "64ed409ae244327b",
+        "name": "get container id",
+        "rules": [
+            {
+                "t": "set",
+                "p": "config.host",
+                "pt": "global",
+                "to": "payload.results[0].id",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "host",
+                "pt": "msg",
+                "to": "config.host",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & $encodeUrl(\"/api/plugins/docker/containers/?name=\") & msg.instanceShort",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "{}",
+                "tot": "json"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1120,
+        "y": 180,
+        "wires": [
+            [
+                "b08a1029cbcb8fc8"
+            ]
+        ]
+    },
+    {
+        "id": "b08a1029cbcb8fc8",
+        "type": "http request",
+        "z": "64ed409ae244327b",
+        "name": "",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 1330,
+        "y": 180,
+        "wires": [
+            [
+                "3c246a6ce6ebab03"
+            ]
+        ]
+    },
+    {
+        "id": "3c246a6ce6ebab03",
+        "type": "switch",
+        "z": "64ed409ae244327b",
+        "name": "",
+        "property": "payload.count",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "eq",
+                "v": "1",
+                "vt": "num"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 240,
+        "y": 260,
+        "wires": [
+            [
+                "0bc452107b041894"
+            ],
+            []
         ]
     }
 ]
