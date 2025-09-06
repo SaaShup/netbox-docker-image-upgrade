@@ -2256,7 +2256,7 @@
                 "t": "set",
                 "p": "url",
                 "pt": "msg",
-                "to": "msg.netbox & \"/api/plugins/cloudflare/dns/records/?q=\" & msg.instance",
+                "to": "msg.netbox & \"/api/plugins/cloudflare/dns/records/?name=\" & msg.instance",
                 "tot": "jsonata"
             },
             {
@@ -2300,7 +2300,7 @@
         "y": 60,
         "wires": [
             [
-                "17324a91b5e14a51"
+                "9135b25f8c332ccd"
             ]
         ]
     },
@@ -2350,7 +2350,7 @@
                 "t": "set",
                 "p": "url",
                 "pt": "msg",
-                "to": "msg.netbox & \"/api/plugins/cloudflare/dns/records/\"",
+                "to": "msg.netbox & \"/api/plugins/cloudflare/dns/records/\" & msg.results[0].id & \"/\"",
                 "tot": "jsonata"
             },
             {
@@ -2402,22 +2402,6 @@
         "wires": [
             []
         ]
-    },
-    {
-        "id": "17324a91b5e14a51",
-        "type": "debug",
-        "z": "64ed409ae244327b",
-        "name": "debug 1",
-        "active": true,
-        "tosidebar": true,
-        "console": false,
-        "tostatus": false,
-        "complete": "false",
-        "statusVal": "",
-        "statusType": "auto",
-        "x": 960,
-        "y": 120,
-        "wires": []
     },
     {
         "id": "3241395b128eac06",
@@ -2505,7 +2489,8 @@
         "y": 180,
         "wires": [
             [
-                "51d47d8a40445af3"
+                "51d47d8a40445af3",
+                "3a570a8b367dbe4a"
             ]
         ]
     }
