@@ -40,7 +40,7 @@
         "fieldType": "msg",
         "format": "handlebars",
         "syntax": "mustache",
-        "template": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <title>Manage Instance</title>\n  <style>\n    body {\n      font-family: \"Segoe UI\", Tahoma, Geneva, Verdana, sans-serif;\n      background-color: #f4f6f9;\n      margin: 40px;\n    }\n\n    .form-container {\n      background-color: #ffffff;\n      padding: 30px 40px;\n      border-bottom-left-radius: 12px;\n      border-bottom-right-radius: 12px;\n      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);\n    }\n\n    .form-container h2 {\n      margin-top: 0;\n      margin-bottom: 20px;\n      font-size: 24px;\n      color: #333;\n      text-align: center;\n    }\n\n    .form-group {\n      margin-bottom: 15px;\n    }\n\n    label {\n      display: block;\n      margin-bottom: 6px;\n      font-weight: 500;\n      color: #555;\n    }\n\n    input[type=\"text\"] {\n      width: 100%;\n      padding: 10px 12px;\n      border: 1px solid #ccc;\n      border-radius: 8px;\n      box-sizing: border-box;\n      font-size: 14px;\n    }\n\n    .button-row {\n      display: flex;\n      justify-content: flex-end;\n      gap: 10px;\n      margin-top: 20px;\n    }\n\n    .btn {\n      padding: 10px 20px;\n      border: none;\n      border-radius: 8px;\n      cursor: pointer;\n      font-size: 16px;\n      color: white;\n    }\n\n    .btn-upgrade {\n      background-color: #dc3545;\n    }\n\n    .btn-upgrade:hover {\n      background-color: #a71d2a;\n    }\n    \n    .notif {\n      width: 80%;\n      border: 1px;\n      border-radius: 8px;\n      background-color: lightblue;\n      color: black;\n      font-weight: bold;\n      margin: 12px;\n      padding: 8px 12px;\n      display: flex;\n\t    justify-content: center;\n\t    align-items: center;\n    }\n\n    .menu {\n      color: white;\n      text-decoration: none;\n      padding: 8px 12px;\n      display: block;\n    }\n  </style>\n</head>\n<body>\n      <nav style=\"background-color: #333; padding:10px;\">\n  <ul style=\"list-style: none; margin: 0; padding: 0; display: flex;\">\n    <li><a href=\"#\" class=\"menu\" id=\"menu_create\">Create</a></li>\n    <li><a href=\"#\" class=\"menu\" id=\"menu_recreate\" style=\"color: grey;\">Upgrade</a></li>\n    <li><a href=\"#\" class=\"menu\" id=\"menu_delete\" style=\"color: grey;\">Delete</a></li>\n  </ul>\n</nav>\n<div align=\"center\">\n  <div class=\"notif\" id=\"notif\">\n    Welcome !\n  </div>\n</div>\n\n<div class=\"form-container\" id=\"create\">\n    <form action=\"/create\" method=\"get\">\n      <div class=\"form-group\">\n        <label for=\"netbox\">Netbox URL</label>\n        <input type=\"text\" value=\"{{payload.netbox}}\" id=\"netbox\" name=\"netbox\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"token\">Netbox Token</label>\n        <input type=\"text\" value=\"{{payload.token}}\" id=\"token\" name=\"token\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"hostname\">Host</label>\n        <input type=\"text\" value=\"{{payload.hostname}}\" id=\"hostname\" name=\"hostname\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"network\">Network</label>\n        <input type=\"text\" value=\"{{payload.network}}\" id=\"network\" name=\"network\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Instance Name</label>\n        <input type=\"text\" value=\"{{payload.instance}}\" id=\"instance\" name=\"instance\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Image Name</label>\n        <input type=\"text\" value=\"{{payload.image}}\" id=\"image\" name=\"image\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"oldversion\">Version</label>\n        <input type=\"text\" value=\"{{payload.version}}\" id=\"version\" name=\"version\">\n      </div>\n   \n        <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Create\">\n      </div>\n    </form>\n  </div>\n\n  <div class=\"form-container\" id=\"recreate\" style=\"display: none;\">\n    <form action=\"/recreate\" method=\"get\">\n      <div class=\"form-group\">\n        <label for=\"netbox\">Netbox URL</label>\n        <input type=\"text\" value=\"{{payload.netbox}}\" id=\"netbox\" name=\"netbox\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"token\">Netbox Token</label>\n        <input type=\"text\" value=\"{{payload.token}}\" id=\"token\" name=\"token\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"hostname\">Host</label>\n        <input type=\"text\" value=\"{{payload.hostname}}\" id=\"hostname\" name=\"hostname\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Image Name</label>\n        <input type=\"text\" value=\"{{payload.image}}\" id=\"image\" name=\"image\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"oldversion\">Old Version</label>\n        <input type=\"text\" value=\"{{payload.oldversion}}\" id=\"oldversion\" name=\"oldversion\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"version\">New Version</label>\n        <input type=\"text\" value=\"{{payload.version}}\" id=\"version\" name=\"version\">\n      </div>\n    \n        <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Recreate\">\n      </div>\n    </form>\n  </div>\n\n<div class=\"form-container\" id=\"delete\" style=\"display: none;\">\n    <form action=\"/delete\" method=\"get\">\n      <div class=\"form-group\">\n        <label for=\"netbox\">Netbox URL</label>\n        <input type=\"text\" value=\"{{payload.netbox}}\" id=\"netbox\" name=\"netbox\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"token\">Netbox Token</label>\n        <input type=\"text\" value=\"{{payload.token}}\" id=\"token\" name=\"token\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"hostname\">Host</label>\n        <input type=\"text\" value=\"{{payload.hostname}}\" id=\"hostname\" name=\"hostname\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Instance Name</label>\n        <input type=\"text\" value=\"{{payload.instance}}\" id=\"instance\" name=\"instance\">\n      </div>\n\n        <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Delete\">\n      </div>\n    </form>\n</div>\n\n  <script>\n    const url = new URL(window.location.href);\n    const urlParams = new URLSearchParams(window.location.search);\n    const action = urlParams.get('action');\n    if (action) {\n      document.getElementById('notif').innerHTML = action;\n      document.getElementById('notif').style.backgroundColor = 'lightgreen';\n    }\n    document.getElementById('menu_create').onclick = function() {\n      document.getElementById('create').style.display='block';\n      document.getElementById('recreate').style.display='none';\n      document.getElementById('delete').style.display='none';\n      document.getElementById('menu_create').style.color ='white';\n      document.getElementById('menu_recreate').style.color = 'grey';\n      document.getElementById('menu_delete').style.color = 'grey';\n    }\n    document.getElementById('menu_recreate').onclick = function() {\n      document.getElementById('recreate').style.display='block';\n      document.getElementById('create').style.display='none';\n      document.getElementById('delete').style.display='none';\n      document.getElementById('menu_recreate').style.color ='white';\n      document.getElementById('menu_create').style.color = 'grey';\n      document.getElementById('menu_delete').style.color = 'grey';\n    }\n    document.getElementById('menu_delete').onclick = function() {\n      document.getElementById('recreate').style.display='none';\n      document.getElementById('create').style.display='none';\n      document.getElementById('delete').style.display='block';\n      document.getElementById('menu_recreate').style.color ='grey';\n      document.getElementById('menu_create').style.color = 'grey';\n      document.getElementById('menu_delete').style.color = 'white';\n    }\n    document.getElementById('menu_' + action.split(' ')[0].toLowerCase()).click();\n    url.searchParams.delete('action');\n    history.replaceState(history.state, '', url.href);\n  </script>\n</body>\n</html>\n",
+        "template": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <title>Manage Instance</title>\n  <style>\n    body {\n      font-family: \"Segoe UI\", Tahoma, Geneva, Verdana, sans-serif;\n      background-color: #f4f6f9;\n      margin: 40px;\n    }\n\n    .form-container {\n      background-color: #ffffff;\n      padding: 30px 40px;\n      border-bottom-left-radius: 12px;\n      border-bottom-right-radius: 12px;\n      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);\n    }\n\n    .form-container h2 {\n      margin-top: 0;\n      margin-bottom: 20px;\n      font-size: 24px;\n      color: #333;\n      text-align: center;\n    }\n\n    .form-group {\n      margin-bottom: 15px;\n    }\n\n    label {\n      display: block;\n      margin-bottom: 6px;\n      font-weight: 500;\n      color: #555;\n    }\n\n    input[type=\"text\"] {\n      width: 100%;\n      padding: 10px 12px;\n      border: 1px solid #ccc;\n      border-radius: 8px;\n      box-sizing: border-box;\n      font-size: 14px;\n    }\n\n    .button-row {\n      display: flex;\n      justify-content: flex-end;\n      gap: 10px;\n      margin-top: 20px;\n    }\n\n    .btn {\n      padding: 10px 20px;\n      border: none;\n      border-radius: 8px;\n      cursor: pointer;\n      font-size: 16px;\n      color: white;\n    }\n\n    .btn-upgrade {\n      background-color: #dc3545;\n    }\n\n    .btn-upgrade:hover {\n      background-color: #a71d2a;\n    }\n    \n    .notif {\n      width: 80%;\n      border: 1px;\n      border-radius: 8px;\n      background-color: lightblue;\n      color: black;\n      font-weight: bold;\n      margin: 12px;\n      padding: 8px 12px;\n      display: flex;\n\t    justify-content: center;\n\t    align-items: center;\n    }\n\n    .menu {\n      color: white;\n      text-decoration: none;\n      padding: 8px 12px;\n      display: block;\n    }\n  </style>\n</head>\n<body>\n      <nav style=\"background-color: #333; padding:10px;\">\n  <ul style=\"list-style: none; margin: 0; padding: 0; display: flex;\">\n    <li><a href=\"#\" class=\"menu\" id=\"menu_create\">Create</a></li>\n    <li><a href=\"#\" class=\"menu\" id=\"menu_recreate\" style=\"color: grey;\">Upgrade</a></li>\n    <li><a href=\"#\" class=\"menu\" id=\"menu_delete\" style=\"color: grey;\">Delete</a></li>\n  </ul>\n</nav>\n<div align=\"center\">\n  <div class=\"notif\" id=\"notif\">\n    Welcome !\n  </div>\n</div>\n\n<div class=\"form-container\" id=\"create\">\n    <form action=\"/create\" method=\"get\">\n      <div class=\"form-group\">\n        <label for=\"netbox\">Netbox URL</label>\n        <input type=\"text\" value=\"{{payload.netbox}}\" id=\"netbox\" name=\"netbox\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"token\">Netbox Token</label>\n        <input type=\"text\" value=\"{{payload.token}}\" id=\"token\" name=\"token\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"hostname\">Host</label>\n        <input type=\"text\" value=\"{{payload.hostname}}\" id=\"hostname\" name=\"hostname\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"network\">Network</label>\n        <input type=\"text\" value=\"{{payload.network}}\" id=\"network\" name=\"network\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Instance Name</label>\n        <input type=\"text\" value=\"{{payload.instance}}\" id=\"instance\" name=\"instance\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Image Name</label>\n        <input type=\"text\" value=\"{{payload.image}}\" id=\"image\" name=\"image\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"oldversion\">Version</label>\n        <input type=\"text\" value=\"{{payload.version}}\" id=\"version\" name=\"version\">\n      </div>\n   \n        <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Create\">\n      </div>\n    </form>\n  </div>\n\n  <div class=\"form-container\" id=\"recreate\" style=\"display: none;\">\n    <form action=\"/recreate\" method=\"get\">\n      <div class=\"form-group\">\n        <label for=\"netbox\">Netbox URL</label>\n        <input type=\"text\" value=\"{{payload.netbox}}\" id=\"netbox\" name=\"netbox\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"token\">Netbox Token</label>\n        <input type=\"text\" value=\"{{payload.token}}\" id=\"token\" name=\"token\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"hostname\">Host</label>\n        <input type=\"text\" value=\"{{payload.hostname}}\" id=\"hostname\" name=\"hostname\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Image Name</label>\n        <input type=\"text\" value=\"{{payload.image}}\" id=\"image\" name=\"image\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"oldversion\">Old Version</label>\n        <input type=\"text\" value=\"{{payload.oldversion}}\" id=\"oldversion\" name=\"oldversion\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"version\">New Version</label>\n        <input type=\"text\" value=\"{{payload.version}}\" id=\"version\" name=\"version\">\n      </div>\n    \n        <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Recreate\">\n      </div>\n    </form>\n  </div>\n\n<div class=\"form-container\" id=\"delete\" style=\"display: none;\">\n    <form action=\"/delete\" method=\"get\">\n      <div class=\"form-group\">\n        <label for=\"netbox\">Netbox URL</label>\n        <input type=\"text\" value=\"{{payload.netbox}}\" id=\"netbox\" name=\"netbox\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"token\">Netbox Token</label>\n        <input type=\"text\" value=\"{{payload.token}}\" id=\"token\" name=\"token\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"hostname\">Host</label>\n        <input type=\"text\" value=\"{{payload.hostname}}\" id=\"hostname\" name=\"hostname\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Instance Name</label>\n        <input type=\"text\" value=\"{{payload.instance}}\" id=\"instance\" name=\"instance\">\n      </div>\n\n        <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Delete\">\n      </div>\n    </form>\n</div>\n\n  <script>\n    const url = new URL(window.location.href);\n    const urlParams = new URLSearchParams(window.location.search);\n    const action = urlParams.get('action');\n    if (action) {\n      document.getElementById('notif').innerHTML = action;\n      document.getElementById('notif').style.backgroundColor = 'lightgreen';\n    }\n    document.getElementById('menu_create').onclick = function() {\n      document.getElementById('create').style.display='block';\n      document.getElementById('recreate').style.display='none';\n      document.getElementById('delete').style.display='none';\n      document.getElementById('menu_create').style.color ='white';\n      document.getElementById('menu_recreate').style.color = 'grey';\n      document.getElementById('menu_delete').style.color = 'grey';\n    }\n    document.getElementById('menu_recreate').onclick = function() {\n      document.getElementById('recreate').style.display='block';\n      document.getElementById('create').style.display='none';\n      document.getElementById('delete').style.display='none';\n      document.getElementById('menu_recreate').style.color ='white';\n      document.getElementById('menu_create').style.color = 'grey';\n      document.getElementById('menu_delete').style.color = 'grey';\n    }\n    document.getElementById('menu_delete').onclick = function() {\n      document.getElementById('recreate').style.display='none';\n      document.getElementById('create').style.display='none';\n      document.getElementById('delete').style.display='block';\n      document.getElementById('menu_recreate').style.color ='grey';\n      document.getElementById('menu_create').style.color = 'grey';\n      document.getElementById('menu_delete').style.color = 'white';\n    }\n\n    url.searchParams.delete('action');\n    window.history.replaceState(window.history.state, '', url.href);\n    document.getElementById('menu_' + action.split(' ')[0].toLowerCase()).click();\n  </script>\n</body>\n</html>\n",
         "output": "str",
         "x": 560,
         "y": 100,
@@ -2218,7 +2218,7 @@
                 "t": "set",
                 "p": "url",
                 "pt": "msg",
-                "to": "msg.netbox & \"/api/plugins/docker/containers/\" & msg.container.id",
+                "to": "msg.netbox & \"/api/plugins/docker/containers/\" & msg.container.id & \"/\"",
                 "tot": "jsonata"
             },
             {
@@ -2275,7 +2275,9 @@
         "x": 1350,
         "y": 320,
         "wires": [
-            []
+            [
+                "b7518db336bb8be8"
+            ]
         ]
     },
     {
@@ -2425,7 +2427,9 @@
         "x": 1390,
         "y": 60,
         "wires": [
-            []
+            [
+                "67a2cce5067692a5"
+            ]
         ]
     },
     {
@@ -2514,8 +2518,8 @@
         "y": 180,
         "wires": [
             [
-                "51d47d8a40445af3",
-                "3a570a8b367dbe4a"
+                "3a570a8b367dbe4a",
+                "51d47d8a40445af3"
             ]
         ]
     },
@@ -2594,7 +2598,8 @@
         "y": 180,
         "wires": [
             [
-                "3c246a6ce6ebab03"
+                "3c246a6ce6ebab03",
+                "401976a3e7798633"
             ]
         ]
     },
@@ -2651,5 +2656,56 @@
                 "ce466fc9782d3b86"
             ]
         ]
+    },
+    {
+        "id": "67a2cce5067692a5",
+        "type": "debug",
+        "z": "64ed409ae244327b",
+        "name": "debug 4",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1400,
+        "y": 120,
+        "wires": []
+    },
+    {
+        "id": "401976a3e7798633",
+        "type": "debug",
+        "z": "64ed409ae244327b",
+        "name": "debug 5",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1440,
+        "y": 240,
+        "wires": []
+    },
+    {
+        "id": "b7518db336bb8be8",
+        "type": "debug",
+        "z": "64ed409ae244327b",
+        "name": "debug 6",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1460,
+        "y": 380,
+        "wires": []
     }
 ]
