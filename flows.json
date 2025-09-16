@@ -24,6 +24,14 @@
         "env": []
     },
     {
+        "id": "64ed409ae244327b",
+        "type": "tab",
+        "label": "DELETE",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
         "id": "82e54e9cffdc52c0",
         "type": "template",
         "z": "6a2996a3259d440a",
@@ -32,7 +40,7 @@
         "fieldType": "msg",
         "format": "handlebars",
         "syntax": "mustache",
-        "template": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <title>Form UI</title>\n  <style>\n    body {\n      font-family: \"Segoe UI\", Tahoma, Geneva, Verdana, sans-serif;\n      background-color: #f4f6f9;\n      margin: 40px;\n    }\n\n    .form-container {\n      background-color: #ffffff;\n      padding: 30px 40px;\n      border-bottom-left-radius: 12px;\n      border-bottom-right-radius: 12px;\n      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);\n    }\n\n    .form-container h2 {\n      margin-top: 0;\n      margin-bottom: 20px;\n      font-size: 24px;\n      color: #333;\n      text-align: center;\n    }\n\n    .form-group {\n      margin-bottom: 15px;\n    }\n\n    label {\n      display: block;\n      margin-bottom: 6px;\n      font-weight: 500;\n      color: #555;\n    }\n\n    input[type=\"text\"] {\n      width: 100%;\n      padding: 10px 12px;\n      border: 1px solid #ccc;\n      border-radius: 8px;\n      box-sizing: border-box;\n      font-size: 14px;\n    }\n\n    .button-row {\n      display: flex;\n      justify-content: flex-end;\n      gap: 10px;\n      margin-top: 20px;\n    }\n\n    .btn {\n      padding: 10px 20px;\n      border: none;\n      border-radius: 8px;\n      cursor: pointer;\n      font-size: 16px;\n      color: white;\n    }\n\n    .btn-upgrade {\n      background-color: #dc3545;\n    }\n\n    .btn-upgrade:hover {\n      background-color: #a71d2a;\n    }\n    \n    .notif {\n      width: 80%;\n      border: 1px;\n      border-radius: 8px;\n      background-color: lightblue;\n      color: black;\n      font-weight: bold;\n      margin: 12px;\n      padding: 8px 12px;\n      display: flex;\n\t    justify-content: center;\n\t    align-items: center;\n    }\n\n    .menu {\n      color: white;\n      text-decoration: none;\n      padding: 8px 12px;\n      display: block;\n    }\n  </style>\n</head>\n<body>\n      <nav style=\"background-color: #333; padding:10px;\">\n  <ul style=\"list-style: none; margin: 0; padding: 0; display: flex;\">\n    <li><a href=\"#\" class=\"menu\" id=\"menu_create\">Create</a></li>\n    <li><a href=\"#\" class=\"menu\" id=\"menu_recreate\" style=\"color: grey;\">Upgrade</a></li>\n    <li><a href=\"#\" class=\"menu\" id=\"menu_delete\" style=\"color: grey;\">Delete</a></li>\n  </ul>\n</nav>\n<div align=\"center\">\n  <div class=\"notif\" id=\"notif\">\n    Welcome !\n  </div>\n</div>\n<div class=\"form-container\" id=\"create\">\n    <form action=\"/create\" method=\"get\">\n      <div class=\"form-group\">\n        <label for=\"netbox\">Netbox URL</label>\n        <input type=\"text\" value=\"{{payload.netbox}}\" id=\"netbox\" name=\"netbox\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"token\">Netbox Token</label>\n        <input type=\"text\" value=\"{{payload.token}}\" id=\"token\" name=\"token\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"hostname\">Host</label>\n        <input type=\"text\" value=\"{{payload.hostname}}\" id=\"hostname\" name=\"hostname\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"network\">Network</label>\n        <input type=\"text\" value=\"{{payload.network}}\" id=\"network\" name=\"network\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Instance Name</label>\n        <input type=\"text\" value=\"{{payload.instance}}\" id=\"instance\" name=\"instance\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Image Name</label>\n        <input type=\"text\" value=\"{{payload.image}}\" id=\"image\" name=\"image\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"oldversion\">Version</label>\n        <input type=\"text\" value=\"{{payload.version}}\" id=\"version\" name=\"version\">\n      </div>\n   \n        <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Create\">\n      </div>\n    </form>\n  </div>\n\n  <div class=\"form-container\" id=\"recreate\" style=\"display: none;\">\n    <form action=\"/recreate\" method=\"get\">\n      <div class=\"form-group\">\n        <label for=\"netbox\">Netbox URL</label>\n        <input type=\"text\" value=\"{{payload.netbox}}\" id=\"netbox\" name=\"netbox\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"token\">Netbox Token</label>\n        <input type=\"text\" value=\"{{payload.token}}\" id=\"token\" name=\"token\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"hostname\">Host</label>\n        <input type=\"text\" value=\"{{payload.hostname}}\" id=\"hostname\" name=\"hostname\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Image Name</label>\n        <input type=\"text\" value=\"{{payload.image}}\" id=\"image\" name=\"image\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"oldversion\">Old Version</label>\n        <input type=\"text\" value=\"{{payload.oldversion}}\" id=\"oldversion\" name=\"oldversion\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"version\">New Version</label>\n        <input type=\"text\" value=\"{{payload.version}}\" id=\"version\" name=\"version\">\n      </div>\n    \n        <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Recreate\">\n      </div>\n    </form>\n  </div>\n  <script>\n    const url = new URL(window.location.href);\n    const urlParams = new URLSearchParams(window.location.search);\n    const action = urlParams.get('action');\n    if (action) {\n      document.getElementById('notif').innerHTML = action;\n      document.getElementById('notif').style.backgroundColor = 'lightgreen';\n    }\n    url.searchParams.delete('action');\n    history.replaceState(history.state, '', url.href);\n\n    document.getElementById('menu_create').onclick = function() {\n      document.getElementById('create').style.display='block';\n      document.getElementById('recreate').style.display='none';\n      document.getElementById('menu_create').style.color ='white';\n      document.getElementById('menu_recreate').style.color = 'grey';\n    }\n    document.getElementById('menu_recreate').onclick = function() {\n      document.getElementById('recreate').style.display='block';\n      document.getElementById('create').style.display='none';\n      document.getElementById('menu_recreate').style.color ='white';\n      document.getElementById('menu_create').style.color = 'grey';\n    }\n  </script>\n</body>\n</html>\n",
+        "template": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <title>Manage Instance</title>\n  <style>\n    body {\n      font-family: \"Segoe UI\", Tahoma, Geneva, Verdana, sans-serif;\n      background-color: #f4f6f9;\n      margin: 40px;\n    }\n\n    .form-container {\n      background-color: #ffffff;\n      padding: 30px 40px;\n      border-bottom-left-radius: 12px;\n      border-bottom-right-radius: 12px;\n      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);\n    }\n\n    .form-container h2 {\n      margin-top: 0;\n      margin-bottom: 20px;\n      font-size: 24px;\n      color: #333;\n      text-align: center;\n    }\n\n    .form-group {\n      margin-bottom: 15px;\n    }\n\n    label {\n      display: block;\n      margin-bottom: 6px;\n      font-weight: 500;\n      color: #555;\n    }\n\n    input[type=\"text\"] {\n      width: 100%;\n      padding: 10px 12px;\n      border: 1px solid #ccc;\n      border-radius: 8px;\n      box-sizing: border-box;\n      font-size: 14px;\n    }\n\n    .button-row {\n      display: flex;\n      justify-content: flex-end;\n      gap: 10px;\n      margin-top: 20px;\n    }\n\n    .btn {\n      padding: 10px 20px;\n      border: none;\n      border-radius: 8px;\n      cursor: pointer;\n      font-size: 16px;\n      color: white;\n    }\n\n    .btn-upgrade {\n      background-color: #dc3545;\n    }\n\n    .btn-upgrade:hover {\n      background-color: #a71d2a;\n    }\n    \n    .notif {\n      width: 80%;\n      border: 1px;\n      border-radius: 8px;\n      background-color: lightblue;\n      color: black;\n      font-weight: bold;\n      margin: 12px;\n      padding: 8px 12px;\n      display: flex;\n\t    justify-content: center;\n\t    align-items: center;\n    }\n\n    .menu {\n      color: white;\n      text-decoration: none;\n      padding: 8px 12px;\n      display: block;\n    }\n  </style>\n</head>\n<body>\n      <nav style=\"background-color: #333; padding:10px;\">\n  <ul style=\"list-style: none; margin: 0; padding: 0; display: flex;\">\n    <li><a href=\"#\" class=\"menu\" id=\"menu_create\">Create</a></li>\n    <li><a href=\"#\" class=\"menu\" id=\"menu_recreate\" style=\"color: grey;\">Upgrade</a></li>\n    <li><a href=\"#\" class=\"menu\" id=\"menu_delete\" style=\"color: grey;\">Delete</a></li>\n  </ul>\n</nav>\n<div align=\"center\">\n  <div class=\"notif\" id=\"notif\">\n    Welcome !\n  </div>\n</div>\n\n<div class=\"form-container\" id=\"create\">\n    <form action=\"/create\" method=\"get\">\n      <div class=\"form-group\">\n        <label for=\"netbox\">Netbox URL</label>\n        <input type=\"text\" value=\"{{payload.netbox}}\" id=\"netbox\" name=\"netbox\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"token\">Netbox Token</label>\n        <input type=\"text\" value=\"{{payload.token}}\" id=\"token\" name=\"token\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"hostname\">Host</label>\n        <input type=\"text\" value=\"{{payload.hostname}}\" id=\"hostname\" name=\"hostname\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"network\">Network</label>\n        <input type=\"text\" value=\"{{payload.network}}\" id=\"network\" name=\"network\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Instance Name</label>\n        <input type=\"text\" value=\"{{payload.instance}}\" id=\"instance\" name=\"instance\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Image Name</label>\n        <input type=\"text\" value=\"{{payload.image}}\" id=\"image\" name=\"image\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"oldversion\">Version</label>\n        <input type=\"text\" value=\"{{payload.version}}\" id=\"version\" name=\"version\">\n      </div>\n   \n        <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Create\">\n      </div>\n    </form>\n  </div>\n\n  <div class=\"form-container\" id=\"recreate\" style=\"display: none;\">\n    <form action=\"/recreate\" method=\"get\">\n      <div class=\"form-group\">\n        <label for=\"netbox\">Netbox URL</label>\n        <input type=\"text\" value=\"{{payload.netbox}}\" id=\"netbox\" name=\"netbox\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"token\">Netbox Token</label>\n        <input type=\"text\" value=\"{{payload.token}}\" id=\"token\" name=\"token\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"hostname\">Host</label>\n        <input type=\"text\" value=\"{{payload.hostname}}\" id=\"hostname\" name=\"hostname\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Image Name</label>\n        <input type=\"text\" value=\"{{payload.image}}\" id=\"image\" name=\"image\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"oldversion\">Old Version</label>\n        <input type=\"text\" value=\"{{payload.oldversion}}\" id=\"oldversion\" name=\"oldversion\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"version\">New Version</label>\n        <input type=\"text\" value=\"{{payload.version}}\" id=\"version\" name=\"version\">\n      </div>\n    \n        <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Recreate\">\n      </div>\n    </form>\n  </div>\n\n<div class=\"form-container\" id=\"delete\" style=\"display: none;\">\n    <form action=\"/delete\" method=\"get\">\n      <div class=\"form-group\">\n        <label for=\"netbox\">Netbox URL</label>\n        <input type=\"text\" value=\"{{payload.netbox}}\" id=\"netbox\" name=\"netbox\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"token\">Netbox Token</label>\n        <input type=\"text\" value=\"{{payload.token}}\" id=\"token\" name=\"token\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"hostname\">Host</label>\n        <input type=\"text\" value=\"{{payload.hostname}}\" id=\"hostname\" name=\"hostname\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Instance Name</label>\n        <input type=\"text\" value=\"{{payload.instance}}\" id=\"instance\" name=\"instance\">\n      </div>\n\n        <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Delete\">\n      </div>\n    </form>\n</div>\n\n  <script>\n    const url = new URL(window.location.href);\n    const urlParams = new URLSearchParams(window.location.search);\n    const action = urlParams.get('action');\n    if (action) {\n      document.getElementById('notif').innerHTML = action;\n      document.getElementById('notif').style.backgroundColor = 'lightgreen';\n    }\n    document.getElementById('menu_create').onclick = function() {\n      document.getElementById('create').style.display='block';\n      document.getElementById('recreate').style.display='none';\n      document.getElementById('delete').style.display='none';\n      document.getElementById('menu_create').style.color ='white';\n      document.getElementById('menu_recreate').style.color = 'grey';\n      document.getElementById('menu_delete').style.color = 'grey';\n    }\n    document.getElementById('menu_recreate').onclick = function() {\n      document.getElementById('recreate').style.display='block';\n      document.getElementById('create').style.display='none';\n      document.getElementById('delete').style.display='none';\n      document.getElementById('menu_recreate').style.color ='white';\n      document.getElementById('menu_create').style.color = 'grey';\n      document.getElementById('menu_delete').style.color = 'grey';\n    }\n    document.getElementById('menu_delete').onclick = function() {\n      document.getElementById('recreate').style.display='none';\n      document.getElementById('create').style.display='none';\n      document.getElementById('delete').style.display='block';\n      document.getElementById('menu_recreate').style.color ='grey';\n      document.getElementById('menu_create').style.color = 'grey';\n      document.getElementById('menu_delete').style.color = 'white';\n    }\n\n    url.searchParams.delete('action');\n    window.history.replaceState(window.history.state, '', url.href);\n    document.getElementById('menu_' + action.split(' ')[0].toLowerCase()).click();\n  </script>\n</body>\n</html>\n",
         "output": "str",
         "x": 560,
         "y": 100,
@@ -376,9 +384,7 @@
             [
                 "3e60e0d59090800a"
             ],
-            [
-                "6e95a53f6ce1871a"
-            ]
+            []
         ]
     },
     {
@@ -675,7 +681,7 @@
         "id": "d837a0475dee45dc",
         "type": "change",
         "z": "a0840e5d7cd65ea0",
-        "name": "get imageid",
+        "name": "get old imageid",
         "rules": [
             {
                 "t": "set",
@@ -697,7 +703,7 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 150,
+        "x": 160,
         "y": 400,
         "wires": [
             [
@@ -861,7 +867,7 @@
         "id": "3e60e0d59090800a",
         "type": "change",
         "z": "a0840e5d7cd65ea0",
-        "name": "get imageid",
+        "name": "get new imageid",
         "rules": [
             {
                 "t": "set",
@@ -890,7 +896,7 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 310,
+        "x": 320,
         "y": 300,
         "wires": [
             [
@@ -975,9 +981,7 @@
             [
                 "1016efa8203a7ccc"
             ],
-            [
-                "6e95a53f6ce1871a"
-            ]
+            []
         ]
     },
     {
@@ -1003,31 +1007,6 @@
             [
                 "0cdd6dd2e06ff3ae"
             ]
-        ]
-    },
-    {
-        "id": "6e95a53f6ce1871a",
-        "type": "change",
-        "z": "a0840e5d7cd65ea0",
-        "name": "",
-        "rules": [
-            {
-                "t": "set",
-                "p": "payload",
-                "pt": "msg",
-                "to": "{}",
-                "tot": "json"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 1180,
-        "y": 260,
-        "wires": [
-            []
         ]
     },
     {
@@ -1289,33 +1268,6 @@
             [
                 "c023f5d33cc1a8f6"
             ],
-            [
-                "2fe361060970c3e8"
-            ]
-        ]
-    },
-    {
-        "id": "2fe361060970c3e8",
-        "type": "change",
-        "z": "d5158039611d4b98",
-        "name": "",
-        "rules": [
-            {
-                "t": "set",
-                "p": "payload",
-                "pt": "msg",
-                "to": "{}",
-                "tot": "json"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 1310,
-        "y": 160,
-        "wires": [
             []
         ]
     },
@@ -1410,9 +1362,7 @@
             [
                 "3cf9824c67655d6f"
             ],
-            [
-                "2fe361060970c3e8"
-            ]
+            []
         ]
     },
     {
@@ -1534,7 +1484,7 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 990,
+        "x": 1010,
         "y": 400,
         "wires": [
             [
@@ -1611,7 +1561,7 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 320,
+        "x": 120,
         "y": 320,
         "wires": [
             [
@@ -1635,11 +1585,11 @@
         "authType": "",
         "senderr": false,
         "headers": [],
-        "x": 570,
+        "x": 370,
         "y": 320,
         "wires": [
             [
-                "b2b06675311655f7"
+                "6692eaed65e25767"
             ]
         ]
     },
@@ -1871,9 +1821,7 @@
             [
                 "2bc10654858e4154"
             ],
-            [
-                "2fe361060970c3e8"
-            ]
+            []
         ]
     },
     {
@@ -1984,5 +1932,780 @@
                 "2dcca2a38409fe43"
             ]
         ]
+    },
+    {
+        "id": "6692eaed65e25767",
+        "type": "delay",
+        "z": "d5158039611d4b98",
+        "name": "",
+        "pauseType": "delay",
+        "timeout": "2",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 560,
+        "y": 320,
+        "wires": [
+            [
+                "b2b06675311655f7"
+            ]
+        ]
+    },
+    {
+        "id": "444d125462e30efe",
+        "type": "http in",
+        "z": "64ed409ae244327b",
+        "name": "",
+        "url": "/delete",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 130,
+        "y": 120,
+        "wires": [
+            [
+                "5109ddfa87f9eff2",
+                "c93bdbb2951f5fc3"
+            ]
+        ]
+    },
+    {
+        "id": "c93bdbb2951f5fc3",
+        "type": "change",
+        "z": "64ed409ae244327b",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "config",
+                "pt": "msg",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "config",
+                "pt": "global",
+                "to": "config",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 340,
+        "y": 120,
+        "wires": [
+            [
+                "3241395b128eac06"
+            ]
+        ]
+    },
+    {
+        "id": "5109ddfa87f9eff2",
+        "type": "http response",
+        "z": "64ed409ae244327b",
+        "name": "",
+        "statusCode": "302",
+        "headers": {
+            "location": "/?action=Delete%20Requested"
+        },
+        "x": 280,
+        "y": 60,
+        "wires": []
+    },
+    {
+        "id": "4e9b301035225212",
+        "type": "inject",
+        "z": "64ed409ae244327b",
+        "name": "",
+        "props": [],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "x": 110,
+        "y": 180,
+        "wires": [
+            [
+                "3241395b128eac06"
+            ]
+        ]
+    },
+    {
+        "id": "3a570a8b367dbe4a",
+        "type": "change",
+        "z": "64ed409ae244327b",
+        "name": "get hostid",
+        "rules": [
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & \"/api/plugins/docker/hosts/?name=\" & msg.hostname",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 540,
+        "y": 180,
+        "wires": [
+            [
+                "1a4f80814884a9fa"
+            ]
+        ]
+    },
+    {
+        "id": "1a4f80814884a9fa",
+        "type": "http request",
+        "z": "64ed409ae244327b",
+        "name": "",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 730,
+        "y": 180,
+        "wires": [
+            [
+                "c12a4584af903e7f"
+            ]
+        ]
+    },
+    {
+        "id": "c12a4584af903e7f",
+        "type": "switch",
+        "z": "64ed409ae244327b",
+        "name": "",
+        "property": "payload.count",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "gt",
+                "v": "0",
+                "vt": "num"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 910,
+        "y": 180,
+        "wires": [
+            [
+                "90e279516261e3c3"
+            ],
+            []
+        ]
+    },
+    {
+        "id": "0bc452107b041894",
+        "type": "change",
+        "z": "64ed409ae244327b",
+        "name": "stop container",
+        "rules": [
+            {
+                "t": "set",
+                "p": "container.id",
+                "pt": "msg",
+                "to": "payload.results[0].id",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & \"/api/plugins/docker/containers/\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "[\t   {\t       \"operation\": \"stop\",\t       \"id\": msg.container.id\t   }\t]",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "PATCH",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 460,
+        "y": 320,
+        "wires": [
+            [
+                "48244cfac6e87985"
+            ]
+        ]
+    },
+    {
+        "id": "48244cfac6e87985",
+        "type": "http request",
+        "z": "64ed409ae244327b",
+        "name": "",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 690,
+        "y": 320,
+        "wires": [
+            [
+                "70f49231324ec37b"
+            ]
+        ]
+    },
+    {
+        "id": "ce466fc9782d3b86",
+        "type": "change",
+        "z": "64ed409ae244327b",
+        "name": "delete container",
+        "rules": [
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & \"/api/plugins/docker/containers/\" & msg.container.id & \"/\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "{}",
+                "tot": "json"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "DELETE",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1140,
+        "y": 320,
+        "wires": [
+            [
+                "68d767e300ed1980"
+            ]
+        ]
+    },
+    {
+        "id": "68d767e300ed1980",
+        "type": "http request",
+        "z": "64ed409ae244327b",
+        "name": "",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 1350,
+        "y": 320,
+        "wires": [
+            [
+                "b7518db336bb8be8"
+            ]
+        ]
+    },
+    {
+        "id": "51d47d8a40445af3",
+        "type": "change",
+        "z": "64ed409ae244327b",
+        "name": "get recordid",
+        "rules": [
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & \"/api/plugins/cloudflare/dns/records/?name=\" & msg.instance",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 550,
+        "y": 60,
+        "wires": [
+            [
+                "450f65ea867dc44e"
+            ]
+        ]
+    },
+    {
+        "id": "450f65ea867dc44e",
+        "type": "http request",
+        "z": "64ed409ae244327b",
+        "name": "",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 770,
+        "y": 60,
+        "wires": [
+            [
+                "9135b25f8c332ccd"
+            ]
+        ]
+    },
+    {
+        "id": "9135b25f8c332ccd",
+        "type": "switch",
+        "z": "64ed409ae244327b",
+        "name": "",
+        "property": "payload.count",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "gt",
+                "v": "0",
+                "vt": "num"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 960,
+        "y": 60,
+        "wires": [
+            [
+                "5fceda08ca763358"
+            ],
+            []
+        ]
+    },
+    {
+        "id": "5fceda08ca763358",
+        "type": "change",
+        "z": "64ed409ae244327b",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & \"/api/plugins/cloudflare/dns/records/\" & msg.payload.results[0].id & \"/\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "{}",
+                "tot": "json"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1160,
+        "y": 60,
+        "wires": [
+            [
+                "16745e1a3e42d7d6"
+            ]
+        ]
+    },
+    {
+        "id": "16745e1a3e42d7d6",
+        "type": "http request",
+        "z": "64ed409ae244327b",
+        "name": "",
+        "method": "DELETE",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 1390,
+        "y": 60,
+        "wires": [
+            [
+                "67a2cce5067692a5"
+            ]
+        ]
+    },
+    {
+        "id": "3241395b128eac06",
+        "type": "change",
+        "z": "64ed409ae244327b",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "netbox",
+                "pt": "msg",
+                "to": "config.netbox",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "token",
+                "pt": "msg",
+                "to": "config.token",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "hostname",
+                "pt": "msg",
+                "to": "config.hostname",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "version",
+                "pt": "msg",
+                "to": "config.version",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "network",
+                "pt": "msg",
+                "to": "config.network",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "instance",
+                "pt": "msg",
+                "to": "config.instance",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "instanceShort",
+                "pt": "msg",
+                "to": "$substringBefore(msg.instance, \".\")",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "instanceZone",
+                "pt": "msg",
+                "to": "$substringAfter(msg.instance, \".\")",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "image",
+                "pt": "msg",
+                "to": "config.image",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "http",
+                "pt": "msg",
+                "to": "true",
+                "tot": "bool"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 360,
+        "y": 180,
+        "wires": [
+            [
+                "3a570a8b367dbe4a",
+                "51d47d8a40445af3"
+            ]
+        ]
+    },
+    {
+        "id": "90e279516261e3c3",
+        "type": "change",
+        "z": "64ed409ae244327b",
+        "name": "get container id",
+        "rules": [
+            {
+                "t": "set",
+                "p": "config.host",
+                "pt": "global",
+                "to": "payload.results[0].id",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "host",
+                "pt": "msg",
+                "to": "config.host",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & $encodeUrl(\"/api/plugins/docker/containers/?name=\") & msg.instanceShort",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "{}",
+                "tot": "json"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1120,
+        "y": 180,
+        "wires": [
+            [
+                "b08a1029cbcb8fc8"
+            ]
+        ]
+    },
+    {
+        "id": "b08a1029cbcb8fc8",
+        "type": "http request",
+        "z": "64ed409ae244327b",
+        "name": "",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 1330,
+        "y": 180,
+        "wires": [
+            [
+                "3c246a6ce6ebab03",
+                "401976a3e7798633"
+            ]
+        ]
+    },
+    {
+        "id": "3c246a6ce6ebab03",
+        "type": "switch",
+        "z": "64ed409ae244327b",
+        "name": "",
+        "property": "payload.count",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "eq",
+                "v": "1",
+                "vt": "num"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 240,
+        "y": 260,
+        "wires": [
+            [
+                "0bc452107b041894"
+            ],
+            []
+        ]
+    },
+    {
+        "id": "70f49231324ec37b",
+        "type": "delay",
+        "z": "64ed409ae244327b",
+        "name": "",
+        "pauseType": "delay",
+        "timeout": "15",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 900,
+        "y": 320,
+        "wires": [
+            [
+                "ce466fc9782d3b86"
+            ]
+        ]
+    },
+    {
+        "id": "67a2cce5067692a5",
+        "type": "debug",
+        "z": "64ed409ae244327b",
+        "name": "debug 4",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1400,
+        "y": 120,
+        "wires": []
+    },
+    {
+        "id": "401976a3e7798633",
+        "type": "debug",
+        "z": "64ed409ae244327b",
+        "name": "debug 5",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1440,
+        "y": 240,
+        "wires": []
+    },
+    {
+        "id": "b7518db336bb8be8",
+        "type": "debug",
+        "z": "64ed409ae244327b",
+        "name": "debug 6",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1460,
+        "y": 380,
+        "wires": []
     }
 ]
