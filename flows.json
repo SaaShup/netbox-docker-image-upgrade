@@ -418,7 +418,7 @@
                 "t": "set",
                 "p": "url",
                 "pt": "msg",
-                "to": "msg.netbox & $encodeUrl(\"/api/plugins/docker/containers/?image_id=\") & msg.imageid",
+                "to": "msg.netbox & $encodeUrl(\"/api/plugins/docker/containers/?image_id=\") & msg.imageid & \"&limit=200\"",
                 "tot": "jsonata"
             },
             {
@@ -441,7 +441,7 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 260,
+        "x": 270,
         "y": 460,
         "wires": [
             [
@@ -465,7 +465,7 @@
         "authType": "",
         "senderr": false,
         "headers": [],
-        "x": 470,
+        "x": 480,
         "y": 460,
         "wires": [
             [
@@ -493,7 +493,7 @@
         "checkall": "true",
         "repair": false,
         "outputs": 2,
-        "x": 670,
+        "x": 680,
         "y": 460,
         "wires": [
             [
@@ -829,7 +829,7 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 880,
+        "x": 890,
         "y": 460,
         "wires": [
             [
@@ -2289,9 +2289,7 @@
         "x": 1350,
         "y": 320,
         "wires": [
-            [
-                "b7518db336bb8be8"
-            ]
+            []
         ]
     },
     {
@@ -2441,9 +2439,7 @@
         "x": 1390,
         "y": 60,
         "wires": [
-            [
-                "67a2cce5067692a5"
-            ]
+            []
         ]
     },
     {
@@ -2612,8 +2608,7 @@
         "y": 180,
         "wires": [
             [
-                "3c246a6ce6ebab03",
-                "401976a3e7798633"
+                "3c246a6ce6ebab03"
             ]
         ]
     },
@@ -2670,56 +2665,5 @@
                 "ce466fc9782d3b86"
             ]
         ]
-    },
-    {
-        "id": "67a2cce5067692a5",
-        "type": "debug",
-        "z": "64ed409ae244327b",
-        "name": "debug 4",
-        "active": true,
-        "tosidebar": true,
-        "console": false,
-        "tostatus": false,
-        "complete": "true",
-        "targetType": "full",
-        "statusVal": "",
-        "statusType": "auto",
-        "x": 1400,
-        "y": 120,
-        "wires": []
-    },
-    {
-        "id": "401976a3e7798633",
-        "type": "debug",
-        "z": "64ed409ae244327b",
-        "name": "debug 5",
-        "active": true,
-        "tosidebar": true,
-        "console": false,
-        "tostatus": false,
-        "complete": "true",
-        "targetType": "full",
-        "statusVal": "",
-        "statusType": "auto",
-        "x": 1440,
-        "y": 240,
-        "wires": []
-    },
-    {
-        "id": "b7518db336bb8be8",
-        "type": "debug",
-        "z": "64ed409ae244327b",
-        "name": "debug 6",
-        "active": true,
-        "tosidebar": true,
-        "console": false,
-        "tostatus": false,
-        "complete": "true",
-        "targetType": "full",
-        "statusVal": "",
-        "statusType": "auto",
-        "x": 1460,
-        "y": 380,
-        "wires": []
     }
 ]
