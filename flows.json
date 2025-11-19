@@ -2326,7 +2326,7 @@
         "id": "2b51638803c74211",
         "type": "change",
         "z": "47309e7eb1ed7972",
-        "name": "recreate container",
+        "name": "restart container",
         "rules": [
             {
                 "t": "set",
@@ -2369,7 +2369,7 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 570,
+        "x": 560,
         "y": 480,
         "wires": [
             [
@@ -2405,6 +2405,13 @@
         "z": "47309e7eb1ed7972",
         "name": "get imageid",
         "rules": [
+            {
+                "t": "set",
+                "p": "host_id",
+                "pt": "msg",
+                "to": "payload.results[0].id",
+                "tot": "msg"
+            },
             {
                 "t": "set",
                 "p": "url",
@@ -2658,7 +2665,7 @@
         "name": "",
         "statusCode": "302",
         "headers": {
-            "location": "/?action=Recreate%20Requested"
+            "location": "/?action=Restart%20Requested"
         },
         "x": 400,
         "y": 120,
