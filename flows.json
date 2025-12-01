@@ -40,18 +40,26 @@
         "env": []
     },
     {
+        "id": "d760e52dca2de1e8",
+        "type": "subflow",
+        "name": "Subflow 1",
+        "info": "",
+        "in": [],
+        "out": []
+    },
+    {
         "id": "82e54e9cffdc52c0",
         "type": "template",
         "z": "6a2996a3259d440a",
-        "name": "",
+        "name": "html",
         "field": "payload",
         "fieldType": "msg",
         "format": "handlebars",
         "syntax": "mustache",
-        "template": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <title>Manage Instance</title>\n  <style>\n    body {\n      font-family: \"Segoe UI\", Tahoma, Geneva, Verdana, sans-serif;\n      background-color: #f4f6f9;\n      margin: 40px;\n    }\n\n    .form-container {\n      background-color: #ffffff;\n      padding: 30px 40px;\n      border-bottom-left-radius: 12px;\n      border-bottom-right-radius: 12px;\n      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);\n    }\n\n    .form-container h2 {\n      margin-top: 0;\n      margin-bottom: 20px;\n      font-size: 24px;\n      color: #333;\n      text-align: center;\n    }\n\n    .form-group {\n      margin-bottom: 15px;\n    }\n\n    label {\n      display: block;\n      margin-bottom: 6px;\n      font-weight: 500;\n      color: #555;\n    }\n\n    input[type=\"text\"] {\n      width: 100%;\n      padding: 10px 12px;\n      border: 1px solid #ccc;\n      border-radius: 8px;\n      box-sizing: border-box;\n      font-size: 14px;\n    }\n\n    .button-row {\n      display: flex;\n      justify-content: flex-end;\n      gap: 10px;\n      margin-top: 20px;\n    }\n\n    .btn {\n      padding: 10px 20px;\n      border: none;\n      border-radius: 8px;\n      cursor: pointer;\n      font-size: 16px;\n      color: white;\n    }\n\n    .btn-upgrade {\n      background-color: #dc3545;\n    }\n\n    .btn-upgrade:hover {\n      background-color: #a71d2a;\n    }\n    \n    .notif {\n      width: 80%;\n      border: 1px;\n      border-radius: 8px;\n      background-color: lightblue;\n      color: black;\n      font-weight: bold;\n      margin: 12px;\n      padding: 8px 12px;\n      display: flex;\n\t    justify-content: center;\n\t    align-items: center;\n    }\n\n    .menu {\n      color: white;\n      text-decoration: none;\n      padding: 8px 12px;\n      display: block;\n    }\n  </style>\n</head>\n<body>\n      <nav style=\"background-color: #333; padding:10px;\">\n  <ul style=\"list-style: none; margin: 0; padding: 0; display: flex;\">\n    <li><a href=\"#\" class=\"menu\" id=\"menu_create\">Create</a></li>\n    <li><a href=\"#\" class=\"menu\" id=\"menu_recreate\" style=\"color: grey;\">Upgrade</a></li>\n    <li><a href=\"#\" class=\"menu\" id=\"menu_restart\" style=\"color: grey;\">Restart</a></li>\n    <li><a href=\"#\" class=\"menu\" id=\"menu_delete\" style=\"color: grey;\">Delete</a></li>\n  </ul>\n</nav>\n<div align=\"center\">\n  <div class=\"notif\" id=\"notif\">\n    Welcome !\n  </div>\n</div>\n\n<div class=\"form-container\" id=\"create\">\n    <form action=\"/create\" method=\"get\">\n      <div class=\"form-group\">\n        <label for=\"netbox\">Netbox URL</label>\n        <input type=\"text\" value=\"{{payload.netbox}}\" id=\"netbox\" name=\"netbox\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"token\">Netbox Token</label>\n        <input type=\"text\" value=\"{{payload.token}}\" id=\"token\" name=\"token\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"hostname\">Host</label>\n        <input type=\"text\" value=\"{{payload.hostname}}\" id=\"hostname\" name=\"hostname\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"network\">Network</label>\n        <input type=\"text\" value=\"{{payload.network}}\" id=\"network\" name=\"network\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"instance\">Instance Name</label>\n        <input type=\"text\" value=\"{{payload.instance}}\" id=\"instance\" name=\"instance\">\n      </div>\n\n      <div class=\"form-group\">\n        <table width=\"100%\" align=\"center\">\n          <tr align=\"center\">\n            <td width=\"25%\">\n              <label for=\"var_env_key\">Env Variable Name</label>\n            </td>\n            <td width=\"25%\">\n              <input type=\"text\" value=\"{{payload.var_env_key}}\" id=\"var_env_key\" name=\"var_env_key\">\n            </td>\n            <td width=\"25%\">\n              <label for=\"var_env_value\">Env Variable Value</label>\n            </td>\n            <td width=\"25%\">\n              <input type=\"text\" value=\"{{payload.var_env_value}}\" id=\"var_env_value\" name=\"var_env_value\">\n            </td>\n          </tr>\n        </table>\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Image Name</label>\n        <input type=\"text\" value=\"{{payload.image}}\" id=\"image\" name=\"image\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"oldversion\">Version</label>\n        <input type=\"text\" value=\"{{payload.version}}\" id=\"version\" name=\"version\">\n      </div>\n   \n        <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Create\">\n      </div>\n    </form>\n  </div>\n\n  <div class=\"form-container\" id=\"recreate\" style=\"display: none;\">\n    <form action=\"/recreate\" method=\"get\">\n      <div class=\"form-group\">\n        <label for=\"netbox\">Netbox URL</label>\n        <input type=\"text\" value=\"{{payload.netbox}}\" id=\"netbox\" name=\"netbox\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"token\">Netbox Token</label>\n        <input type=\"text\" value=\"{{payload.token}}\" id=\"token\" name=\"token\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"hostname\">Host</label>\n        <input type=\"text\" value=\"{{payload.hostname}}\" id=\"hostname\" name=\"hostname\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Image Name</label>\n        <input type=\"text\" value=\"{{payload.image}}\" id=\"image\" name=\"image\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"oldversion\">Old Version</label>\n        <input type=\"text\" value=\"{{payload.oldversion}}\" id=\"oldversion\" name=\"oldversion\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"version\">New Version</label>\n        <input type=\"text\" value=\"{{payload.version}}\" id=\"version\" name=\"version\">\n      </div>\n    \n      <div class=\"form-group\">\n        <label for=\"version\">Delay (ms)</label>\n        <input type=\"text\" value=\"{{payload.delay}}\" id=\"delay\" name=\"delay\">\n      </div>\n\n        <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Recreate\">\n      </div>\n    </form>\n  </div>\n\n  <div class=\"form-container\" id=\"restart\" style=\"display: none;\">\n    <form action=\"/restart\" method=\"get\">\n      <div class=\"form-group\">\n        <label for=\"netbox\">Netbox URL</label>\n        <input type=\"text\" value=\"{{payload.netbox}}\" id=\"netbox\" name=\"netbox\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"token\">Netbox Token</label>\n        <input type=\"text\" value=\"{{payload.token}}\" id=\"token\" name=\"token\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"hostname\">Host</label>\n        <input type=\"text\" value=\"{{payload.hostname}}\" id=\"hostname\" name=\"hostname\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Image Name</label>\n        <input type=\"text\" value=\"{{payload.image}}\" id=\"image\" name=\"image\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"oldversion\">Version</label>\n        <input type=\"text\" value=\"{{payload.oldversion}}\" id=\"oldversion\" name=\"oldversion\">\n      </div>\n    \n      <div class=\"form-group\">\n        <label for=\"version\">Delay (ms)</label>\n        <input type=\"text\" value=\"{{payload.delay}}\" id=\"delay\" name=\"delay\">\n      </div>\n\n        <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Restart\">\n      </div>\n    </form>\n  </div>\n\n<div class=\"form-container\" id=\"delete\" style=\"display: none;\">\n    <form action=\"/delete\" method=\"get\">\n      <div class=\"form-group\">\n        <label for=\"netbox\">Netbox URL</label>\n        <input type=\"text\" value=\"{{payload.netbox}}\" id=\"netbox\" name=\"netbox\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"token\">Netbox Token</label>\n        <input type=\"text\" value=\"{{payload.token}}\" id=\"token\" name=\"token\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"hostname\">Host</label>\n        <input type=\"text\" value=\"{{payload.hostname}}\" id=\"hostname\" name=\"hostname\">\n      </div>\n\n      <div class=\"form-group\">\n        <label for=\"image\">Instance Name</label>\n        <input type=\"text\" value=\"{{payload.instance}}\" id=\"instance\" name=\"instance\">\n      </div>\n\n        <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Delete\">\n      </div>\n    </form>\n</div>\n\n  <script>\n    const url = new URL(window.location.href);\n    const urlParams = new URLSearchParams(window.location.search);\n    const action = urlParams.get('action');\n    if (action) {\n      document.getElementById('notif').innerHTML = action;\n      document.getElementById('notif').style.backgroundColor = 'lightgreen';\n    }\n    document.getElementById('menu_create').onclick = function() {\n      document.getElementById('create').style.display='block';\n      document.getElementById('recreate').style.display='none';\n      document.getElementById('restart').style.display='none';\n      document.getElementById('delete').style.display='none';\n      document.getElementById('menu_create').style.color ='white';\n      document.getElementById('menu_recreate').style.color = 'grey';\n      document.getElementById('menu_restart').style.color = 'grey';\n      document.getElementById('menu_delete').style.color = 'grey';\n    }\n    document.getElementById('menu_recreate').onclick = function() {\n      document.getElementById('recreate').style.display='block';\n      document.getElementById('restart').style.display='none';\n      document.getElementById('create').style.display='none';\n      document.getElementById('delete').style.display='none';\n      document.getElementById('menu_recreate').style.color ='white';\n      document.getElementById('menu_create').style.color = 'grey';\n      document.getElementById('menu_restart').style.color = 'grey';\n      document.getElementById('menu_delete').style.color = 'grey';\n    }\n    document.getElementById('menu_restart').onclick = function() {\n      document.getElementById('recreate').style.display='none';\n      document.getElementById('restart').style.display='block';\n      document.getElementById('create').style.display='none';\n      document.getElementById('delete').style.display='none';\n      document.getElementById('menu_recreate').style.color ='grey';\n      document.getElementById('menu_create').style.color = 'grey';\n      document.getElementById('menu_restart').style.color = 'white';\n      document.getElementById('menu_delete').style.color = 'grey';\n    }\n    document.getElementById('menu_delete').onclick = function() {\n      document.getElementById('recreate').style.display='none';\n      document.getElementById('restart').style.display='none';\n      document.getElementById('create').style.display='none';\n      document.getElementById('delete').style.display='block';\n      document.getElementById('menu_recreate').style.color ='grey';\n      document.getElementById('menu_restart').style.color ='grey';\n      document.getElementById('menu_create').style.color = 'grey';\n      document.getElementById('menu_delete').style.color = 'white';\n    }\n\n    url.searchParams.delete('action');\n    window.history.replaceState(window.history.state, '', url.href);\n    document.getElementById('menu_' + action.split(' ')[0].toLowerCase()).click();\n  </script>\n</body>\n</html>\n",
+        "template": "<!DOCTYPE html>\n<html lang=\"en\">\n\n<head>\n    <meta charset=\"UTF-8\">\n    <title>Manage Instance Paashup</title>\n    <link rel=\"icon\" href=\"saashup_logo.svg\">\n    <link rel=\"stylesheet\" href=\"css/style.css\">\n</head>\n\n<body>\n    <nav style=\"background-color: #333; padding:10px;\">\n        <ul style=\"list-style: none; margin: 0; padding: 0; display: flex;\">\n            <li><a href=\"#\" class=\"menu\" id=\"menu_create\" style=\"color: grey;\">Create</a></li>\n            <li><a href=\"#\" class=\"menu\" id=\"menu_recreate\" style=\"color: grey;\">Upgrade</a></li>\n            <li><a href=\"#\" class=\"menu\" id=\"menu_restart\" style=\"color: grey;\">Restart</a></li>\n            <li><a href=\"#\" class=\"menu\" id=\"menu_delete\" style=\"color: grey;\">Delete</a></li>\n        </ul>\n    </nav>\n    <div align=\"center\" style=\"display: flex;\">\n        <div class=\"notif\" id=\"notif\">\n            <font color=\"grey\">Welcome !</font>\n        </div>\n        <div>\n            <div class=\"notif\">\n                <input type=\"button\" class=\"btn btn-save\" value=\"Save\" onclick=\"save();\">\n            </div>\n        </div>\n        <div>\n            <div class=\"notif\">\n                <select class=\"btn\" id=\"list\" style=\"color:black;\" onchange=\"change();\"></select>\n            </div>\n        </div>\n        <div>\n            <div class=\"notif\">\n                <input type=\"button\" class=\"btn btn-delete\" value=\"Delete\" onclick=\"remove();\">\n            </div>\n        </div>\n    </div>\n\n    <div class=\"form-container\" id=\"create\">\n        <form action=\"/create\" method=\"get\">\n            <div class=\"form-group\">\n                <label for=\"netbox\">Netbox URL</label>\n                <input type=\"text\" value=\"{{payload.netbox}}\" id=\"c_netbox\" name=\"netbox\">\n            </div>\n\n            <div class=\"form-group\">\n                <label for=\"token\">Netbox Token</label>\n                <input type=\"text\" value=\"{{payload.token}}\" id=\"c_token\" name=\"token\">\n            </div>\n\n            <div class=\"form-group\">\n                <label for=\"hostname\">Host</label>\n                <input type=\"text\" value=\"{{payload.hostname}}\" id=\"c_hostname\" name=\"hostname\">\n            </div>\n\n            <div class=\"form-group\">\n                <label for=\"network\">Network</label>\n                <input type=\"text\" value=\"{{payload.network}}\" id=\"c_network\" name=\"network\">\n            </div>\n\n            <div class=\"form-group\">\n                <label for=\"instance\">Instance Name</label>\n                <input type=\"text\" value=\"{{payload.instance}}\" id=\"c_instance\" name=\"instance\">\n            </div>\n\n            <div class=\"form-group\">\n                <table width=\"100%\" align=\"center\">\n                    <tr align=\"center\">\n                        <td width=\"25%\">\n                            <label for=\"var_env_key\">Env Variable Name</label>\n                        </td>\n                        <td width=\"25%\">\n                            <input type=\"text\" value=\"{{payload.var_env_key}}\" id=\"c_var_env_key\" name=\"var_env_key\">\n                        </td>\n                        <td width=\"25%\">\n                            <label for=\"var_env_value\">Env Variable Value</label>\n                        </td>\n                        <td width=\"25%\">\n                            <input type=\"text\" value=\"{{payload.var_env_value}}\" id=\"c_var_env_value\" name=\"var_env_value\">\n                        </td>\n                    </tr>\n                </table>\n            </div>\n\n            <div class=\"form-group\">\n                <label for=\"image\">Image Name</label>\n                <input type=\"text\" value=\"{{payload.image}}\" id=\"c_image\" name=\"image\">\n            </div>\n\n            <div class=\"form-group\">\n                <label for=\"oldversion\">Version</label>\n                <input type=\"text\" value=\"{{payload.version}}\" id=\"c_version\" name=\"version\">\n            </div>\n\n            <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Create\">\n    </div>\n    </form>\n    </div>\n\n    <div class=\"form-container\" id=\"recreate\" style=\"display: none;\">\n        <form action=\"/recreate\" method=\"get\">\n            <div class=\"form-group\">\n                <label for=\"netbox\">Netbox URL</label>\n                <input type=\"text\" value=\"{{payload.netbox}}\" id=\"u_netbox\" name=\"netbox\">\n            </div>\n\n            <div class=\"form-group\">\n                <label for=\"token\">Netbox Token</label>\n                <input type=\"text\" value=\"{{payload.token}}\" id=\"u_token\" name=\"token\">\n            </div>\n\n            <div class=\"form-group\">\n                <label for=\"hostname\">Host</label>\n                <input type=\"text\" value=\"{{payload.hostname}}\" id=\"u_hostname\" name=\"hostname\">\n            </div>\n\n            <div class=\"form-group\">\n                <label for=\"image\">Image Name</label>\n                <input type=\"text\" value=\"{{payload.image}}\" id=\"u_image\" name=\"image\">\n            </div>\n\n            <div class=\"form-group\">\n                <label for=\"oldversion\">Old Version</label>\n                <input type=\"text\" value=\"{{payload.oldversion}}\" id=\"u_oldversion\" name=\"oldversion\">\n            </div>\n\n            <div class=\"form-group\">\n                <label for=\"version\">New Version</label>\n                <input type=\"text\" value=\"{{payload.version}}\" id=\"u_version\" name=\"version\">\n            </div>\n\n            <div class=\"form-group\">\n                <label for=\"version\">Delay (ms)</label>\n                <input type=\"text\" value=\"{{payload.delay}}\" id=\"u_delay\" name=\"delay\">\n            </div>\n\n            <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Recreate\">\n    </div>\n    </form>\n    </div>\n\n    <div class=\"form-container\" id=\"restart\" style=\"display: none;\">\n        <form action=\"/restart\" method=\"get\">\n            <div class=\"form-group\">\n                <label for=\"netbox\">Netbox URL</label>\n                <input type=\"text\" value=\"{{payload.netbox}}\" id=\"r_netbox\" name=\"netbox\">\n            </div>\n\n            <div class=\"form-group\">\n                <label for=\"token\">Netbox Token</label>\n                <input type=\"text\" value=\"{{payload.token}}\" id=\"r_token\" name=\"token\">\n            </div>\n\n            <div class=\"form-group\">\n                <label for=\"hostname\">Host</label>\n                <input type=\"text\" value=\"{{payload.hostname}}\" id=\"r_hostname\" name=\"hostname\">\n            </div>\n\n            <div class=\"form-group\">\n                <label for=\"image\">Image Name</label>\n                <input type=\"text\" value=\"{{payload.image}}\" id=\"r_image\" name=\"image\">\n            </div>\n\n            <div class=\"form-group\">\n                <label for=\"oldversion\">Version</label>\n                <input type=\"text\" value=\"{{payload.oldversion}}\" id=\"r_oldversion\" name=\"oldversion\">\n            </div>\n\n            <div class=\"form-group\">\n                <label for=\"version\">Delay (ms)</label>\n                <input type=\"text\" value=\"{{payload.delay}}\" id=\"r_delay\" name=\"delay\">\n            </div>\n\n            <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Restart\">\n    </div>\n    </form>\n    </div>\n\n    <div class=\"form-container\" id=\"delete\" style=\"display: none;\">\n        <form action=\"/delete\" method=\"get\">\n            <div class=\"form-group\">\n                <label for=\"netbox\">Netbox URL</label>\n                <input type=\"text\" value=\"{{payload.netbox}}\" id=\"d_netbox\" name=\"netbox\">\n            </div>\n\n            <div class=\"form-group\">\n                <label for=\"token\">Netbox Token</label>\n                <input type=\"text\" value=\"{{payload.token}}\" id=\"d_token\" name=\"token\">\n            </div>\n\n            <div class=\"form-group\">\n                <label for=\"hostname\">Host</label>\n                <input type=\"text\" value=\"{{payload.hostname}}\" id=\"d_hostname\" name=\"hostname\">\n            </div>\n\n            <div class=\"form-group\">\n                <label for=\"image\">Instance Name</label>\n                <input type=\"text\" value=\"{{payload.instance}}\" id=\"d_instance\" name=\"instance\">\n            </div>\n\n            <input type=\"submit\" class=\"btn btn-upgrade\" value=\"Delete\">\n        </form>\n    </div>\n\n    <script src=\"js/main.js\"> </script>\n</body>\n\n</html>",
         "output": "str",
-        "x": 560,
-        "y": 100,
+        "x": 550,
+        "y": 80,
         "wires": [
             [
                 "18339b1cabab1a0a"
@@ -68,7 +76,7 @@
         "upload": false,
         "swaggerDoc": "",
         "x": 190,
-        "y": 100,
+        "y": 80,
         "wires": [
             [
                 "19b02ec7e4b405bd"
@@ -95,7 +103,7 @@
         "to": "",
         "reg": false,
         "x": 360,
-        "y": 100,
+        "y": 80,
         "wires": [
             [
                 "82e54e9cffdc52c0"
@@ -110,7 +118,7 @@
         "statusCode": "",
         "headers": {},
         "x": 730,
-        "y": 100,
+        "y": 80,
         "wires": []
     },
     {
@@ -125,6 +133,13 @@
                 "pt": "global",
                 "to": "config",
                 "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "filename",
+                "pt": "msg",
+                "to": "($env(\"DATAPATH\") ?  $env(\"DATAPATH\") : \"/data\") & \"/config.json\"",
+                "tot": "jsonata"
             }
         ],
         "action": "",
@@ -132,10 +147,12 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 570,
-        "y": 220,
+        "x": 610,
+        "y": 300,
         "wires": [
-            []
+            [
+                "119017e9b3d5a4d8"
+            ]
         ]
     },
     {
@@ -166,12 +183,12 @@
             },
             {
                 "p": "config.version",
-                "v": "v1.3.0",
+                "v": "v1.4.0",
                 "vt": "str"
             },
             {
                 "p": "config.oldversion",
-                "v": "v1.4.0",
+                "v": "v1.3.0",
                 "vt": "str"
             },
             {
@@ -195,8 +212,8 @@
         "once": true,
         "onceDelay": 0.1,
         "topic": "",
-        "x": 210,
-        "y": 220,
+        "x": 220,
+        "y": 300,
         "wires": [
             [
                 "3e40bf60a2ac7bf9"
@@ -218,13 +235,244 @@
         "checkall": "true",
         "repair": false,
         "outputs": 1,
-        "x": 380,
-        "y": 220,
+        "x": 390,
+        "y": 300,
         "wires": [
             [
                 "f9bc478e2bbd17a7"
             ]
         ]
+    },
+    {
+        "id": "f04b61be7445df5f",
+        "type": "change",
+        "z": "6a2996a3259d440a",
+        "name": "set config",
+        "rules": [
+            {
+                "t": "set",
+                "p": "filename",
+                "pt": "msg",
+                "to": "($env(\"DATAPATH\") ?  $env(\"DATAPATH\") : \"/data\") & \"/config.json\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "config",
+                "tot": "global"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 410,
+        "y": 380,
+        "wires": [
+            [
+                "1018460bcc934af9"
+            ]
+        ]
+    },
+    {
+        "id": "1018460bcc934af9",
+        "type": "file",
+        "z": "6a2996a3259d440a",
+        "name": "save",
+        "filename": "filename",
+        "filenameType": "msg",
+        "appendNewline": false,
+        "createDir": true,
+        "overwriteFile": "true",
+        "encoding": "none",
+        "x": 580,
+        "y": 380,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "e84e66f4c9bb242e",
+        "type": "inject",
+        "z": "6a2996a3259d440a",
+        "name": "",
+        "props": [],
+        "repeat": "60",
+        "crontab": "",
+        "once": false,
+        "onceDelay": "2",
+        "topic": "",
+        "x": 210,
+        "y": 380,
+        "wires": [
+            [
+                "f04b61be7445df5f"
+            ]
+        ]
+    },
+    {
+        "id": "119017e9b3d5a4d8",
+        "type": "file in",
+        "z": "6a2996a3259d440a",
+        "name": "",
+        "filename": "filename",
+        "filenameType": "msg",
+        "format": "utf8",
+        "chunk": false,
+        "sendError": false,
+        "encoding": "none",
+        "allProps": false,
+        "x": 840,
+        "y": 300,
+        "wires": [
+            [
+                "b8fdb635de13702f"
+            ]
+        ]
+    },
+    {
+        "id": "27d0bc80e5489776",
+        "type": "change",
+        "z": "6a2996a3259d440a",
+        "name": "set config",
+        "rules": [
+            {
+                "t": "set",
+                "p": "config",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1190,
+        "y": 300,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "b8fdb635de13702f",
+        "type": "json",
+        "z": "6a2996a3259d440a",
+        "name": "",
+        "property": "payload",
+        "action": "",
+        "pretty": false,
+        "x": 1020,
+        "y": 300,
+        "wires": [
+            [
+                "27d0bc80e5489776"
+            ]
+        ]
+    },
+    {
+        "id": "fc402a29ca7211b3",
+        "type": "template",
+        "z": "6a2996a3259d440a",
+        "name": "css",
+        "field": "payload",
+        "fieldType": "msg",
+        "format": "css",
+        "syntax": "plain",
+        "template": "body {\n  font-family: \"Segoe UI\", Tahoma, Geneva, Verdana, sans-serif;\n  background-color: #f4f6f9;\n  margin: 40px;\n}\n\n.form-container {\n  background-color: #ffffff;\n  padding: 30px 40px;\n  border-bottom-left-radius: 12px;\n  border-bottom-right-radius: 12px;\n  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);\n}\n\n.form-container h2 {\n  margin-top: 0;\n  margin-bottom: 20px;\n  font-size: 24px;\n  color: #333;\n  text-align: center;\n}\n\n.form-group {\n  margin-bottom: 15px;\n}\n\nlabel {\n  display: block;\n  margin-bottom: 6px;\n  font-weight: 500;\n  color: #555;\n}\n\ninput[type=\"text\"] {\n  width: 100%;\n  padding: 10px 12px;\n  border: 1px solid #ccc;\n  border-radius: 8px;\n  box-sizing: border-box;\n  font-size: 14px;\n}\n\n.button-row {\n  display: flex;\n  justify-content: flex-end;\n  gap: 10px;\n  margin-top: 20px;\n}\n\n.btn {\n  padding: 10px 20px;\n  border: none;\n  border-radius: 8px;\n  cursor: pointer;\n  font-size: 16px;\n  color: white;\n}\n\n.btn-delete {\n  background-color: #bb0000;\n}\n\n.btn-save {\n  background-color: #0495c9;\n}\n\n.btn-save:hover {\n  background-color: #357ebd;\n}\n\n.btn-upgrade {\n  background-color: #dc3545;\n}\n\n.btn-upgrade:hover {\n  background-color: #a71d2a;\n}\n\n.notif {\n  width: 80%;\n  border: 1px;\n  border-radius: 8px;\n  background-color: lightblue;\n  color: black;\n  font-weight: bold;\n  margin: 8px;\n  padding: 8px;\n  display: flex;\n  justify-content: center;\n  align-items: center;\n}\n\n.menu {\n  color: white;\n  text-decoration: none;\n  padding: 8px 12px;\n  display: block;\n}",
+        "output": "str",
+        "x": 450,
+        "y": 140,
+        "wires": [
+            [
+                "6dd6ae73d248c1dd"
+            ]
+        ]
+    },
+    {
+        "id": "5296b8187d9f11f8",
+        "type": "http in",
+        "z": "6a2996a3259d440a",
+        "name": "",
+        "url": "/css/style.css",
+        "method": "get",
+        "upload": false,
+        "skipBodyParsing": false,
+        "swaggerDoc": "",
+        "x": 230,
+        "y": 140,
+        "wires": [
+            [
+                "fc402a29ca7211b3"
+            ]
+        ]
+    },
+    {
+        "id": "6dd6ae73d248c1dd",
+        "type": "http response",
+        "z": "6a2996a3259d440a",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "content-type": "text/css"
+        },
+        "x": 650,
+        "y": 140,
+        "wires": []
+    },
+    {
+        "id": "29d9459557bf63de",
+        "type": "template",
+        "z": "6a2996a3259d440a",
+        "name": "js",
+        "field": "payload",
+        "fieldType": "msg",
+        "format": "javascript",
+        "syntax": "plain",
+        "template": "const url=new URL(window.location.href);\nconst urlParams=new URLSearchParams(window.location.search);\nconst action=urlParams.get('action');\nconst select=document.getElementById(\"list\");\nvar current = \"c_\";\nif (localStorage.getItem(\"current_page\")) current = localStorage.getItem(\"current_page\");\n\nif (action) {\n  document.getElementById('notif').innerHTML=action;\n  document.getElementById('notif').style.backgroundColor='lightgreen';\n}\n\ndocument.getElementById('menu_create').onclick=function() {\n  current=\"c_\";\n  localStorage.setItem(\"current_page\", current);\n  document.getElementById('create').style.display='block';\n  document.getElementById('recreate').style.display='none';\n  document.getElementById('restart').style.display='none';\n  document.getElementById('delete').style.display='none';\n  document.getElementById('menu_create').style.color='white';\n  document.getElementById('menu_recreate').style.color='grey';\n  document.getElementById('menu_restart').style.color='grey';\n  document.getElementById('menu_delete').style.color='grey';\n}\n\ndocument.getElementById('menu_recreate').onclick=function() {\n  current=\"u_\";\n  localStorage.setItem(\"current_page\", current);\n  document.getElementById('recreate').style.display='block';\n  document.getElementById('restart').style.display='none';\n  document.getElementById('create').style.display='none';\n  document.getElementById('delete').style.display='none';\n  document.getElementById('menu_recreate').style.color='white';\n  document.getElementById('menu_create').style.color='grey';\n  document.getElementById('menu_restart').style.color='grey';\n  document.getElementById('menu_delete').style.color='grey';\n}\n\ndocument.getElementById('menu_restart').onclick=function() {\n  current=\"r_\";\n  localStorage.setItem(\"current_page\", current);\n  document.getElementById('recreate').style.display='none';\n  document.getElementById('restart').style.display='block';\n  document.getElementById('create').style.display='none';\n  document.getElementById('delete').style.display='none';\n  document.getElementById('menu_recreate').style.color='grey';\n  document.getElementById('menu_create').style.color='grey';\n  document.getElementById('menu_restart').style.color='white';\n  document.getElementById('menu_delete').style.color='grey';\n}\n\ndocument.getElementById('menu_delete').onclick=function() {\n  current=\"d_\";\n  localStorage.setItem(\"current_page\", current);\n  document.getElementById('recreate').style.display='none';\n  document.getElementById('restart').style.display='none';\n  document.getElementById('create').style.display='none';\n  document.getElementById('delete').style.display='block';\n  document.getElementById('menu_recreate').style.color='grey';\n  document.getElementById('menu_restart').style.color='grey';\n  document.getElementById('menu_create').style.color='grey';\n  document.getElementById('menu_delete').style.color='white';\n}\n\nswitch(current) {\n  case \"c_\":  document.getElementById('menu_create').click();\n              break;\n  case \"u_\":  document.getElementById('menu_recreate').click();\n              break;\n  case \"r_\":  document.getElementById('menu_restart').click();\n              break;\n  case \"d_\":  document.getElementById('menu_delete').click();\n              break;\n}\n\nurl.searchParams.delete('action');\nwindow.history.replaceState(window.history.state, '', url.href);\nif (action) document.getElementById('menu_' + action.split(' ')[0].toLowerCase()).click();\n\nfor (let i=0; i < localStorage.length; i++) {\n  const key=localStorage.key(i);\n  if ( !key.startsWith (\"__\")) continue;\n  const value=localStorage.getItem(key);\n\n  const option=document.createElement(\"option\");\n  let cleaned = key.replace(/^__https?:\\/\\//, \"\").replace(/^_+|_+$/g, \"\");\n  const [domain, suffix] = cleaned.split(\"__\");\n  option.text = domain.split(\".\")[0] + \"-\" + suffix;\n  option.value=key;\n  select.appendChild(option);\n}\n\nfunction remove() {\n  document.getElementById('notif').innerHTML=\"Deleted\";\n  document.getElementById('notif').style.backgroundColor='lightred';\n  const selectedIndex=select.selectedIndex;\n  const id=select.value;\n  const stored=localStorage.getItem(id);\n  if ( !stored) return;\n  localStorage.removeItem(id);\n  select.remove(selectedIndex);\n  change();\n}\n\nfunction save() {\n  const data= {\n    netbox: document.getElementById(current + \"netbox\").value,\n      token: document.getElementById(current + \"token\").value,\n      hostname: document.getElementById(current + \"hostname\").value,\n      image: document.getElementById(current + \"image\").value,\n      delay: document.getElementById(current + \"delay\") ? document.getElementById(current + \"delay\").value: \"10000\"\n  }\n\n  const newPaashup=\"__\"+document.getElementById(current + \"netbox\").value+\"__\"+document.getElementById(current + \"hostname\").value;\n  let update=true;\n  if (localStorage.getItem(newPaashup)) update=false;\n  localStorage.setItem(newPaashup, JSON.stringify(data));\n\n  if (update) {\n    const option=document.createElement(\"option\");\n    let cleaned = newPaashup.replace(/^__https?:\\/\\//, \"\").replace(/^_+|_+$/g, \"\");\n    const [domain, suffix] = cleaned.split(\"__\");\n    option.text = domain.split(\".\")[0] + \"-\" + suffix;\n    option.value=newPaashup;\n    select.appendChild(option);\n    option.selected = true;\n  }\n  document.getElementById('notif').innerHTML=\"Saved\";\n  document.getElementById('notif').style.backgroundColor='lightgreen';\n  change(false);\n}\n\nfunction change(notif = true) {\n  const id=select.value;\n  const stored=localStorage.getItem(id);\n  if ( !stored) return;\n  if (notif) {\n    document.getElementById('notif').innerHTML='<font color=\"grey\">Welcome !</font>';\n    document.getElementById('notif').style.backgroundColor='lightblue';\n  }\n  const data=JSON.parse(stored);\n\n  for (let i of [\"c_\", \"r_\", \"u_\", \"d_\"]) {\n    if (document.getElementById(i + \"netbox\")) document.getElementById(i + \"netbox\").value=data.netbox || \"\";\n    if (document.getElementById(i + \"token\")) document.getElementById(i + \"token\").value=data.token || \"\";\n    if (document.getElementById(i + \"hostname\")) document.getElementById(i + \"hostname\").value=data.hostname || \"\";\n    if (document.getElementById(i + \"image\")) document.getElementById(i + \"image\").value=data.image || \"\";\n    if (document.getElementById(i + \"delay\")) document.getElementById(i + \"delay\").value=data.delay || \"10000\";\n  }\n}\n\nif (select.selectedIndex >=0) change();",
+        "output": "str",
+        "x": 450,
+        "y": 200,
+        "wires": [
+            [
+                "6a64612e5f25402e"
+            ]
+        ]
+    },
+    {
+        "id": "16de60909bfa2c52",
+        "type": "http in",
+        "z": "6a2996a3259d440a",
+        "name": "",
+        "url": "/js/main.js",
+        "method": "get",
+        "upload": false,
+        "skipBodyParsing": false,
+        "swaggerDoc": "",
+        "x": 220,
+        "y": 200,
+        "wires": [
+            [
+                "29d9459557bf63de"
+            ]
+        ]
+    },
+    {
+        "id": "6a64612e5f25402e",
+        "type": "http response",
+        "z": "6a2996a3259d440a",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "content-type": "text/javascript "
+        },
+        "x": 650,
+        "y": 200,
+        "wires": []
     },
     {
         "id": "f05b71c9da3eac07",

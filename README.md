@@ -10,5 +10,5 @@ docker run -d -v netbox-docker-image-upgrade:/data -p 1880:1880 --name netbox-do
 # Contribute 
 
 ```
-node-red -s settings_dev.js
+DATAPATH=. node-red -s settings_dev.js
 ```
