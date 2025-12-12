@@ -101,6 +101,59 @@ for (let i=0; i < localStorage.length; i++) {
   select.appendChild(option);
 }
 
+function exportLocalStorage() {
+  const data = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key.startsWith("__")) {
+      data[key] = localStorage.getItem(key);
+    }
+  }
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "localstorage_export.json";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+
+function importLocalStorage(json) {
+  const data = JSON.parse(json);
+  for (const key in data) {
+    if (key.startsWith("__")) {
+      localStorage.setItem(key, data[key]);
+    }
+  }
+  alert("Import complete!");
+  for (let i=0; i < localStorage.length; i++) {
+    let key = localStorage.key(i);
+    if ( !key.startsWith ("__")) continue;
+    const value=localStorage.getItem(key);
+
+    const option=document.createElement("option");
+    option.value = key;
+    key = key.replace(/^__/g, "");
+    option.text = key;
+    select.appendChild(option);
+  }
+  change();
+}
+
+document.getElementById("exportBtn").onclick = exportLocalStorage;
+
+document.getElementById("importBtn").onclick = function () {
+  const fileInput = document.getElementById("importFile");
+  if (!fileInput.files.length) {
+    alert("Please select a JSON file first.");
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (event) => importLocalStorage(event.target.result);
+  reader.readAsText(fileInput.files[0]);
+};
+
 function remove() {
   document.getElementById('notif').innerHTML="Deleted";
   document.getElementById('notif').style.backgroundColor='lightred';
@@ -132,9 +185,10 @@ function test() {
   });
 }
 
-function save() {
+function save(newsave = true) {
   let update=true;
   let newPaashup="__"+document.getElementById(current + "netbox").value+"__"+document.getElementById(current + "hostname").value;
+  if (!newsave) newPaashup = selected;
   let oldPaashup = JSON.parse(localStorage.getItem(newPaashup));
   if (oldPaashup) update=false;
   const data= {

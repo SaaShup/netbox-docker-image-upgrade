@@ -98,6 +98,14 @@ input[type="text"] {
   align-items: center;
 }
 
+.btn-bar {
+  margin: 8px;
+  padding: 0px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
 .menu {
   color: white;
   text-decoration: none;
