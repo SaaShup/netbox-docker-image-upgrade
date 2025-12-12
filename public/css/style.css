@@ -64,6 +64,10 @@ input[type="text"] {
   background-color: #0495c9;
 }
 
+.btn-test {
+  background-color: #008800;
+}
+
 .btn-edit {
   background-color: #FFC107;
 }

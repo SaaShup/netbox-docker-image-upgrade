@@ -113,6 +113,23 @@ function remove() {
   change();
 }
 
+function test() {
+  fetch(document.getElementById(current + "netbox").value + '/api/info', {
+    method: 'GET',
+    headers: {
+        'Accept': 'application/json',
+        'Authorization': 'Token ' + document.getElementById(current + "token")
+    }
+  })
+  .then(response => response.json())
+  .then(data => {
+        alert("Success");
+  })
+  .catch(error => {
+      alert('Error')
+  });
+}
+
 function save() {
   let update=true;
   let newPaashup="__"+document.getElementById(current + "netbox").value+"__"+document.getElementById(current + "hostname").value;
