@@ -114,16 +114,18 @@ function remove() {
 }
 
 function test() {
-  fetch(document.getElementById(current + "netbox").value + '/api/info', {
+  fetch(document.getElementById(current + "netbox").value + '/api/plugins/docker/hosts/?name=' + document.getElementById(current + "hostname").value, {
     method: 'GET',
     headers: {
         'Accept': 'application/json',
-        'Authorization': 'Token ' + document.getElementById(current + "token")
+        'Authorization': 'Token ' + document.getElementById(current + "token").value
     }
   })
   .then(response => response.json())
   .then(data => {
+      if ('count' in data && data.count == 1)
         alert("Success");
+      else alert('Error');
   })
   .catch(error => {
       alert('Error')
