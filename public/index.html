@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Manage Instance Paashup</title>
+    <link rel="icon" href="saashup_logo.svg">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+    <nav style="background-color: #333; padding:10px;">
+        <ul style="list-style: none; margin: 0; padding: 0; display: flex;">
+            <li><a href="#" class="menu" id="menu_create" style="color: grey;">Create</a></li>
+            <li><a href="#" class="menu" id="menu_recreate" style="color: grey;">Upgrade</a></li>
+            <li><a href="#" class="menu" id="menu_restart" style="color: grey;">Restart</a></li>
+            <li><a href="#" class="menu" id="menu_delete" style="color: grey;">Delete</a></li>
+        </ul>
+    </nav>
+    <div class="notif" id="notif" style="font-size: x-large;">
+       Welcome !
+    </div>
+    <div width="100%" style="display: flex;">
+        <div>
+            <div class="notif">
+                <input type="button" class="btn btn-save" value="Save" onclick="save();">
+            </div>
+        </div>
+        <div>
+            <div class="notif">
+                <select class="btn" id="list" style="color:black; min-width: 300px;" onchange="change();"></select>
+            </div>
+        </div>
+        <div>
+            <div class="notif">
+                <input type="button" class="btn btn-edit" value="Rename" onclick="rename();">
+            </div>
+        </div>
+        <div>
+            <div class="notif">
+                <input type="button" class="btn btn-delete" value="Delete" onclick="remove();">
+            </div>
+        </div>
+    </div>
+
+    <div class="form-container" id="create">
+        <form action="/create" method="get">
+            <div class="form-group">
+                <label for="netbox">Netbox URL</label>
+                <input type="text" value="" id="c_netbox" name="netbox">
+            </div>
+
+            <div class="form-group">
+                <label for="token">Netbox Token</label>
+                <input type="text" value="" id="c_token" name="token">
+            </div>
+
+            <div class="form-group">
+                <label for="hostname">Host</label>
+                <input type="text" value="" id="c_hostname" name="hostname">
+            </div>
+
+            <div class="form-group">
+                <label for="network">Network</label>
+                <input type="text" value="" id="c_network" name="network">
+            </div>
+
+            <div class="form-group">
+                <label for="instance">Instance Name</label>
+                <input type="text" value="" id="c_instance" name="instance">
+            </div>
+
+            <div class="form-group">
+                <table width="100%" align="center">
+                    <tr align="center">
+                        <td width="25%">
+                            <label for="var_env_key">Env Variable Name</label>
+                        </td>
+                        <td width="25%">
+                            <input type="text" value="" id="c_var_env_key" name="var_env_key">
+                        </td>
+                        <td width="25%">
+                            <label for="var_env_value">Env Variable Value</label>
+                        </td>
+                        <td width="25%">
+                            <input type="text" value="" id="c_var_env_value" name="var_env_value">
+                        </td>
+                    </tr>
+                </table>
+            </div>
+
+            <div class="form-group">
+                <label for="image">Image Name</label>
+                <input type="text" value="" id="c_image" name="image">
+            </div>
+
+            <div class="form-group">
+                <label for="oldversion">Version</label>
+                <input type="text" value="" id="c_version" name="version">
+            </div>
+
+            <input type="submit" class="btn btn-upgrade" value="Create">
+    </div>
+    </form>
+    </div>
+
+    <div class="form-container" id="recreate" style="display: none;">
+        <form action="/recreate" method="get">
+            <div class="form-group">
+                <label for="netbox">Netbox URL</label>
+                <input type="text" value="" id="u_netbox" name="netbox">
+            </div>
+
+            <div class="form-group">
+                <label for="token">Netbox Token</label>
+                <input type="text" value="" id="u_token" name="token">
+            </div>
+
+            <div class="form-group">
+                <label for="hostname">Host</label>
+                <input type="text" value="" id="u_hostname" name="hostname">
+            </div>
+
+            <div class="form-group">
+                <label for="image">Image Name</label>
+                <input type="text" value="" id="u_image" name="image">
+            </div>
+
+            <div class="form-group">
+                <label for="oldversion">Old Version</label>
+                <input type="text" value="" id="u_oldversion" name="oldversion">
+            </div>
+
+            <div class="form-group">
+                <label for="version">New Version</label>
+                <input type="text" value="" id="u_version" name="version">
+            </div>
+
+            <div class="form-group">
+                <label for="version">Delay (ms)</label>
+                <input type="text" value="" id="u_delay" name="delay">
+            </div>
+
+            <input type="submit" class="btn btn-upgrade" value="Recreate">
+    </div>
+    </form>
+    </div>
+
+    <div class="form-container" id="restart" style="display: none;">
+        <form action="/restart" method="get">
+            <div class="form-group">
+                <label for="netbox">Netbox URL</label>
+                <input type="text" value="" id="r_netbox" name="netbox">
+            </div>
+
+            <div class="form-group">
+                <label for="token">Netbox Token</label>
+                <input type="text" value="" id="r_token" name="token">
+            </div>
+
+            <div class="form-group">
+                <label for="hostname">Host</label>
+                <input type="text" value="" id="r_hostname" name="hostname">
+            </div>
+
+            <div class="form-group">
+                <label for="image">Image Name</label>
+                <input type="text" value="" id="r_image" name="image">
+            </div>
+
+            <div class="form-group">
+                <label for="oldversion">Version</label>
+                <input type="text" value="" id="r_oldversion" name="oldversion">
+            </div>
+
+            <div class="form-group">
+                <label for="version">Delay (ms)</label>
+                <input type="text" value="" id="r_delay" name="delay">
+            </div>
+
+            <input type="submit" class="btn btn-upgrade" value="Restart">
+    </div>
+    </form>
+    </div>
+
+    <div class="form-container" id="delete" style="display: none;">
+        <form action="/delete" method="get">
+            <div class="form-group">
+                <label for="netbox">Netbox URL</label>
+                <input type="text" value="" id="d_netbox" name="netbox">
+            </div>
+
+            <div class="form-group">
+                <label for="token">Netbox Token</label>
+                <input type="text" value="" id="d_token" name="token">
+            </div>
+
+            <div class="form-group">
+                <label for="hostname">Host</label>
+                <input type="text" value="" id="d_hostname" name="hostname">
+            </div>
+
+            <div class="form-group">
+                <label for="image">Instance Name</label>
+                <input type="text" value="" id="d_instance" name="instance">
+            </div>
+
+            <input type="submit" class="btn btn-upgrade" value="Delete">
+        </form>
+    </div>
+
+    <script src="js/main.js"> </script>
+</body>
+
+</html>

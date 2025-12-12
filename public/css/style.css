@@ -1,0 +1,102 @@
+body {
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #f4f6f9;
+  margin: 40px;
+}
+
+.form-container {
+  background-color: #ffffff;
+  padding: 30px 40px;
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+}
+
+.form-container h2 {
+  margin-top: 0;
+  margin-bottom: 20px;
+  font-size: 24px;
+  color: #333;
+  text-align: center;
+}
+
+.form-group {
+  margin-bottom: 15px;
+}
+
+label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 500;
+  color: #555;
+}
+
+input[type="text"] {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  box-sizing: border-box;
+  font-size: 14px;
+}
+
+.button-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  color: white;
+}
+
+.btn-delete {
+  background-color: #bb0000;
+}
+
+.btn-save {
+  background-color: #0495c9;
+}
+
+.btn-edit {
+  background-color: #FFC107;
+}
+
+.btn-save:hover {
+  background-color: #357ebd;
+}
+
+.btn-upgrade {
+  background-color: #dc3545;
+}
+
+.btn-upgrade:hover {
+  background-color: #a71d2a;
+}
+
+.notif {
+  border: 2px;
+  border-radius: 8px;
+  background-color: lightblue;
+  border-color: black;
+  color: black;
+  font-weight: bold;
+  margin: 8px;
+  padding: 8px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.menu {
+  color: white;
+  text-decoration: none;
+  padding: 8px 12px;
+  display: block;
+}
