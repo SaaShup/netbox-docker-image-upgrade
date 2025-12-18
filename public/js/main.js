@@ -167,15 +167,20 @@ function remove() {
 }
 
 function test() {
-  fetch(document.getElementById(current + "netbox").value + '/api/plugins/docker/hosts/?name=' + document.getElementById(current + "hostname").value, {
-    method: 'GET',
+  fetch('/test', {
+    method: 'POST',
     headers: {
         'Accept': 'application/json',
-        'Authorization': 'Token ' + document.getElementById(current + "token").value
-    }
+    },
+    body: JSON.stringify({
+      "netbox": document.getElementById(current + "netbox").value,
+      "hostname": document.getElementById(current + "hostname").value,
+      "token": document.getElementById(current + "token").value
+    })
   })
   .then(response => response.json())
   .then(data => {
+    console.log(data);
       if ('count' in data && data.count == 1)
         alert("Success");
       else alert('Error');
@@ -254,6 +259,19 @@ function change(notif = true) {
   }
 }
 
+async function getLogs() {
+  try {
+      const response = await fetch("logs?last=true");
+      if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.text();
+      document.getElementById("logs").innerHTML = data;
+  } catch (err) {
+      console.error('Error fetching logs:', err);
+  }
+}
+
 if (select.selectedIndex >= 0) {
   if (selected != "") {
     for (const option of select.options) {
@@ -265,3 +283,6 @@ if (select.selectedIndex >= 0) {
   }
   change(false);
 }
+
+getLogs();
+setInterval(getLogs, 1000);
