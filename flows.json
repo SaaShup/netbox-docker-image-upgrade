@@ -32,6 +32,14 @@
         "env": []
     },
     {
+        "id": "21d6665eb37042e8",
+        "type": "tab",
+        "label": "MGMT",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
         "id": "d760e52dca2de1e8",
         "type": "subflow",
         "name": "Subflow 1",
@@ -1411,7 +1419,9 @@
         "x": 1110,
         "y": 540,
         "wires": [
-            []
+            [
+                "090a84d8dfd47125"
+            ]
         ]
     },
     {
@@ -1578,33 +1588,8 @@
         "wires": [
             [
                 "9d7a8062c6f83014",
-                "bfb586da4d7113d1"
+                "3ddef8030d0b6ef5"
             ]
-        ]
-    },
-    {
-        "id": "bfb586da4d7113d1",
-        "type": "change",
-        "z": "a0840e5d7cd65ea0",
-        "name": "",
-        "rules": [
-            {
-                "t": "set",
-                "p": "payload",
-                "pt": "msg",
-                "to": "{}",
-                "tot": "json"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 1060,
-        "y": 360,
-        "wires": [
-            []
         ]
     },
     {
@@ -1801,6 +1786,84 @@
         "wires": []
     },
     {
+        "id": "3ddef8030d0b6ef5",
+        "type": "change",
+        "z": "a0840e5d7cd65ea0",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" RECREATE  : \" & $string($count(msg.payload)) & \"<br>\" & msg.logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1100,
+        "y": 400,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "090a84d8dfd47125",
+        "type": "change",
+        "z": "a0840e5d7cd65ea0",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" RECREATE  : \" & $string(msg.payload.display) & \" \" & msg.statusCode & \"<br>\" & msg.logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1300,
+        "y": 540,
+        "wires": [
+            []
+        ]
+    },
+    {
         "id": "d9c660c69caba97c",
         "type": "http in",
         "z": "47309e7eb1ed7972",
@@ -1808,7 +1871,6 @@
         "url": "/restart",
         "method": "get",
         "upload": false,
-        "skipBodyParsing": false,
         "swaggerDoc": "",
         "x": 190,
         "y": 180,
@@ -2190,7 +2252,9 @@
         "x": 790,
         "y": 480,
         "wires": [
-            []
+            [
+                "83a533c9ce37c823"
+            ]
         ]
     },
     {
@@ -2325,8 +2389,8 @@
         "arraySpltType": "len",
         "stream": false,
         "addname": "",
-        "x": 1170,
-        "y": 400,
+        "x": 130,
+        "y": 480,
         "wires": [
             [
                 "83ec24b3be755314"
@@ -2363,8 +2427,9 @@
         "y": 400,
         "wires": [
             [
-                "38b25596b8879610",
-                "96e3b644172be37e"
+                "96e3b644172be37e",
+                "6af54db44072d8c8",
+                "8f40c26a58d47965"
             ]
         ]
     },
@@ -2464,6 +2529,109 @@
         "x": 400,
         "y": 120,
         "wires": []
+    },
+    {
+        "id": "83a533c9ce37c823",
+        "type": "change",
+        "z": "47309e7eb1ed7972",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" RESTART  : \" & $string(msg.payload.display) & \" \" & msg.statusCode & \"<br>\" & msg.logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1000,
+        "y": 480,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "6af54db44072d8c8",
+        "type": "change",
+        "z": "47309e7eb1ed7972",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" RESTART  : \" & $string($count(msg.payload)) & \"<br>\" & msg.logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1200,
+        "y": 360,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "8f40c26a58d47965",
+        "type": "delay",
+        "z": "47309e7eb1ed7972",
+        "name": "",
+        "pauseType": "delay",
+        "timeout": "2",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 1180,
+        "y": 400,
+        "wires": [
+            [
+                "38b25596b8879610"
+            ]
+        ]
     },
     {
         "id": "444d125462e30efe",
@@ -3163,6 +3331,404 @@
         "wires": [
             [
                 "ce466fc9782d3b86"
+            ]
+        ]
+    },
+    {
+        "id": "7d8824d42f0b1752",
+        "type": "http in",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "url": "/test",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 140,
+        "y": 100,
+        "wires": [
+            [
+                "cd6d824315922ceb"
+            ]
+        ]
+    },
+    {
+        "id": "e992ee6eb7559901",
+        "type": "http response",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 930,
+        "y": 100,
+        "wires": []
+    },
+    {
+        "id": "cd6d824315922ceb",
+        "type": "json",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "property": "payload",
+        "action": "",
+        "pretty": false,
+        "x": 310,
+        "y": 100,
+        "wires": [
+            [
+                "20461edbf6653a39"
+            ]
+        ]
+    },
+    {
+        "id": "82ae9ffa34434352",
+        "type": "http request",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 730,
+        "y": 100,
+        "wires": [
+            [
+                "e992ee6eb7559901",
+                "9322fc637b3ddea0"
+            ]
+        ]
+    },
+    {
+        "id": "20461edbf6653a39",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.payload.netbox & \"/api/plugins/docker/hosts/?name=\" & msg.payload.hostname\t",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\t   \"Authorization\": \"Token \" & msg.payload.token,\t   \"Accept\": \"application/json\"\t}",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "rejectUnauthorized",
+                "pt": "msg",
+                "to": "false",
+                "tot": "bool"
+            },
+            {
+                "t": "set",
+                "p": "input",
+                "pt": "msg",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 500,
+        "y": 100,
+        "wires": [
+            [
+                "82ae9ffa34434352"
+            ]
+        ]
+    },
+    {
+        "id": "d3055430fe5f774c",
+        "type": "http in",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "url": "/logs",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 140,
+        "y": 260,
+        "wires": [
+            [
+                "443460d30d26adbc"
+            ]
+        ]
+    },
+    {
+        "id": "4cb1f7781eae6e5b",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 600,
+        "y": 360,
+        "wires": [
+            [
+                "2545a966a84f9381"
+            ]
+        ]
+    },
+    {
+        "id": "2545a966a84f9381",
+        "type": "http response",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 1190,
+        "y": 280,
+        "wires": []
+    },
+    {
+        "id": "9322fc637b3ddea0",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" TEST  : \" & $string(msg.input) & \" \" & msg.statusCode & \"<br>\" & msg.logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 940,
+        "y": 180,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "443460d30d26adbc",
+        "type": "switch",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "property": "req.query",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "hask",
+                "v": "last",
+                "vt": "str"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 310,
+        "y": 260,
+        "wires": [
+            [
+                "cbfea97cbcf6167f"
+            ],
+            [
+                "4cb1f7781eae6e5b"
+            ]
+        ]
+    },
+    {
+        "id": "cbfea97cbcf6167f",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$split(msg.payload, /<br>/)[0]",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 520,
+        "y": 240,
+        "wires": [
+            [
+                "d2b29dd41f01f36b"
+            ]
+        ]
+    },
+    {
+        "id": "6b332cda48996404",
+        "type": "inject",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "60",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 170,
+        "y": 480,
+        "wires": [
+            [
+                "f109f382a72456d7"
+            ]
+        ]
+    },
+    {
+        "id": "f109f382a72456d7",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$join($filter($split($string(payload), \"<br>\"), function($v, $i) { $i < 500 }),\"<br>\") & \"<br>\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 400,
+        "y": 480,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "d2b29dd41f01f36b",
+        "type": "switch",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "property": "$millis() - (msg.payload ~> $substring(0, 24) ~> $toMillis())",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "lt",
+                "v": "2200",
+                "vt": "num"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 710,
+        "y": 240,
+        "wires": [
+            [
+                "2545a966a84f9381"
+            ],
+            [
+                "cb0189dbe7b882ec"
+            ]
+        ]
+    },
+    {
+        "id": "cb0189dbe7b882ec",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "&nbsp;<br>",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 740,
+        "y": 300,
+        "wires": [
+            [
+                "2545a966a84f9381"
             ]
         ]
     }
