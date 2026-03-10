@@ -848,7 +848,7 @@
                 "t": "set",
                 "p": "payload",
                 "pt": "msg",
-                "to": "[\t   {\t       \"id\": msg.container.id,\t       \"host\": msg.host_id,\t       \"network_settings\": [\t           {\t               \"network\": {\t                   \"host\": msg.host_id,\t                   \"name\": msg.network      \t               }    \t           }  \t       ],\t       \"mounts\": [\t           {\t               \"source\": \"/app/data\",\t               \"volume\": {\t                   \"name\": msg.instanceShort & \"-data\"      \t               },\t               \"read_only\": false    \t           }  \t       ],\t       \"env\": [\t           {\t               \"var_name\": msg.var_env_key,\t               \"value\": msg.var_env_value    \t           }  \t       ],\t       \"labels\": [\t           {\t               \"key\": \"traefik.enable\",\t               \"value\": \"true\"    \t           },\t           {\t               \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".rule\",\t               \"value\": \"Host(`\" & msg.instance & \"`)\"    \t           },\t           {\t               \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".entrypoints\",\t               \"value\": \"http\"   \t           },\t           {\t               \"key\": \"traefik.http.services.\" & msg.instanceShort & \".loadbalancer.server.port\",\t               \"value\": \"3000\"    \t           },\t           {\t               \"key\": \"traefik.http.middlewares.\" & msg.instanceShort &\t               \".ipallowlist.sourcerange\",\t               \"value\": \"173.245.48.0/20, 103.21.244.0/22, 103.22.200.0/22, 103.31.4.0/22, 141.101.64.0/18, 108.162.192.0/18, 190.93.240.0/20, 188.114.96.0/20, 197.234.240.0/22, 198.41.128.0/17, 162.158.0.0/15, 104.16.0.0/13, 104.24.0.0/14, 172.64.0.0/13, 131.0.72.0/22, 2400:cb00::/32, 2606:4700::/32, 2803:f800::/32, 2405:b500::/32, 2405:8100::/32, 2a06:98c0::/29, 2c0f:f248::/32\"    \t           },\t           {\t               \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".middlewares\",\t               \"value\": msg.instanceShort & \"@docker\"    \t           }  \t       ]\t   }\t]",
+                "to": "[\t   {\t       \"id\": msg.container.id,\t       \"host\": msg.host_id,\t       \"network_settings\": [\t           {\t               \"network\": {\t                   \"host\": msg.host_id,\t                   \"name\": msg.network      \t               }    \t           }  \t       ],\t       \"mounts\": [\t           {\t               \"source\": \"/app/data\",\t               \"volume\": {\t                   \"name\": msg.instanceShort & \"-data\"      \t               },\t               \"read_only\": false    \t           }  \t       ],\t       \"env\": [\t           {\t               \"var_name\": msg.var_env_key,\t               \"value\": msg.var_env_value    \t           }  \t       ],\t       \"labels\": [\t           {\t               \"key\": \"traefik.enable\",\t               \"value\": \"true\"    \t           },\t           {\t               \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".rule\",\t               \"value\": \"Host(`\" & msg.instance & \"`)\"    \t           },\t           {\t               \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".entrypoints\",\t               \"value\": \"http\"   \t           },\t           {\t               \"key\": \"traefik.http.services.\" & msg.instanceShort & \".loadbalancer.server.port\",\t               \"value\": \"3000\"    \t           },\t            {\t               \"key\": \"traefik.http.middlewares.\" & msg.instanceShort,\t               \"value\": \"force-https-header\"    \t           },\t           {\t               \"key\": \"traefik.http.middlewares.force-https-header.headers.customrequestheaders.X-Forwarded-Proto\",\t               \"value\": \"https\"\t           },\t           {\t               \"key\": \"traefik.http.middlewares.\" & msg.instanceShort & \".ipallowlist.sourcerange\",\t               \"value\": \"173.245.48.0/20, 103.21.244.0/22, 103.22.200.0/22, 103.31.4.0/22, 141.101.64.0/18, 108.162.192.0/18, 190.93.240.0/20, 188.114.96.0/20, 197.234.240.0/22, 198.41.128.0/17, 162.158.0.0/15, 104.16.0.0/13, 104.24.0.0/14, 172.64.0.0/13, 131.0.72.0/22, 2400:cb00::/32, 2606:4700::/32, 2803:f800::/32, 2405:b500::/32, 2405:8100::/32, 2a06:98c0::/29, 2c0f:f248::/32\"    \t           },\t           {\t               \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".middlewares\",\t               \"value\": msg.instanceShort & \"@docker\"    \t           }  \t       ]\t   }\t]",
                 "tot": "jsonata"
             },
             {
@@ -3631,7 +3631,7 @@
         "y": 480,
         "wires": [
             [
-                "f109f382a72456d7"
+                "50244a7fd09e2224"
             ]
         ]
     },
@@ -3668,8 +3668,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 400,
-        "y": 480,
+        "x": 620,
+        "y": 460,
         "wires": [
             []
         ]
@@ -3730,6 +3730,33 @@
             [
                 "2545a966a84f9381"
             ]
+        ]
+    },
+    {
+        "id": "50244a7fd09e2224",
+        "type": "switch",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "property": "logs",
+        "propertyType": "global",
+        "rules": [
+            {
+                "t": "nempty"
+            },
+            {
+                "t": "empty"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 410,
+        "y": 480,
+        "wires": [
+            [
+                "f109f382a72456d7"
+            ],
+            []
         ]
     }
 ]
