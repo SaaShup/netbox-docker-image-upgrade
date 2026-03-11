@@ -15,6 +15,7 @@
             <li><a href="#" class="menu" id="menu_recreate" style="color: grey;">Upgrade</a></li>
             <li><a href="#" class="menu" id="menu_restart" style="color: grey;">Restart</a></li>
             <li><a href="#" class="menu" id="menu_delete" style="color: grey;">Delete</a></li>
+            <li><a href="#" class="menu" id="menu_webhook" style="color: grey;">Webhook</a></li>
         </ul>
     </nav>
     <div class="notif" id="notif" style="font-size: x-large;">
@@ -222,6 +223,21 @@
             </div>
 
             <input type="submit" class="btn btn-upgrade" value="Delete">
+        </form>
+    </div>
+
+    <div class="form-container" id="webhook" style="display: none;">
+        <form action="/webhook" method="get">
+            <div class="form-group">
+                <label for="netbox">Netbox URL</label>
+                <input type="text" value="" id="w_netbox" name="netbox">
+            </div>
+
+            <div class="form-group">
+                <label for="token">Netbox Token</label>
+                <input type="text" value="" id="w_token" name="token">
+            </div>
+            <input type="submit" class="btn btn-save" value="Save">
         </form>
     </div>
 

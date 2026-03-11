@@ -6,56 +6,57 @@ var current = "c_";
 var selected = localStorage.getItem("selected") || "";
 if (localStorage.getItem("current_page")) current = localStorage.getItem("current_page");
 
-document.getElementById('menu_create').onclick=function() {
-  current="c_";
-  localStorage.setItem("current_page", current);
-  document.getElementById('create').style.display='block';
+function menu_clear() {
+  document.getElementById('create').style.display='none';
   document.getElementById('recreate').style.display='none';
   document.getElementById('restart').style.display='none';
   document.getElementById('delete').style.display='none';
-  document.getElementById('menu_create').style.color='white';
+  document.getElementById('webhook').style.display='none';
+  document.getElementById('menu_create').style.color='grey';
   document.getElementById('menu_recreate').style.color='grey';
   document.getElementById('menu_restart').style.color='grey';
   document.getElementById('menu_delete').style.color='grey';
+  document.getElementById('menu_webhook').style.color='grey';
+}
+
+document.getElementById('menu_create').onclick=function() {
+  current="c_";
+  localStorage.setItem("current_page", current);
+  menu_clear();
+  document.getElementById('create').style.display='block';
+  document.getElementById('menu_create').style.color='white';
 }
 
 document.getElementById('menu_recreate').onclick=function() {
   current="u_";
   localStorage.setItem("current_page", current);
+  menu_clear();
   document.getElementById('recreate').style.display='block';
-  document.getElementById('restart').style.display='none';
-  document.getElementById('create').style.display='none';
-  document.getElementById('delete').style.display='none';
   document.getElementById('menu_recreate').style.color='white';
-  document.getElementById('menu_create').style.color='grey';
-  document.getElementById('menu_restart').style.color='grey';
-  document.getElementById('menu_delete').style.color='grey';
 }
 
 document.getElementById('menu_restart').onclick=function() {
   current="r_";
   localStorage.setItem("current_page", current);
-  document.getElementById('recreate').style.display='none';
+  menu_clear();
   document.getElementById('restart').style.display='block';
-  document.getElementById('create').style.display='none';
-  document.getElementById('delete').style.display='none';
-  document.getElementById('menu_recreate').style.color='grey';
-  document.getElementById('menu_create').style.color='grey';
   document.getElementById('menu_restart').style.color='white';
-  document.getElementById('menu_delete').style.color='grey';
 }
 
 document.getElementById('menu_delete').onclick=function() {
   current="d_";
   localStorage.setItem("current_page", current);
-  document.getElementById('recreate').style.display='none';
-  document.getElementById('restart').style.display='none';
-  document.getElementById('create').style.display='none';
+  menu_clear();
   document.getElementById('delete').style.display='block';
-  document.getElementById('menu_recreate').style.color='grey';
-  document.getElementById('menu_restart').style.color='grey';
-  document.getElementById('menu_create').style.color='grey';
   document.getElementById('menu_delete').style.color='white';
+}
+
+document.getElementById('menu_webhook').onclick=function() {
+  current="w_";
+  localStorage.setItem("current_page", current);
+  menu_clear();
+  document.getElementById('webhook').style.display='block';
+  document.getElementById('menu_webhook').style.color='white';
 }
 
 if (action) {
@@ -75,6 +76,8 @@ switch(current) {
   case "r_":  document.getElementById('menu_restart').click();
               break;
   case "d_":  document.getElementById('menu_delete').click();
+              break;
+  case "w_":  document.getElementById('menu_webhook').click();
               break;
 }
 
@@ -180,7 +183,6 @@ function test() {
   })
   .then(response => response.json())
   .then(data => {
-    console.log(data);
       if ('count' in data && data.count == 1)
         alert("Success");
       else alert('Error');
@@ -283,6 +285,21 @@ if (select.selectedIndex >= 0) {
   }
   change(false);
 }
+
+  fetch('/config', {
+    method: 'GET',
+    headers: {
+        'Accept': 'application/json',
+    },
+  })
+  .then(response => response.json())
+  .then(data => {
+    document.getElementById("w_netbox").value = data.netbox;
+    document.getElementById("w_token").value = data.token;
+  })
+  .catch(error => {
+      alert('Error')
+  });
 
 getLogs();
 setInterval(getLogs, 1000);
