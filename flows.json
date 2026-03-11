@@ -3182,7 +3182,7 @@
         "name": "",
         "statusCode": "302",
         "headers": {
-            "location": "/?action=Delete%20Requested"
+            "location": "/?action=Webhook%20Requested"
         },
         "x": 400,
         "y": 60,

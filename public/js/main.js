@@ -264,7 +264,7 @@ function change(notif = true) {
 async function getLogs() {
   try {
       const response = await fetch("logs?last=true");
-      if (!response.ok) {
+      if (!response.ok && response.status !== 304) {
           throw new Error(`HTTP error! status: ${response.status}`);
       }
       const data = await response.text();
