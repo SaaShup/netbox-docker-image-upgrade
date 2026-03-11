@@ -264,7 +264,8 @@ function change(notif = true) {
 async function getLogs() {
   try {
       const response = await fetch("logs?last=true");
-      if (!response.ok && response.status !== 304) {
+      if (!response.ok) {
+        console.log(response.status)
           throw new Error(`HTTP error! status: ${response.status}`);
       }
       const data = await response.text();
@@ -294,8 +295,11 @@ if (select.selectedIndex >= 0) {
   })
   .then(response => response.json())
   .then(data => {
-    document.getElementById("w_netbox").value = data.netbox;
-    document.getElementById("w_token").value = data.token;
+    console.log(data)
+    if (data) {
+      document.getElementById("w_netbox").value = data.netbox;
+      document.getElementById("w_token").value = data.token;
+    }
   })
   .catch(error => {
       alert('Error')

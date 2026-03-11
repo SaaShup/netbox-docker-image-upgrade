@@ -3254,7 +3254,7 @@
         "y": 200,
         "wires": [
             [
-                "743050cd7a1341c2"
+                "74332de3cfd7969a"
             ]
         ]
     },
@@ -3265,7 +3265,7 @@
         "name": "",
         "statusCode": "",
         "headers": {},
-        "x": 650,
+        "x": 870,
         "y": 200,
         "wires": []
     },
@@ -3314,6 +3314,62 @@
         "x": 440,
         "y": 340,
         "wires": []
+    },
+    {
+        "id": "74332de3cfd7969a",
+        "type": "switch",
+        "z": "15790c4c601c21e4",
+        "name": "",
+        "property": "payload",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "empty"
+            },
+            {
+                "t": "nempty"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 630,
+        "y": 200,
+        "wires": [
+            [
+                "f6bae74f2ed8287d"
+            ],
+            [
+                "743050cd7a1341c2"
+            ]
+        ]
+    },
+    {
+        "id": "f6bae74f2ed8287d",
+        "type": "change",
+        "z": "15790c4c601c21e4",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "{}",
+                "tot": "json"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 780,
+        "y": 140,
+        "wires": [
+            [
+                "743050cd7a1341c2"
+            ]
+        ]
     },
     {
         "id": "7d8824d42f0b1752",
