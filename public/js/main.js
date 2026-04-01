@@ -294,8 +294,10 @@ if (select.selectedIndex >= 0) {
   })
   .then(response => response.json())
   .then(data => {
-    document.getElementById("w_netbox").value = data.netbox;
-    document.getElementById("w_token").value = data.token;
+    if (data) {
+      document.getElementById("w_netbox").value = data.netbox;
+      document.getElementById("w_token").value = data.token;
+    }
   })
   .catch(error => {
       alert('Error')
