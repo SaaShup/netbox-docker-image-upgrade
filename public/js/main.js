@@ -3,6 +3,7 @@ const actionFromUrl = urlParams.get("action");
 
 const form = document.getElementById("instanceForm");
 const submitBtn = document.getElementById("submitBtn");
+const restartInstanceBtn = document.getElementById("restartInstanceBtn");
 const formTitle = document.getElementById("form-title");
 const formDescription = document.getElementById("form-description");
 const envList = document.getElementById("envList");
@@ -11,12 +12,16 @@ const instanceOptions = document.getElementById("instanceOptions");
 const refreshInstancesBtn = document.getElementById("refreshInstancesBtn");
 const imageOptions = document.getElementById("imageOptions");
 const oldVersionOptions = document.getElementById("oldVersionOptions");
+const restartVersionOptions = document.getElementById("restartVersionOptions");
 const refreshImagesBtn = document.getElementById("refreshImagesBtn");
+const logsCard = document.getElementById("logsCard");
+const logsFullscreenBtn = document.getElementById("logsFullscreenBtn");
 
 let currentAction = localStorage.getItem("current_action") || "config";
 let noticeTimeout = null;
 let savedConfig = {};
 let imageRecords = [];
+let lastLogsHtml = "";
 
 const configFields = ["netbox", "token"];
 
@@ -56,10 +61,10 @@ const actions = {
     method: "post",
     menu: "menu_restart",
     title: "Restart containers",
-    description: "Restart containers matching an image and version.",
-    submitLabel: "Restart containers",
+    description: "Restart one container or containers matching an image and version.",
+    submitLabel: "Restart image",
     buttonClass: "btn btn-primary",
-    fields: ["image", "oldversion", "delay"],
+    fields: ["instance", "image", "restart_version", "delay"],
   },
   delete: {
     endpoint: "/delete",
@@ -82,6 +87,7 @@ const allFieldNames = [
   "instance",
   "image",
   "oldversion",
+  "restart_version",
   "version",
   "delay",
   "var_env_key",
@@ -100,6 +106,48 @@ function fieldValue(name, fallback = "") {
 function setFieldValue(name, value = "") {
   const el = field(name);
   if (el) el.value = value || "";
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function formatLogLine(line) {
+  const text = line.replace(/&nbsp;/g, " ").trim();
+  if (!text) return "";
+
+  const match = text.match(/^(.{24})\s+([A-Z]+)\s*:\s*(.*)$/);
+  if (!match) {
+    return `<div class="log-row"><span></span><strong>LOG</strong><span>${escapeHtml(text)}</span><span></span></div>`;
+  }
+
+  const [, time, action, rest] = match;
+  const statusMatch = rest.match(/\s(\d{3})$/);
+  const status = statusMatch ? statusMatch[1] : "";
+  const message = status ? rest.slice(0, -status.length).trim() : rest;
+
+  return [
+    '<div class="log-row">',
+    `<span>${escapeHtml(time.trim())}</span>`,
+    `<strong>${escapeHtml(action)}</strong>`,
+    `<span>${escapeHtml(message)}</span>`,
+    `<span>${escapeHtml(status)}</span>`,
+    '</div>',
+  ].join("");
+}
+
+function formatLogs(logs) {
+  const rows = String(logs || "")
+    .split(/<br\s*\/?>/i)
+    .map(formatLogLine)
+    .filter(Boolean);
+
+  return rows.length ? rows.join("") : "&nbsp;<br>";
 }
 
 function envRows() {
@@ -185,6 +233,11 @@ function setAction(actionName) {
   formDescription.textContent = config.description;
   submitBtn.textContent = config.submitLabel;
   submitBtn.className = config.buttonClass;
+  submitBtn.name = actionName === "restart" ? "restart_mode" : "";
+  submitBtn.value = actionName === "restart" ? "image" : "";
+
+  restartInstanceBtn?.classList.toggle("hidden", actionName !== "restart");
+  if (restartInstanceBtn) restartInstanceBtn.disabled = actionName !== "restart";
 
   const visibleFields = new Set(config.fields);
 
@@ -199,6 +252,18 @@ function setAction(actionName) {
   });
 
   updateEnvRemoveButtons();
+  updateRestartButtons();
+}
+
+function updateRestartButtons() {
+  if (currentAction !== "restart") {
+    submitBtn.disabled = false;
+    if (restartInstanceBtn) restartInstanceBtn.disabled = true;
+    return;
+  }
+
+  submitBtn.disabled = false;
+  if (restartInstanceBtn) restartInstanceBtn.disabled = false;
 }
 
 function clearActionFields() {
@@ -211,6 +276,7 @@ function clearActionFields() {
 
   clearEnvRows();
   setFieldValue("delay", "10000");
+  updateRestartButtons();
   setNotice("Form cleared", "success");
 }
 
@@ -283,16 +349,43 @@ async function saveConfig() {
   const params = new URLSearchParams({ netbox, token });
 
   try {
-    await fetch(`/webhook?${params.toString()}`, {
+    const response = await fetch(`/webhook?${params.toString()}`, {
       method: "GET",
       headers: { Accept: "application/json" },
     });
 
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
     savedConfig = { netbox, token };
-    setNotice("Config saved", "success");
+    setNotice(`Config saved (${response.status})`, "success");
   } catch {
     setNotice("Config save failed", "error");
   }
+}
+
+async function submitAction(config, submitter) {
+  const body = new URLSearchParams(new FormData(form));
+
+  if (submitter?.name) {
+    body.set(submitter.name, submitter.value);
+  }
+
+  const request = {
+    method: config.method.toUpperCase(),
+    headers: { Accept: "application/json" },
+  };
+
+  if (request.method !== "GET") {
+    request.headers["Content-Type"] = "application/x-www-form-urlencoded";
+    request.body = body.toString();
+  }
+
+  const endpoint = request.method === "GET" ? `${config.endpoint}?${body.toString()}` : config.endpoint;
+  const response = await fetch(endpoint, request);
+  const type = response.ok ? "success" : "error";
+  const result = response.ok ? "requested" : "failed";
+
+  setNotice(`${config.title} ${result} (${response.status})`, type);
 }
 
 function instanceNameFromItem(item) {
@@ -365,7 +458,14 @@ function updateOldVersionOptions() {
     .filter(Boolean)))
     .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
 
+  const restartVersion = field("restart_version");
+  if (restartVersion?.value && !versions.includes(restartVersion.value)) {
+    restartVersion.value = "";
+  }
+
   replaceOptions(oldVersionOptions, versions);
+  replaceOptions(restartVersionOptions, versions);
+  updateRestartButtons();
 }
 
 async function refreshImages() {
@@ -401,10 +501,14 @@ async function refreshImages() {
 
 async function getLogs() {
   try {
-    const response = await fetch("logs?last=true");
+    const response = await fetch("logs");
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-    document.getElementById("logs").innerHTML = await response.text();
+    const logs = await response.text();
+    if (logs !== lastLogsHtml) {
+      lastLogsHtml = logs;
+      document.getElementById("logs").innerHTML = formatLogs(logs);
+    }
   } catch (err) {
     console.error("Error fetching logs:", err);
   }
@@ -432,16 +536,37 @@ addEnvBtn?.addEventListener("click", () => {
 
 form.addEventListener("submit", (event) => {
   const config = actions[currentAction];
+  event.preventDefault();
 
   if (currentAction === "config") {
-    event.preventDefault();
     saveConfig();
     return;
   }
 
-  if (config?.confirm && !confirm(config.confirm)) {
-    event.preventDefault();
+  if (currentAction === "restart" && event.submitter?.value === "instance" && !fieldValue("instance")) {
+    setNotice("Instance name is required", "error");
+    return;
   }
+
+  if (currentAction === "restart" && event.submitter?.value === "image") {
+    if (!fieldValue("image")) {
+      setNotice("Image name is required", "error");
+      return;
+    }
+
+    if (!fieldValue("restart_version")) {
+      setNotice("Version is required", "error");
+      return;
+    }
+  }
+
+  if (config?.confirm && !confirm(config.confirm)) {
+    return;
+  }
+
+  submitAction(config, event.submitter).catch(() => {
+    setNotice(`${config.title} failed`, "error");
+  });
 });
 
 document.getElementById("testBtn").addEventListener("click", test);
@@ -449,6 +574,15 @@ document.getElementById("clearBtn").addEventListener("click", clearActionFields)
 refreshInstancesBtn?.addEventListener("click", refreshInstances);
 refreshImagesBtn?.addEventListener("click", refreshImages);
 field("image")?.addEventListener("input", updateOldVersionOptions);
+field("restart_version")?.addEventListener("input", updateRestartButtons);
+field("instance")?.addEventListener("input", updateRestartButtons);
+logsFullscreenBtn?.addEventListener("click", () => {
+  const expanded = logsCard?.classList.toggle("fullscreen");
+  if (logsFullscreenBtn) {
+    logsFullscreenBtn.textContent = expanded ? "×" : "⛶";
+    logsFullscreenBtn.setAttribute("aria-pressed", expanded ? "true" : "false");
+  }
+});
 
 if (actionFromUrl) {
   setNotice(actionFromUrl, "success");

@@ -97,6 +97,12 @@
                 <datalist id="oldVersionOptions"></datalist>
               </label>
 
+              <label class="field" data-field="restart_version">
+                <span>Version</span>
+                <input type="text" id="restart_version" name="restart_version" list="restartVersionOptions" placeholder="v1.0.0">
+                <datalist id="restartVersionOptions"></datalist>
+              </label>
+
               <label class="field" data-field="version">
                 <span>Version</span>
                 <input type="text" id="version" name="version" placeholder="v1.1.0">
@@ -121,15 +127,21 @@
             </div>
 
             <div class="form-actions">
+              <button type="submit" class="btn btn-secondary hidden" id="restartInstanceBtn" name="restart_mode" value="instance">Restart instance</button>
               <button type="submit" class="btn btn-primary" id="submitBtn">Save config</button>
             </div>
           </form>
         </div>
 
-        <aside class="card logs-card">
+        <aside class="card logs-card" id="logsCard">
           <div class="card-header">
-            <h3>Activity logs</h3>
-            <p>Latest operations from the Node-RED flow.</p>
+            <div class="card-title-row">
+              <div>
+                <h3>Activity logs</h3>
+                <p>Latest operations</p>
+              </div>
+              <button type="button" class="icon-btn" id="logsFullscreenBtn" title="Toggle fullscreen logs" aria-label="Toggle fullscreen logs">⛶</button>
+            </div>
           </div>
           <div class="logs" id="logs">&nbsp;<br></div>
         </aside>
