@@ -91,14 +91,14 @@
                 "p": "netbox",
                 "pt": "msg",
                 "to": "config.netbox",
-                "tot": "msg"
+                "tot": "global"
             },
             {
                 "t": "set",
                 "p": "token",
                 "pt": "msg",
                 "to": "config.token",
-                "tot": "msg"
+                "tot": "global"
             },
             {
                 "t": "set",
@@ -941,7 +941,7 @@
         "method": "post",
         "upload": false,
         "swaggerDoc": "",
-        "x": 210,
+        "x": 140,
         "y": 140,
         "wires": [
             [
@@ -968,14 +968,14 @@
                 "p": "netbox",
                 "pt": "msg",
                 "to": "config.netbox",
-                "tot": "msg"
+                "tot": "global"
             },
             {
                 "t": "set",
                 "p": "token",
                 "pt": "msg",
                 "to": "config.token",
-                "tot": "msg"
+                "tot": "global"
             },
             {
                 "t": "set",
@@ -1018,106 +1018,12 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 420,
-        "y": 140,
+        "x": 400,
+        "y": 80,
         "wires": [
             [
-                "848837fe325aa97b"
+                "d837a0475dee45dc"
             ]
-        ]
-    },
-    {
-        "id": "848837fe325aa97b",
-        "type": "change",
-        "z": "a0840e5d7cd65ea0",
-        "name": "get hostid",
-        "rules": [
-            {
-                "t": "set",
-                "p": "url",
-                "pt": "msg",
-                "to": "msg.netbox & \"/api/plugins/docker/hosts/?name=\" & msg.hostname",
-                "tot": "jsonata"
-            },
-            {
-                "t": "set",
-                "p": "headers",
-                "pt": "msg",
-                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
-                "tot": "jsonata"
-            },
-            {
-                "t": "set",
-                "p": "rejectUnauthorized",
-                "pt": "msg",
-                "to": "false",
-                "tot": "bool"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 620,
-        "y": 140,
-        "wires": [
-            [
-                "5f226b45fab8dfe5"
-            ]
-        ]
-    },
-    {
-        "id": "5f226b45fab8dfe5",
-        "type": "http request",
-        "z": "a0840e5d7cd65ea0",
-        "name": "",
-        "method": "GET",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 810,
-        "y": 140,
-        "wires": [
-            [
-                "a67048335ae6f4b6"
-            ]
-        ]
-    },
-    {
-        "id": "a67048335ae6f4b6",
-        "type": "switch",
-        "z": "a0840e5d7cd65ea0",
-        "name": "",
-        "property": "payload.count",
-        "propertyType": "msg",
-        "rules": [
-            {
-                "t": "gt",
-                "v": "0",
-                "vt": "num"
-            },
-            {
-                "t": "else"
-            }
-        ],
-        "checkall": "true",
-        "repair": false,
-        "outputs": 2,
-        "x": 990,
-        "y": 140,
-        "wires": [
-            [
-                "3e60e0d59090800a"
-            ],
-            []
         ]
     },
     {
@@ -1128,23 +1034,9 @@
         "rules": [
             {
                 "t": "set",
-                "p": "config.host",
-                "pt": "global",
-                "to": "payload.results[0].id",
-                "tot": "msg"
-            },
-            {
-                "t": "set",
-                "p": "host",
-                "pt": "msg",
-                "to": "config.host",
-                "tot": "global"
-            },
-            {
-                "t": "set",
                 "p": "imageid",
                 "pt": "msg",
-                "to": "payload.results[0].id",
+                "to": "oldimageid",
                 "tot": "msg"
             },
             {
@@ -1174,8 +1066,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 270,
-        "y": 380,
+        "x": 460,
+        "y": 260,
         "wires": [
             [
                 "ebf4cf8587e41ce3"
@@ -1198,8 +1090,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 480,
-        "y": 380,
+        "x": 670,
+        "y": 280,
         "wires": [
             [
                 "798b4e154e88c606"
@@ -1226,8 +1118,8 @@
         "checkall": "true",
         "repair": false,
         "outputs": 2,
-        "x": 680,
-        "y": 380,
+        "x": 870,
+        "y": 280,
         "wires": [
             [
                 "bc5907aebb882d2a"
@@ -1282,8 +1174,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 450,
-        "y": 460,
+        "x": 430,
+        "y": 360,
         "wires": [
             [
                 "a79cb768fa1fd609"
@@ -1306,8 +1198,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 670,
-        "y": 460,
+        "x": 650,
+        "y": 360,
         "wires": [
             [
                 "78be980cee8c08ab"
@@ -1361,8 +1253,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 890,
-        "y": 460,
+        "x": 870,
+        "y": 360,
         "wires": [
             [
                 "cd130deb569e8cb0"
@@ -1385,8 +1277,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 1110,
-        "y": 460,
+        "x": 1090,
+        "y": 360,
         "wires": [
             [
                 "090a84d8dfd47125"
@@ -1403,7 +1295,7 @@
                 "t": "set",
                 "p": "url",
                 "pt": "msg",
-                "to": "msg.netbox & \"/api/plugins/docker/images/?name=\" & msg.image & \"&version=\" & msg.oldversion & \"&host_id=\" & msg.host_id",
+                "to": "msg.netbox & \"/api/plugins/docker/images/?name=\" & msg.image & \"&version=\" & msg.oldversion & \"&limit=200\"",
                 "tot": "jsonata"
             },
             {
@@ -1419,8 +1311,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 160,
-        "y": 320,
+        "x": 620,
+        "y": 80,
         "wires": [
             [
                 "3939693576595bc2"
@@ -1443,8 +1335,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 350,
-        "y": 320,
+        "x": 850,
+        "y": 80,
         "wires": [
             [
                 "4a1bda7b502d8923"
@@ -1459,9 +1351,9 @@
         "rules": [
             {
                 "t": "set",
-                "p": "imageid",
+                "p": "payload",
                 "pt": "msg",
-                "to": "payload.results[0].id",
+                "to": "payload.results",
                 "tot": "msg"
             }
         ],
@@ -1470,11 +1362,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 780,
-        "y": 320,
+        "x": 500,
+        "y": 160,
         "wires": [
             [
-                "6d92be16bf5c58de"
+                "8f600b6e9c76d581"
             ]
         ]
     },
@@ -1487,8 +1379,8 @@
         "propertyType": "msg",
         "rules": [
             {
-                "t": "eq",
-                "v": "1",
+                "t": "gt",
+                "v": "0",
                 "vt": "num"
             },
             {
@@ -1498,8 +1390,8 @@
         "checkall": "true",
         "repair": false,
         "outputs": 2,
-        "x": 590,
-        "y": 320,
+        "x": 1010,
+        "y": 80,
         "wires": [
             [
                 "45e0558750363197"
@@ -1518,8 +1410,8 @@
         "arraySpltType": "len",
         "stream": false,
         "addname": "",
-        "x": 1070,
-        "y": 380,
+        "x": 1260,
+        "y": 280,
         "wires": [
             [
                 "677c1ef45acfb02d"
@@ -1552,8 +1444,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 890,
-        "y": 380,
+        "x": 1080,
+        "y": 280,
         "wires": [
             [
                 "9d7a8062c6f83014",
@@ -1569,9 +1461,16 @@
         "rules": [
             {
                 "t": "set",
+                "p": "oldimageid",
+                "pt": "msg",
+                "to": "payload.id",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
                 "p": "host_id",
                 "pt": "msg",
-                "to": "payload.results[0].id",
+                "to": "payload.host.id",
                 "tot": "msg"
             },
             {
@@ -1594,8 +1493,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 320,
-        "y": 220,
+        "x": 900,
+        "y": 160,
         "wires": [
             [
                 "b43091c7840cbd07"
@@ -1618,8 +1517,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 510,
-        "y": 220,
+        "x": 1090,
+        "y": 160,
         "wires": [
             [
                 "93b7140c9f5a21ef"
@@ -1645,11 +1544,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 960,
-        "y": 220,
+        "x": 240,
+        "y": 240,
         "wires": [
             [
-                "d837a0475dee45dc"
+                "6d92be16bf5c58de"
             ]
         ]
     },
@@ -1673,8 +1572,8 @@
         "checkall": "true",
         "repair": false,
         "outputs": 2,
-        "x": 750,
-        "y": 220,
+        "x": 1250,
+        "y": 160,
         "wires": [
             [
                 "1016efa8203a7ccc"
@@ -1699,8 +1598,8 @@
         "drop": false,
         "allowrate": true,
         "outputs": 1,
-        "x": 220,
-        "y": 460,
+        "x": 200,
+        "y": 360,
         "wires": [
             [
                 "0cdd6dd2e06ff3ae"
@@ -1716,7 +1615,7 @@
         "headers": {
             "location": "/?action=Recreate%20Requested"
         },
-        "x": 420,
+        "x": 180,
         "y": 80,
         "wires": []
     },
@@ -1753,8 +1652,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 1100,
-        "y": 320,
+        "x": 1290,
+        "y": 220,
         "wires": [
             []
         ]
@@ -1792,8 +1691,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 1300,
-        "y": 460,
+        "x": 1280,
+        "y": 360,
         "wires": [
             []
         ]
@@ -1806,7 +1705,7 @@
         "links": [
             "0fa3ca525b84162f"
         ],
-        "x": 165,
+        "x": 315,
         "y": 180,
         "wires": [
             [
@@ -1815,27 +1714,22 @@
         ]
     },
     {
-        "id": "32d2d748c592fb08",
-        "type": "inject",
+        "id": "8f600b6e9c76d581",
+        "type": "split",
         "z": "a0840e5d7cd65ea0",
-        "name": "",
-        "props": [
-            {
-                "p": "payload"
-            }
-        ],
-        "repeat": "",
-        "crontab": "",
-        "once": false,
-        "onceDelay": 0.1,
-        "topic": "",
-        "payload": "{\"netbox\": \"https://paashup.curioo.city\", \"token\": \"__REPLACE_WITH_NETBOX_TOKEN_OR_USE_ENV__\", \"hostname\": \"curio-city-guide-2\", \"image\": \"saashup/curio.city\", \"oldversion\": \"v0.30.0\", \"version\": \"v0.34.0\", \"delay\": \"10000\"}",
-        "payloadType": "json",
-        "x": 250,
-        "y": 60,
+        "name": "split old images",
+        "splt": "\\n",
+        "spltType": "str",
+        "arraySplt": 1,
+        "arraySpltType": "len",
+        "stream": false,
+        "addname": "",
+        "property": "payload",
+        "x": 700,
+        "y": 160,
         "wires": [
             [
-                "04f9910eb4320af9"
+                "3e60e0d59090800a"
             ]
         ]
     },
@@ -1875,14 +1769,14 @@
                 "p": "netbox",
                 "pt": "msg",
                 "to": "config.netbox",
-                "tot": "msg"
+                "tot": "global"
             },
             {
                 "t": "set",
                 "p": "token",
                 "pt": "msg",
                 "to": "config.token",
-                "tot": "msg"
+                "tot": "global"
             },
             {
                 "t": "set",
@@ -2630,9 +2524,7 @@
         "x": 540,
         "y": 180,
         "wires": [
-            [
-                "1a4f80814884a9fa"
-            ]
+            []
         ]
     },
     {
@@ -2654,9 +2546,7 @@
         "x": 730,
         "y": 180,
         "wires": [
-            [
-                "c12a4584af903e7f"
-            ]
+            []
         ]
     },
     {
@@ -2682,9 +2572,7 @@
         "x": 910,
         "y": 180,
         "wires": [
-            [
-                "90e279516261e3c3"
-            ],
+            [],
             []
         ]
     },
@@ -3005,21 +2893,14 @@
                 "p": "netbox",
                 "pt": "msg",
                 "to": "config.netbox",
-                "tot": "msg"
+                "tot": "global"
             },
             {
                 "t": "set",
                 "p": "token",
                 "pt": "msg",
                 "to": "config.token",
-                "tot": "msg"
-            },
-            {
-                "t": "set",
-                "p": "hostname",
-                "pt": "msg",
-                "to": "config.hostname",
-                "tot": "msg"
+                "tot": "global"
             },
             {
                 "t": "set",
@@ -3059,7 +2940,7 @@
         "y": 180,
         "wires": [
             [
-                "3a570a8b367dbe4a",
+                "90e279516261e3c3",
                 "51d47d8a40445af3"
             ]
         ]
@@ -3070,20 +2951,6 @@
         "z": "64ed409ae244327b",
         "name": "get container id",
         "rules": [
-            {
-                "t": "set",
-                "p": "config.host",
-                "pt": "global",
-                "to": "payload.results[0].id",
-                "tot": "msg"
-            },
-            {
-                "t": "set",
-                "p": "host",
-                "pt": "msg",
-                "to": "config.host",
-                "tot": "global"
-            },
             {
                 "t": "set",
                 "p": "url",

@@ -40,10 +40,10 @@ const actions = {
     method: "post",
     menu: "menu_recreate",
     title: "Upgrade containers",
-    description: "Replace containers using a new image version and recreate them progressively.",
+    description: "Replace containers matching an image and old version with a new version.",
     submitLabel: "Upgrade containers",
     buttonClass: "btn btn-primary",
-    fields: ["hostname", "image", "oldversion", "version", "delay"],
+    fields: ["image", "oldversion", "version", "delay"],
   },
   restart: {
     endpoint: "/restart",
@@ -63,7 +63,7 @@ const actions = {
     description: "Delete one instance. A confirmation will be requested before submitting.",
     submitLabel: "Delete instance",
     buttonClass: "btn btn-danger",
-    fields: ["hostname", "instance"],
+    fields: ["instance"],
     confirm: "Delete this instance?",
   },
 };
@@ -185,11 +185,10 @@ function setAction(actionName) {
   document.querySelectorAll("[data-field]").forEach((wrapper) => {
     const name = wrapper.dataset.field;
     const visible = visibleFields.has(name);
-    const keepEnabled = configFields.includes(name);
     wrapper.classList.toggle("hidden", !visible);
 
     wrapper.querySelectorAll("input, select, textarea, button").forEach((control) => {
-      control.disabled = !visible && !keepEnabled;
+      control.disabled = !visible;
     });
   });
 

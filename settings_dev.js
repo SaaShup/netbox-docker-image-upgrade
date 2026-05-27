@@ -66,6 +66,11 @@ module.exports = {
             }
         }
     },
+    contextStorage: {
+        default: {
+            module: "localfilesystem"
+        }
+    },
     exportGlobalContextKeys: false,
     externalModules: {
     },
