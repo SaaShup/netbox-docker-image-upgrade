@@ -137,6 +137,34 @@
             },
             {
                 "t": "set",
+                "p": "label_key",
+                "pt": "msg",
+                "to": "config.label_key",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "label_value",
+                "pt": "msg",
+                "to": "config.label_value",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "volume_source",
+                "pt": "msg",
+                "to": "config.volume_source",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "volume_name",
+                "pt": "msg",
+                "to": "config.volume_name",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
                 "p": "instance",
                 "pt": "msg",
                 "to": "config.instance",
@@ -546,7 +574,7 @@
                 "t": "set",
                 "p": "payload",
                 "pt": "msg",
-                "to": "{\t   \"host\": msg.host_id,\t   \"name\": msg.instanceShort & \"-data\"\t}",
+                "to": "(\n  $defaultVolumes := [\n    {\n      \"host\": msg.host_id,\n      \"name\": msg.instanceShort & \"-data\"\n    }\n  ];\n  $formVolumes := $type(msg.volume_name) = \"array\" ? $append([], $filter($map(msg.volume_name, function($name) {\n    {\n      \"host\": msg.host_id,\n      \"name\": $name\n    }\n  }), function($volume) { $volume.name })) : (msg.volume_name ? [\n    {\n      \"host\": msg.host_id,\n      \"name\": msg.volume_name\n    }\n  ] : []);\n  $volumes := $count($formVolumes) > 0 ? $formVolumes : $defaultVolumes;\n  $count($volumes) = 1 ? $volumes[0] : $volumes\n)",
                 "tot": "jsonata"
             },
             {
@@ -863,7 +891,7 @@
                 "t": "set",
                 "p": "payload",
                 "pt": "msg",
-                "to": "[\t   {\t       \"id\": msg.container.id,\t       \"host\": msg.host_id,\t       \"network_settings\": [\t           {\t               \"network\": {\t                   \"host\": msg.host_id,\t                   \"name\": msg.network      \t               }    \t           }  \t       ],\t       \"mounts\": [\t           {\t               \"source\": \"/app/data\",\t               \"volume\": {\t                   \"name\": msg.instanceShort & \"-data\"      \t               },\t               \"read_only\": false    \t           }  \t       ],\t       \"env\": $type(msg.var_env_key) = \"array\" ? $map(msg.var_env_key, function($key, $i) { { \"var_name\": $key, \"value\": msg.var_env_value[$i] } }) : [\t           {\t               \"var_name\": msg.var_env_key,\t               \"value\": msg.var_env_value    \t           }  \t       ],\t       \"labels\": [\t           {\t               \"key\": \"traefik.enable\",\t               \"value\": \"true\"    \t           },\t           {\t               \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".rule\",\t               \"value\": \"Host(`\" & msg.instance & \"`)\"    \t           },\t           {\t               \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".entrypoints\",\t               \"value\": \"http\"   \t           },\t           {\t               \"key\": \"traefik.http.services.\" & msg.instanceShort & \".loadbalancer.server.port\",\t               \"value\": \"3000\"    \t           },\t           {\t               \"key\": \"traefik.http.middlewares.force-https-header.headers.customrequestheaders.X-Forwarded-Proto\",\t               \"value\": \"https\"\t           },\t           {\t               \"key\": \"traefik.http.middlewares.\" & msg.instanceShort & \".ipallowlist.sourcerange\",\t               \"value\": \"173.245.48.0/20, 103.21.244.0/22, 103.22.200.0/22, 103.31.4.0/22, 141.101.64.0/18, 108.162.192.0/18, 190.93.240.0/20, 188.114.96.0/20, 197.234.240.0/22, 198.41.128.0/17, 162.158.0.0/15, 104.16.0.0/13, 104.24.0.0/14, 172.64.0.0/13, 131.0.72.0/22, 2400:cb00::/32, 2606:4700::/32, 2803:f800::/32, 2405:b500::/32, 2405:8100::/32, 2a06:98c0::/29, 2c0f:f248::/32\"    \t           },\t           {\t               \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".middlewares\",\t               \"value\": \"force-https-header,\" & msg.instanceShort    \t           }  \t       ]\t   }\t]",
+                "to": "(\n  $defaultMounts := [\n    {\n      \"source\": \"/app/data\",\n      \"volume\": {\n        \"name\": msg.instanceShort & \"-data\"\n      },\n      \"read_only\": false\n    }\n  ];\n  $formMounts := $type(msg.volume_source) = \"array\" ? $append([], $filter($map(msg.volume_source, function($source, $i) {\n    {\n      \"source\": $source,\n      \"volume\": {\n        \"name\": msg.volume_name[$i]\n      },\n      \"read_only\": false\n    }\n  }), function($mount) { $mount.source and $mount.volume.name })) : (msg.volume_source and msg.volume_name ? [\n    {\n      \"source\": msg.volume_source,\n      \"volume\": {\n        \"name\": msg.volume_name\n      },\n      \"read_only\": false\n    }\n  ] : []);\n  $env := $type(msg.var_env_key) = \"array\" ? $append([], $filter($map(msg.var_env_key, function($key, $i) {\n    {\n      \"var_name\": $key,\n      \"value\": msg.var_env_value[$i]\n    }\n  }), function($item) { $item.var_name })) : (msg.var_env_key ? [\n    {\n      \"var_name\": msg.var_env_key,\n      \"value\": msg.var_env_value\n    }\n  ] : []);\n  $baseLabels := [\n    {\n      \"key\": \"traefik.enable\",\n      \"value\": \"true\"\n    },\n    {\n      \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".rule\",\n      \"value\": \"Host(`\" & msg.instance & \"`)\"\n    },\n    {\n      \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".entrypoints\",\n      \"value\": \"http\"\n    },\n    {\n      \"key\": \"traefik.http.services.\" & msg.instanceShort & \".loadbalancer.server.port\",\n      \"value\": \"3000\"\n    },\n    {\n      \"key\": \"traefik.http.middlewares.force-https-header.headers.customrequestheaders.X-Forwarded-Proto\",\n      \"value\": \"https\"\n    },\n    {\n      \"key\": \"traefik.http.middlewares.\" & msg.instanceShort & \".ipallowlist.sourcerange\",\n      \"value\": \"173.245.48.0/20, 103.21.244.0/22, 103.22.200.0/22, 103.31.4.0/22, 141.101.64.0/18, 108.162.192.0/18, 190.93.240.0/20, 188.114.96.0/20, 197.234.240.0/22, 198.41.128.0/17, 162.158.0.0/15, 104.16.0.0/13, 104.24.0.0/14, 172.64.0.0/13, 131.0.72.0/22, 2400:cb00::/32, 2606:4700::/32, 2803:f800::/32, 2405:b500::/32, 2405:8100::/32, 2a06:98c0::/29, 2c0f:f248::/32\"\n    },\n    {\n      \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".middlewares\",\n      \"value\": \"force-https-header,\" & msg.instanceShort\n    }\n  ];\n  $extraLabels := $type(msg.label_key) = \"array\" ? $append([], $filter($map(msg.label_key, function($key, $i) {\n    {\n      \"key\": $key,\n      \"value\": msg.label_value[$i]\n    }\n  }), function($label) { $label.key })) : (msg.label_key ? [\n    {\n      \"key\": msg.label_key,\n      \"value\": msg.label_value\n    }\n  ] : []);\n  [\n    {\n      \"id\": msg.container.id,\n      \"host\": msg.host_id,\n      \"network_settings\": [\n        {\n          \"network\": {\n            \"host\": msg.host_id,\n            \"name\": msg.network\n          }\n        }\n      ],\n      \"mounts\": $count($formMounts) > 0 ? $formMounts : $defaultMounts,\n      \"env\": $env,\n      \"labels\": $append($baseLabels, $extraLabels)\n    }\n  ]\n)",
                 "tot": "jsonata"
             },
             {
@@ -4388,6 +4416,68 @@
         "headers": {},
         "x": 1000,
         "y": 640,
+        "wires": []
+    },
+    {
+        "id": "a1c1b1a0f0050001",
+        "type": "http in",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "url": "/logs",
+        "method": "delete",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 150,
+        "y": 720,
+        "wires": [
+            [
+                "a1c1b1a0f0050002"
+            ]
+        ]
+    },
+    {
+        "id": "a1c1b1a0f0050002",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "clear logs",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "",
+                "tot": "str"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 360,
+        "y": 720,
+        "wires": [
+            [
+                "a1c1b1a0f0050003"
+            ]
+        ]
+    },
+    {
+        "id": "a1c1b1a0f0050003",
+        "type": "http response",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "statusCode": "204",
+        "headers": {},
+        "x": 560,
+        "y": 720,
         "wires": []
     }
 ]

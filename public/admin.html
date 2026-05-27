@@ -11,13 +11,13 @@
 <body>
   <div class="app-shell">
     <aside class="sidebar">
-      <div class="brand">
+      <a href="/" class="brand" aria-label="Go to home page">
         <img src="saashup_logo.svg" alt="SaaShup" class="brand-logo">
         <div>
           <h1>Saashup</h1>
           <p>Admin console</p>
         </div>
-      </div>
+      </a>
 
       <nav class="nav">
         <a href="#" class="menu nav-item active" data-action="config" id="menu_config">Config</a>
@@ -40,8 +40,8 @@
       <section class="notice" id="notif">Welcome !</section>
 
       <section class="toolbar">
-        <button type="button" class="btn btn-secondary" id="testBtn">Test connection</button>
-        <button type="button" class="btn btn-secondary" id="clearBtn">Clear form</button>
+        <button type="button" class="btn btn-primary" id="testBtn">Test connection</button>
+        <button type="button" class="btn btn-danger" id="clearBtn">Clear form</button>
       </section>
 
       <section class="content-grid">
@@ -124,10 +124,34 @@
                 </div>
                 <button type="button" class="btn btn-secondary env-add" id="addEnvBtn">+ Add variable</button>
               </div>
+
+              <div class="field repeat-field" data-field="labels">
+                <span>Labels</span>
+                <div class="repeat-list" id="labelList">
+                  <div class="repeat-row">
+                    <input type="text" id="label_key" name="label_key" placeholder="traefik.enable" aria-label="Label key">
+                    <input type="text" id="label_value" name="label_value" placeholder="true" aria-label="Label value">
+                    <button type="button" class="icon-btn repeat-remove" aria-label="Remove label" disabled>&times;</button>
+                  </div>
+                </div>
+                <button type="button" class="btn btn-secondary repeat-add" id="addLabelBtn">+ Add label</button>
+              </div>
+
+              <div class="field repeat-field" data-field="volumes">
+                <span>Volumes</span>
+                <div class="repeat-list" id="volumeList">
+                  <div class="repeat-row">
+                    <input type="text" id="volume_source" name="volume_source" placeholder="/app/data" aria-label="Volume source path">
+                    <input type="text" id="volume_name" name="volume_name" placeholder="instance-data" aria-label="Volume name">
+                    <button type="button" class="icon-btn repeat-remove" aria-label="Remove volume" disabled>&times;</button>
+                  </div>
+                </div>
+                <button type="button" class="btn btn-secondary repeat-add" id="addVolumeBtn">+ Add volume</button>
+              </div>
             </div>
 
             <div class="form-actions">
-              <button type="submit" class="btn btn-secondary hidden" id="restartInstanceBtn" name="restart_mode" value="instance">Restart instance</button>
+              <button type="submit" class="btn btn-primary hidden" id="restartInstanceBtn" name="restart_mode" value="instance">Restart instance</button>
               <button type="submit" class="btn btn-primary" id="submitBtn">Save config</button>
             </div>
           </form>
@@ -140,7 +164,10 @@
                 <h3>Activity logs</h3>
                 <p>Latest operations</p>
               </div>
-              <button type="button" class="icon-btn" id="logsFullscreenBtn" title="Toggle fullscreen logs" aria-label="Toggle fullscreen logs">⛶</button>
+              <div class="log-tools">
+                <button type="button" class="icon-btn icon-btn-danger" id="clearLogsBtn" title="Clear logs" aria-label="Clear logs">×</button>
+                <button type="button" class="icon-btn" id="logsFullscreenBtn" title="Toggle fullscreen logs" aria-label="Toggle fullscreen logs">⛶</button>
+              </div>
             </div>
           </div>
           <div class="logs" id="logs">&nbsp;<br></div>

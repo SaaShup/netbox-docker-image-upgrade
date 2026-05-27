@@ -4,10 +4,16 @@ const actionFromUrl = urlParams.get("action");
 const form = document.getElementById("instanceForm");
 const submitBtn = document.getElementById("submitBtn");
 const restartInstanceBtn = document.getElementById("restartInstanceBtn");
+const testBtn = document.getElementById("testBtn");
+const clearBtn = document.getElementById("clearBtn");
 const formTitle = document.getElementById("form-title");
 const formDescription = document.getElementById("form-description");
 const envList = document.getElementById("envList");
 const addEnvBtn = document.getElementById("addEnvBtn");
+const labelList = document.getElementById("labelList");
+const addLabelBtn = document.getElementById("addLabelBtn");
+const volumeList = document.getElementById("volumeList");
+const addVolumeBtn = document.getElementById("addVolumeBtn");
 const instanceOptions = document.getElementById("instanceOptions");
 const refreshInstancesBtn = document.getElementById("refreshInstancesBtn");
 const imageOptions = document.getElementById("imageOptions");
@@ -16,6 +22,7 @@ const restartVersionOptions = document.getElementById("restartVersionOptions");
 const refreshImagesBtn = document.getElementById("refreshImagesBtn");
 const logsCard = document.getElementById("logsCard");
 const logsFullscreenBtn = document.getElementById("logsFullscreenBtn");
+const clearLogsBtn = document.getElementById("clearLogsBtn");
 
 let currentAction = localStorage.getItem("current_action") || "config";
 let noticeTimeout = null;
@@ -44,7 +51,7 @@ const actions = {
     description: "Create a container, volume, DNS record and Traefik labels.",
     submitLabel: "Create instance",
     buttonClass: "btn btn-primary",
-    fields: ["hostname", "network", "instance", "image", "version", "env_vars"],
+    fields: ["hostname", "network", "instance", "image", "version", "env_vars", "labels", "volumes"],
   },
   recreate: {
     endpoint: "/recreate",
@@ -92,6 +99,10 @@ const allFieldNames = [
   "delay",
   "var_env_key",
   "var_env_value",
+  "label_key",
+  "label_value",
+  "volume_source",
+  "volume_name",
 ];
 
 function field(name) {
@@ -106,6 +117,14 @@ function fieldValue(name, fallback = "") {
 function setFieldValue(name, value = "") {
   const el = field(name);
   if (el) el.value = value || "";
+}
+
+function setTestButtonState(state = "default") {
+  if (!testBtn) return;
+
+  testBtn.classList.toggle("btn-success", state === "success");
+  testBtn.classList.toggle("btn-danger", state === "error");
+  testBtn.classList.toggle("btn-primary", state === "default");
 }
 
 function escapeHtml(value) {
@@ -154,12 +173,27 @@ function envRows() {
   return Array.from(envList?.querySelectorAll(".env-row") || []);
 }
 
-function updateEnvRemoveButtons() {
-  const rows = envRows();
+function repeatRows(list, selector) {
+  return Array.from(list?.querySelectorAll(selector) || []);
+}
+
+function updateRepeatRemoveButtons(rows, removeSelector) {
   rows.forEach((row) => {
-    const button = row.querySelector(".env-remove");
+    const button = row.querySelector(removeSelector);
     if (button) button.disabled = rows.length === 1;
   });
+}
+
+function updateEnvRemoveButtons() {
+  updateRepeatRemoveButtons(envRows(), ".env-remove");
+}
+
+function updateLabelRemoveButtons() {
+  updateRepeatRemoveButtons(repeatRows(labelList, ".repeat-row"), ".repeat-remove");
+}
+
+function updateVolumeRemoveButtons() {
+  updateRepeatRemoveButtons(repeatRows(volumeList, ".repeat-row"), ".repeat-remove");
 }
 
 function addEnvRow(key = "", value = "") {
@@ -179,6 +213,40 @@ function addEnvRow(key = "", value = "") {
   updateEnvRemoveButtons();
 }
 
+function addLabelRow(key = "", value = "") {
+  if (!labelList) return;
+
+  const row = document.createElement("div");
+  row.className = "repeat-row";
+  row.innerHTML = `
+    <input type="text" name="label_key" placeholder="traefik.enable" aria-label="Label key">
+    <input type="text" name="label_value" placeholder="true" aria-label="Label value">
+    <button type="button" class="icon-btn repeat-remove" aria-label="Remove label">&times;</button>
+  `;
+
+  row.querySelector('[name="label_key"]').value = key;
+  row.querySelector('[name="label_value"]').value = value;
+  labelList.appendChild(row);
+  updateLabelRemoveButtons();
+}
+
+function addVolumeRow(source = "", name = "") {
+  if (!volumeList) return;
+
+  const row = document.createElement("div");
+  row.className = "repeat-row";
+  row.innerHTML = `
+    <input type="text" name="volume_source" placeholder="/app/data" aria-label="Volume source path">
+    <input type="text" name="volume_name" placeholder="instance-data" aria-label="Volume name">
+    <button type="button" class="icon-btn repeat-remove" aria-label="Remove volume">&times;</button>
+  `;
+
+  row.querySelector('[name="volume_source"]').value = source;
+  row.querySelector('[name="volume_name"]').value = name;
+  volumeList.appendChild(row);
+  updateVolumeRemoveButtons();
+}
+
 function clearEnvRows() {
   const rows = envRows();
 
@@ -186,6 +254,22 @@ function clearEnvRows() {
   setFieldValue("var_env_key", "");
   setFieldValue("var_env_value", "");
   updateEnvRemoveButtons();
+}
+
+function clearRepeatRows(list, rowSelector, fields, updateButtons) {
+  const rows = repeatRows(list, rowSelector);
+
+  rows.slice(1).forEach((row) => row.remove());
+  fields.forEach((name) => setFieldValue(name, ""));
+  updateButtons();
+}
+
+function clearLabelRows() {
+  clearRepeatRows(labelList, ".repeat-row", ["label_key", "label_value"], updateLabelRemoveButtons);
+}
+
+function clearVolumeRows() {
+  clearRepeatRows(volumeList, ".repeat-row", ["volume_source", "volume_name"], updateVolumeRemoveButtons);
 }
 
 function setNotice(message, type = "info", autoClear = true) {
@@ -236,6 +320,7 @@ function setAction(actionName) {
   submitBtn.name = actionName === "restart" ? "restart_mode" : "";
   submitBtn.value = actionName === "restart" ? "image" : "";
 
+  clearBtn?.classList.toggle("hidden", actionName === "config");
   restartInstanceBtn?.classList.toggle("hidden", actionName !== "restart");
   if (restartInstanceBtn) restartInstanceBtn.disabled = actionName !== "restart";
 
@@ -252,6 +337,8 @@ function setAction(actionName) {
   });
 
   updateEnvRemoveButtons();
+  updateLabelRemoveButtons();
+  updateVolumeRemoveButtons();
   updateRestartButtons();
 }
 
@@ -275,6 +362,8 @@ function clearActionFields() {
   }
 
   clearEnvRows();
+  clearLabelRows();
+  clearVolumeRows();
   setFieldValue("delay", "10000");
   updateRestartButtons();
   setNotice("Form cleared", "success");
@@ -311,10 +400,12 @@ async function test() {
   }
 
   if (!netbox || !token) {
+    setTestButtonState("error");
     setNotice("Save NetBox URL and token in Config first", "error");
     return;
   }
 
+  setTestButtonState("default");
   fetch("/test", {
     method: "POST",
     headers: {
@@ -329,12 +420,17 @@ async function test() {
     .then((response) => response.json())
     .then((data) => {
       if (data["status"] || data["netbox-version"] || data["netbox-full-version"]) {
+        setTestButtonState("success");
         setNotice("Connection successful", "success");
       } else {
+        setTestButtonState("error");
         setNotice("Connection failed", "error");
       }
     })
-    .catch(() => setNotice("Connection failed", "error"));
+    .catch(() => {
+      setTestButtonState("error");
+      setNotice("Connection failed", "error");
+    });
 }
 
 async function saveConfig() {
@@ -514,6 +610,25 @@ async function getLogs() {
   }
 }
 
+async function clearLogs() {
+  if (!confirm("Clear all server logs?")) return;
+
+  try {
+    const response = await fetch("/logs", {
+      method: "DELETE",
+      headers: { Accept: "application/json" },
+    });
+
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+    lastLogsHtml = "";
+    document.getElementById("logs").innerHTML = "&nbsp;<br>";
+    setNotice(`Logs cleared (${response.status})`, "success");
+  } catch {
+    setNotice("Clear logs failed", "error");
+  }
+}
+
 document.querySelectorAll("[data-action]").forEach((link) => {
   link.addEventListener("click", (event) => {
     event.preventDefault();
@@ -532,6 +647,32 @@ envList?.addEventListener("click", (event) => {
 addEnvBtn?.addEventListener("click", () => {
   addEnvRow();
   envRows().at(-1)?.querySelector("input")?.focus();
+});
+
+labelList?.addEventListener("click", (event) => {
+  const button = event.target.closest(".repeat-remove");
+  if (!button || button.disabled) return;
+
+  button.closest(".repeat-row")?.remove();
+  updateLabelRemoveButtons();
+});
+
+addLabelBtn?.addEventListener("click", () => {
+  addLabelRow();
+  repeatRows(labelList, ".repeat-row").at(-1)?.querySelector("input")?.focus();
+});
+
+volumeList?.addEventListener("click", (event) => {
+  const button = event.target.closest(".repeat-remove");
+  if (!button || button.disabled) return;
+
+  button.closest(".repeat-row")?.remove();
+  updateVolumeRemoveButtons();
+});
+
+addVolumeBtn?.addEventListener("click", () => {
+  addVolumeRow();
+  repeatRows(volumeList, ".repeat-row").at(-1)?.querySelector("input")?.focus();
 });
 
 form.addEventListener("submit", (event) => {
@@ -569,8 +710,8 @@ form.addEventListener("submit", (event) => {
   });
 });
 
-document.getElementById("testBtn").addEventListener("click", test);
-document.getElementById("clearBtn").addEventListener("click", clearActionFields);
+testBtn?.addEventListener("click", test);
+clearBtn?.addEventListener("click", clearActionFields);
 refreshInstancesBtn?.addEventListener("click", refreshInstances);
 refreshImagesBtn?.addEventListener("click", refreshImages);
 field("image")?.addEventListener("input", updateOldVersionOptions);
@@ -583,6 +724,7 @@ logsFullscreenBtn?.addEventListener("click", () => {
     logsFullscreenBtn.setAttribute("aria-pressed", expanded ? "true" : "false");
   }
 });
+clearLogsBtn?.addEventListener("click", clearLogs);
 
 if (actionFromUrl) {
   setNotice(actionFromUrl, "success");
