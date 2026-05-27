@@ -1,247 +1,137 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <title>Manage Instance Paashup</title>
-    <link rel="icon" href="saashup_logo.svg">
-    <link rel="stylesheet" href="css/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NetBox Docker Image Upgrade - SaaShup</title>
+  <link rel="icon" href="saashup_logo.svg">
+  <link rel="stylesheet" href="css/home.css">
 </head>
 
 <body>
-    <nav style="background-color: #333; padding:10px;">
-        <ul style="list-style: none; margin: 0; padding: 0; display: flex;">
-            <li><a href="#" class="menu" id="menu_create" style="color: grey;">Create</a></li>
-            <li><a href="#" class="menu" id="menu_recreate" style="color: grey;">Upgrade</a></li>
-            <li><a href="#" class="menu" id="menu_restart" style="color: grey;">Restart</a></li>
-            <li><a href="#" class="menu" id="menu_delete" style="color: grey;">Delete</a></li>
-            <li><a href="#" class="menu" id="menu_webhook" style="color: grey;">Webhook</a></li>
-        </ul>
+  <header class="site-header">
+    <a class="brand" href="/">
+      <img src="saashup_logo.svg" alt="SaaShup logo">
+      <span>SaaShup</span>
+    </a>
+
+    <nav class="nav">
+      <a href="#features">Features</a>
+      <a href="#workflow">Workflow</a>
+      <a href="#security">Security</a>
+      <a class="nav-cta" href="/admin.html">Open admin</a>
     </nav>
-    <div class="notif" id="notif" style="font-size: x-large;">
-        Welcome !
-    </div>
-    <div class="notif" id="logs">
-        &nbsp<br>
-    </div>
-   <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
-    <div class="btn-bar" style="flex: 1 1 auto; min-width: 80px;">
-        <input type="button" class="btn btn-test" value="Test" onclick="test();">
-    </div>
+  </header>
 
-    <div class="btn-bar" style="flex: 1 1 auto; min-width: 80px;">
-        <input type="button" class="btn btn-save" value="New" onclick="save(true);">
-    </div>
+  <main>
+    <section class="hero">
+      <div class="hero-content">
+        <p class="eyebrow">SaaS next solution engine</p>
+        <h1>Upgrade and operate SaaS instances.</h1>
+        <p class="hero-text">
+          A lightweight control panel for SaaShup environments.
+          Create, upgrade, restart and delete instances.
+        </p>
 
-    <div class="btn-bar" style="flex: 1 1 auto; min-width: 80px;">
-        <input type="button" class="btn btn-save" value="Save" onclick="save(false);">
-    </div>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="/admin.html">Open admin dashboard</a>
+          <a class="btn btn-secondary" href="https://saashup.com" target="_blank" rel="noreferrer">Discover SaaShup</a>
+        </div>
 
-    <div class="btn-bar" style="flex: 2 1 300px;">
-        <select class="btn" id="list" style="color:black; width: 100%;" onchange="change();"></select>
-    </div>
+        <div class="hero-meta">
+          <span>Docker</span>
+          <span>Traefik</span>
+          <span>Cloudflare</span>
+        </div>
+      </div>
 
-    <div class="btn-bar" style="flex: 1 1 auto; min-width: 80px;">
-        <input type="button" class="btn btn-edit" value="Rename" onclick="rename();">
-    </div>
+      <div class="hero-card">
+        <div class="terminal-header">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+        <pre><code>POST /recreate
 
-    <div class="btn-bar" style="flex: 1 1 auto; min-width: 80px;">
-        <input type="button" class="btn btn-delete" value="Delete" onclick="remove();">
-    </div>
+✓ Engine connection valid
+✓ Destination found
+✓ New image selected
+✓ Instance recreated
+✓ Activity logs updated</code></pre>
+      </div>
+    </section>
 
-    <div class="notif" style="flex: 2 1 150px; display: flex; gap: 4px;">
-        <input type="file" id="importFile" />
-        <input type="button" class="btn btn-save" value="Import" id="importBtn">
-    </div>
+    <section class="section intro">
+      <p>
+        SaaShup helps teams focus on product and revenue while the platform handles the SaaS engine around the application.
+        This tool focuses on one operational part of that engine: controlled Docker image upgrades and instance lifecycle actions.
+      </p>
+    </section>
 
-    <div class="btn-bar" style="flex: 1 1 auto; min-width: 80px;">
-        <input type="button" class="btn btn-save" value="Export" id="exportBtn">
-    </div>
-</div>
+    <section class="section" id="features">
+      <div class="section-heading">
+        <p class="eyebrow">What it does</p>
+        <h2>Simple operations for Docker-based SaaS instances</h2>
+      </div>
 
+      <div class="cards">
+        <article class="card">
+          <div class="icon">＋</div>
+          <h3>Create</h3>
+          <p>Create a instance, attach storage, configure network settings, publish DNS and prepare labels.</p>
+        </article>
 
-    <div class="form-container" id="create">
-        <form action="/create" method="get">
-            <div class="form-group">
-                <label for="netbox">Netbox URL</label>
-                <input type="text" value="" id="c_netbox" name="netbox">
-            </div>
+        <article class="card">
+          <div class="icon">↻</div>
+          <h3>Upgrade</h3>
+          <p>Move matching containers from an old image version to a new one and recreate them with a configurable delay.</p>
+        </article>
 
-            <div class="form-group">
-                <label for="token">Netbox Token</label>
-                <input type="text" value="" id="c_token" name="token">
-            </div>
+        <article class="card">
+          <div class="icon">⟳</div>
+          <h3>Manage</h3>
+          <p>Manage instances, images and version.</p>
+        </article>
 
-            <div class="form-group">
-                <label for="hostname">Host</label>
-                <input type="text" value="" id="c_hostname" name="hostname">
-            </div>
+        <article class="card">
+          <div class="icon">⌫</div>
+          <h3>Delete</h3>
+          <p>Remove an instance when it is no longer needed.</p>
+        </article>
+      </div>
+    </section>
 
-            <div class="form-group">
-                <label for="network">Network</label>
-                <input type="text" value="" id="c_network" name="network">
-            </div>
+    <section class="section split" id="workflow">
+      <div>
+        <p class="eyebrow">Workflow</p>
+        <h2>From request to running instance</h2>
+        <p>
+          The admin page sends lifecycle requests, applies instance changes and exposes live activity logs for operators.
+        </p>
+      </div>
 
-            <div class="form-group">
-                <label for="instance">Instance Name</label>
-                <input type="text" value="" id="c_instance" name="instance">
-            </div>
+      <ol class="steps">
+        <li><strong>Select</strong><span>Choose destination, image, version and target instance.</span></li>
+        <li><strong>Execute</strong><span>Trigger create, upgrade, restart or delete.</span></li>
+        <li><strong>Observe</strong><span>Follow the latest activity logs from the admin page.</span></li>
+      </ol>
+    </section>
 
-            <div class="form-group">
-                <table width="100%" align="center">
-                    <tr align="center">
-                        <td width="25%">
-                            <label for="var_env_key">Env Variable Name</label>
-                        </td>
-                        <td width="25%">
-                            <input type="text" value="" id="c_var_env_key" name="var_env_key">
-                        </td>
-                        <td width="25%">
-                            <label for="var_env_value">Env Variable Value</label>
-                        </td>
-                        <td width="25%">
-                            <input type="text" value="" id="c_var_env_value" name="var_env_value">
-                        </td>
-                    </tr>
-                </table>
-            </div>
+    <section class="section security" id="security">
+      <div class="security-card">
+        <p class="eyebrow">Saashup note</p>
+        <h2>Try it now !</h2>
+        <p>
+          Get your image ready in your registry and start using using the admin dashboard. We are open to feedback and contributions to make this tool better for your use case.
+        </p>
+        <a class="btn btn-primary" href="/admin.html">Go to admin</a>
+      </div>
+    </section>
+  </main>
 
-            <div class="form-group">
-                <label for="image">Image Name</label>
-                <input type="text" value="" id="c_image" name="image">
-            </div>
-
-            <div class="form-group">
-                <label for="oldversion">Version</label>
-                <input type="text" value="" id="c_version" name="version">
-            </div>
-
-            <input type="submit" class="btn btn-upgrade" value="Create">
-    </div>
-    </form>
-    </div>
-
-    <div class="form-container" id="recreate" style="display: none;">
-        <form action="/recreate" method="get">
-            <div class="form-group">
-                <label for="netbox">Netbox URL</label>
-                <input type="text" value="" id="u_netbox" name="netbox">
-            </div>
-
-            <div class="form-group">
-                <label for="token">Netbox Token</label>
-                <input type="text" value="" id="u_token" name="token">
-            </div>
-
-            <div class="form-group">
-                <label for="hostname">Host</label>
-                <input type="text" value="" id="u_hostname" name="hostname">
-            </div>
-
-            <div class="form-group">
-                <label for="image">Image Name</label>
-                <input type="text" value="" id="u_image" name="image">
-            </div>
-
-            <div class="form-group">
-                <label for="oldversion">Old Version</label>
-                <input type="text" value="" id="u_oldversion" name="oldversion">
-            </div>
-
-            <div class="form-group">
-                <label for="version">New Version</label>
-                <input type="text" value="" id="u_version" name="version">
-            </div>
-
-            <div class="form-group">
-                <label for="version">Delay (ms)</label>
-                <input type="text" value="" id="u_delay" name="delay">
-            </div>
-
-            <input type="submit" class="btn btn-upgrade" value="Recreate">
-    </div>
-    </form>
-    </div>
-
-    <div class="form-container" id="restart" style="display: none;">
-        <form action="/restart" method="get">
-            <div class="form-group">
-                <label for="netbox">Netbox URL</label>
-                <input type="text" value="" id="r_netbox" name="netbox">
-            </div>
-
-            <div class="form-group">
-                <label for="token">Netbox Token</label>
-                <input type="text" value="" id="r_token" name="token">
-            </div>
-
-            <div class="form-group">
-                <label for="hostname">Host</label>
-                <input type="text" value="" id="r_hostname" name="hostname">
-            </div>
-
-            <div class="form-group">
-                <label for="image">Image Name</label>
-                <input type="text" value="" id="r_image" name="image">
-            </div>
-
-            <div class="form-group">
-                <label for="oldversion">Version</label>
-                <input type="text" value="" id="r_oldversion" name="oldversion">
-            </div>
-
-            <div class="form-group">
-                <label for="version">Delay (ms)</label>
-                <input type="text" value="" id="r_delay" name="delay">
-            </div>
-
-            <input type="submit" class="btn btn-upgrade" value="Restart">
-    </div>
-    </form>
-    </div>
-
-    <div class="form-container" id="delete" style="display: none;">
-        <form action="/delete" method="get">
-            <div class="form-group">
-                <label for="netbox">Netbox URL</label>
-                <input type="text" value="" id="d_netbox" name="netbox">
-            </div>
-
-            <div class="form-group">
-                <label for="token">Netbox Token</label>
-                <input type="text" value="" id="d_token" name="token">
-            </div>
-
-            <div class="form-group">
-                <label for="hostname">Host</label>
-                <input type="text" value="" id="d_hostname" name="hostname">
-            </div>
-
-            <div class="form-group">
-                <label for="image">Instance Name</label>
-                <input type="text" value="" id="d_instance" name="instance">
-            </div>
-
-            <input type="submit" class="btn btn-upgrade" value="Delete">
-        </form>
-    </div>
-
-    <div class="form-container" id="webhook" style="display: none;">
-        <form action="/webhook" method="get">
-            <div class="form-group">
-                <label for="netbox">Netbox URL</label>
-                <input type="text" value="" id="w_netbox" name="netbox">
-            </div>
-
-            <div class="form-group">
-                <label for="token">Netbox Token</label>
-                <input type="text" value="" id="w_token" name="token">
-            </div>
-            <input type="submit" class="btn btn-save" value="Save">
-        </form>
-    </div>
-
-    <script src="js/main.js"> </script>
+  <footer class="footer">
+    <span>SaaShup © 2026</span>
+    <span>SAAS instance lifecycle manager</span>
+  </footer>
 </body>
-
 </html>

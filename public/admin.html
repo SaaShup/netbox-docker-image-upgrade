@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin - Paashup Instance Manager</title>
+  <link rel="icon" href="saashup_logo.svg">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <img src="saashup_logo.svg" alt="SaaShup" class="brand-logo">
+        <div>
+          <h1>Paashup</h1>
+          <p>Admin console</p>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <a href="#" class="menu nav-item active" data-action="config" id="menu_config">Config</a>
+        <a href="#" class="menu nav-item" data-action="create" id="menu_create">Create</a>
+        <a href="#" class="menu nav-item" data-action="recreate" id="menu_recreate">Upgrade</a>
+        <a href="#" class="menu nav-item" data-action="restart" id="menu_restart">Restart</a>
+        <a href="#" class="menu nav-item danger" data-action="delete" id="menu_delete">Delete</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">Admin</p>
+          <h2>Manage NetBox Docker instances</h2>
+          <p class="subtitle">Configure NetBox access once, then create, upgrade, restart or delete instances.</p>
+        </div>
+      </header>
+
+      <section class="notice" id="notif">Welcome !</section>
+
+      <section class="toolbar">
+        <button type="button" class="btn btn-secondary" id="testBtn">Test connection</button>
+        <button type="button" class="btn btn-secondary" id="clearBtn">Clear form</button>
+      </section>
+
+      <section class="content-grid">
+        <div class="card form-card">
+          <div class="card-header">
+            <h3 id="form-title">Config</h3>
+            <p id="form-description">Save the NetBox URL and token used by the automation.</p>
+          </div>
+
+          <form id="instanceForm" action="/webhook" method="get">
+            <div class="form-grid">
+              <label class="field" data-field="netbox">
+                <span>NetBox URL</span>
+                <input type="url" id="netbox" name="netbox" placeholder="https://netbox.example.com">
+              </label>
+
+              <label class="field" data-field="token">
+                <span>NetBox Token</span>
+                <input type="password" id="token" name="token" autocomplete="off" placeholder="Token">
+              </label>
+
+              <label class="field" data-field="hostname">
+                <span>Host</span>
+                <input type="text" id="hostname" name="hostname" placeholder="docker-host-01">
+              </label>
+
+              <label class="field" data-field="network">
+                <span>Network</span>
+                <input type="text" id="network" name="network" placeholder="mgmt">
+              </label>
+
+              <label class="field" data-field="instance">
+                <span>Instance name</span>
+                <input type="text" id="instance" name="instance" placeholder="app.example.com">
+              </label>
+
+              <label class="field" data-field="image">
+                <span>Image name</span>
+                <input type="text" id="image" name="image" placeholder="saashup/app">
+              </label>
+
+              <label class="field" data-field="oldversion">
+                <span>Old version</span>
+                <input type="text" id="oldversion" name="oldversion" placeholder="v1.0.0">
+              </label>
+
+              <label class="field" data-field="version">
+                <span>Version</span>
+                <input type="text" id="version" name="version" placeholder="v1.1.0">
+              </label>
+
+              <label class="field" data-field="delay">
+                <span>Delay between containers (ms)</span>
+                <input type="number" id="delay" name="delay" min="0" step="1000" placeholder="10000">
+              </label>
+
+              <div class="field env-field" data-field="env_vars">
+                <span>Environment variables</span>
+                <div class="env-list" id="envList">
+                  <div class="env-row">
+                    <input type="text" id="var_env_key" name="var_env_key" placeholder="APP_ENV" aria-label="Environment variable name">
+                    <input type="text" id="var_env_value" name="var_env_value" placeholder="production" aria-label="Environment variable value">
+                    <button type="button" class="icon-btn env-remove" aria-label="Remove environment variable" disabled>&times;</button>
+                  </div>
+                </div>
+                <button type="button" class="btn btn-secondary env-add" id="addEnvBtn">+ Add variable</button>
+              </div>
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary" id="submitBtn">Save config</button>
+            </div>
+          </form>
+        </div>
+
+        <aside class="card logs-card">
+          <div class="card-header">
+            <h3>Activity logs</h3>
+            <p>Latest operations from the Node-RED flow.</p>
+          </div>
+          <div class="logs" id="logs">&nbsp;<br></div>
+        </aside>
+      </section>
+    </main>
+  </div>
+
+  <script src="js/main.js"></script>
+</body>
+</html>

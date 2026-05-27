@@ -12,9 +12,6 @@ module.exports = {
             permissions: "*"
         }]
     },
-    httpNodeAuth: {
-        user:"admin",pass:"$2a$08$s.NFdSn4Gm4d7gHErya//e6O8RO1/3f7TZ7zflXJ9jfFV0cI6jGwK"
-    },
     uiPort: process.env.PORT || 1880,
     disableEditor: false,
     httpStatic: [

@@ -12,10 +12,6 @@ module.exports = {
             permissions: "*"
         }]
     },
-    httpNodeAuth: {
-        user: process.env.API_USERNAME || "admin",
-        pass: process.env.API_PASSWORD || "$2a$08$s.NFdSn4Gm4d7gHErya//e6O8RO1/3f7TZ7zflXJ9jfFV0cI6jGwK"
-    },
     uiPort: process.env.PORT || 1880,
     disableEditor: 'ENABLE_EDITOR' in process.env ? false : true,
     httpStatic: [
