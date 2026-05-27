@@ -7,10 +7,16 @@ const formTitle = document.getElementById("form-title");
 const formDescription = document.getElementById("form-description");
 const envList = document.getElementById("envList");
 const addEnvBtn = document.getElementById("addEnvBtn");
+const instanceOptions = document.getElementById("instanceOptions");
+const refreshInstancesBtn = document.getElementById("refreshInstancesBtn");
+const imageOptions = document.getElementById("imageOptions");
+const oldVersionOptions = document.getElementById("oldVersionOptions");
+const refreshImagesBtn = document.getElementById("refreshImagesBtn");
 
 let currentAction = localStorage.getItem("current_action") || "config";
 let noticeTimeout = null;
 let savedConfig = {};
+let imageRecords = [];
 
 const configFields = ["netbox", "token"];
 
@@ -50,10 +56,10 @@ const actions = {
     method: "post",
     menu: "menu_restart",
     title: "Restart containers",
-    description: "Restart containers matching a host, image and version.",
+    description: "Restart containers matching an image and version.",
     submitLabel: "Restart containers",
     buttonClass: "btn btn-primary",
-    fields: ["hostname", "image", "oldversion", "delay"],
+    fields: ["image", "oldversion", "delay"],
   },
   delete: {
     endpoint: "/delete",
@@ -289,6 +295,110 @@ async function saveConfig() {
   }
 }
 
+function instanceNameFromItem(item) {
+  if (typeof item === "string") return item;
+  if (!item || typeof item !== "object") return "";
+
+  return item.instance || item.display || item.name || "";
+}
+
+async function refreshInstances() {
+  if (!instanceOptions || !refreshInstancesBtn) return;
+
+  refreshInstancesBtn.disabled = true;
+
+  try {
+    const response = await fetch("/instances", {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+    const data = await response.json();
+    const instances = Array.from(new Set((Array.isArray(data) ? data : [])
+      .map(instanceNameFromItem)
+      .filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b));
+
+    instanceOptions.replaceChildren(...instances.map((name) => {
+      const option = document.createElement("option");
+      option.value = name;
+      return option;
+    }));
+
+    setNotice(`Loaded ${instances.length} instances`, "success");
+  } catch {
+    setNotice("Instance refresh failed", "error");
+  } finally {
+    refreshInstancesBtn.disabled = false;
+  }
+}
+
+function imageNameFromItem(item) {
+  if (typeof item === "string") return item;
+  if (!item || typeof item !== "object") return "";
+
+  return item.name || item.display || "";
+}
+
+function imageVersionFromItem(item) {
+  if (!item || typeof item !== "object") return "";
+  return item.version || "";
+}
+
+function replaceOptions(datalist, values) {
+  if (!datalist) return;
+
+  datalist.replaceChildren(...values.map((value) => {
+    const option = document.createElement("option");
+    option.value = value;
+    return option;
+  }));
+}
+
+function updateOldVersionOptions() {
+  const image = fieldValue("image");
+  const versions = Array.from(new Set(imageRecords
+    .filter((item) => imageNameFromItem(item) === image)
+    .map(imageVersionFromItem)
+    .filter(Boolean)))
+    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+
+  replaceOptions(oldVersionOptions, versions);
+}
+
+async function refreshImages() {
+  if (!imageOptions || !refreshImagesBtn) return;
+
+  refreshImagesBtn.disabled = true;
+
+  try {
+    const response = await fetch("/images", {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+    const data = await response.json();
+    imageRecords = Array.isArray(data) ? data : [];
+
+    const images = Array.from(new Set(imageRecords
+      .map(imageNameFromItem)
+      .filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b));
+
+    replaceOptions(imageOptions, images);
+    updateOldVersionOptions();
+    setNotice(`Loaded ${images.length} images`, "success");
+  } catch {
+    setNotice("Image refresh failed", "error");
+  } finally {
+    refreshImagesBtn.disabled = false;
+  }
+}
+
 async function getLogs() {
   try {
     const response = await fetch("logs?last=true");
@@ -336,6 +446,9 @@ form.addEventListener("submit", (event) => {
 
 document.getElementById("testBtn").addEventListener("click", test);
 document.getElementById("clearBtn").addEventListener("click", clearActionFields);
+refreshInstancesBtn?.addEventListener("click", refreshInstances);
+refreshImagesBtn?.addEventListener("click", refreshImages);
+field("image")?.addEventListener("input", updateOldVersionOptions);
 
 if (actionFromUrl) {
   setNotice(actionFromUrl, "success");

@@ -234,6 +234,12 @@ h2 {
   background: white;
 }
 
+.input-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  gap: 10px;
+}
+
 .env-field {
   grid-column: 1 / -1;
 }
@@ -361,6 +367,10 @@ h2 {
 
   .env-row {
     grid-template-columns: 1fr;
+  }
+
+  .input-action {
+    grid-template-columns: 1fr 44px;
   }
 
   .icon-btn {

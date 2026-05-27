@@ -146,7 +146,7 @@
                 "t": "set",
                 "p": "instanceShort",
                 "pt": "msg",
-                "to": "$substringBefore(msg.instance, \".\")",
+                "to": "($contains(msg.instance, \".\") ? $substringBefore(msg.instance, \".\") : msg.instance)",
                 "tot": "jsonata"
             },
             {
@@ -1780,13 +1780,6 @@
             },
             {
                 "t": "set",
-                "p": "hostname",
-                "pt": "msg",
-                "to": "config.hostname",
-                "tot": "msg"
-            },
-            {
-                "t": "set",
                 "p": "image",
                 "pt": "msg",
                 "to": "config.image",
@@ -1797,13 +1790,6 @@
                 "p": "oldversion",
                 "pt": "msg",
                 "to": "config.oldversion",
-                "tot": "msg"
-            },
-            {
-                "t": "set",
-                "p": "version",
-                "pt": "msg",
-                "to": "config.version",
                 "tot": "msg"
             },
             {
@@ -1823,7 +1809,7 @@
         "y": 120,
         "wires": [
             [
-                "6aec21d061c2da7a"
+                "1206f1148f917404"
             ]
         ]
     },
@@ -1863,9 +1849,7 @@
         "x": 650,
         "y": 120,
         "wires": [
-            [
-                "8d2cd7cb127ce691"
-            ]
+            []
         ]
     },
     {
@@ -1887,9 +1871,7 @@
         "x": 840,
         "y": 120,
         "wires": [
-            [
-                "6c221b44b45a4bb1"
-            ]
+            []
         ]
     },
     {
@@ -1915,9 +1897,7 @@
         "x": 1020,
         "y": 120,
         "wires": [
-            [
-                "1206f1148f917404"
-            ],
+            [],
             []
         ]
     },
@@ -1929,23 +1909,9 @@
         "rules": [
             {
                 "t": "set",
-                "p": "config.host",
-                "pt": "global",
-                "to": "payload.results[0].id",
-                "tot": "msg"
-            },
-            {
-                "t": "set",
-                "p": "host",
-                "pt": "msg",
-                "to": "config.host",
-                "tot": "global"
-            },
-            {
-                "t": "set",
                 "p": "imageid",
                 "pt": "msg",
-                "to": "payload.results[0].id",
+                "to": "payload.id",
                 "tot": "msg"
             },
             {
@@ -2123,16 +2089,9 @@
         "rules": [
             {
                 "t": "set",
-                "p": "host_id",
-                "pt": "msg",
-                "to": "payload.results[0].id",
-                "tot": "msg"
-            },
-            {
-                "t": "set",
                 "p": "url",
                 "pt": "msg",
-                "to": "msg.netbox & \"/api/plugins/docker/images/?name=\" & msg.image & \"&version=\" & msg.oldversion & \"&host_id=\" & msg.host_id",
+                "to": "msg.netbox & \"/api/plugins/docker/images/?name=\" & msg.image & \"&version=\" & msg.oldversion & \"&limit=200\"",
                 "tot": "jsonata"
             },
             {
@@ -2188,9 +2147,9 @@
         "rules": [
             {
                 "t": "set",
-                "p": "imageid",
+                "p": "payload",
                 "pt": "msg",
-                "to": "payload.results[0].id",
+                "to": "payload.results",
                 "tot": "msg"
             }
         ],
@@ -2203,7 +2162,7 @@
         "y": 220,
         "wires": [
             [
-                "c7e0b77dfe548ff2"
+                "a1c1b1a0f0030001"
             ]
         ]
     },
@@ -2216,8 +2175,8 @@
         "propertyType": "msg",
         "rules": [
             {
-                "t": "eq",
-                "v": "1",
+                "t": "gt",
+                "v": "0",
                 "vt": "num"
             },
             {
@@ -2913,7 +2872,7 @@
                 "t": "set",
                 "p": "instanceShort",
                 "pt": "msg",
-                "to": "$substringBefore(msg.instance, \".\")",
+                "to": "($contains(msg.instance, \".\") ? $substringBefore(msg.instance, \".\") : msg.instance)",
                 "tot": "jsonata"
             },
             {
@@ -4058,6 +4017,294 @@
                 "f109f382a72456d7"
             ],
             []
+        ]
+    },
+    {
+        "id": "a1c1b1a0f0010001",
+        "type": "http in",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "url": "/instances",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 150,
+        "y": 560,
+        "wires": [
+            [
+                "a1c1b1a0f0010002"
+            ]
+        ]
+    },
+    {
+        "id": "a1c1b1a0f0010002",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "get instances",
+        "rules": [
+            {
+                "t": "set",
+                "p": "netbox",
+                "pt": "msg",
+                "to": "config.netbox",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "token",
+                "pt": "msg",
+                "to": "config.token",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & \"/api/plugins/docker/containers/?limit=1000\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Accept\": \"application/json\"\t}",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "rejectUnauthorized",
+                "pt": "msg",
+                "to": "false",
+                "tot": "bool"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 360,
+        "y": 560,
+        "wires": [
+            [
+                "a1c1b1a0f0010003"
+            ]
+        ]
+    },
+    {
+        "id": "a1c1b1a0f0010003",
+        "type": "http request",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": true,
+        "headers": [],
+        "x": 580,
+        "y": 560,
+        "wires": [
+            [
+                "a1c1b1a0f0010004"
+            ]
+        ]
+    },
+    {
+        "id": "a1c1b1a0f0010004",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "format instances",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$sort($distinct($map(payload.results, function($v) { $v.display ? $v.display : $v.name })))",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 790,
+        "y": 560,
+        "wires": [
+            [
+                "a1c1b1a0f0010005"
+            ]
+        ]
+    },
+    {
+        "id": "a1c1b1a0f0010005",
+        "type": "http response",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 1000,
+        "y": 560,
+        "wires": []
+    },
+    {
+        "id": "a1c1b1a0f0020001",
+        "type": "http in",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "url": "/images",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 150,
+        "y": 640,
+        "wires": [
+            [
+                "a1c1b1a0f0020002"
+            ]
+        ]
+    },
+    {
+        "id": "a1c1b1a0f0020002",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "get images",
+        "rules": [
+            {
+                "t": "set",
+                "p": "netbox",
+                "pt": "msg",
+                "to": "config.netbox",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "token",
+                "pt": "msg",
+                "to": "config.token",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & \"/api/plugins/docker/images/?limit=1000\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Accept\": \"application/json\"\t}",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "rejectUnauthorized",
+                "pt": "msg",
+                "to": "false",
+                "tot": "bool"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 360,
+        "y": 640,
+        "wires": [
+            [
+                "a1c1b1a0f0020003"
+            ]
+        ]
+    },
+    {
+        "id": "a1c1b1a0f0020003",
+        "type": "http request",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": true,
+        "headers": [],
+        "x": 580,
+        "y": 640,
+        "wires": [
+            [
+                "a1c1b1a0f0020004"
+            ]
+        ]
+    },
+    {
+        "id": "a1c1b1a0f0020004",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "format images",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$map(payload.results, function($v) { { \"name\": $v.name, \"version\": $v.version } })",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 790,
+        "y": 640,
+        "wires": [
+            [
+                "a1c1b1a0f0020005"
+            ]
+        ]
+    },
+    {
+        "id": "a1c1b1a0f0020005",
+        "type": "http response",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 1000,
+        "y": 640,
+        "wires": []
+    },
+    {
+        "id": "a1c1b1a0f0030001",
+        "type": "split",
+        "z": "47309e7eb1ed7972",
+        "name": "split images",
+        "splt": "\\n",
+        "spltType": "str",
+        "arraySplt": 1,
+        "arraySpltType": "len",
+        "stream": false,
+        "addname": "",
+        "property": "payload",
+        "x": 1080,
+        "y": 220,
+        "wires": [
+            [
+                "c7e0b77dfe548ff2"
+            ]
         ]
     }
 ]

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin - Paashup Instance Manager</title>
+  <title>Saashup Instance Manager</title>
   <link rel="icon" href="saashup_logo.svg">
   <link rel="stylesheet" href="css/style.css">
 </head>
@@ -14,7 +14,7 @@
       <div class="brand">
         <img src="saashup_logo.svg" alt="SaaShup" class="brand-logo">
         <div>
-          <h1>Paashup</h1>
+          <h1>Saashup</h1>
           <p>Admin console</p>
         </div>
       </div>
@@ -32,8 +32,8 @@
       <header class="page-header">
         <div>
           <p class="eyebrow">Admin</p>
-          <h2>Manage NetBox Docker instances</h2>
-          <p class="subtitle">Configure NetBox access once, then create, upgrade, restart or delete instances.</p>
+          <h2>Manage Docker instances</h2>
+          <p class="subtitle">Configure access once, then create, upgrade, restart or delete instances.</p>
         </div>
       </header>
 
@@ -48,14 +48,14 @@
         <div class="card form-card">
           <div class="card-header">
             <h3 id="form-title">Config</h3>
-            <p id="form-description">Save the NetBox URL and token used by the automation.</p>
+            <p id="form-description">Save the URL and token used by the automation.</p>
           </div>
 
           <form id="instanceForm" action="/webhook" method="get">
             <div class="form-grid">
               <label class="field" data-field="netbox">
                 <span>NetBox URL</span>
-                <input type="url" id="netbox" name="netbox" placeholder="https://netbox.example.com">
+                <input type="url" id="netbox" name="netbox" placeholder="https://cmdb.saashup.com">
               </label>
 
               <label class="field" data-field="token">
@@ -75,17 +75,26 @@
 
               <label class="field" data-field="instance">
                 <span>Instance name</span>
-                <input type="text" id="instance" name="instance" placeholder="app.example.com">
+                <div class="input-action">
+                  <input type="text" id="instance" name="instance" list="instanceOptions" placeholder="app.paashup.cloud">
+                  <button type="button" class="icon-btn" id="refreshInstancesBtn" title="Refresh instances" aria-label="Refresh instances">↻</button>
+                </div>
+                <datalist id="instanceOptions"></datalist>
               </label>
 
               <label class="field" data-field="image">
                 <span>Image name</span>
-                <input type="text" id="image" name="image" placeholder="saashup/app">
+                <div class="input-action">
+                  <input type="text" id="image" name="image" list="imageOptions" placeholder="saashup/app">
+                  <button type="button" class="icon-btn" id="refreshImagesBtn" title="Refresh images" aria-label="Refresh images">↻</button>
+                </div>
+                <datalist id="imageOptions"></datalist>
               </label>
 
               <label class="field" data-field="oldversion">
                 <span>Old version</span>
-                <input type="text" id="oldversion" name="oldversion" placeholder="v1.0.0">
+                <input type="text" id="oldversion" name="oldversion" list="oldVersionOptions" placeholder="v1.0.0">
+                <datalist id="oldVersionOptions"></datalist>
               </label>
 
               <label class="field" data-field="version">
