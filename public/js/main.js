@@ -23,14 +23,18 @@ const refreshImagesBtn = document.getElementById("refreshImagesBtn");
 const logsCard = document.getElementById("logsCard");
 const logsFullscreenBtn = document.getElementById("logsFullscreenBtn");
 const clearLogsBtn = document.getElementById("clearLogsBtn");
+const configProfileSelect = document.getElementById("config_profile");
 
 let currentAction = localStorage.getItem("current_action") || "config";
+let currentConfigProfile = localStorage.getItem("current_config_profile") || "default";
 let noticeTimeout = null;
 let savedConfig = {};
+let configProfiles = {};
 let imageRecords = [];
 let lastLogsHtml = "";
 
-const configFields = ["netbox", "token"];
+const defaultProfileName = "default";
+const configFields = ["config_profile", "config_name", "netbox", "token", "proxy"];
 
 const actions = {
   config: {
@@ -38,10 +42,10 @@ const actions = {
     method: "get",
     menu: "menu_config",
     title: "Config",
-    description: "Save the NetBox URL and token used by the automation.",
+    description: "Save the NetBox URL, token and optional proxy used by the automation.",
     submitLabel: "Save config",
     buttonClass: "btn btn-primary",
-    fields: ["netbox", "token"],
+    fields: ["config_profile", "config_name", "netbox", "token", "proxy"],
   },
   create: {
     endpoint: "/create",
@@ -51,7 +55,7 @@ const actions = {
     description: "Create a container, volume, DNS record and Traefik labels.",
     submitLabel: "Create instance",
     buttonClass: "btn btn-primary",
-    fields: ["hostname", "network", "instance", "image", "version", "env_vars", "labels", "volumes"],
+    fields: ["config_profile", "hostname", "network", "instance", "image", "version", "env_vars", "labels", "volumes"],
   },
   recreate: {
     endpoint: "/recreate",
@@ -61,7 +65,7 @@ const actions = {
     description: "Replace containers matching an image and old version with a new version.",
     submitLabel: "Upgrade containers",
     buttonClass: "btn btn-primary",
-    fields: ["image", "oldversion", "version", "delay"],
+    fields: ["config_profile", "image", "oldversion", "version", "delay"],
   },
   restart: {
     endpoint: "/restart",
@@ -71,7 +75,18 @@ const actions = {
     description: "Restart one container or containers matching an image and version.",
     submitLabel: "Restart image",
     buttonClass: "btn btn-primary",
-    fields: ["instance", "image", "restart_version", "delay"],
+    fields: ["config_profile", "instance", "image", "restart_version", "delay"],
+  },
+  refresh_hosts: {
+    endpoint: "/refresh-hosts",
+    method: "post",
+    menu: "menu_refresh_hosts",
+    title: "Refresh Docker hosts",
+    description: "Request a refresh for each Docker host in the selected NetBox config.",
+    submitLabel: "Refresh hosts",
+    buttonClass: "btn btn-primary",
+    fields: ["config_profile", "delay"],
+    confirm: "Refresh all Docker hosts for this config?",
   },
   delete: {
     endpoint: "/delete",
@@ -81,7 +96,7 @@ const actions = {
     description: "Delete one instance. A confirmation will be requested before submitting.",
     submitLabel: "Delete instance",
     buttonClass: "btn btn-danger",
-    fields: ["instance"],
+    fields: ["config_profile", "instance"],
     confirm: "Delete this instance?",
   },
 };
@@ -89,6 +104,9 @@ const actions = {
 const allFieldNames = [
   "netbox",
   "token",
+  "proxy",
+  "config_profile",
+  "config_name",
   "hostname",
   "network",
   "instance",
@@ -117,6 +135,94 @@ function fieldValue(name, fallback = "") {
 function setFieldValue(name, value = "") {
   const el = field(name);
   if (el) el.value = value || "";
+}
+
+function profileLabel(name) {
+  return name || defaultProfileName;
+}
+
+function parseProfiles(value) {
+  if (!value) return {};
+
+  if (typeof value === "object") return value;
+
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function storedProfiles() {
+  return parseProfiles(localStorage.getItem("config_profiles"));
+}
+
+function persistProfiles() {
+  localStorage.setItem("config_profiles", JSON.stringify(configProfiles));
+  localStorage.setItem("current_config_profile", currentConfigProfile);
+}
+
+function profileCredentials(name = currentConfigProfile) {
+  const profile = configProfiles[name] || {};
+  return {
+    profile: name,
+    netbox: profile.netbox || "",
+    token: profile.token || "",
+    proxy: profile.proxy || "",
+  };
+}
+
+function selectedProfileCredentials() {
+  const selected = configProfileSelect?.value || currentConfigProfile || defaultProfileName;
+  return profileCredentials(selected);
+}
+
+function updateProfileOptions() {
+  if (!configProfileSelect) return;
+
+  const names = Array.from(new Set([
+    defaultProfileName,
+    currentConfigProfile,
+    ...Object.keys(configProfiles),
+  ].filter(Boolean))).sort((a, b) => a.localeCompare(b));
+
+  configProfileSelect.replaceChildren(...names.map((name) => {
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = profileLabel(name);
+    return option;
+  }));
+
+  if (!names.includes(currentConfigProfile)) {
+    currentConfigProfile = names[0] || defaultProfileName;
+  }
+
+  configProfileSelect.value = currentConfigProfile;
+}
+
+function applyProfileToFields(name = currentConfigProfile) {
+  currentConfigProfile = name || defaultProfileName;
+  const credentials = profileCredentials(currentConfigProfile);
+
+  setFieldValue("config_profile", currentConfigProfile);
+  setFieldValue("config_name", currentConfigProfile);
+  setFieldValue("netbox", credentials.netbox);
+  setFieldValue("token", credentials.token);
+  setFieldValue("proxy", credentials.proxy);
+  persistProfiles();
+}
+
+function credentialsQuery() {
+  const credentials = selectedProfileCredentials();
+  if (!credentials.netbox || !credentials.token) return null;
+
+  return new URLSearchParams({
+    netbox: credentials.netbox,
+    token: credentials.token,
+    proxy: credentials.proxy,
+    profile: credentials.profile,
+  });
 }
 
 function setTestButtonState(state = "default") {
@@ -376,73 +482,125 @@ function loadSavedConfig() {
   })
     .then((response) => response.json())
     .then((data) => {
-      if (!data) return {};
+      const localProfiles = storedProfiles();
+      if (!data) {
+        configProfiles = localProfiles;
+        updateProfileOptions();
+        applyProfileToFields(currentConfigProfile);
+        return {};
+      }
 
       savedConfig = data;
-      setFieldValue("netbox", data.netbox || "");
-      setFieldValue("token", data.token || "");
+      const serverProfiles = parseProfiles(data.profiles);
+      configProfiles = { ...serverProfiles, ...localProfiles };
+
+      if (data.netbox && data.token) {
+        const profile = data.profile || data.config_profile || currentConfigProfile || defaultProfileName;
+        configProfiles[profile] = {
+          netbox: data.netbox,
+          token: data.token,
+          proxy: data.proxy || "",
+        };
+        currentConfigProfile = localStorage.getItem("current_config_profile") || profile;
+      }
+
+      updateProfileOptions();
+      applyProfileToFields(currentConfigProfile);
       return data;
     })
     .catch(() => {
-      /* Config is optional. */
+      configProfiles = storedProfiles();
+      updateProfileOptions();
+      applyProfileToFields(currentConfigProfile);
       return {};
     });
 }
 
 async function test() {
-  let netbox = fieldValue("netbox") || savedConfig.netbox || "";
-  let token = fieldValue("token") || savedConfig.token || "";
+  let { netbox, token, proxy } = selectedProfileCredentials();
 
   if (!netbox || !token) {
     const config = await loadSavedConfig();
-    netbox = netbox || config.netbox || "";
-    token = token || config.token || "";
+    const credentials = selectedProfileCredentials();
+    netbox = netbox || credentials.netbox || config.netbox || "";
+    token = token || credentials.token || config.token || "";
+    proxy = proxy || credentials.proxy || config.proxy || "";
   }
 
   if (!netbox || !token) {
     setTestButtonState("error");
-    setNotice("Save NetBox URL and token in Config first", "error");
+    setNotice("Save NetBox URL and token for this profile first", "error");
     return;
   }
 
   setTestButtonState("default");
-  fetch("/test", {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      netbox,
-      token,
-    }),
-  })
-    .then((response) => response.json())
-    .then((data) => {
-      if (data["status"] || data["netbox-version"] || data["netbox-full-version"]) {
-        setTestButtonState("success");
-        setNotice("Connection successful", "success");
-      } else {
-        setTestButtonState("error");
-        setNotice("Connection failed", "error");
-      }
-    })
-    .catch(() => {
-      setTestButtonState("error");
-      setNotice("Connection failed", "error");
+  try {
+    const response = await fetch("/test", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        netbox,
+        token,
+        proxy,
+      }),
     });
+
+    const text = await response.text();
+    let data = {};
+
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = { detail: text };
+    }
+
+    if (response.ok && (data["status"] || data["netbox-version"] || data["netbox-full-version"])) {
+      setTestButtonState("success");
+      setNotice("Connection successful", "success");
+      return;
+    }
+
+    const detail = data.detail || data.error || data.message || data.payload || text || `HTTP ${response.status}`;
+    setTestButtonState("error");
+    setNotice(`Connection failed: ${String(detail).slice(0, 160)}`, "error", false);
+  } catch (error) {
+    setTestButtonState("error");
+    setNotice(`Connection failed: ${error.message || "request error"}`, "error", false);
+  }
 }
 
 async function saveConfig() {
+  const profile = (fieldValue("config_name") || fieldValue("config_profile") || defaultProfileName).trim();
   const netbox = fieldValue("netbox");
   const token = fieldValue("token");
+  const proxy = fieldValue("proxy");
+
+  if (!profile) {
+    setNotice("Profile name is required", "error");
+    return;
+  }
 
   if (!netbox || !token) {
     setNotice("NetBox URL and token are required", "error");
     return;
   }
 
-  const params = new URLSearchParams({ netbox, token });
+  configProfiles[profile] = { netbox, token, proxy };
+  currentConfigProfile = profile;
+  updateProfileOptions();
+  persistProfiles();
+
+  const params = new URLSearchParams({
+    netbox,
+    token,
+    proxy,
+    profile,
+    config_profile: profile,
+    profiles: JSON.stringify(configProfiles),
+  });
 
   try {
     const response = await fetch(`/webhook?${params.toString()}`, {
@@ -452,8 +610,9 @@ async function saveConfig() {
 
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-    savedConfig = { netbox, token };
-    setNotice(`Config saved (${response.status})`, "success");
+    savedConfig = { netbox, token, proxy, profile, profiles: configProfiles };
+    applyProfileToFields(profile);
+    setNotice(`Config "${profileLabel(profile)}" saved (${response.status})`, "success");
   } catch {
     setNotice("Config save failed", "error");
   }
@@ -461,6 +620,17 @@ async function saveConfig() {
 
 async function submitAction(config, submitter) {
   const body = new URLSearchParams(new FormData(form));
+  const credentials = selectedProfileCredentials();
+
+  if (!credentials.netbox || !credentials.token) {
+    setNotice("Save NetBox URL and token for this profile first", "error");
+    return;
+  }
+
+  body.set("netbox", credentials.netbox);
+  body.set("token", credentials.token);
+  body.set("proxy", credentials.proxy);
+  body.set("profile", credentials.profile);
 
   if (submitter?.name) {
     body.set(submitter.name, submitter.value);
@@ -493,11 +663,17 @@ function instanceNameFromItem(item) {
 
 async function refreshInstances() {
   if (!instanceOptions || !refreshInstancesBtn) return;
+  const query = credentialsQuery();
+
+  if (!query) {
+    setNotice("Save NetBox URL and token for this profile first", "error");
+    return;
+  }
 
   refreshInstancesBtn.disabled = true;
 
   try {
-    const response = await fetch("/instances", {
+    const response = await fetch(`/instances?${query.toString()}`, {
       method: "GET",
       headers: { Accept: "application/json" },
     });
@@ -566,11 +742,17 @@ function updateOldVersionOptions() {
 
 async function refreshImages() {
   if (!imageOptions || !refreshImagesBtn) return;
+  const query = credentialsQuery();
+
+  if (!query) {
+    setNotice("Save NetBox URL and token for this profile first", "error");
+    return;
+  }
 
   refreshImagesBtn.disabled = true;
 
   try {
-    const response = await fetch("/images", {
+    const response = await fetch(`/images?${query.toString()}`, {
       method: "GET",
       headers: { Accept: "application/json" },
     });
@@ -714,6 +896,13 @@ testBtn?.addEventListener("click", test);
 clearBtn?.addEventListener("click", clearActionFields);
 refreshInstancesBtn?.addEventListener("click", refreshInstances);
 refreshImagesBtn?.addEventListener("click", refreshImages);
+configProfileSelect?.addEventListener("change", () => {
+  applyProfileToFields(configProfileSelect.value);
+  imageRecords = [];
+  replaceOptions(imageOptions, []);
+  replaceOptions(oldVersionOptions, []);
+  replaceOptions(restartVersionOptions, []);
+});
 field("image")?.addEventListener("input", updateOldVersionOptions);
 field("restart_version")?.addEventListener("input", updateRestartButtons);
 field("instance")?.addEventListener("input", updateRestartButtons);

@@ -1,4 +1,5 @@
 data = require("./package.json")
+const proxyEnv = {};
 
 module.exports = {
     credentialSecret: "saashup",
@@ -97,7 +98,12 @@ module.exports = {
     },
     functionExternalModules: true,
     functionTimeout: 0,
-    functionGlobalContext: {},
+    proxyOptions: {
+        env: proxyEnv,
+    },
+    functionGlobalContext: {
+        proxyEnv,
+    },
     debugMaxLength: 1000,
     mqttReconnectTime: 15000,
     serialReconnectTime: 15000

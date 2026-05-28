@@ -8,6 +8,14 @@
         "env": []
     },
     {
+        "id": "d35afda971f87177",
+        "type": "tab",
+        "label": "REFRESH",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
         "id": "a0840e5d7cd65ea0",
         "type": "tab",
         "label": "RECREATE",
@@ -56,6 +64,104 @@
         "out": []
     },
     {
+        "id": "subflow_apply_proxy",
+        "type": "subflow",
+        "name": "Apply proxy",
+        "info": "Applies the selected profile proxy to Node-RED HTTP requests and disables TLS certificate verification for NetBox calls.",
+        "category": "",
+        "in": [
+            {
+                "x": 40,
+                "y": 80,
+                "wires": [
+                    {
+                        "id": "subflow_apply_proxy_change"
+                    }
+                ]
+            }
+        ],
+        "out": [
+            {
+                "x": 440,
+                "y": 80,
+                "wires": [
+                    {
+                        "id": "subflow_apply_proxy_change",
+                        "port": 0
+                    }
+                ]
+            }
+        ],
+        "env": [],
+        "meta": {},
+        "color": "#DDAA99"
+    },
+    {
+        "id": "subflow_apply_proxy_change",
+        "type": "change",
+        "z": "subflow_apply_proxy",
+        "name": "apply proxy settings",
+        "rules": [
+            {
+                "t": "set",
+                "p": "rejectUnauthorized",
+                "pt": "msg",
+                "to": "false",
+                "tot": "bool"
+            },
+            {
+                "t": "set",
+                "p": "proxyValue",
+                "pt": "msg",
+                "to": "msg.proxy ? msg.proxy : (msg.payload.proxy ? msg.payload.proxy : \"\")",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "proxyEnv.http_proxy",
+                "pt": "global",
+                "to": "proxyValue",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "proxyEnv.https_proxy",
+                "pt": "global",
+                "to": "proxyValue",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "proxyEnv.HTTP_PROXY",
+                "pt": "global",
+                "to": "proxyValue",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "proxyEnv.HTTPS_PROXY",
+                "pt": "global",
+                "to": "proxyValue",
+                "tot": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "proxyValue",
+                "pt": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 160,
+        "y": 80,
+        "wires": [
+            []
+        ]
+    },
+    {
         "id": "f05b71c9da3eac07",
         "type": "http in",
         "z": "d5158039611d4b98",
@@ -64,8 +170,8 @@
         "method": "post",
         "upload": false,
         "swaggerDoc": "",
-        "x": 130,
-        "y": 100,
+        "x": 160,
+        "y": 80,
         "wires": [
             [
                 "65a29b0cc15fece2",
@@ -90,15 +196,22 @@
                 "t": "set",
                 "p": "netbox",
                 "pt": "msg",
-                "to": "config.netbox",
-                "tot": "global"
+                "to": "config.netbox ? config.netbox : (req.query.netbox ? req.query.netbox : $globalContext(\"config\").netbox)",
+                "tot": "jsonata"
             },
             {
                 "t": "set",
                 "p": "token",
                 "pt": "msg",
-                "to": "config.token",
-                "tot": "global"
+                "to": "config.token ? config.token : (req.query.token ? req.query.token : $globalContext(\"config\").token)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "proxy",
+                "pt": "msg",
+                "to": "config.proxy ? config.proxy : (req.query.proxy ? req.query.proxy : $globalContext(\"config\").proxy)",
+                "tot": "jsonata"
             },
             {
                 "t": "set",
@@ -204,8 +317,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 400,
-        "y": 120,
+        "x": 260,
+        "y": 220,
         "wires": [
             [
                 "458387080417f52a",
@@ -246,11 +359,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 680,
-        "y": 140,
+        "x": 500,
+        "y": 220,
         "wires": [
             [
-                "73f3e5f34c6f1b39"
+                "apply_proxy_73f3e5f34c6f1b39"
             ]
         ]
     },
@@ -270,8 +383,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 870,
-        "y": 140,
+        "x": 980,
+        "y": 220,
         "wires": [
             [
                 "c251aba3024d56f3"
@@ -298,8 +411,8 @@
         "checkall": "true",
         "repair": false,
         "outputs": 2,
-        "x": 1050,
-        "y": 140,
+        "x": 1220,
+        "y": 220,
         "wires": [
             [
                 "c023f5d33cc1a8f6"
@@ -340,11 +453,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 370,
+        "x": 1460,
         "y": 220,
         "wires": [
             [
-                "01e92d6b0fcb76bf"
+                "apply_proxy_01e92d6b0fcb76bf"
             ]
         ]
     },
@@ -364,8 +477,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 570,
-        "y": 220,
+        "x": 470,
+        "y": 300,
         "wires": [
             [
                 "62e25cd5752991bc"
@@ -392,8 +505,8 @@
         "checkall": "true",
         "repair": false,
         "outputs": 2,
-        "x": 810,
-        "y": 220,
+        "x": 650,
+        "y": 300,
         "wires": [
             [
                 "3cf9824c67655d6f"
@@ -448,11 +561,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 890,
-        "y": 300,
+        "x": 210,
+        "y": 380,
         "wires": [
             [
-                "9f73f45cd7734d7f"
+                "apply_proxy_9f73f45cd7734d7f"
             ]
         ]
     },
@@ -472,8 +585,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 1130,
-        "y": 300,
+        "x": 690,
+        "y": 380,
         "wires": [
             [
                 "21f97ac5da6a1ea8"
@@ -520,11 +633,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 1110,
-        "y": 380,
+        "x": 670,
+        "y": 480,
         "wires": [
             [
-                "e0ec5be02bee7c3e"
+                "apply_proxy_e0ec5be02bee7c3e"
             ]
         ]
     },
@@ -544,8 +657,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 1310,
-        "y": 380,
+        "x": 1150,
+        "y": 480,
         "wires": [
             []
         ]
@@ -597,11 +710,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 220,
+        "x": 890,
         "y": 300,
         "wires": [
             [
-                "1233e36c1ed40b2c"
+                "apply_proxy_1233e36c1ed40b2c"
             ]
         ]
     },
@@ -621,7 +734,7 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 470,
+        "x": 1370,
         "y": 300,
         "wires": [
             [
@@ -646,8 +759,8 @@
         "drop": false,
         "allowrate": false,
         "outputs": 1,
-        "x": 220,
-        "y": 360,
+        "x": 930,
+        "y": 380,
         "wires": [
             [
                 "1d13b67923d9a132"
@@ -671,8 +784,8 @@
         "drop": false,
         "allowrate": false,
         "outputs": 1,
-        "x": 840,
-        "y": 380,
+        "x": 430,
+        "y": 480,
         "wires": [
             [
                 "6d6c5f8c0e8bc79a"
@@ -695,7 +808,7 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 650,
+        "x": 1650,
         "y": 380,
         "wires": [
             [
@@ -743,11 +856,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 1160,
-        "y": 60,
+        "x": 1340,
+        "y": 160,
         "wires": [
             [
-                "9a0bc1c9cbbaf0e2"
+                "apply_proxy_9a0bc1c9cbbaf0e2"
             ]
         ]
     },
@@ -767,8 +880,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 1390,
-        "y": 60,
+        "x": 1730,
+        "y": 160,
         "wires": [
             []
         ]
@@ -799,11 +912,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 550,
-        "y": 60,
+        "x": 510,
+        "y": 160,
         "wires": [
             [
-                "b649b3aae6375b6d"
+                "apply_proxy_b649b3aae6375b6d"
             ]
         ]
     },
@@ -823,8 +936,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 770,
-        "y": 60,
+        "x": 930,
+        "y": 160,
         "wires": [
             [
                 "08a921bf4f9a4dc0"
@@ -851,8 +964,8 @@
         "checkall": "true",
         "repair": false,
         "outputs": 2,
-        "x": 960,
-        "y": 60,
+        "x": 1130,
+        "y": 160,
         "wires": [
             [
                 "2bc10654858e4154"
@@ -914,11 +1027,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 430,
-        "y": 360,
+        "x": 1170,
+        "y": 380,
         "wires": [
             [
-                "ddfa991fa8e68500"
+                "apply_proxy_ddfa991fa8e68500"
             ]
         ]
     },
@@ -929,8 +1042,8 @@
         "name": "",
         "statusCode": "202",
         "headers": {},
-        "x": 280,
-        "y": 40,
+        "x": 400,
+        "y": 80,
         "wires": []
     },
     {
@@ -950,11 +1063,522 @@
         "drop": false,
         "allowrate": false,
         "outputs": 1,
-        "x": 660,
+        "x": 1580,
         "y": 300,
         "wires": [
             [
                 "b2b06675311655f7"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_73f3e5f34c6f1b39",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "d5158039611d4b98",
+        "name": "apply proxy",
+        "x": 740,
+        "y": 220,
+        "wires": [
+            [
+                "73f3e5f34c6f1b39"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_01e92d6b0fcb76bf",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "d5158039611d4b98",
+        "name": "apply proxy",
+        "x": 270,
+        "y": 300,
+        "wires": [
+            [
+                "01e92d6b0fcb76bf"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_9f73f45cd7734d7f",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "d5158039611d4b98",
+        "name": "apply proxy",
+        "x": 450,
+        "y": 380,
+        "wires": [
+            [
+                "9f73f45cd7734d7f"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_e0ec5be02bee7c3e",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "d5158039611d4b98",
+        "name": "apply proxy",
+        "x": 910,
+        "y": 480,
+        "wires": [
+            [
+                "e0ec5be02bee7c3e"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_1233e36c1ed40b2c",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "d5158039611d4b98",
+        "name": "apply proxy",
+        "x": 1130,
+        "y": 300,
+        "wires": [
+            [
+                "1233e36c1ed40b2c"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_ddfa991fa8e68500",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "d5158039611d4b98",
+        "name": "apply proxy",
+        "x": 1410,
+        "y": 380,
+        "wires": [
+            [
+                "ddfa991fa8e68500"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_9a0bc1c9cbbaf0e2",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "d5158039611d4b98",
+        "name": "apply proxy",
+        "x": 1530,
+        "y": 160,
+        "wires": [
+            [
+                "9a0bc1c9cbbaf0e2"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_b649b3aae6375b6d",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "d5158039611d4b98",
+        "name": "apply proxy",
+        "x": 710,
+        "y": 160,
+        "wires": [
+            [
+                "b649b3aae6375b6d"
+            ]
+        ]
+    },
+    {
+        "id": "refresh_hosts_http_in",
+        "type": "http in",
+        "z": "d35afda971f87177",
+        "name": "",
+        "url": "/refresh-hosts",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 160,
+        "y": 80,
+        "wires": [
+            [
+                "refresh_hosts_http_response",
+                "refresh_hosts_prepare"
+            ]
+        ]
+    },
+    {
+        "id": "refresh_hosts_http_response",
+        "type": "http response",
+        "z": "d35afda971f87177",
+        "name": "",
+        "statusCode": "202",
+        "headers": {},
+        "x": 400,
+        "y": 180,
+        "wires": []
+    },
+    {
+        "id": "refresh_hosts_prepare",
+        "type": "change",
+        "z": "d35afda971f87177",
+        "name": "get docker hosts",
+        "rules": [
+            {
+                "t": "set",
+                "p": "config",
+                "pt": "msg",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "netbox",
+                "pt": "msg",
+                "to": "config.netbox ? config.netbox : (req.query.netbox ? req.query.netbox : $globalContext(\"config\").netbox)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "token",
+                "pt": "msg",
+                "to": "config.token ? config.token : (req.query.token ? req.query.token : $globalContext(\"config\").token)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "proxy",
+                "pt": "msg",
+                "to": "config.proxy ? config.proxy : (req.query.proxy ? req.query.proxy : $globalContext(\"config\").proxy)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & \"/api/plugins/docker/hosts/?limit=1000\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Accept\": \"application/json\"\t}",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "rejectUnauthorized",
+                "pt": "msg",
+                "to": "false",
+                "tot": "bool"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 400,
+        "y": 80,
+        "wires": [
+            [
+                "apply_proxy_refresh_hosts_get_request"
+            ]
+        ]
+    },
+    {
+        "id": "refresh_hosts_get_request",
+        "type": "http request",
+        "z": "d35afda971f87177",
+        "name": "",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": true,
+        "headers": [],
+        "x": 810,
+        "y": 80,
+        "wires": [
+            [
+                "refresh_hosts_has_results"
+            ]
+        ]
+    },
+    {
+        "id": "refresh_hosts_has_results",
+        "type": "switch",
+        "z": "d35afda971f87177",
+        "name": "",
+        "property": "payload.count",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "gt",
+                "v": "0",
+                "vt": "num"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 970,
+        "y": 80,
+        "wires": [
+            [
+                "refresh_hosts_results"
+            ],
+            [
+                "refresh_hosts_empty_log"
+            ]
+        ]
+    },
+    {
+        "id": "refresh_hosts_results",
+        "type": "change",
+        "z": "d35afda971f87177",
+        "name": "set hosts",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "payload.results",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "rate",
+                "pt": "msg",
+                "to": "config.delay ? config.delay : \"10000\"",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1160,
+        "y": 80,
+        "wires": [
+            [
+                "refresh_hosts_split"
+            ]
+        ]
+    },
+    {
+        "id": "refresh_hosts_split",
+        "type": "split",
+        "z": "d35afda971f87177",
+        "name": "split hosts",
+        "splt": "\\n",
+        "spltType": "str",
+        "arraySplt": 1,
+        "arraySpltType": "len",
+        "stream": false,
+        "addname": "",
+        "x": 1340,
+        "y": 80,
+        "wires": [
+            [
+                "refresh_hosts_rate_limit"
+            ]
+        ]
+    },
+    {
+        "id": "refresh_hosts_patch_prepare",
+        "type": "change",
+        "z": "d35afda971f87177",
+        "name": "refresh host",
+        "rules": [
+            {
+                "t": "set",
+                "p": "host",
+                "pt": "msg",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & \"/api/plugins/docker/hosts/\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "[\t   {\t       \"operation\": \"refresh\",\t       \"id\": msg.host.id\t   }\t]",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "PATCH",
+                "tot": "str"
+            },
+            {
+                "t": "set",
+                "p": "rejectUnauthorized",
+                "pt": "msg",
+                "to": "false",
+                "tot": "bool"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1370,
+        "y": 160,
+        "wires": [
+            [
+                "apply_proxy_refresh_hosts_patch_request"
+            ]
+        ]
+    },
+    {
+        "id": "refresh_hosts_patch_request",
+        "type": "http request",
+        "z": "d35afda971f87177",
+        "name": "",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": true,
+        "headers": [],
+        "x": 1170,
+        "y": 240,
+        "wires": [
+            [
+                "refresh_hosts_log"
+            ]
+        ]
+    },
+    {
+        "id": "refresh_hosts_log",
+        "type": "change",
+        "z": "d35afda971f87177",
+        "name": "log host refresh",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" REFRESH_HOST : \" & (msg.host.display ? msg.host.display : msg.host.name) & \" \" & msg.statusCode & \"<br>\" & $globalContext(\"logs\")",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1380,
+        "y": 240,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "refresh_hosts_empty_log",
+        "type": "change",
+        "z": "d35afda971f87177",
+        "name": "log no hosts",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" REFRESH_HOST : no hosts found \" & msg.statusCode & \"<br>\" & $globalContext(\"logs\")",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 890,
+        "y": 140,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "apply_proxy_refresh_hosts_get_request",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "d35afda971f87177",
+        "name": "apply proxy",
+        "x": 610,
+        "y": 80,
+        "wires": [
+            [
+                "refresh_hosts_get_request"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_refresh_hosts_patch_request",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "d35afda971f87177",
+        "name": "apply proxy",
+        "x": 970,
+        "y": 240,
+        "wires": [
+            [
+                "refresh_hosts_patch_request"
+            ]
+        ]
+    },
+    {
+        "id": "refresh_hosts_rate_limit",
+        "type": "delay",
+        "z": "d35afda971f87177",
+        "name": "delay host refresh",
+        "pauseType": "rate",
+        "timeout": "30",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "10",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": true,
+        "outputs": 1,
+        "x": 1130,
+        "y": 160,
+        "wires": [
+            [
+                "refresh_hosts_patch_prepare"
             ]
         ]
     },
@@ -967,8 +1591,8 @@
         "method": "post",
         "upload": false,
         "swaggerDoc": "",
-        "x": 140,
-        "y": 140,
+        "x": 160,
+        "y": 80,
         "wires": [
             [
                 "cde029ae5b763def",
@@ -993,15 +1617,22 @@
                 "t": "set",
                 "p": "netbox",
                 "pt": "msg",
-                "to": "config.netbox",
-                "tot": "global"
+                "to": "config.netbox ? config.netbox : (req.query.netbox ? req.query.netbox : $globalContext(\"config\").netbox)",
+                "tot": "jsonata"
             },
             {
                 "t": "set",
                 "p": "token",
                 "pt": "msg",
-                "to": "config.token",
-                "tot": "global"
+                "to": "config.token ? config.token : (req.query.token ? req.query.token : $globalContext(\"config\").token)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "proxy",
+                "pt": "msg",
+                "to": "config.proxy ? config.proxy : (req.query.proxy ? req.query.proxy : $globalContext(\"config\").proxy)",
+                "tot": "jsonata"
             },
             {
                 "t": "set",
@@ -1045,7 +1676,7 @@
         "to": "",
         "reg": false,
         "x": 400,
-        "y": 80,
+        "y": 180,
         "wires": [
             [
                 "d837a0475dee45dc"
@@ -1092,11 +1723,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 460,
-        "y": 260,
+        "x": 1300,
+        "y": 380,
         "wires": [
             [
-                "ebf4cf8587e41ce3"
+                "apply_proxy_ebf4cf8587e41ce3"
             ]
         ]
     },
@@ -1116,8 +1747,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 670,
-        "y": 280,
+        "x": 1780,
+        "y": 380,
         "wires": [
             [
                 "798b4e154e88c606"
@@ -1144,8 +1775,8 @@
         "checkall": "true",
         "repair": false,
         "outputs": 2,
-        "x": 870,
-        "y": 280,
+        "x": 840,
+        "y": 460,
         "wires": [
             [
                 "bc5907aebb882d2a"
@@ -1200,11 +1831,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 430,
-        "y": 360,
+        "x": 1800,
+        "y": 460,
         "wires": [
             [
-                "a79cb768fa1fd609"
+                "apply_proxy_a79cb768fa1fd609"
             ]
         ]
     },
@@ -1224,8 +1855,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 650,
-        "y": 360,
+        "x": 1290,
+        "y": 520,
         "wires": [
             [
                 "78be980cee8c08ab"
@@ -1279,11 +1910,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 870,
-        "y": 360,
+        "x": 1490,
+        "y": 540,
         "wires": [
             [
-                "cd130deb569e8cb0"
+                "apply_proxy_cd130deb569e8cb0"
             ]
         ]
     },
@@ -1303,8 +1934,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 1090,
-        "y": 360,
+        "x": 1850,
+        "y": 540,
         "wires": [
             [
                 "090a84d8dfd47125"
@@ -1337,11 +1968,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 620,
-        "y": 80,
+        "x": 640,
+        "y": 180,
         "wires": [
             [
-                "3939693576595bc2"
+                "apply_proxy_3939693576595bc2"
             ]
         ]
     },
@@ -1361,8 +1992,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 850,
-        "y": 80,
+        "x": 1120,
+        "y": 180,
         "wires": [
             [
                 "4a1bda7b502d8923"
@@ -1388,8 +2019,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 500,
-        "y": 160,
+        "x": 1600,
+        "y": 180,
         "wires": [
             [
                 "8f600b6e9c76d581"
@@ -1416,8 +2047,8 @@
         "checkall": "true",
         "repair": false,
         "outputs": 2,
-        "x": 1010,
-        "y": 80,
+        "x": 1360,
+        "y": 180,
         "wires": [
             [
                 "45e0558750363197"
@@ -1436,8 +2067,8 @@
         "arraySpltType": "len",
         "stream": false,
         "addname": "",
-        "x": 1260,
-        "y": 280,
+        "x": 1320,
+        "y": 460,
         "wires": [
             [
                 "677c1ef45acfb02d"
@@ -1471,7 +2102,7 @@
         "to": "",
         "reg": false,
         "x": 1080,
-        "y": 280,
+        "y": 460,
         "wires": [
             [
                 "9d7a8062c6f83014",
@@ -1487,6 +2118,13 @@
         "rules": [
             {
                 "t": "set",
+                "p": "oldimage",
+                "pt": "msg",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
                 "p": "oldimageid",
                 "pt": "msg",
                 "to": "payload.id",
@@ -1498,6 +2136,13 @@
                 "pt": "msg",
                 "to": "payload.host.id",
                 "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "host_name",
+                "pt": "msg",
+                "to": "payload.host.display ? payload.host.display : payload.host.name",
+                "tot": "jsonata"
             },
             {
                 "t": "set",
@@ -1519,11 +2164,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 900,
-        "y": 160,
+        "x": 600,
+        "y": 260,
         "wires": [
             [
-                "b43091c7840cbd07"
+                "apply_proxy_b43091c7840cbd07"
             ]
         ]
     },
@@ -1543,8 +2188,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 1090,
-        "y": 160,
+        "x": 1080,
+        "y": 260,
         "wires": [
             [
                 "93b7140c9f5a21ef"
@@ -1570,8 +2215,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 240,
-        "y": 240,
+        "x": 1560,
+        "y": 260,
         "wires": [
             [
                 "6d92be16bf5c58de"
@@ -1598,13 +2243,15 @@
         "checkall": "true",
         "repair": false,
         "outputs": 2,
-        "x": 1250,
-        "y": 160,
+        "x": 1320,
+        "y": 260,
         "wires": [
             [
                 "1016efa8203a7ccc"
             ],
-            []
+            [
+                "recreate_create_versioned_image"
+            ]
         ]
     },
     {
@@ -1624,8 +2271,8 @@
         "drop": false,
         "allowrate": true,
         "outputs": 1,
-        "x": 200,
-        "y": 360,
+        "x": 1560,
+        "y": 460,
         "wires": [
             [
                 "0cdd6dd2e06ff3ae"
@@ -1639,7 +2286,7 @@
         "name": "",
         "statusCode": "202",
         "headers": {},
-        "x": 180,
+        "x": 400,
         "y": 80,
         "wires": []
     },
@@ -1676,8 +2323,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 1290,
-        "y": 220,
+        "x": 1070,
+        "y": 520,
         "wires": [
             []
         ]
@@ -1715,8 +2362,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 1280,
-        "y": 360,
+        "x": 2090,
+        "y": 540,
         "wires": [
             []
         ]
@@ -1729,7 +2376,7 @@
         "links": [
             "0fa3ca525b84162f"
         ],
-        "x": 315,
+        "x": 160,
         "y": 180,
         "wires": [
             [
@@ -1748,13 +2395,305 @@
         "arraySpltType": "len",
         "stream": false,
         "addname": "",
-        "property": "payload",
-        "x": 700,
-        "y": 160,
+        "x": 360,
+        "y": 260,
         "wires": [
             [
                 "3e60e0d59090800a"
             ]
+        ]
+    },
+    {
+        "id": "apply_proxy_ebf4cf8587e41ce3",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "a0840e5d7cd65ea0",
+        "name": "apply proxy",
+        "x": 1540,
+        "y": 380,
+        "wires": [
+            [
+                "ebf4cf8587e41ce3"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_a79cb768fa1fd609",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "a0840e5d7cd65ea0",
+        "name": "apply proxy",
+        "x": 2040,
+        "y": 460,
+        "wires": [
+            [
+                "a79cb768fa1fd609"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_cd130deb569e8cb0",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "a0840e5d7cd65ea0",
+        "name": "apply proxy",
+        "x": 1690,
+        "y": 540,
+        "wires": [
+            [
+                "cd130deb569e8cb0"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_3939693576595bc2",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "a0840e5d7cd65ea0",
+        "name": "apply proxy",
+        "x": 880,
+        "y": 180,
+        "wires": [
+            [
+                "3939693576595bc2"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_b43091c7840cbd07",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "a0840e5d7cd65ea0",
+        "name": "apply proxy",
+        "x": 840,
+        "y": 260,
+        "wires": [
+            [
+                "b43091c7840cbd07"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_create_versioned_image",
+        "type": "change",
+        "z": "a0840e5d7cd65ea0",
+        "name": "create versioned image",
+        "rules": [
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & \"/api/plugins/docker/images/\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "{\t   \"host\": msg.oldimage.host.id,\t   \"name\": msg.image,\t   \"version\": msg.version,\t   \"registry\": msg.oldimage.registry.id\t}",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "POST",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 450,
+        "y": 320,
+        "wires": [
+            [
+                "apply_proxy_recreate_create_versioned_image"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_recreate_create_versioned_image",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "a0840e5d7cd65ea0",
+        "name": "apply proxy",
+        "x": 710,
+        "y": 320,
+        "wires": [
+            [
+                "recreate_create_versioned_image_request"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_create_versioned_image_request",
+        "type": "http request",
+        "z": "a0840e5d7cd65ea0",
+        "name": "",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": true,
+        "headers": [],
+        "x": 340,
+        "y": 380,
+        "wires": [
+            [
+                "recreate_versioned_image_created"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_versioned_image_created",
+        "type": "switch",
+        "z": "a0840e5d7cd65ea0",
+        "name": "image created?",
+        "property": "statusCode",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "eq",
+                "v": "201",
+                "vt": "num"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 580,
+        "y": 380,
+        "wires": [
+            [
+                "recreate_log_image_create_success"
+            ],
+            [
+                "recreate_log_image_create_failure"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_log_image_create_success",
+        "type": "change",
+        "z": "a0840e5d7cd65ea0",
+        "name": "log image create success",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "newimageid",
+                "pt": "msg",
+                "to": "payload.id",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" PULL_IMAGE : \" & msg.image & \":\" & msg.version & \" on \" & msg.host_name & \" requested \" & msg.statusCode & \"<br>\" & msg.logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 820,
+        "y": 380,
+        "wires": [
+            [
+                "recreate_wait_after_image_create"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_wait_after_image_create",
+        "type": "delay",
+        "z": "a0840e5d7cd65ea0",
+        "name": "wait image pull",
+        "pauseType": "delay",
+        "timeout": "15",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 1060,
+        "y": 380,
+        "wires": [
+            [
+                "6d92be16bf5c58de"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_log_image_create_failure",
+        "type": "change",
+        "z": "a0840e5d7cd65ea0",
+        "name": "log image create failure",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" PULL_IMAGE : \" & msg.image & \":\" & msg.version & \" on \" & msg.host_name & \" failed \" & msg.statusCode & \"<br>\" & msg.logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 530,
+        "y": 440,
+        "wires": [
+            []
         ]
     },
     {
@@ -1766,8 +2705,8 @@
         "method": "post",
         "upload": false,
         "swaggerDoc": "",
-        "x": 220,
-        "y": 120,
+        "x": 160,
+        "y": 180,
         "wires": [
             [
                 "23e3ee9359f3eb15",
@@ -1792,15 +2731,22 @@
                 "t": "set",
                 "p": "netbox",
                 "pt": "msg",
-                "to": "config.netbox",
-                "tot": "global"
+                "to": "config.netbox ? config.netbox : (req.query.netbox ? req.query.netbox : $globalContext(\"config\").netbox)",
+                "tot": "jsonata"
             },
             {
                 "t": "set",
                 "p": "token",
                 "pt": "msg",
-                "to": "config.token",
-                "tot": "global"
+                "to": "config.token ? config.token : (req.query.token ? req.query.token : $globalContext(\"config\").token)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "proxy",
+                "pt": "msg",
+                "to": "config.proxy ? config.proxy : (req.query.proxy ? req.query.proxy : $globalContext(\"config\").proxy)",
+                "tot": "jsonata"
             },
             {
                 "t": "set",
@@ -1850,8 +2796,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 450,
-        "y": 120,
+        "x": 400,
+        "y": 180,
         "wires": [
             [
                 "a1c1b1a0f0040001"
@@ -1891,8 +2837,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 650,
-        "y": 120,
+        "x": 160,
+        "y": 80,
         "wires": [
             []
         ]
@@ -1937,11 +2883,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 580,
-        "y": 280,
+        "x": 810,
+        "y": 260,
         "wires": [
             [
-                "c6663711a72ec63e"
+                "apply_proxy_c6663711a72ec63e"
             ]
         ]
     },
@@ -1961,8 +2907,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 790,
-        "y": 280,
+        "x": 1290,
+        "y": 260,
         "wires": [
             [
                 "7daed88fc6423676"
@@ -1989,8 +2935,8 @@
         "checkall": "true",
         "repair": false,
         "outputs": 2,
-        "x": 990,
-        "y": 280,
+        "x": 1530,
+        "y": 260,
         "wires": [
             [
                 "d4d7027979bfe448"
@@ -2045,11 +2991,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 800,
+        "x": 960,
         "y": 360,
         "wires": [
             [
-                "e6f06c7e6d447ad6"
+                "apply_proxy_e6f06c7e6d447ad6"
             ]
         ]
     },
@@ -2069,7 +3015,7 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 1030,
+        "x": 1440,
         "y": 360,
         "wires": [
             [
@@ -2103,11 +3049,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 170,
+        "x": 880,
         "y": 180,
         "wires": [
             [
-                "1ef666d9ba2191c1"
+                "apply_proxy_1ef666d9ba2191c1"
             ]
         ]
     },
@@ -2127,7 +3073,7 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 370,
+        "x": 1360,
         "y": 180,
         "wires": [
             [
@@ -2154,8 +3100,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 800,
-        "y": 180,
+        "x": 330,
+        "y": 260,
         "wires": [
             [
                 "a1c1b1a0f0030001"
@@ -2182,7 +3128,7 @@
         "checkall": "true",
         "repair": false,
         "outputs": 2,
-        "x": 610,
+        "x": 1530,
         "y": 180,
         "wires": [
             [
@@ -2202,7 +3148,7 @@
         "arraySpltType": "len",
         "stream": false,
         "addname": "",
-        "x": 370,
+        "x": 480,
         "y": 360,
         "wires": [
             [
@@ -2236,8 +3182,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 1200,
-        "y": 280,
+        "x": 1760,
+        "y": 300,
         "wires": [
             [
                 "96e3b644172be37e",
@@ -2265,8 +3211,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 1430,
-        "y": 180,
+        "x": 1780,
+        "y": 240,
         "wires": [
             []
         ]
@@ -2288,7 +3234,7 @@
         "drop": false,
         "allowrate": true,
         "outputs": 1,
-        "x": 560,
+        "x": 720,
         "y": 360,
         "wires": [
             [
@@ -2303,8 +3249,8 @@
         "name": "",
         "statusCode": "202",
         "headers": {},
-        "x": 410,
-        "y": 60,
+        "x": 400,
+        "y": 80,
         "wires": []
     },
     {
@@ -2340,7 +3286,7 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 1240,
+        "x": 1680,
         "y": 360,
         "wires": [
             []
@@ -2363,7 +3309,7 @@
                 "t": "set",
                 "p": "payload",
                 "pt": "msg",
-                "to": "$now() & \" RESTART  : \" & $string($count(msg.payload)) & \"<br>\" & msg.logs",
+                "to": "$now() & \" RESTART  : \" & $string($count(msg.payload)) & \" container\" & ($count(msg.payload) = 1 ? \"\" : \"s\") & \" queued for restart<br>\" & msg.logs",
                 "tot": "jsonata"
             },
             {
@@ -2379,8 +3325,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 1430,
-        "y": 220,
+        "x": 1780,
+        "y": 200,
         "wires": [
             []
         ]
@@ -2402,8 +3348,8 @@
         "drop": false,
         "allowrate": false,
         "outputs": 1,
-        "x": 1390,
-        "y": 280,
+        "x": 320,
+        "y": 360,
         "wires": [
             [
                 "38b25596b8879610"
@@ -2421,9 +3367,8 @@
         "arraySpltType": "len",
         "stream": false,
         "addname": "",
-        "property": "payload",
-        "x": 990,
-        "y": 180,
+        "x": 570,
+        "y": 260,
         "wires": [
             [
                 "c7e0b77dfe548ff2"
@@ -2450,8 +3395,8 @@
         "checkall": "true",
         "repair": false,
         "outputs": 2,
-        "x": 650,
-        "y": 120,
+        "x": 640,
+        "y": 80,
         "wires": [
             [
                 "a1c1b1a0f0040002"
@@ -2494,11 +3439,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 890,
-        "y": 100,
+        "x": 880,
+        "y": 80,
         "wires": [
             [
-                "a1c1b1a0f0040003"
+                "apply_proxy_a1c1b1a0f0040003"
             ]
         ]
     },
@@ -2518,8 +3463,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 1120,
-        "y": 100,
+        "x": 1360,
+        "y": 80,
         "wires": [
             [
                 "a1c1b1a0f0040004"
@@ -2546,13 +3491,65 @@
         "checkall": "true",
         "repair": false,
         "outputs": 2,
-        "x": 1190,
-        "y": 180,
+        "x": 1550,
+        "y": 80,
         "wires": [
             [
                 "d4d7027979bfe448"
             ],
             []
+        ]
+    },
+    {
+        "id": "apply_proxy_c6663711a72ec63e",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "47309e7eb1ed7972",
+        "name": "apply proxy",
+        "x": 1050,
+        "y": 260,
+        "wires": [
+            [
+                "c6663711a72ec63e"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_e6f06c7e6d447ad6",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "47309e7eb1ed7972",
+        "name": "apply proxy",
+        "x": 1200,
+        "y": 360,
+        "wires": [
+            [
+                "e6f06c7e6d447ad6"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_1ef666d9ba2191c1",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "47309e7eb1ed7972",
+        "name": "apply proxy",
+        "x": 1120,
+        "y": 180,
+        "wires": [
+            [
+                "1ef666d9ba2191c1"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_a1c1b1a0f0040003",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "47309e7eb1ed7972",
+        "name": "apply proxy",
+        "x": 1120,
+        "y": 80,
+        "wires": [
+            [
+                "a1c1b1a0f0040003"
+            ]
         ]
     },
     {
@@ -2564,8 +3561,8 @@
         "method": "post",
         "upload": false,
         "swaggerDoc": "",
-        "x": 150,
-        "y": 180,
+        "x": 160,
+        "y": 80,
         "wires": [
             [
                 "5109ddfa87f9eff2",
@@ -2580,8 +3577,8 @@
         "name": "",
         "statusCode": "202",
         "headers": {},
-        "x": 340,
-        "y": 120,
+        "x": 400,
+        "y": 80,
         "wires": []
     },
     {
@@ -2617,58 +3614,9 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 540,
+        "x": 160,
         "y": 180,
         "wires": [
-            []
-        ]
-    },
-    {
-        "id": "1a4f80814884a9fa",
-        "type": "http request",
-        "z": "64ed409ae244327b",
-        "name": "",
-        "method": "GET",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 730,
-        "y": 180,
-        "wires": [
-            []
-        ]
-    },
-    {
-        "id": "c12a4584af903e7f",
-        "type": "switch",
-        "z": "64ed409ae244327b",
-        "name": "",
-        "property": "payload.count",
-        "propertyType": "msg",
-        "rules": [
-            {
-                "t": "gt",
-                "v": "0",
-                "vt": "num"
-            },
-            {
-                "t": "else"
-            }
-        ],
-        "checkall": "true",
-        "repair": false,
-        "outputs": 2,
-        "x": 910,
-        "y": 180,
-        "wires": [
-            [],
             []
         ]
     },
@@ -2719,11 +3667,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 460,
-        "y": 320,
+        "x": 1600,
+        "y": 180,
         "wires": [
             [
-                "48244cfac6e87985"
+                "apply_proxy_48244cfac6e87985"
             ]
         ]
     },
@@ -2743,8 +3691,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 690,
-        "y": 320,
+        "x": 680,
+        "y": 260,
         "wires": [
             [
                 "70f49231324ec37b"
@@ -2791,11 +3739,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 1140,
-        "y": 320,
+        "x": 1110,
+        "y": 260,
         "wires": [
             [
-                "68d767e300ed1980"
+                "apply_proxy_68d767e300ed1980"
             ]
         ]
     },
@@ -2815,8 +3763,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 1350,
-        "y": 320,
+        "x": 1590,
+        "y": 260,
         "wires": [
             []
         ]
@@ -2847,11 +3795,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 550,
-        "y": 60,
+        "x": 640,
+        "y": 80,
         "wires": [
             [
-                "450f65ea867dc44e"
+                "apply_proxy_450f65ea867dc44e"
             ]
         ]
     },
@@ -2871,8 +3819,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 770,
-        "y": 60,
+        "x": 1120,
+        "y": 80,
         "wires": [
             [
                 "9135b25f8c332ccd"
@@ -2899,8 +3847,8 @@
         "checkall": "true",
         "repair": false,
         "outputs": 2,
-        "x": 960,
-        "y": 60,
+        "x": 1360,
+        "y": 80,
         "wires": [
             [
                 "5fceda08ca763358"
@@ -2941,11 +3889,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 1160,
-        "y": 60,
+        "x": 1600,
+        "y": 80,
         "wires": [
             [
-                "16745e1a3e42d7d6"
+                "apply_proxy_16745e1a3e42d7d6"
             ]
         ]
     },
@@ -2965,8 +3913,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 1390,
-        "y": 60,
+        "x": 1550,
+        "y": 140,
         "wires": [
             []
         ]
@@ -2988,15 +3936,22 @@
                 "t": "set",
                 "p": "netbox",
                 "pt": "msg",
-                "to": "config.netbox",
-                "tot": "global"
+                "to": "config.netbox ? config.netbox : (req.query.netbox ? req.query.netbox : $globalContext(\"config\").netbox)",
+                "tot": "jsonata"
             },
             {
                 "t": "set",
                 "p": "token",
                 "pt": "msg",
-                "to": "config.token",
-                "tot": "global"
+                "to": "config.token ? config.token : (req.query.token ? req.query.token : $globalContext(\"config\").token)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "proxy",
+                "pt": "msg",
+                "to": "config.proxy ? config.proxy : (req.query.proxy ? req.query.proxy : $globalContext(\"config\").proxy)",
+                "tot": "jsonata"
             },
             {
                 "t": "set",
@@ -3032,7 +3987,7 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 360,
+        "x": 400,
         "y": 180,
         "wires": [
             [
@@ -3074,11 +4029,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 1120,
+        "x": 640,
         "y": 180,
         "wires": [
             [
-                "b08a1029cbcb8fc8"
+                "apply_proxy_b08a1029cbcb8fc8"
             ]
         ]
     },
@@ -3098,7 +4053,7 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 1330,
+        "x": 1120,
         "y": 180,
         "wires": [
             [
@@ -3126,8 +4081,8 @@
         "checkall": "true",
         "repair": false,
         "outputs": 2,
-        "x": 240,
-        "y": 260,
+        "x": 1360,
+        "y": 180,
         "wires": [
             [
                 "0bc452107b041894"
@@ -3152,11 +4107,76 @@
         "drop": false,
         "allowrate": false,
         "outputs": 1,
-        "x": 900,
-        "y": 320,
+        "x": 870,
+        "y": 260,
         "wires": [
             [
                 "ce466fc9782d3b86"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_48244cfac6e87985",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "64ed409ae244327b",
+        "name": "apply proxy",
+        "x": 440,
+        "y": 260,
+        "wires": [
+            [
+                "48244cfac6e87985"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_68d767e300ed1980",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "64ed409ae244327b",
+        "name": "apply proxy",
+        "x": 1350,
+        "y": 260,
+        "wires": [
+            [
+                "68d767e300ed1980"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_450f65ea867dc44e",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "64ed409ae244327b",
+        "name": "apply proxy",
+        "x": 880,
+        "y": 80,
+        "wires": [
+            [
+                "450f65ea867dc44e"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_16745e1a3e42d7d6",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "64ed409ae244327b",
+        "name": "apply proxy",
+        "x": 1310,
+        "y": 140,
+        "wires": [
+            [
+                "16745e1a3e42d7d6"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_b08a1029cbcb8fc8",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "64ed409ae244327b",
+        "name": "apply proxy",
+        "x": 880,
+        "y": 180,
+        "wires": [
+            [
+                "b08a1029cbcb8fc8"
             ]
         ]
     },
@@ -3169,8 +4189,8 @@
         "method": "get",
         "upload": false,
         "swaggerDoc": "",
-        "x": 220,
-        "y": 120,
+        "x": 180,
+        "y": 280,
         "wires": [
             [
                 "803255bb20afb24f",
@@ -3185,8 +4205,8 @@
         "name": "",
         "statusCode": "200",
         "headers": {},
-        "x": 400,
-        "y": 60,
+        "x": 420,
+        "y": 280,
         "wires": []
     },
     {
@@ -3209,7 +4229,7 @@
         "to": "",
         "reg": false,
         "x": 420,
-        "y": 120,
+        "y": 380,
         "wires": [
             []
         ]
@@ -3223,8 +4243,8 @@
         "method": "get",
         "upload": false,
         "swaggerDoc": "",
-        "x": 210,
-        "y": 200,
+        "x": 170,
+        "y": 80,
         "wires": [
             [
                 "9eec14a7991f06f4"
@@ -3250,8 +4270,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 440,
-        "y": 200,
+        "x": 400,
+        "y": 80,
         "wires": [
             [
                 "743050cd7a1341c2"
@@ -3265,8 +4285,8 @@
         "name": "",
         "statusCode": "",
         "headers": {},
-        "x": 650,
-        "y": 200,
+        "x": 570,
+        "y": 60,
         "wires": []
     },
     {
@@ -3278,8 +4298,8 @@
         "method": "post",
         "upload": false,
         "swaggerDoc": "",
-        "x": 220,
-        "y": 280,
+        "x": 160,
+        "y": 140,
         "wires": [
             [
                 "b6d6a16a68ed30ec",
@@ -3294,8 +4314,8 @@
         "name": "",
         "statusCode": "",
         "headers": {},
-        "x": 430,
-        "y": 280,
+        "x": 410,
+        "y": 140,
         "wires": []
     },
     {
@@ -3315,8 +4335,8 @@
         "topic": "",
         "payload": "{\"callback_url\":\"https://registry.hub.docker.com/u/saashup/curio.city/hook/e516e7b77b86461aa659013befa31d39/\",\"push_data\":{\"pusher\":\"saashup\",\"pushed_at\":1773402989,\"tag\":\"v0.34.0\",\"images\":[],\"media_type\":\"application/vnd.docker.container.image.v1+json\"},\"repository\":{\"status\":\"Active\",\"namespace\":\"saashup\",\"name\":\"curio.city\",\"repo_name\":\"saashup/curio.city\",\"repo_url\":\"https://hub.docker.com/r/saashup/curio.city\",\"description\":\"\",\"full_description\":\"# Curio.city — Guide\\n\\nInstance for every guide \\\\o/\\n\\n## Development\\nTo start the development server run:\\n```bash\\nbun run dev\\n```\\n\\nOpen http://localhost:3000/ with your browser to see the result.\\n\\n## E2E Tests\\n\\nWe use [Playwright](https://playwright.dev/) as E2E tests runner.\\n\\nRun the tests:\\n\\n1. Be sure your have project dependencies installed with `bun install`\\n2. Install headless browsers packages `bunx playwright install`\\n3. Start the Guide instance `bun run dev`\\n4. Exec the tests `bunx --bun playwright test tests/dom/`\\n\\n\",\"star_count\":0,\"is_private\":true,\"is_trusted\":false,\"is_official\":false,\"owner\":\"saashup\",\"date_created\":1723641910}}",
         "payloadType": "json",
-        "x": 210,
-        "y": 340,
+        "x": 170,
+        "y": 200,
         "wires": [
             [
                 "644c492e10fb8aab"
@@ -3341,7 +4361,7 @@
         "repair": false,
         "outputs": 1,
         "x": 430,
-        "y": 340,
+        "y": 200,
         "wires": [
             [
                 "ee993f5a5dfd35f2"
@@ -3365,15 +4385,22 @@
                 "t": "set",
                 "p": "netbox",
                 "pt": "msg",
-                "to": "config.netbox",
-                "tot": "global"
+                "to": "config.netbox ? config.netbox : (req.query.netbox ? req.query.netbox : $globalContext(\"config\").netbox)",
+                "tot": "jsonata"
             },
             {
                 "t": "set",
                 "p": "token",
                 "pt": "msg",
-                "to": "config.token",
-                "tot": "global"
+                "to": "config.token ? config.token : (req.query.token ? req.query.token : $globalContext(\"config\").token)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "proxy",
+                "pt": "msg",
+                "to": "config.proxy ? config.proxy : (req.query.proxy ? req.query.proxy : $globalContext(\"config\").proxy)",
+                "tot": "jsonata"
             },
             {
                 "t": "set",
@@ -3417,10 +4444,10 @@
         "to": "",
         "reg": false,
         "x": 640,
-        "y": 340,
+        "y": 180,
         "wires": [
             [
-                "e405f58e15b5b967"
+                "apply_proxy_e405f58e15b5b967"
             ]
         ]
     },
@@ -3440,8 +4467,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 910,
-        "y": 340,
+        "x": 1120,
+        "y": 80,
         "wires": [
             [
                 "fd1dbd967b25512f"
@@ -3459,9 +4486,8 @@
         "arraySpltType": "len",
         "stream": false,
         "addname": "",
-        "property": "payload.results",
-        "x": 1170,
-        "y": 340,
+        "x": 1360,
+        "y": 80,
         "wires": [
             [
                 "cadad459bab9652f"
@@ -3484,8 +4510,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 650,
-        "y": 400,
+        "x": 1330,
+        "y": 160,
         "wires": [
             [
                 "5a73e730b3f35a75"
@@ -3532,11 +4558,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 400,
-        "y": 400,
+        "x": 940,
+        "y": 160,
         "wires": [
             [
-                "f822d0b4fedbe21b"
+                "apply_proxy_f822d0b4fedbe21b"
             ]
         ]
     },
@@ -3557,8 +4583,8 @@
         "drop": false,
         "allowrate": false,
         "outputs": 1,
-        "x": 1020,
-        "y": 400,
+        "x": 1700,
+        "y": 160,
         "wires": [
             [
                 "4ab14ce3500f887e"
@@ -3582,8 +4608,8 @@
         "checkall": "true",
         "repair": false,
         "outputs": 1,
-        "x": 830,
-        "y": 400,
+        "x": 1510,
+        "y": 160,
         "wires": [
             [
                 "83480b6c8438ab03"
@@ -3609,8 +4635,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 600,
-        "y": 460,
+        "x": 1880,
+        "y": 160,
         "wires": [
             [
                 "0fa3ca525b84162f"
@@ -3626,8 +4652,8 @@
         "links": [
             "79748666b38039f8"
         ],
-        "x": 765,
-        "y": 460,
+        "x": 1905,
+        "y": 100,
         "wires": []
     },
     {
@@ -3648,8 +4674,8 @@
         "checkall": "true",
         "repair": false,
         "outputs": 2,
-        "x": 170,
-        "y": 400,
+        "x": 1600,
+        "y": 80,
         "wires": [
             [
                 "489a611a0c60859d"
@@ -3699,11 +4725,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 320,
-        "y": 500,
+        "x": 920,
+        "y": 240,
         "wires": [
             [
-                "6d490b545ad0dc4c"
+                "apply_proxy_6d490b545ad0dc4c"
             ]
         ]
     },
@@ -3723,10 +4749,49 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 510,
-        "y": 560,
+        "x": 1400,
+        "y": 240,
         "wires": [
             []
+        ]
+    },
+    {
+        "id": "apply_proxy_e405f58e15b5b967",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "15790c4c601c21e4",
+        "name": "apply proxy",
+        "x": 880,
+        "y": 80,
+        "wires": [
+            [
+                "e405f58e15b5b967"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_f822d0b4fedbe21b",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "15790c4c601c21e4",
+        "name": "apply proxy",
+        "x": 1150,
+        "y": 160,
+        "wires": [
+            [
+                "f822d0b4fedbe21b"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_6d490b545ad0dc4c",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "15790c4c601c21e4",
+        "name": "apply proxy",
+        "x": 1160,
+        "y": 240,
+        "wires": [
+            [
+                "6d490b545ad0dc4c"
+            ]
         ]
     },
     {
@@ -3738,8 +4803,8 @@
         "method": "post",
         "upload": false,
         "swaggerDoc": "",
-        "x": 140,
-        "y": 100,
+        "x": 160,
+        "y": 80,
         "wires": [
             [
                 "cd6d824315922ceb"
@@ -3751,10 +4816,10 @@
         "type": "http response",
         "z": "21d6665eb37042e8",
         "name": "",
-        "statusCode": "",
+        "statusCode": "200",
         "headers": {},
-        "x": 1050,
-        "y": 100,
+        "x": 1360,
+        "y": 80,
         "wires": []
     },
     {
@@ -3765,8 +4830,8 @@
         "property": "payload",
         "action": "obj",
         "pretty": false,
-        "x": 310,
-        "y": 100,
+        "x": 400,
+        "y": 80,
         "wires": [
             [
                 "20461edbf6653a39"
@@ -3787,10 +4852,10 @@
         "proxy": "",
         "insecureHTTPParser": false,
         "authType": "",
-        "senderr": true,
+        "senderr": false,
         "headers": [],
-        "x": 790,
-        "y": 100,
+        "x": 1120,
+        "y": 80,
         "wires": [
             [
                 "e992ee6eb7559901",
@@ -3831,6 +4896,13 @@
                 "pt": "msg",
                 "to": "payload",
                 "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "proxy",
+                "pt": "msg",
+                "to": "payload.proxy",
+                "tot": "msg"
             }
         ],
         "action": "",
@@ -3838,11 +4910,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 540,
-        "y": 100,
+        "x": 640,
+        "y": 80,
         "wires": [
             [
-                "82ae9ffa34434352"
+                "apply_proxy_82ae9ffa34434352"
             ]
         ]
     },
@@ -3855,8 +4927,8 @@
         "method": "get",
         "upload": false,
         "swaggerDoc": "",
-        "x": 140,
-        "y": 260,
+        "x": 160,
+        "y": 180,
         "wires": [
             [
                 "4cb1f7781eae6e5b"
@@ -3882,8 +4954,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 600,
-        "y": 360,
+        "x": 400,
+        "y": 280,
         "wires": [
             [
                 "2545a966a84f9381"
@@ -3897,8 +4969,8 @@
         "name": "",
         "statusCode": "",
         "headers": {},
-        "x": 1190,
-        "y": 280,
+        "x": 1120,
+        "y": 180,
         "wires": []
     },
     {
@@ -3934,7 +5006,7 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 1080,
+        "x": 1360,
         "y": 180,
         "wires": [
             []
@@ -3960,8 +5032,8 @@
         "checkall": "true",
         "repair": false,
         "outputs": 2,
-        "x": 310,
-        "y": 260,
+        "x": 160,
+        "y": 280,
         "wires": [
             [
                 "cbfea97cbcf6167f"
@@ -3997,74 +5069,12 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 520,
-        "y": 240,
+        "x": 400,
+        "y": 180,
         "wires": [
             [
                 "d2b29dd41f01f36b"
             ]
-        ]
-    },
-    {
-        "id": "6b332cda48996404",
-        "type": "inject",
-        "z": "21d6665eb37042e8",
-        "name": "",
-        "props": [
-            {
-                "p": "payload"
-            }
-        ],
-        "repeat": "",
-        "crontab": "",
-        "once": false,
-        "onceDelay": 0.1,
-        "topic": "",
-        "payload": "",
-        "payloadType": "date",
-        "x": 170,
-        "y": 480,
-        "wires": [
-            []
-        ]
-    },
-    {
-        "id": "f109f382a72456d7",
-        "type": "change",
-        "z": "21d6665eb37042e8",
-        "name": "",
-        "rules": [
-            {
-                "t": "set",
-                "p": "payload",
-                "pt": "msg",
-                "to": "logs",
-                "tot": "global"
-            },
-            {
-                "t": "set",
-                "p": "payload",
-                "pt": "msg",
-                "to": "$join($filter($split($string(payload), \"<br>\"), function($v, $i) { $i < 500 }),\"<br>\") & \"<br>\"",
-                "tot": "jsonata"
-            },
-            {
-                "t": "set",
-                "p": "logs",
-                "pt": "global",
-                "to": "payload",
-                "tot": "msg"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 620,
-        "y": 460,
-        "wires": [
-            []
         ]
     },
     {
@@ -4087,8 +5097,8 @@
         "checkall": "true",
         "repair": false,
         "outputs": 2,
-        "x": 710,
-        "y": 240,
+        "x": 640,
+        "y": 180,
         "wires": [
             [
                 "2545a966a84f9381"
@@ -4117,37 +5127,12 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 740,
-        "y": 300,
+        "x": 880,
+        "y": 180,
         "wires": [
             [
                 "2545a966a84f9381"
             ]
-        ]
-    },
-    {
-        "id": "50244a7fd09e2224",
-        "type": "switch",
-        "z": "21d6665eb37042e8",
-        "name": "",
-        "property": "logs",
-        "propertyType": "global",
-        "rules": [
-            {
-                "t": "nempty"
-            },
-            {
-                "t": "empty"
-            }
-        ],
-        "checkall": "true",
-        "repair": false,
-        "outputs": 2,
-        "x": 410,
-        "y": 480,
-        "wires": [
-            [],
-            []
         ]
     },
     {
@@ -4159,8 +5144,8 @@
         "method": "get",
         "upload": false,
         "swaggerDoc": "",
-        "x": 150,
-        "y": 560,
+        "x": 160,
+        "y": 480,
         "wires": [
             [
                 "a1c1b1a0f0010002"
@@ -4177,15 +5162,22 @@
                 "t": "set",
                 "p": "netbox",
                 "pt": "msg",
-                "to": "config.netbox",
-                "tot": "global"
+                "to": "config.netbox ? config.netbox : (req.query.netbox ? req.query.netbox : $globalContext(\"config\").netbox)",
+                "tot": "jsonata"
             },
             {
                 "t": "set",
                 "p": "token",
                 "pt": "msg",
-                "to": "config.token",
-                "tot": "global"
+                "to": "config.token ? config.token : (req.query.token ? req.query.token : $globalContext(\"config\").token)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "proxy",
+                "pt": "msg",
+                "to": "config.proxy ? config.proxy : (req.query.proxy ? req.query.proxy : $globalContext(\"config\").proxy)",
+                "tot": "jsonata"
             },
             {
                 "t": "set",
@@ -4214,11 +5206,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 360,
-        "y": 560,
+        "x": 400,
+        "y": 480,
         "wires": [
             [
-                "a1c1b1a0f0010003"
+                "apply_proxy_a1c1b1a0f0010003"
             ]
         ]
     },
@@ -4238,8 +5230,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 580,
-        "y": 560,
+        "x": 880,
+        "y": 280,
         "wires": [
             [
                 "a1c1b1a0f0010004"
@@ -4265,8 +5257,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 790,
-        "y": 560,
+        "x": 1120,
+        "y": 280,
         "wires": [
             [
                 "a1c1b1a0f0010005"
@@ -4280,8 +5272,8 @@
         "name": "",
         "statusCode": "",
         "headers": {},
-        "x": 1000,
-        "y": 560,
+        "x": 1360,
+        "y": 280,
         "wires": []
     },
     {
@@ -4293,8 +5285,8 @@
         "method": "get",
         "upload": false,
         "swaggerDoc": "",
-        "x": 150,
-        "y": 640,
+        "x": 160,
+        "y": 580,
         "wires": [
             [
                 "a1c1b1a0f0020002"
@@ -4311,15 +5303,22 @@
                 "t": "set",
                 "p": "netbox",
                 "pt": "msg",
-                "to": "config.netbox",
-                "tot": "global"
+                "to": "config.netbox ? config.netbox : (req.query.netbox ? req.query.netbox : $globalContext(\"config\").netbox)",
+                "tot": "jsonata"
             },
             {
                 "t": "set",
                 "p": "token",
                 "pt": "msg",
-                "to": "config.token",
-                "tot": "global"
+                "to": "config.token ? config.token : (req.query.token ? req.query.token : $globalContext(\"config\").token)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "proxy",
+                "pt": "msg",
+                "to": "config.proxy ? config.proxy : (req.query.proxy ? req.query.proxy : $globalContext(\"config\").proxy)",
+                "tot": "jsonata"
             },
             {
                 "t": "set",
@@ -4348,11 +5347,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 360,
-        "y": 640,
+        "x": 400,
+        "y": 580,
         "wires": [
             [
-                "a1c1b1a0f0020003"
+                "apply_proxy_a1c1b1a0f0020003"
             ]
         ]
     },
@@ -4372,8 +5371,8 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 580,
-        "y": 640,
+        "x": 880,
+        "y": 380,
         "wires": [
             [
                 "a1c1b1a0f0020004"
@@ -4399,8 +5398,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 790,
-        "y": 640,
+        "x": 1120,
+        "y": 380,
         "wires": [
             [
                 "a1c1b1a0f0020005"
@@ -4414,8 +5413,8 @@
         "name": "",
         "statusCode": "",
         "headers": {},
-        "x": 1000,
-        "y": 640,
+        "x": 1360,
+        "y": 380,
         "wires": []
     },
     {
@@ -4427,8 +5426,8 @@
         "method": "delete",
         "upload": false,
         "swaggerDoc": "",
-        "x": 150,
-        "y": 720,
+        "x": 160,
+        "y": 380,
         "wires": [
             [
                 "a1c1b1a0f0050002"
@@ -4461,8 +5460,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 360,
-        "y": 720,
+        "x": 400,
+        "y": 380,
         "wires": [
             [
                 "a1c1b1a0f0050003"
@@ -4476,8 +5475,47 @@
         "name": "",
         "statusCode": "204",
         "headers": {},
-        "x": 560,
-        "y": 720,
+        "x": 640,
+        "y": 280,
         "wires": []
+    },
+    {
+        "id": "apply_proxy_82ae9ffa34434352",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "21d6665eb37042e8",
+        "name": "apply proxy",
+        "x": 880,
+        "y": 80,
+        "wires": [
+            [
+                "82ae9ffa34434352"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_a1c1b1a0f0010003",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "21d6665eb37042e8",
+        "name": "apply proxy",
+        "x": 640,
+        "y": 380,
+        "wires": [
+            [
+                "a1c1b1a0f0010003"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_a1c1b1a0f0020003",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "21d6665eb37042e8",
+        "name": "apply proxy",
+        "x": 640,
+        "y": 480,
+        "wires": [
+            [
+                "a1c1b1a0f0020003"
+            ]
+        ]
     }
 ]
