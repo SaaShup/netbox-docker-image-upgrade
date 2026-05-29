@@ -8,8 +8,16 @@
         "url": "https://github.com/SaaShup/netbox-docker-image-upgrade",
         "email": "contact@saashup.com"
     },
+    "scripts": {
+        "test": "npm run test:e2e",
+        "dev": "DATAPATH=. node-red -s settings_dev.js",
+        "test:e2e": "playwright test"
+    },
     "license": "BSD-3-Clause",
     "dependencies": {
         "node-red": "*"
+    },
+    "devDependencies": {
+        "@playwright/test": "^1.60.0"
     }
 }

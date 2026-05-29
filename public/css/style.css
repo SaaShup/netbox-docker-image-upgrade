@@ -254,6 +254,17 @@ h2 {
   background: white;
 }
 
+.checkbox-field {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.checkbox-field input {
+  width: 18px;
+  height: 18px;
+}
+
 .input-action {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 44px;

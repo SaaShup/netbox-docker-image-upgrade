@@ -42,6 +42,7 @@
 
       <section class="toolbar">
         <button type="button" class="btn btn-primary" id="testBtn">Test connection</button>
+        <button type="button" class="btn btn-danger hidden" id="deleteConfigBtn">Delete config</button>
         <button type="button" class="btn btn-danger" id="clearBtn">Clear form</button>
       </section>
 
@@ -127,6 +128,11 @@
               <label class="field" data-field="delay">
                 <span>Delay between containers (ms)</span>
                 <input type="number" id="delay" name="delay" min="0" step="1000" placeholder="10000">
+              </label>
+
+              <label class="field checkbox-field" data-field="clean_name">
+                <input type="checkbox" id="clean_name" name="clean_name" value="true">
+                <span>Clean name before recreate</span>
               </label>
 
               <div class="field env-field" data-field="env_vars">

@@ -1664,6 +1664,13 @@
             },
             {
                 "t": "set",
+                "p": "clean_name",
+                "pt": "msg",
+                "to": "config.clean_name",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
                 "p": "http",
                 "pt": "msg",
                 "to": "true",
@@ -1808,7 +1815,7 @@
                 "t": "set",
                 "p": "payload",
                 "pt": "msg",
-                "to": "[{\t  \"id\": msg.payload.id,\t  \"image\": msg.newimageid\t}]",
+                "to": "[\t   $merge(\t       [\t           {\t               \"id\": msg.payload.id,\t               \"image\": msg.newimageid    \t           },\t           (\t               msg.clean_name = true or msg.clean_name = \"true\" or msg.clean_name = \"on\"\t           ) ? {\t               \"name\": $replace(\t                   msg.payload.name ? msg.payload.name : msg.payload.display,\t                   /-17[0-9]{8,}$/,\t                   \"\"\t               )    \t           } : {}  \t       ]\t   )\t]",
                 "tot": "jsonata"
             },
             {
@@ -4793,6 +4800,68 @@
                 "6d490b545ad0dc4c"
             ]
         ]
+    },
+    {
+        "id": "b2c2d2e0f0060001",
+        "type": "http in",
+        "z": "15790c4c601c21e4",
+        "name": "",
+        "url": "/config",
+        "method": "delete",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 170,
+        "y": 120,
+        "wires": [
+            [
+                "b2c2d2e0f0060002"
+            ]
+        ]
+    },
+    {
+        "id": "b2c2d2e0f0060002",
+        "type": "change",
+        "z": "15790c4c601c21e4",
+        "name": "clear config",
+        "rules": [
+            {
+                "t": "set",
+                "p": "config",
+                "pt": "global",
+                "to": "{}",
+                "tot": "json"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "{}",
+                "tot": "json"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 400,
+        "y": 120,
+        "wires": [
+            [
+                "b2c2d2e0f0060003"
+            ]
+        ]
+    },
+    {
+        "id": "b2c2d2e0f0060003",
+        "type": "http response",
+        "z": "15790c4c601c21e4",
+        "name": "",
+        "statusCode": "200",
+        "headers": {},
+        "x": 590,
+        "y": 120,
+        "wires": []
     },
     {
         "id": "7d8824d42f0b1752",

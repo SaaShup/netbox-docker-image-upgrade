@@ -5,6 +5,7 @@ const form = document.getElementById("instanceForm");
 const submitBtn = document.getElementById("submitBtn");
 const restartInstanceBtn = document.getElementById("restartInstanceBtn");
 const testBtn = document.getElementById("testBtn");
+const deleteConfigBtn = document.getElementById("deleteConfigBtn");
 const clearBtn = document.getElementById("clearBtn");
 const formTitle = document.getElementById("form-title");
 const formDescription = document.getElementById("form-description");
@@ -26,14 +27,13 @@ const clearLogsBtn = document.getElementById("clearLogsBtn");
 const configProfileSelect = document.getElementById("config_profile");
 
 let currentAction = localStorage.getItem("current_action") || "config";
-let currentConfigProfile = localStorage.getItem("current_config_profile") || "default";
+let currentConfigProfile = localStorage.getItem("current_config_profile") || "";
 let noticeTimeout = null;
 let savedConfig = {};
 let configProfiles = {};
 let imageRecords = [];
 let lastLogsHtml = "";
 
-const defaultProfileName = "default";
 const configFields = ["config_profile", "config_name", "netbox", "token", "proxy"];
 
 const actions = {
@@ -65,7 +65,7 @@ const actions = {
     description: "Replace containers matching an image and old version with a new version.",
     submitLabel: "Upgrade containers",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "image", "oldversion", "version", "delay"],
+    fields: ["config_profile", "image", "oldversion", "version", "delay", "clean_name"],
   },
   restart: {
     endpoint: "/restart",
@@ -115,6 +115,7 @@ const allFieldNames = [
   "restart_version",
   "version",
   "delay",
+  "clean_name",
   "var_env_key",
   "var_env_value",
   "label_key",
@@ -134,11 +135,18 @@ function fieldValue(name, fallback = "") {
 
 function setFieldValue(name, value = "") {
   const el = field(name);
-  if (el) el.value = value || "";
+  if (!el) return;
+
+  if (el.type === "checkbox") {
+    el.checked = Boolean(value);
+    return;
+  }
+
+  el.value = value || "";
 }
 
 function profileLabel(name) {
-  return name || defaultProfileName;
+  return name || "No config saved";
 }
 
 function parseProfiles(value) {
@@ -158,9 +166,39 @@ function storedProfiles() {
   return parseProfiles(localStorage.getItem("config_profiles"));
 }
 
+function deletedProfiles() {
+  try {
+    const deleted = JSON.parse(localStorage.getItem("deleted_config_profiles") || "[]");
+    return Array.isArray(deleted) ? deleted : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberDeletedProfile(profile) {
+  const deleted = new Set(deletedProfiles());
+  if (profile) deleted.add(profile);
+  localStorage.setItem("deleted_config_profiles", JSON.stringify([...deleted]));
+}
+
+function forgetDeletedProfile(profile) {
+  const deleted = new Set(deletedProfiles());
+  if (profile) deleted.delete(profile);
+  localStorage.setItem("deleted_config_profiles", JSON.stringify([...deleted]));
+}
+
+function applyDeletedProfileFilter(profiles) {
+  const deleted = new Set(deletedProfiles());
+  return Object.fromEntries(Object.entries(profiles || {}).filter(([name]) => !deleted.has(name)));
+}
+
 function persistProfiles() {
   localStorage.setItem("config_profiles", JSON.stringify(configProfiles));
-  localStorage.setItem("current_config_profile", currentConfigProfile);
+  if (currentConfigProfile) {
+    localStorage.setItem("current_config_profile", currentConfigProfile);
+  } else {
+    localStorage.removeItem("current_config_profile");
+  }
 }
 
 function profileCredentials(name = currentConfigProfile) {
@@ -174,18 +212,23 @@ function profileCredentials(name = currentConfigProfile) {
 }
 
 function selectedProfileCredentials() {
-  const selected = configProfileSelect?.value || currentConfigProfile || defaultProfileName;
+  const selected = configProfileSelect?.value || currentConfigProfile || "";
   return profileCredentials(selected);
 }
 
 function updateProfileOptions() {
   if (!configProfileSelect) return;
 
-  const names = Array.from(new Set([
-    defaultProfileName,
-    currentConfigProfile,
-    ...Object.keys(configProfiles),
-  ].filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  const deleted = new Set(deletedProfiles());
+  const profileNames = Object.keys(configProfiles)
+    .filter((name) => !deleted.has(name))
+    .sort((a, b) => a.localeCompare(b));
+
+  if (!profileNames.includes(currentConfigProfile)) {
+    currentConfigProfile = profileNames[0] || "";
+  }
+
+  const names = profileNames.length ? profileNames : [""];
 
   configProfileSelect.replaceChildren(...names.map((name) => {
     const option = document.createElement("option");
@@ -194,15 +237,11 @@ function updateProfileOptions() {
     return option;
   }));
 
-  if (!names.includes(currentConfigProfile)) {
-    currentConfigProfile = names[0] || defaultProfileName;
-  }
-
   configProfileSelect.value = currentConfigProfile;
 }
 
 function applyProfileToFields(name = currentConfigProfile) {
-  currentConfigProfile = name || defaultProfileName;
+  currentConfigProfile = name || "";
   const credentials = profileCredentials(currentConfigProfile);
 
   setFieldValue("config_profile", currentConfigProfile);
@@ -426,6 +465,7 @@ function setAction(actionName) {
   submitBtn.name = actionName === "restart" ? "restart_mode" : "";
   submitBtn.value = actionName === "restart" ? "image" : "";
 
+  deleteConfigBtn?.classList.toggle("hidden", actionName !== "config");
   clearBtn?.classList.toggle("hidden", actionName === "config");
   restartInstanceBtn?.classList.toggle("hidden", actionName !== "restart");
   if (restartInstanceBtn) restartInstanceBtn.disabled = actionName !== "restart";
@@ -482,7 +522,7 @@ function loadSavedConfig() {
   })
     .then((response) => response.json())
     .then((data) => {
-      const localProfiles = storedProfiles();
+      const localProfiles = applyDeletedProfileFilter(storedProfiles());
       if (!data) {
         configProfiles = localProfiles;
         updateProfileOptions();
@@ -491,17 +531,19 @@ function loadSavedConfig() {
       }
 
       savedConfig = data;
-      const serverProfiles = parseProfiles(data.profiles);
+      const serverProfiles = applyDeletedProfileFilter(parseProfiles(data.profiles));
       configProfiles = { ...serverProfiles, ...localProfiles };
 
       if (data.netbox && data.token) {
-        const profile = data.profile || data.config_profile || currentConfigProfile || defaultProfileName;
-        configProfiles[profile] = {
-          netbox: data.netbox,
-          token: data.token,
-          proxy: data.proxy || "",
-        };
-        currentConfigProfile = localStorage.getItem("current_config_profile") || profile;
+        const profile = data.profile || data.config_profile || currentConfigProfile || "";
+        if (!deletedProfiles().includes(profile)) {
+          configProfiles[profile] = {
+            netbox: data.netbox,
+            token: data.token,
+            proxy: data.proxy || "",
+          };
+          currentConfigProfile = localStorage.getItem("current_config_profile") || profile;
+        }
       }
 
       updateProfileOptions();
@@ -509,7 +551,7 @@ function loadSavedConfig() {
       return data;
     })
     .catch(() => {
-      configProfiles = storedProfiles();
+      configProfiles = applyDeletedProfileFilter(storedProfiles());
       updateProfileOptions();
       applyProfileToFields(currentConfigProfile);
       return {};
@@ -573,7 +615,7 @@ async function test() {
 }
 
 async function saveConfig() {
-  const profile = (fieldValue("config_name") || fieldValue("config_profile") || defaultProfileName).trim();
+  const profile = (fieldValue("config_name") || fieldValue("config_profile") || "").trim();
   const netbox = fieldValue("netbox");
   const token = fieldValue("token");
   const proxy = fieldValue("proxy");
@@ -588,6 +630,7 @@ async function saveConfig() {
     return;
   }
 
+  forgetDeletedProfile(profile);
   configProfiles[profile] = { netbox, token, proxy };
   currentConfigProfile = profile;
   updateProfileOptions();
@@ -615,6 +658,84 @@ async function saveConfig() {
     setNotice(`Config "${profileLabel(profile)}" saved (${response.status})`, "success");
   } catch {
     setNotice("Config save failed", "error");
+  }
+}
+
+async function deleteConfig() {
+  const profile = (fieldValue("config_profile") || currentConfigProfile || "").trim();
+
+  if (!configProfiles[profile] && !fieldValue("netbox") && !fieldValue("token")) {
+    setNotice("No config to delete", "error");
+    return;
+  }
+
+  if (!confirm(`Delete config "${profileLabel(profile)}"?`)) {
+    return;
+  }
+
+  delete configProfiles[profile];
+  rememberDeletedProfile(profile);
+  const remainingProfiles = Object.keys(configProfiles).sort((a, b) => a.localeCompare(b));
+
+  try {
+    if (remainingProfiles.length === 0) {
+      currentConfigProfile = "";
+      savedConfig = {};
+      persistProfiles();
+      updateProfileOptions();
+      setFieldValue("config_name", "");
+      setFieldValue("netbox", "");
+      setFieldValue("token", "");
+      setFieldValue("proxy", "");
+
+      const params = new URLSearchParams({
+        netbox: "",
+        token: "",
+        proxy: "",
+        profile: "",
+        config_profile: "",
+        profiles: "{}",
+      });
+
+      const response = await fetch(`/webhook?${params.toString()}`, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+      });
+
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+      setNotice(`Config "${profileLabel(profile)}" deleted (${response.status})`, "success");
+      return;
+    }
+
+    currentConfigProfile = remainingProfiles[0];
+    persistProfiles();
+    updateProfileOptions();
+    applyProfileToFields(currentConfigProfile);
+
+    const credentials = profileCredentials(currentConfigProfile);
+    const params = new URLSearchParams({
+      netbox: credentials.netbox,
+      token: credentials.token,
+      proxy: credentials.proxy,
+      profile: currentConfigProfile,
+      config_profile: currentConfigProfile,
+      profiles: JSON.stringify(configProfiles),
+    });
+
+    const response = await fetch(`/webhook?${params.toString()}`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+    savedConfig = { ...credentials, profiles: configProfiles };
+    updateProfileOptions();
+    applyProfileToFields(currentConfigProfile);
+    setNotice(`Config "${profileLabel(profile)}" deleted (${response.status})`, "success");
+  } catch {
+    setNotice("Config delete failed", "error");
   }
 }
 
@@ -893,6 +1014,7 @@ form.addEventListener("submit", (event) => {
 });
 
 testBtn?.addEventListener("click", test);
+deleteConfigBtn?.addEventListener("click", deleteConfig);
 clearBtn?.addEventListener("click", clearActionFields);
 refreshInstancesBtn?.addEventListener("click", refreshInstances);
 refreshImagesBtn?.addEventListener("click", refreshImages);
