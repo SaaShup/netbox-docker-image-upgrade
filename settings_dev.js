@@ -103,6 +103,7 @@ module.exports = {
     },
     functionGlobalContext: {
         proxyEnv,
+        operationTimeoutSeconds: Number(process.env.OPERATION_TIMEOUT_SECONDS || 30),
     },
     debugMaxLength: 1000,
     mqttReconnectTime: 15000,

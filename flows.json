@@ -1343,9 +1343,9 @@
             },
             {
                 "t": "set",
-                "p": "rate",
+                "p": "wait_timeout",
                 "pt": "msg",
-                "to": "config.delay ? config.delay : \"10000\"",
+                "to": "$number($globalContext(\"operationTimeoutSeconds\") ? $globalContext(\"operationTimeoutSeconds\") : 30)",
                 "tot": "jsonata"
             }
         ],
@@ -1399,6 +1399,27 @@
                 "p": "url",
                 "pt": "msg",
                 "to": "msg.netbox & \"/api/plugins/docker/hosts/\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "wait_id",
+                "pt": "msg",
+                "to": "host.id",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "wait_name",
+                "pt": "msg",
+                "to": "host.display ? host.display : host.name",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "wait_timeout",
+                "pt": "msg",
+                "to": "$number($globalContext(\"operationTimeoutSeconds\") ? $globalContext(\"operationTimeoutSeconds\") : 30)",
                 "tot": "jsonata"
             },
             {
@@ -1463,7 +1484,7 @@
         "y": 240,
         "wires": [
             [
-                "refresh_hosts_log"
+                "refresh_hosts_wait_prepare"
             ]
         ]
     },
@@ -1559,21 +1580,16 @@
     },
     {
         "id": "refresh_hosts_rate_limit",
-        "type": "delay",
+        "type": "function",
         "z": "d35afda971f87177",
-        "name": "delay host refresh",
-        "pauseType": "rate",
-        "timeout": "30",
-        "timeoutUnits": "seconds",
-        "rate": "1",
-        "nbRateUnits": "10",
-        "rateUnits": "second",
-        "randomFirst": "1",
-        "randomLast": "5",
-        "randomUnits": "seconds",
-        "drop": false,
-        "allowrate": true,
+        "name": "queue host refresh",
+        "func": "const queue = context.get('queue') || [];\nlet busy = context.get('busy') || false;\n\nfunction next() {\n  if (queue.length === 0) {\n    context.set('busy', false);\n    context.set('queue', queue);\n    return null;\n  }\n\n  const nextMsg = queue.shift();\n  context.set('queue', queue);\n  context.set('busy', true);\n  return nextMsg;\n}\n\nif (msg._waitDone) {\n  if (msg._waitDone === 'timeout') {\n    context.set('queue', []);\n    context.set('busy', false);\n    return null;\n  }\n\n  context.set('busy', false);\n  return next();\n}\n\nqueue.push(msg);\ncontext.set('queue', queue);\n\nif (!busy) {\n  return next();\n}\n\nreturn null;",
         "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
         "x": 1130,
         "y": 160,
         "wires": [
@@ -1885,6 +1901,27 @@
             },
             {
                 "t": "set",
+                "p": "wait_id",
+                "pt": "msg",
+                "to": "payload.id",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "wait_name",
+                "pt": "msg",
+                "to": "payload.display ? payload.display : payload.name",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "wait_timeout",
+                "pt": "msg",
+                "to": "$number($globalContext(\"operationTimeoutSeconds\") ? $globalContext(\"operationTimeoutSeconds\") : 30)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
                 "p": "url",
                 "pt": "msg",
                 "to": "msg.netbox & \"/api/plugins/docker/containers/\"",
@@ -1945,7 +1982,7 @@
         "y": 540,
         "wires": [
             [
-                "090a84d8dfd47125"
+                "recreate_wait_prepare"
             ]
         ]
     },
@@ -2099,8 +2136,8 @@
                 "t": "set",
                 "p": "rate",
                 "pt": "msg",
-                "to": "config.delay",
-                "tot": "msg"
+                "to": "$number($globalContext(\"operationTimeoutSeconds\") ? $globalContext(\"operationTimeoutSeconds\") : 30)",
+                "tot": "jsonata"
             }
         ],
         "action": "",
@@ -2263,21 +2300,16 @@
     },
     {
         "id": "677c1ef45acfb02d",
-        "type": "delay",
+        "type": "function",
         "z": "a0840e5d7cd65ea0",
-        "name": "",
-        "pauseType": "rate",
-        "timeout": "30",
-        "timeoutUnits": "seconds",
-        "rate": "1",
-        "nbRateUnits": "10",
-        "rateUnits": "second",
-        "randomFirst": "1",
-        "randomLast": "5",
-        "randomUnits": "seconds",
-        "drop": false,
-        "allowrate": true,
+        "name": "queue recreate containers",
+        "func": "const queue = context.get('queue') || [];\nlet busy = context.get('busy') || false;\n\nfunction next() {\n  if (queue.length === 0) {\n    context.set('busy', false);\n    context.set('queue', queue);\n    return null;\n  }\n\n  const nextMsg = queue.shift();\n  context.set('queue', queue);\n  context.set('busy', true);\n  return nextMsg;\n}\n\nif (msg._waitDone) {\n  if (msg._waitDone === 'timeout') {\n    context.set('queue', []);\n    context.set('busy', false);\n    return null;\n  }\n\n  context.set('busy', false);\n  return next();\n}\n\nqueue.push(msg);\ncontext.set('queue', queue);\n\nif (!busy) {\n  return next();\n}\n\nreturn null;",
         "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
         "x": 1560,
         "y": 460,
         "wires": [
@@ -2966,6 +2998,27 @@
             },
             {
                 "t": "set",
+                "p": "wait_id",
+                "pt": "msg",
+                "to": "payload.id",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "wait_name",
+                "pt": "msg",
+                "to": "payload.display ? payload.display : payload.name",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "wait_timeout",
+                "pt": "msg",
+                "to": "$number($globalContext(\"operationTimeoutSeconds\") ? $globalContext(\"operationTimeoutSeconds\") : 30)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
                 "p": "url",
                 "pt": "msg",
                 "to": "msg.netbox & \"/api/plugins/docker/containers/\"",
@@ -3026,7 +3079,7 @@
         "y": 360,
         "wires": [
             [
-                "83a533c9ce37c823"
+                "restart_wait_prepare"
             ]
         ]
     },
@@ -3180,8 +3233,8 @@
                 "t": "set",
                 "p": "rate",
                 "pt": "msg",
-                "to": "config.delay",
-                "tot": "msg"
+                "to": "$number($globalContext(\"operationTimeoutSeconds\") ? $globalContext(\"operationTimeoutSeconds\") : 30)",
+                "tot": "jsonata"
             }
         ],
         "action": "",
@@ -3226,21 +3279,16 @@
     },
     {
         "id": "83ec24b3be755314",
-        "type": "delay",
+        "type": "function",
         "z": "47309e7eb1ed7972",
-        "name": "",
-        "pauseType": "rate",
-        "timeout": "30",
-        "timeoutUnits": "seconds",
-        "rate": "1",
-        "nbRateUnits": "10",
-        "rateUnits": "second",
-        "randomFirst": "1",
-        "randomLast": "5",
-        "randomUnits": "seconds",
-        "drop": false,
-        "allowrate": true,
+        "name": "queue restart containers",
+        "func": "const queue = context.get('queue') || [];\nlet busy = context.get('busy') || false;\n\nfunction next() {\n  if (queue.length === 0) {\n    context.set('busy', false);\n    context.set('queue', queue);\n    return null;\n  }\n\n  const nextMsg = queue.shift();\n  context.set('queue', queue);\n  context.set('busy', true);\n  return nextMsg;\n}\n\nif (msg._waitDone) {\n  if (msg._waitDone === 'timeout') {\n    context.set('queue', []);\n    context.set('busy', false);\n    return null;\n  }\n\n  context.set('busy', false);\n  return next();\n}\n\nqueue.push(msg);\ncontext.set('queue', queue);\n\nif (!busy) {\n  return next();\n}\n\nreturn null;",
         "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
         "x": 720,
         "y": 360,
         "wires": [
@@ -4633,7 +4681,7 @@
                 "t": "set",
                 "p": "payload",
                 "pt": "msg",
-                "to": "{\t   \"netbox\":msg.netbox,\t   \"token\":msg.token,\t   \"hostname\":msg.results.host.display,\t   \"image\":msg.image,\t   \"oldversion\":msg.results.version,\t   \"version\":msg.version,\t   \"delay\":\"10000\"\t}",
+                "to": "{\t   \"netbox\":msg.netbox,\t   \"token\":msg.token,\t   \"hostname\":msg.results.host.display,\t   \"image\":msg.image,\t   \"oldversion\":msg.results.version,\t   \"version\":msg.version\t}",
                 "tot": "jsonata"
             }
         ],
@@ -5584,6 +5632,450 @@
         "wires": [
             [
                 "a1c1b1a0f0020003"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_wait_prepare",
+        "type": "function",
+        "z": "a0840e5d7cd65ea0",
+        "name": "wait container ready",
+        "func": "const timeout = Number(msg.wait_timeout || 30);\nmsg.wait_deadline = msg.wait_deadline || (Date.now() + timeout * 1000);\nmsg.url = msg.netbox + '/api/plugins/docker/containers/' + msg.wait_id + '/';\nmsg.headers = {\n  Authorization: 'Token ' + msg.token,\n  Accept: 'application/json'\n};\nmsg.method = 'GET';\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 2090,
+        "y": 620,
+        "wires": [
+            [
+                "recreate_apply_proxy_wait_get"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_apply_proxy_wait_get",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "a0840e5d7cd65ea0",
+        "name": "apply proxy",
+        "x": 2320,
+        "y": 620,
+        "wires": [
+            [
+                "recreate_wait_get"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_wait_get",
+        "type": "http request",
+        "z": "a0840e5d7cd65ea0",
+        "name": "",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": true,
+        "headers": [],
+        "x": 2540,
+        "y": 620,
+        "wires": [
+            [
+                "recreate_wait_check"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_wait_check",
+        "type": "function",
+        "z": "a0840e5d7cd65ea0",
+        "name": "container ready?",
+        "func": "function valueOf(value) {\n  if (value && typeof value === 'object') {\n    return String(value.value || value.label || value.display || value.name || '').toLowerCase();\n  }\n  return String(value || '').toLowerCase();\n}\n\nconst item = msg.payload && Array.isArray(msg.payload.results) ? msg.payload.results[0] : msg.payload;\nconst name = msg.wait_name || (item && (item.display || item.name)) || msg.wait_id;\nconst status = valueOf(item && item.status);\nconst operation = valueOf(item && item.operation);\nconst operationDone = !operation || operation === 'none' || operation === 'null';\nconst ready = status === 'running' && operationDone;\n\nmsg.wait_name = name;\nmsg.wait_status = status || 'unknown';\nmsg.wait_operation = operation || 'none';\n\nif (ready) {\n  return [msg, null, null];\n}\n\nif (Date.now() >= Number(msg.wait_deadline || 0)) {\n  return [null, null, msg];\n}\n\nreturn [null, msg, null];",
+        "outputs": 3,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 2750,
+        "y": 620,
+        "wires": [
+            [
+                "recreate_wait_ready_log"
+            ],
+            [
+                "recreate_wait_poll_delay"
+            ],
+            [
+                "recreate_wait_timeout_log"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_wait_poll_delay",
+        "type": "delay",
+        "z": "a0840e5d7cd65ea0",
+        "name": "poll ready",
+        "pauseType": "delay",
+        "timeout": "2",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 2750,
+        "y": 690,
+        "wires": [
+            [
+                "recreate_wait_prepare"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_wait_ready_log",
+        "type": "function",
+        "z": "a0840e5d7cd65ea0",
+        "name": "log ready",
+        "func": "const logs = global.get('logs') || '';\nconst line = new Date().toISOString() + ' RECREATE : ' + (msg.wait_name || msg.wait_id) + ' ready<br>';\nglobal.set('logs', line + logs);\nmsg._waitDone = 'success';\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 2960,
+        "y": 590,
+        "wires": [
+            [
+                "677c1ef45acfb02d"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_wait_timeout_log",
+        "type": "function",
+        "z": "a0840e5d7cd65ea0",
+        "name": "log timeout",
+        "func": "const logs = global.get('logs') || '';\nconst timeout = Number(msg.wait_timeout || 30);\nconst detail = msg.wait_status ? (' status=' + msg.wait_status + ' operation=' + msg.wait_operation) : (' operation=' + msg.wait_operation);\nconst line = new Date().toISOString() + ' RECREATE : ' + (msg.wait_name || msg.wait_id) + ' timeout after ' + timeout + 's' + detail + ', stopped<br>';\nglobal.set('logs', line + logs);\nmsg._waitDone = 'timeout';\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 2960,
+        "y": 650,
+        "wires": [
+            [
+                "677c1ef45acfb02d"
+            ]
+        ]
+    },
+    {
+        "id": "restart_wait_prepare",
+        "type": "function",
+        "z": "47309e7eb1ed7972",
+        "name": "wait container ready",
+        "func": "const timeout = Number(msg.wait_timeout || 30);\nmsg.wait_deadline = msg.wait_deadline || (Date.now() + timeout * 1000);\nmsg.url = msg.netbox + '/api/plugins/docker/containers/' + msg.wait_id + '/';\nmsg.headers = {\n  Authorization: 'Token ' + msg.token,\n  Accept: 'application/json'\n};\nmsg.method = 'GET';\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1680,
+        "y": 430,
+        "wires": [
+            [
+                "restart_apply_proxy_wait_get"
+            ]
+        ]
+    },
+    {
+        "id": "restart_apply_proxy_wait_get",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "47309e7eb1ed7972",
+        "name": "apply proxy",
+        "x": 1910,
+        "y": 430,
+        "wires": [
+            [
+                "restart_wait_get"
+            ]
+        ]
+    },
+    {
+        "id": "restart_wait_get",
+        "type": "http request",
+        "z": "47309e7eb1ed7972",
+        "name": "",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": true,
+        "headers": [],
+        "x": 2130,
+        "y": 430,
+        "wires": [
+            [
+                "restart_wait_check"
+            ]
+        ]
+    },
+    {
+        "id": "restart_wait_check",
+        "type": "function",
+        "z": "47309e7eb1ed7972",
+        "name": "container ready?",
+        "func": "function valueOf(value) {\n  if (value && typeof value === 'object') {\n    return String(value.value || value.label || value.display || value.name || '').toLowerCase();\n  }\n  return String(value || '').toLowerCase();\n}\n\nconst item = msg.payload && Array.isArray(msg.payload.results) ? msg.payload.results[0] : msg.payload;\nconst name = msg.wait_name || (item && (item.display || item.name)) || msg.wait_id;\nconst status = valueOf(item && item.status);\nconst operation = valueOf(item && item.operation);\nconst operationDone = !operation || operation === 'none' || operation === 'null';\nconst ready = status === 'running' && operationDone;\n\nmsg.wait_name = name;\nmsg.wait_status = status || 'unknown';\nmsg.wait_operation = operation || 'none';\n\nif (ready) {\n  return [msg, null, null];\n}\n\nif (Date.now() >= Number(msg.wait_deadline || 0)) {\n  return [null, null, msg];\n}\n\nreturn [null, msg, null];",
+        "outputs": 3,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 2340,
+        "y": 430,
+        "wires": [
+            [
+                "restart_wait_ready_log"
+            ],
+            [
+                "restart_wait_poll_delay"
+            ],
+            [
+                "restart_wait_timeout_log"
+            ]
+        ]
+    },
+    {
+        "id": "restart_wait_poll_delay",
+        "type": "delay",
+        "z": "47309e7eb1ed7972",
+        "name": "poll ready",
+        "pauseType": "delay",
+        "timeout": "2",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 2340,
+        "y": 500,
+        "wires": [
+            [
+                "restart_wait_prepare"
+            ]
+        ]
+    },
+    {
+        "id": "restart_wait_ready_log",
+        "type": "function",
+        "z": "47309e7eb1ed7972",
+        "name": "log ready",
+        "func": "const logs = global.get('logs') || '';\nconst line = new Date().toISOString() + ' RESTART : ' + (msg.wait_name || msg.wait_id) + ' ready<br>';\nglobal.set('logs', line + logs);\nmsg._waitDone = 'success';\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 2550,
+        "y": 400,
+        "wires": [
+            [
+                "83ec24b3be755314"
+            ]
+        ]
+    },
+    {
+        "id": "restart_wait_timeout_log",
+        "type": "function",
+        "z": "47309e7eb1ed7972",
+        "name": "log timeout",
+        "func": "const logs = global.get('logs') || '';\nconst timeout = Number(msg.wait_timeout || 30);\nconst detail = msg.wait_status ? (' status=' + msg.wait_status + ' operation=' + msg.wait_operation) : (' operation=' + msg.wait_operation);\nconst line = new Date().toISOString() + ' RESTART : ' + (msg.wait_name || msg.wait_id) + ' timeout after ' + timeout + 's' + detail + ', stopped<br>';\nglobal.set('logs', line + logs);\nmsg._waitDone = 'timeout';\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 2550,
+        "y": 460,
+        "wires": [
+            [
+                "83ec24b3be755314"
+            ]
+        ]
+    },
+    {
+        "id": "refresh_hosts_wait_prepare",
+        "type": "function",
+        "z": "d35afda971f87177",
+        "name": "wait host ready",
+        "func": "const timeout = Number(msg.wait_timeout || 30);\nmsg.wait_deadline = msg.wait_deadline || (Date.now() + timeout * 1000);\nmsg.url = msg.netbox + '/api/plugins/docker/hosts/' + msg.wait_id + '/';\nmsg.headers = {\n  Authorization: 'Token ' + msg.token,\n  Accept: 'application/json'\n};\nmsg.method = 'GET';\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1370,
+        "y": 300,
+        "wires": [
+            [
+                "refresh_hosts_apply_proxy_wait_get"
+            ]
+        ]
+    },
+    {
+        "id": "refresh_hosts_apply_proxy_wait_get",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "d35afda971f87177",
+        "name": "apply proxy",
+        "x": 1600,
+        "y": 300,
+        "wires": [
+            [
+                "refresh_hosts_wait_get"
+            ]
+        ]
+    },
+    {
+        "id": "refresh_hosts_wait_get",
+        "type": "http request",
+        "z": "d35afda971f87177",
+        "name": "",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": true,
+        "headers": [],
+        "x": 1820,
+        "y": 300,
+        "wires": [
+            [
+                "refresh_hosts_wait_check"
+            ]
+        ]
+    },
+    {
+        "id": "refresh_hosts_wait_check",
+        "type": "function",
+        "z": "d35afda971f87177",
+        "name": "host ready?",
+        "func": "function valueOf(value) {\n  if (value && typeof value === 'object') {\n    return String(value.value || value.label || value.display || value.name || '').toLowerCase();\n  }\n  return String(value || '').toLowerCase();\n}\n\nconst item = msg.payload && Array.isArray(msg.payload.results) ? msg.payload.results[0] : msg.payload;\nconst name = msg.wait_name || (item && (item.display || item.name)) || msg.wait_id;\nconst operation = valueOf(item && item.operation);\nconst operationDone = !operation || operation === 'none' || operation === 'null';\n\nmsg.wait_name = name;\nmsg.wait_operation = operation || 'none';\n\nif (operationDone) {\n  return [msg, null, null];\n}\n\nif (Date.now() >= Number(msg.wait_deadline || 0)) {\n  return [null, null, msg];\n}\n\nreturn [null, msg, null];",
+        "outputs": 3,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 2030,
+        "y": 300,
+        "wires": [
+            [
+                "refresh_hosts_wait_ready_log"
+            ],
+            [
+                "refresh_hosts_wait_poll_delay"
+            ],
+            [
+                "refresh_hosts_wait_timeout_log"
+            ]
+        ]
+    },
+    {
+        "id": "refresh_hosts_wait_poll_delay",
+        "type": "delay",
+        "z": "d35afda971f87177",
+        "name": "poll ready",
+        "pauseType": "delay",
+        "timeout": "2",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 2030,
+        "y": 370,
+        "wires": [
+            [
+                "refresh_hosts_wait_prepare"
+            ]
+        ]
+    },
+    {
+        "id": "refresh_hosts_wait_ready_log",
+        "type": "function",
+        "z": "d35afda971f87177",
+        "name": "log ready",
+        "func": "const logs = global.get('logs') || '';\nconst line = new Date().toISOString() + ' REFRESH_HOST : ' + (msg.wait_name || msg.wait_id) + ' ready<br>';\nglobal.set('logs', line + logs);\nmsg._waitDone = 'success';\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 2240,
+        "y": 270,
+        "wires": [
+            [
+                "refresh_hosts_rate_limit"
+            ]
+        ]
+    },
+    {
+        "id": "refresh_hosts_wait_timeout_log",
+        "type": "function",
+        "z": "d35afda971f87177",
+        "name": "log timeout",
+        "func": "const logs = global.get('logs') || '';\nconst timeout = Number(msg.wait_timeout || 30);\nconst detail = msg.wait_status ? (' status=' + msg.wait_status + ' operation=' + msg.wait_operation) : (' operation=' + msg.wait_operation);\nconst line = new Date().toISOString() + ' REFRESH_HOST : ' + (msg.wait_name || msg.wait_id) + ' timeout after ' + timeout + 's' + detail + ', stopped<br>';\nglobal.set('logs', line + logs);\nmsg._waitDone = 'timeout';\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 2240,
+        "y": 330,
+        "wires": [
+            [
+                "refresh_hosts_rate_limit"
             ]
         ]
     }

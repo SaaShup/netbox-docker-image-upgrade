@@ -65,7 +65,7 @@ const actions = {
     description: "Replace containers matching an image and old version with a new version.",
     submitLabel: "Upgrade containers",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "image", "oldversion", "version", "delay", "clean_name"],
+    fields: ["config_profile", "image", "oldversion", "version", "clean_name"],
   },
   restart: {
     endpoint: "/restart",
@@ -75,7 +75,7 @@ const actions = {
     description: "Restart one container or containers matching an image and version.",
     submitLabel: "Restart image",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "instance", "image", "restart_version", "delay"],
+    fields: ["config_profile", "instance", "image", "restart_version"],
   },
   refresh_hosts: {
     endpoint: "/refresh-hosts",
@@ -85,7 +85,7 @@ const actions = {
     description: "Request a refresh for each Docker host in the selected NetBox config.",
     submitLabel: "Refresh hosts",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "delay"],
+    fields: ["config_profile"],
     confirm: "Refresh all Docker hosts for this config?",
   },
   delete: {
@@ -114,7 +114,6 @@ const allFieldNames = [
   "oldversion",
   "restart_version",
   "version",
-  "delay",
   "clean_name",
   "var_env_key",
   "var_env_value",
@@ -510,7 +509,6 @@ function clearActionFields() {
   clearEnvRows();
   clearLabelRows();
   clearVolumeRows();
-  setFieldValue("delay", "10000");
   updateRestartButtons();
   setNotice("Form cleared", "success");
 }
@@ -1047,7 +1045,6 @@ if (actionFromUrl) {
   window.history.replaceState(window.history.state, "", cleanUrl);
 }
 
-setFieldValue("delay", "10000");
 setAction(currentAction);
 loadSavedConfig();
 
