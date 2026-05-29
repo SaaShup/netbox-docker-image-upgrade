@@ -1,4 +1,46 @@
 const { test, expect } = require("@playwright/test");
+const fs = require("fs");
+const path = require("path");
+const nodeRedUtil = require("@node-red/util").util;
+
+const repoRoot = path.resolve(__dirname, "../..");
+
+function readFlows() {
+  return JSON.parse(fs.readFileSync(path.join(repoRoot, "flows.json"), "utf8"));
+}
+
+function flowNode(id) {
+  const node = readFlows().find((item) => item.id === id);
+  if (!node) throw new Error(`Missing flow node ${id}`);
+  return node;
+}
+
+function changeRule(nodeId, property) {
+  const node = flowNode(nodeId);
+  const rule = (node.rules || []).find((item) => item.p === property);
+  if (!rule) throw new Error(`Missing rule ${property} on ${nodeId}`);
+  return { node, rule };
+}
+
+function evaluateJsonata(nodeId, property, msg) {
+  const { node, rule } = changeRule(nodeId, property);
+  return evaluateJsonataRule(node, rule, msg);
+}
+
+function evaluateJsonataRule(node, rule, msg) {
+  const expression = nodeRedUtil.prepareJSONataExpression(rule.to, node);
+
+  return new Promise((resolve, reject) => {
+    nodeRedUtil.evaluateJSONataExpression(expression, msg, (error, value) => {
+      if (error) reject(error);
+      else resolve(value);
+    });
+  });
+}
+
+function ruleValue(nodeId, property) {
+  return changeRule(nodeId, property).rule.to;
+}
 
 async function openAdmin(page, config = {}, templates = {}) {
   let templateStore = templates;
@@ -330,6 +372,27 @@ test("refresh hosts submits the configured tag", async ({ page }) => {
   expect(refreshBody).toContain("tag=production");
 });
 
+test("refresh hosts requires saved NetBox credentials", async ({ page }) => {
+  let requested = false;
+
+  await page.route("**/refresh-hosts", async (route) => {
+    requested = true;
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+
+  await openAdmin(page, {});
+
+  await page.getByRole("link", { name: "Refresh" }).click();
+  await page.locator("#submitBtn").click();
+
+  await expect(page.locator("#notif")).toHaveText("Save NetBox URL and token for this profile first");
+  expect(requested).toBe(false);
+});
+
 test("restart image validates image and version before submit", async ({ page }) => {
   await page.route("**/containers-count?**", async (route) => {
     await route.fulfill({
@@ -378,4 +441,213 @@ test("logs panel can go fullscreen and clear logs", async ({ page }) => {
   await page.on("dialog", (dialog) => dialog.accept());
   await page.locator("#clearLogsBtn").click();
   await expect(page.locator("#notif")).toContainText("Logs cleared");
+});
+
+test("docker run parser supports quoted values and registry ports", async ({ page }) => {
+  await openAdmin(page, {});
+
+  const parsed = await page.evaluate(() => window.parseDockerRun([
+    "docker run --name tile-api --network proxy",
+    "--env PUBLIC_URL=https://tiles.example.com/a?b=c",
+    "--label traefik.http.routers.tile.rule=Host(`tiles.example.com`)",
+    "--volume tile-cache:/app/cache:ro",
+    "registry.example.com:5000/saashup/tile-api:v2.4.1",
+  ].join(" ")));
+
+  expect(parsed).toMatchObject({
+    instance: "tile-api",
+    network: "proxy",
+    image: "registry.example.com:5000/saashup/tile-api",
+    version: "v2.4.1",
+  });
+  expect(parsed.env).toContainEqual({ key: "PUBLIC_URL", value: "https://tiles.example.com/a?b=c" });
+  expect(parsed.labels).toContainEqual({
+    key: "traefik.http.routers.tile.rule",
+    value: "Host(`tiles.example.com`)",
+  });
+  expect(parsed.volumes).toContainEqual({ name: "tile-cache", source: "/app/cache" });
+});
+
+test("log formatter escapes unexpected html content", async ({ page }) => {
+  await openAdmin(page, {});
+
+  const formatted = await page.evaluate(() => window.formatLogs(
+    "2026-05-29T11:43:31.806Z REFRESH_HOST : <script>alert(1)</script> 200",
+  ));
+
+  expect(formatted).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+  expect(formatted).not.toContain("<script>alert(1)</script>");
+});
+
+test("flows do not use function nodes", () => {
+  const functionNodes = readFlows().filter((node) => node.type === "function");
+
+  expect(functionNodes).toEqual([]);
+});
+
+test("all flow JSONata expressions compile", () => {
+  const errors = [];
+
+  for (const node of readFlows()) {
+    for (const rule of node.rules || []) {
+      if (rule.tot !== "jsonata") continue;
+
+      try {
+        nodeRedUtil.prepareJSONataExpression(rule.to, node);
+      } catch (error) {
+        errors.push(`${node.id}:${node.name || node.type}:${rule.p} ${error.message}`);
+      }
+    }
+  }
+
+  expect(errors).toEqual([]);
+});
+
+test("host lookups fetch all hosts and do not rely on NetBox tag query", () => {
+  const hostLookupRules = readFlows()
+    .flatMap((node) => (node.rules || []).map((rule) => ({ node, rule })))
+    .filter(({ rule }) => rule.p === "url" && String(rule.to).includes("/api/plugins/docker/hosts/?limit=1000"));
+
+  expect(hostLookupRules.length).toBeGreaterThan(0);
+  for (const { node, rule } of hostLookupRules) {
+    expect(rule.to, node.name || node.id).not.toContain("&tag=");
+  }
+});
+
+test("refresh host filter selects every host tagged with the requested tag", async () => {
+  const hosts = await evaluateJsonata("refresh_hosts_results", "payload", {
+    tag: "TILE",
+    tag_slug: "tile",
+    payload: {
+      results: [
+        { id: 1, name: "curio-city-guide-1", tags: [{ name: "GUIDE", slug: "guide", display: "GUIDE" }] },
+        { id: 2, name: "curioo-city-overpass1", tags: [{ name: "TILE", slug: "tile", display: "TILE" }] },
+        { id: 3, name: "curioo-city-overpass2", tags: [{ name: "TILE", slug: "tile", display: "TILE" }] },
+        { id: 4, name: "curioo-city-index", tags: [] },
+      ],
+    },
+  });
+
+  expect(hosts.map((host) => host.name)).toEqual(["curioo-city-overpass1", "curioo-city-overpass2"]);
+});
+
+test("refresh host filter supports custom field tag fallbacks", async () => {
+  const hosts = await evaluateJsonata("refresh_hosts_results", "payload", {
+    tag: "TILE",
+    tag_slug: "tile",
+    payload: {
+      results: [
+        { id: 1, name: "tag-object", tags: [], custom_fields: { role: "TILE" } },
+        { id: 2, name: "cf-object", tags: [], cf: { role: "tile" } },
+        { id: 3, name: "plain-property", tags: [], tag: "TILE" },
+        { id: 4, name: "not-a-match", tags: [], custom_fields: { role: "GUIDE" } },
+      ],
+    },
+  });
+
+  expect(hosts.map((host) => host.name)).toEqual(["tag-object", "cf-object", "plain-property"]);
+});
+
+test("refresh host filter returns all hosts when no tag is configured", async () => {
+  const hosts = await evaluateJsonata("refresh_hosts_results", "payload", {
+    tag: "",
+    tag_slug: "",
+    payload: {
+      results: [
+        { id: 1, name: "host-a", tags: [] },
+        { id: 2, name: "host-b", tags: [{ name: "TILE", slug: "tile" }] },
+      ],
+    },
+  });
+
+  expect(hosts.map((host) => host.name)).toEqual(["host-a", "host-b"]);
+});
+
+test("refresh host queue log stays concise without debug tag scan", () => {
+  expect(ruleValue("refresh_hosts_log_queue", "payload")).not.toContain("host tag scan");
+});
+
+test("recreate host queue log reports how many hosts will be recreated", async () => {
+  const node = flowNode("45e0558750363197");
+  const rule = node.rules.find((item) => item.p === "payload" && item.to.includes("queued for recreation"));
+
+  expect(rule).toBeTruthy();
+
+  const message = await evaluateJsonataRule(node, rule, {
+    tag: "TILE",
+    logs: "previous log",
+    host_queue: [
+      { id: 10, host: { display: "curioo-city-overpass1" } },
+      { id: 11, host: { name: "curioo-city-overpass2" } },
+    ],
+  });
+
+  expect(message).toContain("RECREATE : 2 hosts queued for recreation");
+  expect(message).toContain("[curioo-city-overpass1, curioo-city-overpass2]");
+  expect(message).toContain("tag=TILE");
+  expect(message).toContain("previous log");
+});
+
+test("restart image queue log reports how many hosts will be restarted", async () => {
+  const node = flowNode("013b14aee24eebf9");
+  const rule = node.rules.find((item) => item.p === "payload" && item.to.includes("$hostNames"));
+
+  expect(rule).toBeTruthy();
+
+  const message = await evaluateJsonataRule(node, rule, {
+    tag: "TILE",
+    logs: "previous log",
+    image_queue: [
+      { id: 20, host: { display: "curioo-city-overpass1" } },
+      { id: 21, host: { display: "curioo-city-overpass1" } },
+      { id: 22, host: { name: "curioo-city-overpass2" } },
+    ],
+  });
+
+  expect(message).toContain("RESTART : 2 hosts queued for restart");
+  expect(message).toContain("[curioo-city-overpass1, curioo-city-overpass2]");
+  expect(message).toContain("tag=TILE");
+  expect(message).toContain("previous log");
+});
+
+test("refresh host requests patch each host detail endpoint", () => {
+  expect(ruleValue("refresh_hosts_patch_prepare", "url")).toContain("/api/plugins/docker/hosts/\" & msg.host.id & \"/\"");
+  expect(ruleValue("refresh_hosts_patch_prepare", "payload")).toBe("{ \"operation\": \"refresh\" }");
+});
+
+test("refresh host loop waits for each host before dequeuing the next", () => {
+  const logNode = flowNode("refresh_hosts_log");
+  const readyLogNode = flowNode("refresh_hosts_wait_ready_log");
+  const timeoutLogNode = flowNode("refresh_hosts_wait_timeout_log");
+
+  expect(logNode.wires.flat()).toContain("refresh_hosts_wait_prepare");
+  expect(readyLogNode.wires.flat()).toContain("refresh_hosts_dequeue_host");
+  expect(timeoutLogNode.wires.flat()).toContain("refresh_hosts_dequeue_host");
+});
+
+test("create host candidate filter uses the same host tag semantics", async () => {
+  const hosts = await evaluateJsonata("create_prepare_host_candidates", "host_candidates", {
+    tag: "TILE",
+    tag_slug: "tile",
+    payload: {
+      results: [
+        { id: 1, name: "guide", tags: [{ name: "GUIDE", slug: "guide" }] },
+        { id: 2, name: "overpass1", tags: [{ name: "TILE", slug: "tile" }] },
+        { id: 3, name: "overpass2", tags: [], custom_fields: { role: "tile" } },
+      ],
+    },
+  });
+
+  expect(hosts.map((host) => host.name)).toEqual(["overpass1", "overpass2"]);
+});
+
+test("create host candidate query includes all selected host ids", async () => {
+  const queryString = await evaluateJsonata("create_prepare_host_candidates", "host_ids_qs", {
+    host_candidates: [
+      { id: 12, name: "overpass1" },
+      { id: 13, name: "overpass2" },
+    ],
+  });
+
+  expect(queryString).toBe("&host_id=12&host_id=13");
 });

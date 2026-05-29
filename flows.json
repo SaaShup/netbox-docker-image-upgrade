@@ -2435,6 +2435,27 @@
                 "tot": "msg"
             },
             {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" RECREATE : \" & $string($count(host_queue ? host_queue : [])) & \" host\" & ($count(host_queue ? host_queue : []) = 1 ? \"\" : \"s\") & \" queued for recreation [\" & $join($map(host_queue ? host_queue : [], function($h) { $h.host.display ? $h.host.display : ($h.host.name ? $h.host.name : ($h.display ? $h.display : $h.name)) }), \", \") & \"]\" & (tag ? \" tag=\" & tag : \"\") & \"<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
                 "t": "delete",
                 "p": "container_queue",
                 "pt": "msg"
@@ -4505,6 +4526,27 @@
                 "t": "set",
                 "p": "image_queue",
                 "pt": "msg",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "($hostNames := $distinct($map(image_queue ? image_queue : [], function($i) { $i.host.display ? $i.host.display : ($i.host.name ? $i.host.name : $string($i.host)) })); $now() & \" RESTART : \" & $string($count($hostNames)) & \" host\" & ($count($hostNames) = 1 ? \"\" : \"s\") & \" queued for restart [\" & $join($hostNames, \", \") & \"]\" & (tag ? \" tag=\" & tag : \"\") & \"<br>\" & logs)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
                 "to": "payload",
                 "tot": "msg"
             },
