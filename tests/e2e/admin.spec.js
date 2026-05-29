@@ -42,7 +42,9 @@ function ruleValue(nodeId, property) {
   return changeRule(nodeId, property).rule.to;
 }
 
-async function openAdmin(page, config = {}, templates = {}) {
+async function openAdmin(page, config = {}, templates = {}, instances = [
+  { instance: "guide-app", networks: ["bridge", "traefik-net"] },
+]) {
   let templateStore = templates;
 
   await page.route("**/config", async (route) => {
@@ -79,6 +81,16 @@ async function openAdmin(page, config = {}, templates = {}) {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify(templateStore),
+    });
+  });
+
+  await page.route("**/instances?**", async (route) => {
+    const body = typeof instances === "function" ? instances(route) : instances;
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(body),
     });
   });
 
@@ -157,6 +169,18 @@ test("delete config removes the profile and keeps it gone after reload", async (
 });
 
 test("create form supports repeatable env, labels, and volumes", async ({ page }) => {
+  await page.route("**/images?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        { name: "saashup/guide", version: "v1.2.3" },
+        { name: "saashup/guide", version: "v1.10.0" },
+        { name: "saashup/other", version: "v9.0.0" },
+      ]),
+    });
+  });
+
   await openAdmin(page, {
     profiles: JSON.stringify({
       production: {
@@ -172,9 +196,17 @@ test("create form supports repeatable env, labels, and volumes", async ({ page }
 
   await expect(page.locator("[data-field='hostname']")).toHaveCount(0);
   await expect(page.locator("#refreshInstancesBtn")).toBeHidden();
+  await expect(page.locator("#network")).toHaveValue("traefik-net");
+  await expect(page.locator("#network")).toHaveAttribute("readonly", "");
+  await expect(page.locator("#version")).toHaveAttribute("readonly", "");
   await expect(page.locator("[data-field='env_vars']")).toBeVisible();
   await expect(page.locator("[data-field='labels']")).toBeVisible();
   await expect(page.locator("[data-field='volumes']")).toBeVisible();
+
+  await page.locator("#refreshImagesBtn").click();
+  await expect(page.locator("#notif")).toContainText("Loaded 2 images");
+  await page.locator("#image").fill("saashup/guide");
+  await expect(page.locator("#version")).toHaveValue("v1.10.0");
 
   await page.locator("#addEnvBtn").click();
   await page.locator("#addLabelBtn").click();
@@ -191,7 +223,45 @@ test("create form supports repeatable env, labels, and volumes", async ({ page }
   await expect(page.locator("#volumeList .repeat-row")).toHaveCount(1);
 });
 
+test("create form selects the network starting with traefik", async ({ page }) => {
+  let instancesUrl = "";
+
+  await openAdmin(page, {
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        tag: "TILE",
+      },
+    }),
+  }, {}, (route) => {
+    instancesUrl = route.request().url();
+    return [
+      { instance: "tile-app", networks: ["bridge", "traefik-tile"] },
+    ];
+  });
+
+  await page.getByRole("link", { name: "Create" }).click();
+
+  await expect(page.locator("#network")).toHaveValue("traefik-tile");
+  expect(new URL(instancesUrl).searchParams.get("tag")).toBe("TILE");
+});
+
 test("create form can import a docker run command", async ({ page }) => {
+  let instanceRequestCount = 0;
+
+  await page.route("**/images?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        { name: "saashup/guide", version: "v1.2.3" },
+        { name: "saashup/guide", version: "v2.0.0" },
+      ]),
+    });
+  });
+
   await openAdmin(page, {
     profiles: JSON.stringify({
       production: {
@@ -201,9 +271,23 @@ test("create form can import a docker run command", async ({ page }) => {
         tag: "production",
       },
     }),
+  }, {}, () => {
+    instanceRequestCount += 1;
+    return [
+      {
+        instance: "guide-app",
+        networks: instanceRequestCount === 1
+          ? ["bridge", "traefik-net"]
+          : ["bridge", "traefik-later"],
+      },
+    ];
   });
 
   await page.getByRole("link", { name: "Create" }).click();
+  await expect(page.locator("#network")).toHaveValue("traefik-net");
+  await page.locator("#refreshImagesBtn").click();
+  await expect(page.locator("#notif")).toContainText("Loaded 1 images");
+  const requestsBeforeImport = instanceRequestCount;
   await expect(page.locator("#dockerRunBtn")).toBeVisible();
   await page.locator("#dockerRunBtn").click();
   await expect(page.locator("#dockerRunModal")).toBeVisible();
@@ -217,9 +301,10 @@ test("create form can import a docker run command", async ({ page }) => {
 
   await expect(page.locator("#dockerRunModal")).toBeHidden();
   await expect(page.locator("#instance")).toHaveValue("guide-app");
-  await expect(page.locator("#network")).toHaveValue("mgmt");
+  await expect(page.locator("#network")).toHaveValue("traefik-net");
+  expect(instanceRequestCount).toBe(requestsBeforeImport);
   await expect(page.locator("#image")).toHaveValue("saashup/guide");
-  await expect(page.locator("#version")).toHaveValue("v1.2.3");
+  await expect(page.locator("#version")).toHaveValue("v2.0.0");
   await expect(page.locator("#var_env_key")).toHaveValue("APP_ENV");
   await expect(page.locator("#var_env_value")).toHaveValue("production");
   await expect(page.locator("#label_key")).toHaveValue("traefik.enable");
@@ -229,6 +314,20 @@ test("create form can import a docker run command", async ({ page }) => {
 });
 
 test("create form can save and load templates", async ({ page }) => {
+  let imageRequestCount = 0;
+
+  await page.route("**/images?**", async (route) => {
+    imageRequestCount += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        { name: "saashup/guide", version: "v1.2.3" },
+        { name: "saashup/guide", version: "v1.10.0" },
+      ]),
+    });
+  });
+
   await openAdmin(page, {
     profiles: JSON.stringify({
       production: {
@@ -243,10 +342,11 @@ test("create form can save and load templates", async ({ page }) => {
   await page.getByRole("link", { name: "Create" }).click();
   await expect(page.locator("#saveTemplateBtn")).toBeVisible();
 
-  await page.locator("#network").fill("mgmt");
+  await page.locator("#refreshImagesBtn").click();
+  await expect(page.locator("#notif")).toContainText("Loaded 1 images");
   await page.locator("#instance").fill("guide-app");
   await page.locator("#image").fill("saashup/guide");
-  await page.locator("#version").fill("v1.2.3");
+  await expect(page.locator("#version")).toHaveValue("v1.10.0");
   await page.locator("#var_env_key").fill("APP_ENV");
   await page.locator("#var_env_value").fill("production");
   await page.locator("#label_key").fill("traefik.enable");
@@ -267,13 +367,15 @@ test("create form can save and load templates", async ({ page }) => {
 
   await page.locator("#clearBtn").click();
   await expect(page.locator("#image")).toHaveValue("");
+  const imageRequestsBeforeLoad = imageRequestCount;
 
   await page.locator("#templateSelect").selectOption("Guide");
   await expect(page.locator("#notif")).toContainText('Template "Guide" loaded');
-  await expect(page.locator("#network")).toHaveValue("mgmt");
+  expect(imageRequestCount).toBe(imageRequestsBeforeLoad + 1);
+  await expect(page.locator("#network")).toHaveValue("traefik-net");
   await expect(page.locator("#instance")).toHaveValue("guide-app");
   await expect(page.locator("#image")).toHaveValue("saashup/guide");
-  await expect(page.locator("#version")).toHaveValue("v1.2.3");
+  await expect(page.locator("#version")).toHaveValue("v1.10.0");
   await expect(page.locator("#var_env_key")).toHaveValue("APP_ENV");
   await expect(page.locator("#label_key")).toHaveValue("traefik.enable");
   await expect(page.locator("#volume_source")).toHaveValue("/app/data");
@@ -623,6 +725,56 @@ test("refresh host loop waits for each host before dequeuing the next", () => {
   expect(logNode.wires.flat()).toContain("refresh_hosts_wait_prepare");
   expect(readyLogNode.wires.flat()).toContain("refresh_hosts_dequeue_host");
   expect(timeoutLogNode.wires.flat()).toContain("refresh_hosts_dequeue_host");
+});
+
+test("instances response includes only network names starting with traefik", async () => {
+  const instances = await evaluateJsonata("a1c1b1a0f0010004", "payload", {
+    payload: {
+      results: [
+        {
+          name: "tile-app",
+          network_settings: [
+            { network: { name: "bridge" } },
+            { network: { name: "traefik-public" } },
+            { network: { display: "Traefik-private" } },
+          ],
+        },
+      ],
+    },
+  });
+
+  expect(instances).toEqual([
+    { instance: "tile-app", networks: ["Traefik-private", "traefik-public"] },
+  ]);
+});
+
+test("tagged instances keep container network data after host fanout", async () => {
+  const perHostInstances = await evaluateJsonata("instances_tagged_format_host_containers", "payload", {
+    tag: "TILE",
+    tag_slug: "tile",
+    payload: {
+      results: [
+        {
+          display: "tile-app",
+          network_settings: [
+            { network: { value: 1, name: "bridge" } },
+            { network: { value: 2, name: "traefik-public" } },
+          ],
+        },
+      ],
+    },
+  });
+  const flattened = await evaluateJsonata("instances_tagged_flatten_containers", "payload", {
+    payload: [
+      perHostInstances,
+      [{ instance: "guide-app", networks: ["guide-private"] }],
+    ],
+  });
+
+  expect(flattened).toEqual([
+    { instance: "tile-app", networks: ["traefik-public"] },
+    { instance: "guide-app", networks: ["guide-private"] },
+  ]);
 });
 
 test("create host candidate filter uses the same host tag semantics", async () => {

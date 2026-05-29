@@ -42,6 +42,7 @@ let savedConfig = {};
 let configProfiles = {};
 let imageRecords = [];
 let containerCountRequestId = 0;
+let createNetworkRequestId = 0;
 let lastLogsHtml = "";
 let createTemplates = {};
 
@@ -152,6 +153,71 @@ function setFieldValue(name, value = "") {
   }
 
   el.value = value || "";
+}
+
+function networkNamesFromItem(item) {
+  if (!item || typeof item !== "object") return [];
+  if (Array.isArray(item.networks)) return item.networks.filter(Boolean);
+  if (item.network) return [item.network].filter(Boolean);
+  if (!Array.isArray(item.network_settings)) return [];
+
+  return item.network_settings
+    .map((setting) => {
+      const network = setting?.network;
+      if (typeof network === "string") return network;
+      if (!network || typeof network !== "object") return "";
+
+      return network.name || network.display || network.value || "";
+    })
+    .filter(Boolean);
+}
+
+function isTraefikNetwork(name) {
+  return String(name || "").toLowerCase().startsWith("traefik");
+}
+
+async function refreshCreateNetworkFromInstances(requestId) {
+  const query = credentialsQuery({ includeTag: true });
+
+  if (!query) {
+    if (requestId === createNetworkRequestId) setFieldValue("network", "");
+    return;
+  }
+
+  try {
+    const response = await fetch(`/instances?${query.toString()}`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+    const data = await response.json();
+    if (requestId !== createNetworkRequestId || currentAction !== "create") return;
+
+    const networks = Array.from(new Set((Array.isArray(data) ? data : [])
+      .flatMap(networkNamesFromItem)
+      .filter(isTraefikNetwork)))
+      .sort((a, b) => a.localeCompare(b));
+
+    setFieldValue("network", networks[0] || "");
+  } catch {
+    if (requestId === createNetworkRequestId && currentAction === "create") {
+      setFieldValue("network", "");
+    }
+  }
+}
+
+function syncCreateNetwork() {
+  const network = field("network");
+  if (!network) return;
+
+  network.readOnly = currentAction === "create";
+  if (currentAction !== "create") return;
+
+  setFieldValue("network", "");
+  const requestId = ++createNetworkRequestId;
+  refreshCreateNetworkFromInstances(requestId);
 }
 
 function profileLabel(name) {
@@ -320,6 +386,7 @@ function applyProfileToFields(name = currentConfigProfile) {
   setFieldValue("proxy", credentials.proxy);
   setFieldValue("tag", credentials.tag);
   persistProfiles();
+  syncCreateNetwork();
 }
 
 function credentialsQuery({ includeTag = false } = {}) {
@@ -572,6 +639,8 @@ function setAction(actionName) {
     refreshInstancesBtn.disabled = false;
   }
 
+  syncCreateNetwork();
+  syncCreateVersion();
   updateEnvRemoveButtons();
   updateLabelRemoveButtons();
   updateVolumeRemoveButtons();
@@ -600,6 +669,8 @@ function clearActionFields() {
   clearEnvRows();
   clearLabelRows();
   clearVolumeRows();
+  syncCreateNetwork();
+  syncCreateVersion();
   updateRestartButtons();
   setNotice("Form cleared", "success");
 }
@@ -771,10 +842,9 @@ function applyCreateTemplate(template) {
   if (!template) return;
 
   setAction("create");
-  setFieldValue("network", template.network || "");
   setFieldValue("instance", template.instance || "");
   setFieldValue("image", template.image || "");
-  setFieldValue("version", template.version || "");
+  syncCreateVersion();
   setRepeatRows(template.env || [], clearEnvRows, addEnvRow, { key: "var_env_key", value: "var_env_value" });
   setRepeatRows(template.labels || [], clearLabelRows, addLabelRow, { key: "label_key", value: "label_value" });
   setRepeatRows(template.volumes || [], clearVolumeRows, addVolumeRow, { key: "volume_source", value: "volume_name" });
@@ -802,7 +872,7 @@ async function saveCreateTemplate() {
   }
 }
 
-function loadSelectedTemplate() {
+async function loadSelectedTemplate() {
   const name = templateSelect?.value || "";
   if (!name || !createTemplates[name]) {
     setNotice("Select a template first", "error");
@@ -810,22 +880,27 @@ function loadSelectedTemplate() {
   }
 
   applyCreateTemplate(createTemplates[name]);
+  if (fieldValue("image") && !fieldValue("version")) {
+    await refreshImages({ notify: false });
+    syncCreateVersion();
+  }
   setNotice(`Template "${name}" loaded`, "success");
 }
 
 function applyDockerRunCommand() {
   const parsed = parseDockerRun(dockerRunInput?.value || "");
+  const currentNetwork = fieldValue("network");
 
   if (!parsed.image) {
     setNotice("Docker run image is required", "error");
     return;
   }
 
-  setAction("create");
+  if (currentAction !== "create") setAction("create");
+  setFieldValue("network", currentNetwork);
   if (parsed.instance) setFieldValue("instance", parsed.instance);
-  if (parsed.network) setFieldValue("network", parsed.network);
   setFieldValue("image", parsed.image);
-  if (parsed.version) setFieldValue("version", parsed.version);
+  syncCreateVersion();
 
   setRepeatRows(parsed.env, clearEnvRows, addEnvRow, { key: "var_env_key", value: "var_env_value" });
   setRepeatRows(parsed.labels, clearLabelRows, addLabelRow, { key: "label_key", value: "label_value" });
@@ -1172,11 +1247,7 @@ function replaceOptions(datalist, values) {
 
 function updateOldVersionOptions() {
   const image = fieldValue("image");
-  const versions = Array.from(new Set(imageRecords
-    .filter((item) => imageNameFromItem(item) === image)
-    .map(imageVersionFromItem)
-    .filter(Boolean)))
-    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+  const versions = versionsForImage(image);
 
   const restartVersion = field("restart_version");
   if (restartVersion?.value && !versions.includes(restartVersion.value)) {
@@ -1185,8 +1256,31 @@ function updateOldVersionOptions() {
 
   replaceOptions(oldVersionOptions, versions);
   replaceOptions(restartVersionOptions, versions);
+  syncCreateVersion();
   updateRestartButtons();
   updateSelectedVersionContainerNotice();
+}
+
+function versionsForImage(image) {
+  return Array.from(new Set(imageRecords
+    .filter((item) => imageNameFromItem(item) === image)
+    .map(imageVersionFromItem)
+    .filter(Boolean)))
+    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+}
+
+function highestVersionForImage(image = fieldValue("image")) {
+  return versionsForImage(image)[0] || "";
+}
+
+function syncCreateVersion() {
+  const version = field("version");
+  if (!version) return;
+
+  version.readOnly = currentAction === "create";
+  if (currentAction !== "create") return;
+
+  setFieldValue("version", highestVersionForImage());
 }
 
 function selectedVersionForCount() {
@@ -1231,13 +1325,13 @@ async function updateSelectedVersionContainerNotice() {
   }
 }
 
-async function refreshImages() {
+async function refreshImages({ notify = true } = {}) {
   if (!imageOptions || !refreshImagesBtn) return;
   const query = credentialsQuery({ includeTag: shouldFilterRefreshByTag() });
 
   if (!query) {
-    setNotice("Save NetBox URL and token for this profile first", "error");
-    return;
+    if (notify) setNotice("Save NetBox URL and token for this profile first", "error");
+    return false;
   }
 
   refreshImagesBtn.disabled = true;
@@ -1260,9 +1354,11 @@ async function refreshImages() {
 
     replaceOptions(imageOptions, images);
     updateOldVersionOptions();
-    setNotice(`Loaded ${images.length} images`, "success");
+    if (notify) setNotice(`Loaded ${images.length} images`, "success");
+    return true;
   } catch {
-    setNotice("Image refresh failed", "error");
+    if (notify) setNotice("Image refresh failed", "error");
+    return false;
   } finally {
     refreshImagesBtn.disabled = false;
   }
@@ -1372,6 +1468,11 @@ form.addEventListener("submit", (event) => {
     }
   }
 
+  if (currentAction === "create" && !fieldValue("network")) {
+    setNotice("Network is required", "error");
+    return;
+  }
+
   if (config?.confirm && !confirm(config.confirm)) {
     return;
   }
@@ -1405,6 +1506,7 @@ configProfileSelect?.addEventListener("change", () => {
   replaceOptions(imageOptions, []);
   replaceOptions(oldVersionOptions, []);
   replaceOptions(restartVersionOptions, []);
+  syncCreateVersion();
 });
 field("image")?.addEventListener("input", updateOldVersionOptions);
 field("oldversion")?.addEventListener("input", updateSelectedVersionContainerNotice);
