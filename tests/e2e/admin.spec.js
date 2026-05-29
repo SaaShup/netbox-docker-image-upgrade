@@ -232,6 +232,7 @@ test("create form supports repeatable env, labels, and volumes", async ({ page }
 
   await expect(page.locator("[data-field='hostname']")).toHaveCount(0);
   await expect(page.locator("#refreshInstancesBtn")).toBeHidden();
+  await expect(page.locator("#instance")).toHaveValue(/^production-[a-z0-9]{16}$/);
   await expect(page.locator("#network")).toHaveValue("traefik-net");
   await expect(page.locator("#network")).toHaveAttribute("readonly", "");
   await expect(page.locator("#version")).toHaveAttribute("readonly", "");
@@ -257,6 +258,30 @@ test("create form supports repeatable env, labels, and volumes", async ({ page }
 
   await expect(page.locator("#labelList .repeat-row")).toHaveCount(1);
   await expect(page.locator("#volumeList .repeat-row")).toHaveCount(1);
+});
+
+test("create form generates a random instance name when empty", async ({ page }) => {
+  await openAdmin(page, {
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "apps.example.com",
+        tag: "production",
+      },
+    }),
+  });
+
+  await page.getByRole("link", { name: "Create" }).click();
+
+  const firstName = await page.locator("#instance").inputValue();
+  expect(firstName).toMatch(/^production-[a-z0-9]{16}$/);
+
+  await page.locator("#clearBtn").click();
+
+  await expect(page.locator("#instance")).toHaveValue(/^production-[a-z0-9]{16}$/);
+  await expect.poll(() => page.locator("#instance").inputValue()).not.toBe(firstName);
 });
 
 test("create form derives the highest version from full image references", async ({ page }) => {
@@ -800,16 +825,17 @@ test("order page creates an instance from the requested template", async ({ page
   await expect(page.locator(".sidebar")).toBeHidden();
   await expect(page.locator("#image")).toBeHidden();
   await expect(page.locator("#config_profile")).toHaveValue("tile");
-  await expect(page.locator("#instance")).toHaveValue("curiootiles");
+  await expect(page.locator("#instance")).toHaveValue(/^tile-[a-z0-9]{16}$/);
+  const generatedName = await page.locator("#instance").inputValue();
   await expect(page.locator("#image")).toHaveValue("saashup/curiootiles");
   await expect(page.locator("#version")).toHaveValue("v2.0.0");
 
   await page.locator("#submitBtn").click();
 
-  await expect.poll(() => createBody).toContain("instance=curiootiles.daily.paashup.cloud");
+  await expect.poll(() => createBody).toContain(`instance=${generatedName}.daily.paashup.cloud`);
   await expect(page.locator("#orderActions")).toBeHidden();
   await expect(page.locator("#orderStatus")).toHaveClass(/success/);
-  await expect(page.locator("#orderStatus")).toHaveText("Thank you, your instance installation has been requested.");
+  await expect(page.locator("#orderStatus")).toHaveText(`Thank you, your instance installation has been requested for ${generatedName}.daily.paashup.cloud.`);
   expect(createBody).toContain("profile=tile");
   expect(createBody).toContain("tag=TILE");
   expect(createBody).toContain("network=traefik-public");
@@ -818,6 +844,60 @@ test("order page creates an instance from the requested template", async ({ page
   expect(createBody).toContain("var_env_key=APP_ENV");
   expect(createBody).toContain("var_env_value=production");
   expect(logsRequests).toBe(0);
+});
+
+test("order page generates and submits an instance name when the template has none", async ({ page }) => {
+  let createBody = "";
+  const templates = {
+    curiootiles: {
+      config_profile: "tile",
+      network: "traefik-public",
+      image: "saashup/curiootiles",
+      env: [],
+      labels: [],
+      volumes: [],
+    },
+  };
+
+  await page.route("**/images?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([{ name: "saashup/curiootiles", version: "v2.0.0" }]),
+    });
+  });
+
+  await page.route("**/create", async (route) => {
+    createBody = route.request().postData() || "";
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "tile",
+    profiles: JSON.stringify({
+      tile: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "daily.paashup.cloud",
+        tag: "TILE",
+      },
+    }),
+  }, templates, [
+    { instance: "tiles.example.com", networks: ["traefik-public"] },
+  ], undefined, "/order?template=curiootiles");
+
+  await expect(page.locator("#instance")).toHaveValue(/^tile-[a-z0-9]{16}$/);
+  const generatedName = await page.locator("#instance").inputValue();
+
+  await page.locator("#submitBtn").click();
+
+  await expect.poll(() => createBody).toContain(`instance=${generatedName}.daily.paashup.cloud`);
+  await expect(page.locator("#orderStatus")).toHaveText(`Thank you, your instance installation has been requested for ${generatedName}.daily.paashup.cloud.`);
 });
 
 test("order page hides the order form when the requested template is missing", async ({ page }) => {

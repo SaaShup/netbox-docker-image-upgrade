@@ -171,6 +171,40 @@ function instanceFqdn(value, domain) {
   return normalizedDomain ? `${name}.${normalizedDomain}` : name;
 }
 
+function randomInstanceSuffix(length = 16) {
+  const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+  const cryptoObject = window.crypto || window.msCrypto;
+  const bytes = new Uint8Array(length);
+
+  if (cryptoObject?.getRandomValues) {
+    cryptoObject.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+
+  return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("");
+}
+
+function instanceNamePrefix() {
+  const credentials = selectedProfileCredentials();
+  const source = credentials.profile || credentials.tag || "app";
+  const prefix = String(source)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return prefix || "app";
+}
+
+function ensureRandomCreateInstanceName() {
+  if (currentAction !== "create" || fieldValue("instance")) return;
+
+  setFieldValue("instance", `${instanceNamePrefix()}-${randomInstanceSuffix()}`);
+}
+
 function setFieldValue(name, value = "") {
   const el = field(name);
   if (!el) return;
@@ -705,6 +739,7 @@ function setAction(actionName) {
 
   syncCreateNetwork();
   syncCreateVersion();
+  ensureRandomCreateInstanceName();
   if (actionName === "create" && imageRecords.length === 0) {
     refreshImages({ notify: false });
   }
@@ -738,6 +773,7 @@ function clearActionFields() {
   clearVolumeRows();
   syncCreateNetwork();
   syncCreateVersion();
+  ensureRandomCreateInstanceName();
   updateRestartButtons();
   setNotice("Form cleared", "success");
 }
@@ -934,6 +970,7 @@ function applyCreateTemplate(template) {
 
   setFieldValue("network", template.network || fieldValue("network"));
   setFieldValue("instance", template.instance || "");
+  ensureRandomCreateInstanceName();
   setFieldValue("image", template.image || "");
   syncCreateVersion();
   setRepeatRows(template.env || [], clearEnvRows, addEnvRow, { key: "var_env_key", value: "var_env_value" });
@@ -1026,6 +1063,8 @@ async function applyOrderTemplate() {
 
   showOrderActions();
   applyCreateTemplate(entry.template);
+  setFieldValue("instance", "");
+  ensureRandomCreateInstanceName();
   submitBtn.textContent = "Yes";
 
   if (templateSelect) {
@@ -1306,6 +1345,7 @@ async function deleteConfig() {
 async function submitAction(config, submitter) {
   const body = new URLSearchParams(new FormData(form));
   const credentials = selectedProfileCredentials();
+  let createdInstanceFqdn = "";
 
   if (!credentials.netbox || !credentials.token) {
     setNotice("Save NetBox URL and token for this profile first", "error");
@@ -1323,6 +1363,7 @@ async function submitAction(config, submitter) {
     const fqdn = instanceFqdn(body.get("instance"), credentials.domain);
     body.set("instance", fqdn);
     setFieldValue("instance", fqdn);
+    createdInstanceFqdn = fqdn;
   }
 
   if (submitter?.name) {
@@ -1350,7 +1391,7 @@ async function submitAction(config, submitter) {
   if (isOrderPage) {
     if (response.status === 202) {
       hideOrderActions();
-      setOrderStatus("Thank you, your instance installation has been requested.", "success");
+      setOrderStatus(`Thank you, your instance installation has been requested for ${createdInstanceFqdn}.`, "success");
     } else {
       submitBtn.disabled = false;
       setOrderStatus(`Installation request failed (${response.status})`, "error");
@@ -1772,6 +1813,7 @@ refreshInstancesBtn?.addEventListener("click", refreshInstances);
 refreshImagesBtn?.addEventListener("click", refreshImages);
 configProfileSelect?.addEventListener("change", () => {
   applyProfileToFields(configProfileSelect.value);
+  ensureRandomCreateInstanceName();
   imageRecords = [];
   setFieldValue("image", "");
   setFieldValue("version", "");

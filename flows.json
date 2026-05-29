@@ -1118,7 +1118,7 @@
                 "t": "set",
                 "p": "payload",
                 "pt": "msg",
-                "to": "(\n  $defaultMounts := [\n    {\n      \"source\": \"/app/data\",\n      \"volume\": {\n        \"name\": msg.instanceShort & \"-data\"\n      },\n      \"read_only\": false\n    }\n  ];\n  $formMounts := $type(msg.volume_source) = \"array\" ? $append([], $filter($map(msg.volume_source, function($source, $i) {\n    {\n      \"source\": $source,\n      \"volume\": {\n        \"name\": msg.volume_name[$i]\n      },\n      \"read_only\": false\n    }\n  }), function($mount) { $mount.source and $mount.volume.name })) : (msg.volume_source and msg.volume_name ? [\n    {\n      \"source\": msg.volume_source,\n      \"volume\": {\n        \"name\": msg.volume_name\n      },\n      \"read_only\": false\n    }\n  ] : []);\n  $env := $type(msg.var_env_key) = \"array\" ? $append([], $filter($map(msg.var_env_key, function($key, $i) {\n    {\n      \"var_name\": $key,\n      \"value\": msg.var_env_value[$i]\n    }\n  }), function($item) { $item.var_name })) : (msg.var_env_key ? [\n    {\n      \"var_name\": msg.var_env_key,\n      \"value\": msg.var_env_value\n    }\n  ] : []);\n  $baseLabels := [\n    {\n      \"key\": \"traefik.enable\",\n      \"value\": \"true\"\n    },\n    {\n      \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".rule\",\n      \"value\": \"Host(`\" & msg.instance & \"`)\"\n    },\n    {\n      \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".entrypoints\",\n      \"value\": \"http\"\n    },\n    {\n      \"key\": \"traefik.http.services.\" & msg.instanceShort & \".loadbalancer.server.port\",\n      \"value\": \"3000\"\n    },\n    {\n      \"key\": \"traefik.http.middlewares.force-https-header.headers.customrequestheaders.X-Forwarded-Proto\",\n      \"value\": \"https\"\n    },\n    {\n      \"key\": \"traefik.http.middlewares.\" & msg.instanceShort & \".ipallowlist.sourcerange\",\n      \"value\": \"173.245.48.0/20, 103.21.244.0/22, 103.22.200.0/22, 103.31.4.0/22, 141.101.64.0/18, 108.162.192.0/18, 190.93.240.0/20, 188.114.96.0/20, 197.234.240.0/22, 198.41.128.0/17, 162.158.0.0/15, 104.16.0.0/13, 104.24.0.0/14, 172.64.0.0/13, 131.0.72.0/22, 2400:cb00::/32, 2606:4700::/32, 2803:f800::/32, 2405:b500::/32, 2405:8100::/32, 2a06:98c0::/29, 2c0f:f248::/32\"\n    },\n    {\n      \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".middlewares\",\n      \"value\": \"force-https-header,\" & msg.instanceShort\n    }\n  ];\n  $extraLabels := $type(msg.label_key) = \"array\" ? $append([], $filter($map(msg.label_key, function($key, $i) {\n    {\n      \"key\": $key,\n      \"value\": msg.label_value[$i]\n    }\n  }), function($label) { $label.key })) : (msg.label_key ? [\n    {\n      \"key\": msg.label_key,\n      \"value\": msg.label_value\n    }\n  ] : []);\n  [\n    {\n      \"id\": msg.container.id,\n      \"host\": msg.host_id,\n      \"network_settings\": [\n        {\n          \"network\": {\n            \"host\": msg.host_id,\n            \"name\": msg.network\n          }\n        }\n      ],\n      \"mounts\": $count($formMounts) > 0 ? $formMounts : $defaultMounts,\n      \"env\": $env,\n      \"labels\": $append($baseLabels, $extraLabels)\n    }\n  ]\n)",
+                "to": "(\t   $defaultMounts := [\t       {\t           \"source\": \"/app/data\",\t           \"volume\": {\t               \"name\": msg.instanceShort & \"-data\"      \t           },\t           \"read_only\": false    \t       }  \t   ];\t   $formMounts := $type(msg.volume_source) = \"array\" ? $append(\t       [],\t       $filter(\t           $map(\t               msg.volume_source,\t               function($source, $i) {\t                   {\t                       \"source\": $source,\t                       \"volume\": {\t                           \"name\": msg.volume_name[$i]      \t                       },\t                       \"read_only\": false    \t                   }  \t               }\t           ),\t           function($mount) { $mount.source and $mount.volume.name }\t       )\t   ) : (\t       msg.volume_source and msg.volume_name ? [\t           {\t               \"source\": msg.volume_source,\t               \"volume\": {        \"name\": msg.volume_name      },\t               \"read_only\": false    \t           }  \t       ] : []\t   );\t   $env := $type(msg.var_env_key) = \"array\" ? $append(\t       [],\t       $filter(\t           $map(\t               msg.var_env_key,\t               function($key, $i) {\t                   {\t                       \"var_name\": $key,\t                       \"value\": msg.var_env_value[$i]    \t                   }  \t               }\t           ),\t           function($item) { $item.var_name }\t       )\t   ) : (\t       msg.var_env_key ? [\t           {\t               \"var_name\": msg.var_env_key,\t               \"value\": msg.var_env_value    \t           }  \t       ] : []\t   );\t   $baseLabels := [\t       {\t           \"key\": \"traefik.enable\",\t           \"value\": \"true\"    \t       },\t       {\t           \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".rule\",\t           \"value\": \"Host(`\" & msg.instance & \"`)\"    \t       },\t       {\t           \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".entrypoints\",\t           \"value\": \"http\"    \t       },\t       {\t           \"key\": \"traefik.http.services.\" & msg.instanceShort & \".loadbalancer.server.port\",\t           \"value\": \"3000\"    \t       },\t       {\t           \"key\": \"traefik.http.middlewares.force-https-header.headers.customrequestheaders.X-Forwarded-Proto\",\t           \"value\": \"https\"    \t       },\t       {\t           \"key\": \"traefik.http.middlewares.\" & msg.instanceShort & \".ipallowlist.sourcerange\",\t           \"value\": \"173.245.48.0/20, 103.21.244.0/22, 103.22.200.0/22, 103.31.4.0/22, 141.101.64.0/18, 108.162.192.0/18, 190.93.240.0/20, 188.114.96.0/20, 197.234.240.0/22, 198.41.128.0/17, 162.158.0.0/15, 104.16.0.0/13, 104.24.0.0/14, 172.64.0.0/13, 131.0.72.0/22, 2400:cb00::/32, 2606:4700::/32, 2803:f800::/32, 2405:b500::/32, 2405:8100::/32, 2a06:98c0::/29, 2c0f:f248::/32\"    \t       },\t       {\t           \"key\": \"traefik.http.routers.\" & msg.instanceShort & \".middlewares\",\t           \"value\": \"force-https-header\"    \t       }  \t   ];\t   $extraLabels := $type(msg.label_key) = \"array\" ? $append(\t       [],\t       $filter(\t           $map(\t               msg.label_key,\t               function($key, $i) {\t                   {\t                       \"key\": $key,\t                       \"value\": msg.label_value[$i]    \t                   }  \t               }\t           ),\t           function($label) { $label.key }\t       )\t   ) : (\t       msg.label_key ? [\t           {\t               \"key\": msg.label_key,\t               \"value\": msg.label_value    \t           }  \t       ] : []\t   );\t   [\t       {\t           \"id\": msg.container.id,\t           \"host\": msg.host_id,\t           \"network_settings\": [\t               {\t                   \"network\": {\t                       \"host\": msg.host_id,\t                       \"name\": msg.network          \t                   }        \t               }      \t           ],\t           \"mounts\": $count($formMounts) > 0 ? $formMounts : $defaultMounts,\t           \"env\": $env,\t           \"labels\": $append($baseLabels, $extraLabels)    \t       }  \t   ]\t)",
                 "tot": "jsonata"
             },
             {
@@ -1685,6 +1685,153 @@
         "wires": [
             []
         ]
+    },
+    {
+        "id": "admin_alias_in",
+        "type": "http in",
+        "z": "d5158039611d4b98",
+        "name": "admin alias",
+        "url": "/admin",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 150,
+        "y": 620,
+        "wires": [
+            [
+                "admin_alias_prepare"
+            ]
+        ]
+    },
+    {
+        "id": "order_alias_in",
+        "type": "http in",
+        "z": "d5158039611d4b98",
+        "name": "order alias",
+        "url": "/order",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 150,
+        "y": 660,
+        "wires": [
+            [
+                "order_alias_prepare"
+            ]
+        ]
+    },
+    {
+        "id": "admin_alias_prepare",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "admin html",
+        "rules": [
+            {
+                "t": "set",
+                "p": "statusCode",
+                "pt": "msg",
+                "to": "200",
+                "tot": "num"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\"Content-Type\":\"text/html; charset=utf-8\"}",
+                "tot": "json"
+            },
+            {
+                "t": "set",
+                "p": "filename",
+                "pt": "msg",
+                "to": "public/admin.html",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 390,
+        "y": 620,
+        "wires": [
+            [
+                "html_alias_file"
+            ]
+        ]
+    },
+    {
+        "id": "order_alias_prepare",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "order html",
+        "rules": [
+            {
+                "t": "set",
+                "p": "statusCode",
+                "pt": "msg",
+                "to": "200",
+                "tot": "num"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\"Content-Type\":\"text/html; charset=utf-8\"}",
+                "tot": "json"
+            },
+            {
+                "t": "set",
+                "p": "filename",
+                "pt": "msg",
+                "to": "public/order.html",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 390,
+        "y": 660,
+        "wires": [
+            [
+                "html_alias_file"
+            ]
+        ]
+    },
+    {
+        "id": "html_alias_file",
+        "type": "file in",
+        "z": "d5158039611d4b98",
+        "name": "read html alias",
+        "filename": "filename",
+        "filenameType": "msg",
+        "format": "utf8",
+        "chunk": false,
+        "sendError": false,
+        "encoding": "none",
+        "allProps": false,
+        "x": 620,
+        "y": 640,
+        "wires": [
+            [
+                "html_alias_response"
+            ]
+        ]
+    },
+    {
+        "id": "html_alias_response",
+        "type": "http response",
+        "z": "d5158039611d4b98",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 850,
+        "y": 640,
+        "wires": []
     },
     {
         "id": "refresh_hosts_http_in",
@@ -9620,153 +9767,6 @@
         "headers": {},
         "x": 2830,
         "y": 760,
-        "wires": []
-    },
-    {
-        "id": "admin_alias_in",
-        "type": "http in",
-        "z": "d5158039611d4b98",
-        "name": "admin alias",
-        "url": "/admin",
-        "method": "get",
-        "upload": false,
-        "swaggerDoc": "",
-        "x": 150,
-        "y": 620,
-        "wires": [
-            [
-                "admin_alias_prepare"
-            ]
-        ]
-    },
-    {
-        "id": "order_alias_in",
-        "type": "http in",
-        "z": "d5158039611d4b98",
-        "name": "order alias",
-        "url": "/order",
-        "method": "get",
-        "upload": false,
-        "swaggerDoc": "",
-        "x": 150,
-        "y": 660,
-        "wires": [
-            [
-                "order_alias_prepare"
-            ]
-        ]
-    },
-    {
-        "id": "admin_alias_prepare",
-        "type": "change",
-        "z": "d5158039611d4b98",
-        "name": "admin html",
-        "rules": [
-            {
-                "t": "set",
-                "p": "statusCode",
-                "pt": "msg",
-                "to": "200",
-                "tot": "num"
-            },
-            {
-                "t": "set",
-                "p": "headers",
-                "pt": "msg",
-                "to": "{\"Content-Type\":\"text/html; charset=utf-8\"}",
-                "tot": "json"
-            },
-            {
-                "t": "set",
-                "p": "filename",
-                "pt": "msg",
-                "to": "public/admin.html",
-                "tot": "str"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 390,
-        "y": 620,
-        "wires": [
-            [
-                "html_alias_file"
-            ]
-        ]
-    },
-    {
-        "id": "order_alias_prepare",
-        "type": "change",
-        "z": "d5158039611d4b98",
-        "name": "order html",
-        "rules": [
-            {
-                "t": "set",
-                "p": "statusCode",
-                "pt": "msg",
-                "to": "200",
-                "tot": "num"
-            },
-            {
-                "t": "set",
-                "p": "headers",
-                "pt": "msg",
-                "to": "{\"Content-Type\":\"text/html; charset=utf-8\"}",
-                "tot": "json"
-            },
-            {
-                "t": "set",
-                "p": "filename",
-                "pt": "msg",
-                "to": "public/order.html",
-                "tot": "str"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 390,
-        "y": 660,
-        "wires": [
-            [
-                "html_alias_file"
-            ]
-        ]
-    },
-    {
-        "id": "html_alias_file",
-        "type": "file in",
-        "z": "d5158039611d4b98",
-        "name": "read html alias",
-        "filename": "filename",
-        "filenameType": "msg",
-        "format": "utf8",
-        "chunk": false,
-        "sendError": false,
-        "encoding": "none",
-        "allProps": false,
-        "x": 620,
-        "y": 640,
-        "wires": [
-            [
-                "html_alias_response"
-            ]
-        ]
-    },
-    {
-        "id": "html_alias_response",
-        "type": "http response",
-        "z": "d5158039611d4b98",
-        "name": "",
-        "statusCode": "",
-        "headers": {},
-        "x": 850,
-        "y": 640,
         "wires": []
     }
 ]
