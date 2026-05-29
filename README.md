@@ -24,5 +24,5 @@ Upgrade, Restart and Refresh process one item at a time. After each operation re
 # Contribute 
 
 ```
-DATAPATH=. node-red -s settings_dev.js
+npm run dev
 ```

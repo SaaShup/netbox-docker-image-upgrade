@@ -14,9 +14,9 @@ module.exports = {
         }]
     },
     uiPort: process.env.PORT || 1880,
-    disableEditor: 'ENABLE_EDITOR' in process.env ? false : true,
+    disableEditor: !('ENABLE_EDITOR' in process.env),
     httpStatic: [
-        { path: '/usr/src/node-red/public', root: '/' },
+        { path: 'public', root: '/' },
     ],
     httpAdminRoot: '/nodered',
     httpNodeRoot: "/",

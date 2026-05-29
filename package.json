@@ -10,7 +10,7 @@
     },
     "scripts": {
         "test": "npm run test:e2e",
-        "dev": "DATAPATH=. node-red -s settings_dev.js",
+        "dev": "ENABLE_EDITOR=1 DATAPATH=. node-red -s settings.js -u $(pwd)",
         "test:e2e": "playwright test"
     },
     "license": "BSD-3-Clause",
