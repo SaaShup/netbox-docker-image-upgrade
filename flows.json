@@ -231,10 +231,17 @@
             },
             {
                 "t": "set",
-                "p": "hostname",
+                "p": "tag",
                 "pt": "msg",
-                "to": "config.hostname",
-                "tot": "msg"
+                "to": "req.query.tag ? req.query.tag : (config.tag ? config.tag : $globalContext(\"config\").tag)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "tag_slug",
+                "pt": "msg",
+                "to": "$replace($lowercase($trim($string(tag))), /[^a-z0-9_-]+/, \"-\")",
+                "tot": "jsonata"
             },
             {
                 "t": "set",
@@ -346,13 +353,13 @@
         "id": "458387080417f52a",
         "type": "change",
         "z": "d5158039611d4b98",
-        "name": "get hostid",
+        "name": "get candidate hosts",
         "rules": [
             {
                 "t": "set",
                 "p": "url",
                 "pt": "msg",
-                "to": "msg.netbox & \"/api/plugins/docker/hosts/?name=\" & msg.hostname",
+                "to": "msg.netbox & \"/api/plugins/docker/hosts/?limit=1000\"",
                 "tot": "jsonata"
             },
             {
@@ -414,9 +421,11 @@
         "y": 220,
         "wires": [
             [
-                "c023f5d33cc1a8f6"
+                "create_prepare_host_candidates"
             ],
-            []
+            [
+                "create_log_no_hosts"
+            ]
         ]
     },
     {
@@ -429,8 +438,8 @@
                 "t": "set",
                 "p": "host_id",
                 "pt": "msg",
-                "to": "payload.results[0].id",
-                "tot": "msg"
+                "to": "selected_host.id ? selected_host.id : payload.results[0].id",
+                "tot": "jsonata"
             },
             {
                 "t": "set",
@@ -1028,6 +1037,232 @@
         ]
     },
     {
+        "id": "create_prepare_host_candidates",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "filter candidate hosts",
+        "rules": [
+            {
+                "t": "set",
+                "p": "host_candidates",
+                "pt": "msg",
+                "to": "$append([], ($hosts := payload.results ? payload.results : []; $wanted := $lowercase($trim($string(tag))); $wantedSlug := $lowercase($trim($string(tag_slug))); $matches := function($host) { ($haystack := $lowercase($string($host.tags) & \" \" & $string($host.tag) & \" \" & $string($host.custom_fields) & \" \" & $string($host.cf)); $count($filter($host.tags ? $host.tags : [], function($t) { ($slug := $lowercase($trim($string($t.slug ? $t.slug : \"\"))); $name := $lowercase($trim($string($t.name ? $t.name : \"\"))); $display := $lowercase($trim($string($t.display ? $t.display : \"\"))); $label := $lowercase($trim($string($t.label ? $t.label : \"\"))); $value := $lowercase($trim($string($t.value ? $t.value : \"\"))); $plain := $lowercase($trim($string($t))); $slug = $wantedSlug or $slug = $wanted or $name = $wanted or $name = $wantedSlug or $display = $wanted or $display = $wantedSlug or $label = $wanted or $label = $wantedSlug or $value = $wanted or $value = $wantedSlug or $plain = $wanted or $plain = $wantedSlug) })) > 0 or $contains($haystack, $wanted) or $contains($haystack, $wantedSlug)) }; $boolean($wanted) ? $filter($hosts, $matches) : $hosts))",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "host_ids_qs",
+                "pt": "msg",
+                "to": "$join($map(host_candidates, function($host) { \"&host_id=\" & $string($host.id) }), \"\")",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & \"/api/plugins/docker/containers/?limit=1000\" & host_ids_qs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{ \"Authorization\": \"Token \" & msg.token, \"Accept\": \"application/json\" }",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 760,
+        "y": 220,
+        "wires": [
+            [
+                "create_has_candidate_hosts"
+            ]
+        ]
+    },
+    {
+        "id": "create_has_candidate_hosts",
+        "type": "switch",
+        "z": "d5158039611d4b98",
+        "name": "candidate hosts found?",
+        "property": "$count(host_candidates)",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "gt",
+                "v": "0",
+                "vt": "num"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 980,
+        "y": 220,
+        "wires": [
+            [
+                "apply_proxy_create_host_containers"
+            ],
+            [
+                "create_log_no_hosts"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_create_host_containers",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "d5158039611d4b98",
+        "name": "request",
+        "x": 1210,
+        "y": 220,
+        "wires": [
+            [
+                "create_select_host"
+            ]
+        ]
+    },
+    {
+        "id": "create_select_host",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "select least used host",
+        "rules": [
+            {
+                "t": "set",
+                "p": "selected_host",
+                "pt": "msg",
+                "to": "($containers := payload.results ? payload.results : []; $hosts := host_candidates ? host_candidates : []; $sort($hosts, function($left, $right) { $count($filter($containers, function($c) { $string($c.host.id ? $c.host.id : ($c.host.value ? $c.host.value : $c.host)) = $string($right.id) })) < $count($filter($containers, function($c) { $string($c.host.id ? $c.host.id : ($c.host.value ? $c.host.value : $c.host)) = $string($left.id) })) })[0])",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "host_container_count",
+                "pt": "msg",
+                "to": "$count($filter(payload.results ? payload.results : [], function($c) { $string($c.host.id ? $c.host.id : ($c.host.value ? $c.host.value : $c.host)) = $string(selected_host.id) }))",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "hostname",
+                "pt": "msg",
+                "to": "selected_host.display ? selected_host.display : selected_host.name",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "{\"count\": 1, \"results\": [selected_host]}",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1430,
+        "y": 220,
+        "wires": [
+            [
+                "c023f5d33cc1a8f6",
+                "create_log_selected_host"
+            ]
+        ]
+    },
+    {
+        "id": "create_log_no_hosts",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "log no hosts",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" CREATE : no Docker hosts found\" & (tag ? \" with tag \" & tag : \"\") & \"<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1220,
+        "y": 300,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "create_log_selected_host",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "log selected host",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" CREATE : selected host \" & hostname & \" (\" & $string(host_container_count) & \" containers)\" & (tag ? \" tag=\" & tag : \"\") & \"<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1640,
+        "y": 300,
+        "wires": [
+            []
+        ]
+    },
+    {
         "id": "refresh_hosts_http_in",
         "type": "http in",
         "z": "d35afda971f87177",
@@ -1166,7 +1401,7 @@
         "checkall": "true",
         "repair": false,
         "outputs": 2,
-        "x": 970,
+        "x": 750,
         "y": 80,
         "wires": [
             [
@@ -1181,13 +1416,54 @@
         "id": "refresh_hosts_results",
         "type": "change",
         "z": "d35afda971f87177",
-        "name": "set hosts + init refresh host queue",
+        "name": "filter tagged hosts",
         "rules": [
+            {
+                "t": "set",
+                "p": "refresh_host_total",
+                "pt": "msg",
+                "to": "$count(payload.results ? payload.results : [])",
+                "tot": "jsonata"
+            },
             {
                 "t": "set",
                 "p": "payload",
                 "pt": "msg",
-                "to": "$append([], ($hosts := payload.results ? payload.results : []; $boolean(tag_slug) ? ($tagSlug := $lowercase($string(tag_slug)); $tagText := $lowercase($string(tag)); $filter($hosts, function($host) { $count($filter($host.tags ? $host.tags : [], function($t) { ($lowercase($string($t.slug)) = $tagSlug) or ($lowercase($string($t.name)) = $tagText) or ($lowercase($string($t.display)) = $tagText) or ($lowercase($string($t.label)) = $tagText) or ($lowercase($string($t.value)) = $tagText) or ($lowercase($string($t)) = $tagText) })) > 0 })) : $hosts))",
+                "to": "$append([], ($hosts := payload.results ? payload.results : []; $wanted := $lowercase($trim($string(tag))); $wantedSlug := $lowercase($trim($string(tag_slug))); $matches := function($host) { ($haystack := $lowercase($string($host.tags) & \" \" & $string($host.tag) & \" \" & $string($host.custom_fields) & \" \" & $string($host.cf)); $count($filter($host.tags ? $host.tags : [], function($t) { ($slug := $lowercase($trim($string($t.slug ? $t.slug : \"\"))); $name := $lowercase($trim($string($t.name ? $t.name : \"\"))); $display := $lowercase($trim($string($t.display ? $t.display : \"\"))); $label := $lowercase($trim($string($t.label ? $t.label : \"\"))); $value := $lowercase($trim($string($t.value ? $t.value : \"\"))); $plain := $lowercase($trim($string($t))); $slug = $wantedSlug or $slug = $wanted or $name = $wanted or $name = $wantedSlug or $display = $wanted or $display = $wantedSlug or $label = $wanted or $label = $wantedSlug or $value = $wanted or $value = $wantedSlug or $plain = $wanted or $plain = $wantedSlug) })) > 0 or $contains($haystack, $wanted) or $contains($haystack, $wantedSlug)) }; $boolean($wanted) ? $filter($hosts, $matches) : $hosts))",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 990,
+        "y": 80,
+        "wires": [
+            [
+                "refresh_hosts_init_queue"
+            ]
+        ]
+    },
+    {
+        "id": "refresh_hosts_init_queue",
+        "type": "change",
+        "z": "d35afda971f87177",
+        "name": "init host queue",
+        "rules": [
+            {
+                "t": "set",
+                "p": "host_queue",
+                "pt": "msg",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "refresh_host_count",
+                "pt": "msg",
+                "to": "$count(host_queue)",
                 "tot": "jsonata"
             },
             {
@@ -1196,20 +1472,6 @@
                 "pt": "msg",
                 "to": "$number($globalContext(\"operationTimeoutSeconds\") ? $globalContext(\"operationTimeoutSeconds\") : 30)",
                 "tot": "jsonata"
-            },
-            {
-                "t": "set",
-                "p": "refresh_host_count",
-                "pt": "msg",
-                "to": "$count(payload)",
-                "tot": "jsonata"
-            },
-            {
-                "t": "set",
-                "p": "host_queue",
-                "pt": "msg",
-                "to": "payload",
-                "tot": "msg"
             },
             {
                 "t": "delete",
@@ -1225,7 +1487,68 @@
                 "t": "delete",
                 "p": "wait_name",
                 "pt": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1190,
+        "y": 80,
+        "wires": [
+            [
+                "refresh_hosts_log_queue"
+            ]
+        ]
+    },
+    {
+        "id": "refresh_hosts_log_queue",
+        "type": "change",
+        "z": "d35afda971f87177",
+        "name": "log queued hosts",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
             },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" REFRESH_HOST : \" & $string(refresh_host_count) & \" of \" & $string(refresh_host_total) & \" host\" & (refresh_host_total = 1 ? \"\" : \"s\") & \" queued for refresh [\" & $join($map(host_queue, function($h) { $h.display ? $h.display : $h.name }), \", \") & \"]\" & (tag ? \" tag=\" & tag : \"\") & \"<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1390,
+        "y": 80,
+        "wires": [
+            [
+                "refresh_hosts_dequeue_host"
+            ]
+        ]
+    },
+    {
+        "id": "refresh_hosts_dequeue_host",
+        "type": "change",
+        "z": "d35afda971f87177",
+        "name": "dequeue next host",
+        "rules": [
             {
                 "t": "set",
                 "p": "payload",
@@ -1261,7 +1584,7 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 1160,
+        "x": 1590,
         "y": 80,
         "wires": [
             [
@@ -1286,7 +1609,7 @@
                 "t": "set",
                 "p": "url",
                 "pt": "msg",
-                "to": "msg.netbox & \"/api/plugins/docker/hosts/\"",
+                "to": "msg.netbox & \"/api/plugins/docker/hosts/\" & msg.host.id & \"/\"",
                 "tot": "jsonata"
             },
             {
@@ -1314,14 +1637,14 @@
                 "t": "set",
                 "p": "payload",
                 "pt": "msg",
-                "to": "[\t   {\t       \"operation\": \"refresh\",\t       \"id\": msg.host.id\t   }\t]",
+                "to": "{ \"operation\": \"refresh\" }",
                 "tot": "jsonata"
             },
             {
                 "t": "set",
                 "p": "headers",
                 "pt": "msg",
-                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}",
+                "to": "{ \"Authorization\": \"Token \" & msg.token, \"Content-Type\": \"application/json\", \"Accept\": \"application/json\" }",
                 "tot": "jsonata"
             },
             {
@@ -1356,13 +1679,13 @@
         "id": "refresh_hosts_log",
         "type": "change",
         "z": "d35afda971f87177",
-        "name": "log host refresh",
+        "name": "log host refresh requested",
         "rules": [
             {
                 "t": "set",
                 "p": "payload",
                 "pt": "msg",
-                "to": "$now() & \" REFRESH_HOST : \" & (msg.host.display ? msg.host.display : msg.host.name) & \" \" & msg.statusCode & \"<br>\" & $globalContext(\"logs\")",
+                "to": "(\n  $code := $number(msg.statusCode);\n  $item := $type(payload) = \"array\" ? payload[0] : payload;\n  $op := $lowercase($string($item.operation.value ? $item.operation.value : ($item.operation.label ? $item.operation.label : ($item.operation.display ? $item.operation.display : ($item.operation.name ? $item.operation.name : $item.operation)))));\n  $state := $lowercase($string($item.state.value ? $item.state.value : ($item.state.label ? $item.state.label : ($item.state.display ? $item.state.display : ($item.state.name ? $item.state.name : $item.state)))));\n  $body := $substring($replace($string(payload), /[\\r\\n]+/, \" \"), 0, 300);\n  $hasObject := $op != \"\" or $state != \"\";\n  $now() & \" REFRESH_HOST : \" & (msg.host.display ? msg.host.display : msg.host.name) & \" refresh requested \" & $string(msg.statusCode) & \" response_operation=\" & $op & \" response_state=\" & $state & ($hasObject ? \"\" : \" response_body=\" & $body) & \"<br>\" & $globalContext(\"logs\")\n)",
                 "tot": "jsonata"
             },
             {
@@ -1381,7 +1704,9 @@
         "x": 1380,
         "y": 240,
         "wires": [
-            []
+            [
+                "refresh_hosts_wait_prepare"
+            ]
         ]
     },
     {
@@ -1438,7 +1763,7 @@
         "y": 240,
         "wires": [
             [
-                "refresh_hosts_wait_prepare"
+                "refresh_hosts_log"
             ]
         ]
     },
@@ -1507,8 +1832,8 @@
         "id": "refresh_hosts_wait_check",
         "type": "switch",
         "z": "d35afda971f87177",
-        "name": "host ready?",
-        "property": "$lowercase($string(payload.operation.value ? payload.operation.value : (payload.operation.label ? payload.operation.label : (payload.operation.display ? payload.operation.display : (payload.operation.name ? payload.operation.name : payload.operation))))) = \"\" or $lowercase($string(payload.operation.value ? payload.operation.value : (payload.operation.label ? payload.operation.label : (payload.operation.display ? payload.operation.display : (payload.operation.name ? payload.operation.name : payload.operation))))) = \"none\" or $lowercase($string(payload.operation.value ? payload.operation.value : (payload.operation.label ? payload.operation.label : (payload.operation.display ? payload.operation.display : (payload.operation.name ? payload.operation.name : payload.operation))))) = \"null\"",
+        "name": "refresh complete?",
+        "property": "($op := $lowercase($string(payload.operation.value ? payload.operation.value : (payload.operation.label ? payload.operation.label : (payload.operation.display ? payload.operation.display : (payload.operation.name ? payload.operation.name : payload.operation))))); $op = \"\" or $op = \"none\" or $op = \"null\")",
         "propertyType": "jsonata",
         "rules": [
             {
@@ -1574,7 +1899,7 @@
                 "t": "set",
                 "p": "payload",
                 "pt": "msg",
-                "to": "$now() & \" REFRESH_HOST : \" & $string(wait_name ? wait_name : wait_id) & \" ready<br>\" & logs",
+                "to": "$now() & \" REFRESH_HOST : \" & $string(wait_name ? wait_name : wait_id) & \" refresh complete operation=\" & $lowercase($string(payload.operation.value ? payload.operation.value : (payload.operation.label ? payload.operation.label : (payload.operation.display ? payload.operation.display : (payload.operation.name ? payload.operation.name : payload.operation))))) & \" state=\" & $lowercase($string(payload.state.value ? payload.state.value : (payload.state.label ? payload.state.label : (payload.state.display ? payload.state.display : (payload.state.name ? payload.state.name : payload.state))))) & \"<br>\" & logs",
                 "tot": "jsonata"
             },
             {
@@ -1583,35 +1908,6 @@
                 "pt": "global",
                 "to": "payload",
                 "tot": "msg"
-            },
-            {
-                "t": "set",
-                "p": "payload",
-                "pt": "msg",
-                "to": "host_queue[0]",
-                "tot": "jsonata"
-            },
-            {
-                "t": "set",
-                "p": "host_queue",
-                "pt": "msg",
-                "to": "$filter(host_queue ? host_queue : [], function($v, $i) { $i > 0 })",
-                "tot": "jsonata"
-            },
-            {
-                "t": "delete",
-                "p": "wait_deadline",
-                "pt": "msg"
-            },
-            {
-                "t": "delete",
-                "p": "wait_id",
-                "pt": "msg"
-            },
-            {
-                "t": "delete",
-                "p": "wait_name",
-                "pt": "msg"
             }
         ],
         "action": "",
@@ -1623,7 +1919,7 @@
         "y": 210,
         "wires": [
             [
-                "refresh_hosts_has_next_host"
+                "refresh_hosts_dequeue_host"
             ]
         ]
     },
@@ -1644,7 +1940,7 @@
                 "t": "set",
                 "p": "payload",
                 "pt": "msg",
-                "to": "$now() & \" REFRESH_HOST : \" & $string(wait_name ? wait_name : wait_id) & \" timeout after \" & $string($number(wait_timeout ? wait_timeout : 30)) & \"s\" & \" operation=\" & $lowercase($string(payload.operation.value ? payload.operation.value : (payload.operation.label ? payload.operation.label : (payload.operation.display ? payload.operation.display : (payload.operation.name ? payload.operation.name : payload.operation))))) & \", wait timed out, moving to next item<br>\" & logs",
+                "to": "$now() & \" REFRESH_HOST : \" & $string(wait_name ? wait_name : wait_id) & \" timeout after \" & $string($number(wait_timeout ? wait_timeout : 30)) & \"s operation=\" & $lowercase($string(payload.operation.value ? payload.operation.value : (payload.operation.label ? payload.operation.label : (payload.operation.display ? payload.operation.display : (payload.operation.name ? payload.operation.name : payload.operation))))) & \" state=\" & $lowercase($string(payload.state.value ? payload.state.value : (payload.state.label ? payload.state.label : (payload.state.display ? payload.state.display : (payload.state.name ? payload.state.name : payload.state))))) & \", moving to next host<br>\" & logs",
                 "tot": "jsonata"
             },
             {
@@ -1653,35 +1949,6 @@
                 "pt": "global",
                 "to": "payload",
                 "tot": "msg"
-            },
-            {
-                "t": "set",
-                "p": "payload",
-                "pt": "msg",
-                "to": "host_queue[0]",
-                "tot": "jsonata"
-            },
-            {
-                "t": "set",
-                "p": "host_queue",
-                "pt": "msg",
-                "to": "$filter(host_queue ? host_queue : [], function($v, $i) { $i > 0 })",
-                "tot": "jsonata"
-            },
-            {
-                "t": "delete",
-                "p": "wait_deadline",
-                "pt": "msg"
-            },
-            {
-                "t": "delete",
-                "p": "wait_id",
-                "pt": "msg"
-            },
-            {
-                "t": "delete",
-                "p": "wait_name",
-                "pt": "msg"
             }
         ],
         "action": "",
@@ -1693,7 +1960,7 @@
         "y": 290,
         "wires": [
             [
-                "refresh_hosts_has_next_host"
+                "refresh_hosts_dequeue_host"
             ]
         ]
     },
@@ -1744,7 +2011,7 @@
         "checkall": "false",
         "repair": false,
         "outputs": 2,
-        "x": 1780,
+        "x": 1360,
         "y": 80,
         "wires": [
             [
@@ -1788,8 +2055,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 2000,
-        "y": 120,
+        "x": 1620,
+        "y": 80,
         "wires": [
             []
         ]
@@ -5910,8 +6177,8 @@
         "method": "get",
         "upload": false,
         "swaggerDoc": "",
-        "x": 180,
-        "y": 280,
+        "x": 160,
+        "y": 380,
         "wires": [
             [
                 "803255bb20afb24f",
@@ -5927,7 +6194,7 @@
         "statusCode": "200",
         "headers": {},
         "x": 420,
-        "y": 280,
+        "y": 320,
         "wires": []
     },
     {
@@ -5965,7 +6232,7 @@
         "upload": false,
         "swaggerDoc": "",
         "x": 170,
-        "y": 80,
+        "y": 40,
         "wires": [
             [
                 "9eec14a7991f06f4"
@@ -5991,8 +6258,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 400,
-        "y": 80,
+        "x": 380,
+        "y": 60,
         "wires": [
             [
                 "743050cd7a1341c2"
@@ -6019,8 +6286,8 @@
         "method": "post",
         "upload": false,
         "swaggerDoc": "",
-        "x": 160,
-        "y": 140,
+        "x": 150,
+        "y": 240,
         "wires": [
             [
                 "b6d6a16a68ed30ec",
@@ -6035,8 +6302,8 @@
         "name": "",
         "statusCode": "",
         "headers": {},
-        "x": 410,
-        "y": 140,
+        "x": 430,
+        "y": 200,
         "wires": []
     },
     {
@@ -6056,8 +6323,8 @@
         "topic": "",
         "payload": "{\"callback_url\":\"https://registry.hub.docker.com/u/saashup/curio.city/hook/e516e7b77b86461aa659013befa31d39/\",\"push_data\":{\"pusher\":\"saashup\",\"pushed_at\":1773402989,\"tag\":\"v0.34.0\",\"images\":[],\"media_type\":\"application/vnd.docker.container.image.v1+json\"},\"repository\":{\"status\":\"Active\",\"namespace\":\"saashup\",\"name\":\"curio.city\",\"repo_name\":\"saashup/curio.city\",\"repo_url\":\"https://hub.docker.com/r/saashup/curio.city\",\"description\":\"\",\"full_description\":\"# Curio.city — Guide\\n\\nInstance for every guide \\\\o/\\n\\n## Development\\nTo start the development server run:\\n```bash\\nbun run dev\\n```\\n\\nOpen http://localhost:3000/ with your browser to see the result.\\n\\n## E2E Tests\\n\\nWe use [Playwright](https://playwright.dev/) as E2E tests runner.\\n\\nRun the tests:\\n\\n1. Be sure your have project dependencies installed with `bun install`\\n2. Install headless browsers packages `bunx playwright install`\\n3. Start the Guide instance `bun run dev`\\n4. Exec the tests `bunx --bun playwright test tests/dom/`\\n\\n\",\"star_count\":0,\"is_private\":true,\"is_trusted\":false,\"is_official\":false,\"owner\":\"saashup\",\"date_created\":1723641910}}",
         "payloadType": "json",
-        "x": 170,
-        "y": 200,
+        "x": 160,
+        "y": 300,
         "wires": [
             [
                 "644c492e10fb8aab"
@@ -6081,8 +6348,8 @@
         "checkall": "true",
         "repair": false,
         "outputs": 1,
-        "x": 430,
-        "y": 200,
+        "x": 420,
+        "y": 260,
         "wires": [
             [
                 "ee993f5a5dfd35f2"
@@ -6171,8 +6438,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 640,
-        "y": 180,
+        "x": 630,
+        "y": 240,
         "wires": [
             [
                 "apply_proxy_e405f58e15b5b967"
@@ -6190,7 +6457,7 @@
         "arraySpltType": "len",
         "stream": false,
         "addname": "",
-        "x": 1360,
+        "x": 1270,
         "y": 80,
         "wires": [
             [
@@ -6527,6 +6794,123 @@
         "wires": []
     },
     {
+        "id": "templates_get_http_in",
+        "type": "http in",
+        "z": "15790c4c601c21e4",
+        "name": "",
+        "url": "/templates",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 140,
+        "y": 480,
+        "wires": [
+            [
+                "templates_get_payload"
+            ]
+        ]
+    },
+    {
+        "id": "templates_get_payload",
+        "type": "change",
+        "z": "15790c4c601c21e4",
+        "name": "get templates",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$globalContext(\"templates\") ? $globalContext(\"templates\") : {}",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 330,
+        "y": 480,
+        "wires": [
+            [
+                "templates_get_response"
+            ]
+        ]
+    },
+    {
+        "id": "templates_get_response",
+        "type": "http response",
+        "z": "15790c4c601c21e4",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 530,
+        "y": 480,
+        "wires": []
+    },
+    {
+        "id": "templates_save_http_in",
+        "type": "http in",
+        "z": "15790c4c601c21e4",
+        "name": "",
+        "url": "/templates",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 140,
+        "y": 540,
+        "wires": [
+            [
+                "templates_save_payload"
+            ]
+        ]
+    },
+    {
+        "id": "templates_save_payload",
+        "type": "change",
+        "z": "15790c4c601c21e4",
+        "name": "save templates",
+        "rules": [
+            {
+                "t": "set",
+                "p": "templates",
+                "pt": "global",
+                "to": "$type(payload) = \"object\" ? payload : {}",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$globalContext(\"templates\") ? $globalContext(\"templates\") : {}",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 330,
+        "y": 540,
+        "wires": [
+            [
+                "templates_save_response"
+            ]
+        ]
+    },
+    {
+        "id": "templates_save_response",
+        "type": "http response",
+        "z": "15790c4c601c21e4",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 540,
+        "y": 540,
+        "wires": []
+    },
+    {
         "id": "7d8824d42f0b1752",
         "type": "http in",
         "z": "21d6665eb37042e8",
@@ -6724,37 +7108,6 @@
         "y": 180,
         "wires": [
             []
-        ]
-    },
-    {
-        "id": "443460d30d26adbc",
-        "type": "switch",
-        "z": "21d6665eb37042e8",
-        "name": "",
-        "property": "req.query",
-        "propertyType": "msg",
-        "rules": [
-            {
-                "t": "hask",
-                "v": "last",
-                "vt": "str"
-            },
-            {
-                "t": "else"
-            }
-        ],
-        "checkall": "true",
-        "repair": false,
-        "outputs": 2,
-        "x": 160,
-        "y": 280,
-        "wires": [
-            [
-                "cbfea97cbcf6167f"
-            ],
-            [
-                "4cb1f7781eae6e5b"
-            ]
         ]
     },
     {

@@ -7,6 +7,15 @@ const restartInstanceBtn = document.getElementById("restartInstanceBtn");
 const testBtn = document.getElementById("testBtn");
 const deleteConfigBtn = document.getElementById("deleteConfigBtn");
 const clearBtn = document.getElementById("clearBtn");
+const dockerRunBtn = document.getElementById("dockerRunBtn");
+const templateSelect = document.getElementById("templateSelect");
+const loadTemplateBtn = document.getElementById("loadTemplateBtn");
+const saveTemplateBtn = document.getElementById("saveTemplateBtn");
+const dockerRunModal = document.getElementById("dockerRunModal");
+const dockerRunInput = document.getElementById("dockerRunInput");
+const dockerRunApplyBtn = document.getElementById("dockerRunApplyBtn");
+const dockerRunCancelBtn = document.getElementById("dockerRunCancelBtn");
+const dockerRunCloseBtn = document.getElementById("dockerRunCloseBtn");
 const formTitle = document.getElementById("form-title");
 const formDescription = document.getElementById("form-description");
 const envList = document.getElementById("envList");
@@ -34,6 +43,7 @@ let configProfiles = {};
 let imageRecords = [];
 let containerCountRequestId = 0;
 let lastLogsHtml = "";
+let createTemplates = {};
 
 const configFields = ["config_profile", "config_name", "netbox", "token", "proxy", "tag"];
 
@@ -56,7 +66,7 @@ const actions = {
     description: "Create a container, volume, DNS record and Traefik labels.",
     submitLabel: "Create instance",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "hostname", "network", "instance", "image", "version", "env_vars", "labels", "volumes"],
+    fields: ["config_profile", "network", "instance", "image", "version", "env_vars", "labels", "volumes"],
   },
   recreate: {
     endpoint: "/recreate",
@@ -87,7 +97,6 @@ const actions = {
     submitLabel: "Refresh hosts",
     buttonClass: "btn btn-primary",
     fields: ["config_profile"],
-    confirm: "Refresh all Docker hosts for this config?",
   },
   delete: {
     endpoint: "/delete",
@@ -109,7 +118,6 @@ const allFieldNames = [
   "tag",
   "config_profile",
   "config_name",
-  "hostname",
   "network",
   "instance",
   "image",
@@ -165,6 +173,65 @@ function parseProfiles(value) {
 
 function storedProfiles() {
   return parseProfiles(localStorage.getItem("config_profiles"));
+}
+
+function parseStoredObject(key) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function loadCreateTemplates() {
+  createTemplates = parseStoredObject("create_templates");
+
+  return fetch("/templates", {
+    headers: { Accept: "application/json" },
+  })
+    .then((response) => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
+    })
+    .then((templates) => {
+      createTemplates = templates && typeof templates === "object" && !Array.isArray(templates) ? templates : {};
+      localStorage.setItem("create_templates", JSON.stringify(createTemplates));
+      updateTemplateOptions();
+    })
+    .catch(() => {
+      updateTemplateOptions();
+    });
+}
+
+function persistCreateTemplates() {
+  localStorage.setItem("create_templates", JSON.stringify(createTemplates));
+
+  return fetch("/templates", {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(createTemplates),
+  }).then((response) => {
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json().catch(() => createTemplates);
+  });
+}
+
+function updateTemplateOptions(selected = "") {
+  if (!templateSelect) return;
+
+  const names = Object.keys(createTemplates).sort((a, b) => a.localeCompare(b));
+  templateSelect.replaceChildren(new Option(names.length ? "Select template" : "No templates saved", ""));
+
+  names.forEach((name) => {
+    templateSelect.appendChild(new Option(name, name));
+  });
+
+  templateSelect.value = names.includes(selected) ? selected : "";
+  if (loadTemplateBtn) loadTemplateBtn.disabled = !templateSelect.value;
 }
 
 function deletedProfiles() {
@@ -480,8 +547,14 @@ function setAction(actionName) {
 
   deleteConfigBtn?.classList.toggle("hidden", actionName !== "config");
   clearBtn?.classList.toggle("hidden", actionName === "config");
+  dockerRunBtn?.classList.toggle("hidden", actionName !== "create");
+  templateSelect?.classList.toggle("hidden", actionName !== "create");
+  loadTemplateBtn?.classList.toggle("hidden", actionName !== "create");
+  saveTemplateBtn?.classList.toggle("hidden", actionName !== "create");
   restartInstanceBtn?.classList.toggle("hidden", actionName !== "restart");
   if (restartInstanceBtn) restartInstanceBtn.disabled = actionName !== "restart";
+  refreshInstancesBtn?.classList.toggle("hidden", actionName === "create");
+  if (refreshInstancesBtn && actionName === "create") refreshInstancesBtn.disabled = true;
 
   const visibleFields = new Set(config.fields);
 
@@ -494,6 +567,10 @@ function setAction(actionName) {
       control.disabled = !visible;
     });
   });
+
+  if (refreshInstancesBtn && visibleFields.has("instance") && actionName !== "create") {
+    refreshInstancesBtn.disabled = false;
+  }
 
   updateEnvRemoveButtons();
   updateLabelRemoveButtons();
@@ -525,6 +602,237 @@ function clearActionFields() {
   clearVolumeRows();
   updateRestartButtons();
   setNotice("Form cleared", "success");
+}
+
+function openDockerRunModal() {
+  if (!dockerRunModal || !dockerRunInput) return;
+
+  if (currentAction !== "create") setAction("create");
+  dockerRunInput.value = "";
+  dockerRunModal.classList.remove("hidden");
+  dockerRunInput.focus();
+}
+
+function closeDockerRunModal() {
+  dockerRunModal?.classList.add("hidden");
+}
+
+function tokenizeDockerRun(command) {
+  const tokens = [];
+  let current = "";
+  let quote = "";
+  let escaped = false;
+
+  for (const char of String(command || "").replace(/\\\r?\n/g, " ")) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (quote) {
+      if (char === quote) quote = "";
+      else current += char;
+      continue;
+    }
+
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+
+    if (/\s/.test(char)) {
+      if (current) {
+        tokens.push(current);
+        current = "";
+      }
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (current) tokens.push(current);
+  return tokens;
+}
+
+function splitOptionValue(token) {
+  const index = token.indexOf("=");
+  return index === -1 ? [token, ""] : [token.slice(0, index), token.slice(index + 1)];
+}
+
+function splitImageRef(ref) {
+  const slashIndex = ref.lastIndexOf("/");
+  const colonIndex = ref.lastIndexOf(":");
+
+  if (colonIndex > slashIndex) {
+    return {
+      image: ref.slice(0, colonIndex),
+      version: ref.slice(colonIndex + 1),
+    };
+  }
+
+  return { image: ref, version: "" };
+}
+
+function parseDockerRun(command) {
+  const tokens = tokenizeDockerRun(command);
+  const parsed = { env: [], labels: [], volumes: [] };
+  let i = 0;
+
+  if (tokens[i] === "docker") i += 1;
+  if (tokens[i] === "run" || tokens[i] === "container") i += 1;
+  if (tokens[i] === "run") i += 1;
+
+  while (i < tokens.length) {
+    const token = tokens[i];
+
+    if (!token.startsWith("-")) {
+      const imageRef = token;
+      const imageParts = splitImageRef(imageRef);
+      parsed.image = imageParts.image;
+      parsed.version = imageParts.version;
+      break;
+    }
+
+    const [option, inlineValue] = splitOptionValue(token);
+    const readValue = () => {
+      if (inlineValue) return inlineValue;
+      i += 1;
+      return tokens[i] || "";
+    };
+
+    if (option === "--name") {
+      parsed.instance = readValue();
+    } else if (option === "--network" || option === "--net") {
+      parsed.network = readValue();
+    } else if (option === "-e" || option === "--env") {
+      const [key, value] = splitOptionValue(readValue());
+      if (key) parsed.env.push({ key, value });
+    } else if (option === "-l" || option === "--label") {
+      const [key, value] = splitOptionValue(readValue());
+      if (key) parsed.labels.push({ key, value });
+    } else if (option === "-v" || option === "--volume") {
+      const parts = readValue().split(":");
+      if (parts.length >= 2) {
+        parsed.volumes.push({ name: parts[0], source: parts[1] });
+      }
+    } else if (option === "-p" || option === "--publish" || option === "--restart" || option === "--hostname" || option === "--user" || option === "-u" || option === "-w" || option === "--workdir" || option === "--entrypoint" || option === "--pull" || option === "--env-file" || option === "--add-host" || option === "--dns") {
+      readValue();
+    }
+
+    i += 1;
+  }
+
+  return parsed;
+}
+
+function setRepeatRows(items, clearFn, addFn, selectors) {
+  clearFn();
+
+  if (!items.length) return;
+
+  const first = items[0];
+  setFieldValue(selectors.key, first.key ?? first.source ?? "");
+  setFieldValue(selectors.value, first.value ?? first.name ?? "");
+
+  items.slice(1).forEach((item) => {
+    addFn(item.key ?? item.source ?? "", item.value ?? item.name ?? "");
+  });
+}
+
+function repeatValues(list, rowSelector, keyName, valueName) {
+  return repeatRows(list, rowSelector)
+    .map((row) => ({
+      key: row.querySelector(`[name="${keyName}"]`)?.value || "",
+      value: row.querySelector(`[name="${valueName}"]`)?.value || "",
+    }))
+    .filter((item) => item.key || item.value);
+}
+
+function currentCreateTemplate() {
+  return {
+    network: fieldValue("network"),
+    instance: fieldValue("instance"),
+    image: fieldValue("image"),
+    version: fieldValue("version"),
+    env: repeatValues(envList, ".env-row", "var_env_key", "var_env_value"),
+    labels: repeatValues(labelList, ".repeat-row", "label_key", "label_value"),
+    volumes: repeatValues(volumeList, ".repeat-row", "volume_source", "volume_name"),
+  };
+}
+
+function applyCreateTemplate(template) {
+  if (!template) return;
+
+  setAction("create");
+  setFieldValue("network", template.network || "");
+  setFieldValue("instance", template.instance || "");
+  setFieldValue("image", template.image || "");
+  setFieldValue("version", template.version || "");
+  setRepeatRows(template.env || [], clearEnvRows, addEnvRow, { key: "var_env_key", value: "var_env_value" });
+  setRepeatRows(template.labels || [], clearLabelRows, addLabelRow, { key: "label_key", value: "label_value" });
+  setRepeatRows(template.volumes || [], clearVolumeRows, addVolumeRow, { key: "volume_source", value: "volume_name" });
+}
+
+async function saveCreateTemplate() {
+  if (currentAction !== "create") setAction("create");
+
+  const suggested = fieldValue("image") || fieldValue("instance") || "template";
+  const name = (prompt("Template name", suggested) || "").trim();
+  if (!name) return;
+
+  const previousTemplates = { ...createTemplates };
+  createTemplates[name] = currentCreateTemplate();
+
+  try {
+    await persistCreateTemplates();
+    updateTemplateOptions(name);
+    setNotice(`Template "${name}" saved`, "success");
+  } catch {
+    createTemplates = previousTemplates;
+    localStorage.setItem("create_templates", JSON.stringify(createTemplates));
+    updateTemplateOptions();
+    setNotice("Template save failed", "error");
+  }
+}
+
+function loadSelectedTemplate() {
+  const name = templateSelect?.value || "";
+  if (!name || !createTemplates[name]) {
+    setNotice("Select a template first", "error");
+    return;
+  }
+
+  applyCreateTemplate(createTemplates[name]);
+  setNotice(`Template "${name}" loaded`, "success");
+}
+
+function applyDockerRunCommand() {
+  const parsed = parseDockerRun(dockerRunInput?.value || "");
+
+  if (!parsed.image) {
+    setNotice("Docker run image is required", "error");
+    return;
+  }
+
+  setAction("create");
+  if (parsed.instance) setFieldValue("instance", parsed.instance);
+  if (parsed.network) setFieldValue("network", parsed.network);
+  setFieldValue("image", parsed.image);
+  if (parsed.version) setFieldValue("version", parsed.version);
+
+  setRepeatRows(parsed.env, clearEnvRows, addEnvRow, { key: "var_env_key", value: "var_env_value" });
+  setRepeatRows(parsed.labels, clearLabelRows, addLabelRow, { key: "label_key", value: "label_value" });
+  setRepeatRows(parsed.volumes, clearVolumeRows, addVolumeRow, { key: "volume_source", value: "volume_name" });
+
+  closeDockerRunModal();
+  setNotice("Docker run imported", "success");
 }
 
 function loadSavedConfig() {
@@ -1076,6 +1384,19 @@ form.addEventListener("submit", (event) => {
 testBtn?.addEventListener("click", test);
 deleteConfigBtn?.addEventListener("click", deleteConfig);
 clearBtn?.addEventListener("click", clearActionFields);
+dockerRunBtn?.addEventListener("click", openDockerRunModal);
+saveTemplateBtn?.addEventListener("click", saveCreateTemplate);
+loadTemplateBtn?.addEventListener("click", loadSelectedTemplate);
+templateSelect?.addEventListener("change", () => {
+  if (loadTemplateBtn) loadTemplateBtn.disabled = !templateSelect.value;
+  if (templateSelect.value) loadSelectedTemplate();
+});
+dockerRunApplyBtn?.addEventListener("click", applyDockerRunCommand);
+dockerRunCancelBtn?.addEventListener("click", closeDockerRunModal);
+dockerRunCloseBtn?.addEventListener("click", closeDockerRunModal);
+dockerRunModal?.addEventListener("click", (event) => {
+  if (event.target === dockerRunModal) closeDockerRunModal();
+});
 refreshInstancesBtn?.addEventListener("click", refreshInstances);
 refreshImagesBtn?.addEventListener("click", refreshImages);
 configProfileSelect?.addEventListener("change", () => {
@@ -1099,6 +1420,14 @@ logsFullscreenBtn?.addEventListener("click", () => {
 });
 clearLogsBtn?.addEventListener("click", clearLogs);
 
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !dockerRunModal?.classList.contains("hidden")) {
+    closeDockerRunModal();
+  }
+});
+
+window.parseDockerRun = parseDockerRun;
+
 if (actionFromUrl) {
   setNotice(actionFromUrl, "success");
 
@@ -1109,6 +1438,8 @@ if (actionFromUrl) {
   window.history.replaceState(window.history.state, "", cleanUrl);
 }
 
+loadCreateTemplates();
+updateTemplateOptions();
 setAction(currentAction);
 loadSavedConfig();
 

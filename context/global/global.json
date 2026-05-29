@@ -5,5 +5,26 @@
         "HTTP_PROXY": "",
         "HTTPS_PROXY": ""
     },
-    "logs": ""
+    "logs": "2026-05-29T15:39:51.731Z REFRESH_HOST : finished host refresh loop<br>2026-05-29T15:39:51.731Z REFRESH_HOST : curioo-city-overpass2 refresh complete operation=none state=running<br>2026-05-29T15:39:45.329Z REFRESH_HOST : curioo-city-overpass2 refresh requested 200 response_operation= response_state= response_body=<br>2026-05-29T15:39:45.165Z REFRESH_HOST : curioo-city-overpass1 refresh complete operation=none state=running<br>2026-05-29T15:39:42.635Z REFRESH_HOST : curioo-city-overpass1 refresh requested 200 response_operation= response_state= response_body=<br>2026-05-29T15:39:42.429Z REFRESH_HOST : 2 of 6 hosts queued for refresh [curioo-city-overpass1, curioo-city-overpass2] tag=TILE<br>",
+    "templates": {
+        "saashup/curioo-tiles": {
+            "network": "",
+            "instance": "curioo-tiles",
+            "image": "saashup/curioo-tiles",
+            "version": "latest",
+            "env": [
+                {
+                    "key": "OVERPASS_URL",
+                    "value": "https://overpass1.curioo.city/api/interpreter"
+                }
+            ],
+            "labels": [],
+            "volumes": [
+                {
+                    "key": "/app/cache",
+                    "value": "curioo-tiles-cache"
+                }
+            ]
+        }
+    }
 }

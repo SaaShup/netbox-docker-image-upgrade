@@ -44,6 +44,10 @@
         <button type="button" class="btn btn-primary" id="testBtn">Test connection</button>
         <button type="button" class="btn btn-danger hidden" id="deleteConfigBtn">Delete config</button>
         <button type="button" class="btn btn-danger" id="clearBtn">Clear form</button>
+        <button type="button" class="btn btn-secondary hidden" id="dockerRunBtn">Docker run</button>
+        <select class="toolbar-select hidden" id="templateSelect" aria-label="Create template"></select>
+        <button type="button" class="btn btn-secondary hidden" id="loadTemplateBtn">Load template</button>
+        <button type="button" class="btn btn-secondary hidden" id="saveTemplateBtn">Create template</button>
       </section>
 
       <section class="content-grid">
@@ -83,11 +87,6 @@
               <label class="field" data-field="tag">
                 <span>Tag</span>
                 <input type="text" id="tag" name="tag" placeholder="production">
-              </label>
-
-              <label class="field" data-field="hostname">
-                <span>Host</span>
-                <input type="text" id="hostname" name="hostname" placeholder="docker-host-01">
               </label>
 
               <label class="field" data-field="network">
@@ -196,6 +195,20 @@
         </aside>
       </section>
     </main>
+  </div>
+
+  <div class="modal-backdrop hidden" id="dockerRunModal" role="dialog" aria-modal="true" aria-labelledby="dockerRunTitle">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="dockerRunTitle">Docker run</h3>
+        <button type="button" class="icon-btn" id="dockerRunCloseBtn" aria-label="Close Docker run modal">&times;</button>
+      </div>
+      <textarea id="dockerRunInput" class="modal-textarea" spellcheck="false" placeholder="docker run --name app --network mgmt -e APP_ENV=production -v app-data:/app/data saashup/app:v1.0.0"></textarea>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" id="dockerRunCancelBtn">Cancel</button>
+        <button type="button" class="btn btn-primary" id="dockerRunApplyBtn">OK</button>
+      </div>
+    </div>
   </div>
 
   <script src="js/main.js"></script>

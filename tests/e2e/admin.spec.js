@@ -1,6 +1,8 @@
 const { test, expect } = require("@playwright/test");
 
-async function openAdmin(page, config = {}) {
+async function openAdmin(page, config = {}, templates = {}) {
+  let templateStore = templates;
+
   await page.route("**/config", async (route) => {
     if (route.request().method() === "GET") {
       await route.fulfill({
@@ -26,6 +28,18 @@ async function openAdmin(page, config = {}) {
     });
   });
 
+  await page.route("**/templates", async (route) => {
+    if (route.request().method() === "POST") {
+      templateStore = JSON.parse(route.request().postData() || "{}");
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(templateStore),
+    });
+  });
+
   await page.goto("/admin.html");
 }
 
@@ -46,6 +60,8 @@ test("config tab starts without a forced default profile", async ({ page }) => {
   await expect(page.locator("#tag")).toHaveValue("");
   await expect(page.locator("#deleteConfigBtn")).toBeVisible();
   await expect(page.locator("#clearBtn")).toBeHidden();
+  await expect(page.locator("#dockerRunBtn")).toBeHidden();
+  await expect(page.locator("#saveTemplateBtn")).toBeHidden();
 });
 
 test("delete config removes the profile and keeps it gone after reload", async ({ page }) => {
@@ -112,6 +128,8 @@ test("create form supports repeatable env, labels, and volumes", async ({ page }
 
   await page.getByRole("link", { name: "Create" }).click();
 
+  await expect(page.locator("[data-field='hostname']")).toHaveCount(0);
+  await expect(page.locator("#refreshInstancesBtn")).toBeHidden();
   await expect(page.locator("[data-field='env_vars']")).toBeVisible();
   await expect(page.locator("[data-field='labels']")).toBeVisible();
   await expect(page.locator("[data-field='volumes']")).toBeVisible();
@@ -129,6 +147,94 @@ test("create form supports repeatable env, labels, and volumes", async ({ page }
 
   await expect(page.locator("#labelList .repeat-row")).toHaveCount(1);
   await expect(page.locator("#volumeList .repeat-row")).toHaveCount(1);
+});
+
+test("create form can import a docker run command", async ({ page }) => {
+  await openAdmin(page, {
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        tag: "production",
+      },
+    }),
+  });
+
+  await page.getByRole("link", { name: "Create" }).click();
+  await expect(page.locator("#dockerRunBtn")).toBeVisible();
+  await page.locator("#dockerRunBtn").click();
+  await expect(page.locator("#dockerRunModal")).toBeVisible();
+
+  await page.locator("#dockerRunInput").fill([
+    "docker run -d --name guide-app --network mgmt",
+    "-e APP_ENV=production --label traefik.enable=true",
+    "-v guide-data:/app/data saashup/guide:v1.2.3",
+  ].join(" "));
+  await page.locator("#dockerRunApplyBtn").click();
+
+  await expect(page.locator("#dockerRunModal")).toBeHidden();
+  await expect(page.locator("#instance")).toHaveValue("guide-app");
+  await expect(page.locator("#network")).toHaveValue("mgmt");
+  await expect(page.locator("#image")).toHaveValue("saashup/guide");
+  await expect(page.locator("#version")).toHaveValue("v1.2.3");
+  await expect(page.locator("#var_env_key")).toHaveValue("APP_ENV");
+  await expect(page.locator("#var_env_value")).toHaveValue("production");
+  await expect(page.locator("#label_key")).toHaveValue("traefik.enable");
+  await expect(page.locator("#label_value")).toHaveValue("true");
+  await expect(page.locator("#volume_source")).toHaveValue("/app/data");
+  await expect(page.locator("#volume_name")).toHaveValue("guide-data");
+});
+
+test("create form can save and load templates", async ({ page }) => {
+  await openAdmin(page, {
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        tag: "production",
+      },
+    }),
+  });
+
+  await page.getByRole("link", { name: "Create" }).click();
+  await expect(page.locator("#saveTemplateBtn")).toBeVisible();
+
+  await page.locator("#network").fill("mgmt");
+  await page.locator("#instance").fill("guide-app");
+  await page.locator("#image").fill("saashup/guide");
+  await page.locator("#version").fill("v1.2.3");
+  await page.locator("#var_env_key").fill("APP_ENV");
+  await page.locator("#var_env_value").fill("production");
+  await page.locator("#label_key").fill("traefik.enable");
+  await page.locator("#label_value").fill("true");
+  await page.locator("#volume_source").fill("/app/data");
+  await page.locator("#volume_name").fill("guide-data");
+
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toBe("Template name");
+    await dialog.accept("Guide");
+  });
+  await page.locator("#saveTemplateBtn").click();
+  await expect(page.locator("#notif")).toContainText('Template "Guide" saved');
+
+  await page.evaluate(() => localStorage.removeItem("create_templates"));
+  await page.reload();
+  await page.getByRole("link", { name: "Create" }).click();
+
+  await page.locator("#clearBtn").click();
+  await expect(page.locator("#image")).toHaveValue("");
+
+  await page.locator("#templateSelect").selectOption("Guide");
+  await expect(page.locator("#notif")).toContainText('Template "Guide" loaded');
+  await expect(page.locator("#network")).toHaveValue("mgmt");
+  await expect(page.locator("#instance")).toHaveValue("guide-app");
+  await expect(page.locator("#image")).toHaveValue("saashup/guide");
+  await expect(page.locator("#version")).toHaveValue("v1.2.3");
+  await expect(page.locator("#var_env_key")).toHaveValue("APP_ENV");
+  await expect(page.locator("#label_key")).toHaveValue("traefik.enable");
+  await expect(page.locator("#volume_source")).toHaveValue("/app/data");
 });
 
 test("upgrade can submit the clean name option", async ({ page }) => {
