@@ -1,0 +1,41 @@
+{
+    "proxyEnv": {
+        "http_proxy": "",
+        "https_proxy": "",
+        "HTTP_PROXY": "",
+        "HTTPS_PROXY": ""
+    },
+    "logs": "",
+    "templates": {
+        "curiootiles": {
+            "config_profile": "curioocity-tile",
+            "network": "traefik_network",
+            "instance": "curioo-tiles",
+            "image": "saashup/curioo-tiles",
+            "version": "v2.7.1",
+            "env": [
+                {
+                    "key": "OVERPASS_URL",
+                    "value": "https://overpass/api/interpreter"
+                }
+            ],
+            "labels": [],
+            "volumes": [
+                {
+                    "key": "/app/cache",
+                    "value": "curioo-tiles-cache"
+                }
+            ]
+        }
+    },
+    "config": {
+        "netbox": "https://paashup.curioo.city",
+        "token": "FYCEvOCtdOGVvTOr8XElt5ebRbwyUFCXjszJPnbg",
+        "proxy": "",
+        "domain": "curioo.city",
+        "tag": "GUIDE",
+        "profile": "curioocity-guide",
+        "config_profile": "curioocity-guide",
+        "profiles": "{\"curioocity-guide\":{\"netbox\":\"https://paashup.curioo.city\",\"token\":\"FYCEvOCtdOGVvTOr8XElt5ebRbwyUFCXjszJPnbg\",\"proxy\":\"\",\"domain\":\"curioo.city\",\"tag\":\"GUIDE\"},\"curioocity-tile\":{\"netbox\":\"https://paashup.curioo.city\",\"token\":\"FYCEvOCtdOGVvTOr8XElt5ebRbwyUFCXjszJPnbg\",\"proxy\":\"\",\"domain\":\"curioo.city\",\"tag\":\"TILE\"}}"
+    }
+}

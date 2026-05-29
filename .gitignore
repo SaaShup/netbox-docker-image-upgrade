@@ -1,3 +1,5 @@
 node_modules/
 .flows.json.backup
+.session.json
+.config.*
 config.json

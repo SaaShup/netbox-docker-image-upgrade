@@ -1,4 +1,5 @@
 data = require("./package.json")
+const proxyEnv = {};
 
 module.exports = {
     credentialSecret: "saashup",
@@ -12,14 +13,10 @@ module.exports = {
             permissions: "*"
         }]
     },
-    httpNodeAuth: {
-        user: process.env.API_USERNAME || "admin",
-        pass: process.env.API_PASSWORD || "$2a$08$s.NFdSn4Gm4d7gHErya//e6O8RO1/3f7TZ7zflXJ9jfFV0cI6jGwK"
-    },
     uiPort: process.env.PORT || 1880,
-    disableEditor: 'ENABLE_EDITOR' in process.env ? false : true,
+    disableEditor: !('ENABLE_EDITOR' in process.env),
     httpStatic: [
-        { path: '/usr/src/node-red/public', root: '/' },
+        { path: 'public', root: '/' },
     ],
     httpAdminRoot: '/nodered',
     httpNodeRoot: "/",
@@ -70,6 +67,11 @@ module.exports = {
             }
         }
     },
+    contextStorage: {
+        default: {
+            module: "localfilesystem"
+        }
+    },
     exportGlobalContextKeys: false,
     externalModules: {
     },
@@ -96,7 +98,13 @@ module.exports = {
     },
     functionExternalModules: true,
     functionTimeout: 0,
-    functionGlobalContext: {},
+    proxyOptions: {
+        env: proxyEnv,
+    },
+    functionGlobalContext: {
+        proxyEnv,
+        operationTimeoutSeconds: Number(process.env.OPERATION_TIMEOUT_SECONDS || 30),
+    },
     debugMaxLength: 1000,
     mqttReconnectTime: 15000,
     serialReconnectTime: 15000
