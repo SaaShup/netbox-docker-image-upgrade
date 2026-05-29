@@ -32,9 +32,10 @@ let noticeTimeout = null;
 let savedConfig = {};
 let configProfiles = {};
 let imageRecords = [];
+let containerCountRequestId = 0;
 let lastLogsHtml = "";
 
-const configFields = ["config_profile", "config_name", "netbox", "token", "proxy"];
+const configFields = ["config_profile", "config_name", "netbox", "token", "proxy", "tag"];
 
 const actions = {
   config: {
@@ -42,10 +43,10 @@ const actions = {
     method: "get",
     menu: "menu_config",
     title: "Config",
-    description: "Save the NetBox URL, token and optional proxy used by the automation.",
+    description: "Save the NetBox URL, token, optional proxy and optional host tag used by the automation.",
     submitLabel: "Save config",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "config_name", "netbox", "token", "proxy"],
+    fields: ["config_profile", "config_name", "netbox", "token", "proxy", "tag"],
   },
   create: {
     endpoint: "/create",
@@ -105,6 +106,7 @@ const allFieldNames = [
   "netbox",
   "token",
   "proxy",
+  "tag",
   "config_profile",
   "config_name",
   "hostname",
@@ -207,6 +209,7 @@ function profileCredentials(name = currentConfigProfile) {
     netbox: profile.netbox || "",
     token: profile.token || "",
     proxy: profile.proxy || "",
+    tag: profile.tag || "",
   };
 }
 
@@ -248,19 +251,30 @@ function applyProfileToFields(name = currentConfigProfile) {
   setFieldValue("netbox", credentials.netbox);
   setFieldValue("token", credentials.token);
   setFieldValue("proxy", credentials.proxy);
+  setFieldValue("tag", credentials.tag);
   persistProfiles();
 }
 
-function credentialsQuery() {
+function credentialsQuery({ includeTag = false } = {}) {
   const credentials = selectedProfileCredentials();
   if (!credentials.netbox || !credentials.token) return null;
 
-  return new URLSearchParams({
+  const query = new URLSearchParams({
     netbox: credentials.netbox,
     token: credentials.token,
     proxy: credentials.proxy,
     profile: credentials.profile,
   });
+
+  if (includeTag) {
+    query.set("tag", credentials.tag);
+  }
+
+  return query;
+}
+
+function shouldFilterRefreshByTag() {
+  return currentAction === "recreate" || currentAction === "restart";
 }
 
 function setTestButtonState(state = "default") {
@@ -284,7 +298,7 @@ function formatLogLine(line) {
   const text = line.replace(/&nbsp;/g, " ").trim();
   if (!text) return "";
 
-  const match = text.match(/^(.{24})\s+([A-Z]+)\s*:\s*(.*)$/);
+  const match = text.match(/^(.{24})\s+([A-Z_]+)\s*:\s*(.*)$/);
   if (!match) {
     return `<div class="log-row"><span></span><strong>LOG</strong><span>${escapeHtml(text)}</span><span></span></div>`;
   }
@@ -539,6 +553,7 @@ function loadSavedConfig() {
             netbox: data.netbox,
             token: data.token,
             proxy: data.proxy || "",
+            tag: data.tag || "",
           };
           currentConfigProfile = localStorage.getItem("current_config_profile") || profile;
         }
@@ -617,6 +632,7 @@ async function saveConfig() {
   const netbox = fieldValue("netbox");
   const token = fieldValue("token");
   const proxy = fieldValue("proxy");
+  const tag = fieldValue("tag");
 
   if (!profile) {
     setNotice("Profile name is required", "error");
@@ -629,7 +645,7 @@ async function saveConfig() {
   }
 
   forgetDeletedProfile(profile);
-  configProfiles[profile] = { netbox, token, proxy };
+  configProfiles[profile] = { netbox, token, proxy, tag };
   currentConfigProfile = profile;
   updateProfileOptions();
   persistProfiles();
@@ -638,6 +654,7 @@ async function saveConfig() {
     netbox,
     token,
     proxy,
+    tag,
     profile,
     config_profile: profile,
     profiles: JSON.stringify(configProfiles),
@@ -651,7 +668,7 @@ async function saveConfig() {
 
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-    savedConfig = { netbox, token, proxy, profile, profiles: configProfiles };
+    savedConfig = { netbox, token, proxy, tag, profile, profiles: configProfiles };
     applyProfileToFields(profile);
     setNotice(`Config "${profileLabel(profile)}" saved (${response.status})`, "success");
   } catch {
@@ -685,11 +702,13 @@ async function deleteConfig() {
       setFieldValue("netbox", "");
       setFieldValue("token", "");
       setFieldValue("proxy", "");
+      setFieldValue("tag", "");
 
       const params = new URLSearchParams({
         netbox: "",
         token: "",
         proxy: "",
+        tag: "",
         profile: "",
         config_profile: "",
         profiles: "{}",
@@ -716,6 +735,7 @@ async function deleteConfig() {
       netbox: credentials.netbox,
       token: credentials.token,
       proxy: credentials.proxy,
+      tag: credentials.tag,
       profile: currentConfigProfile,
       config_profile: currentConfigProfile,
       profiles: JSON.stringify(configProfiles),
@@ -749,6 +769,7 @@ async function submitAction(config, submitter) {
   body.set("netbox", credentials.netbox);
   body.set("token", credentials.token);
   body.set("proxy", credentials.proxy);
+  body.set("tag", credentials.tag);
   body.set("profile", credentials.profile);
 
   if (submitter?.name) {
@@ -782,7 +803,7 @@ function instanceNameFromItem(item) {
 
 async function refreshInstances() {
   if (!instanceOptions || !refreshInstancesBtn) return;
-  const query = credentialsQuery();
+  const query = credentialsQuery({ includeTag: shouldFilterRefreshByTag() });
 
   if (!query) {
     setNotice("Save NetBox URL and token for this profile first", "error");
@@ -857,11 +878,54 @@ function updateOldVersionOptions() {
   replaceOptions(oldVersionOptions, versions);
   replaceOptions(restartVersionOptions, versions);
   updateRestartButtons();
+  updateSelectedVersionContainerNotice();
+}
+
+function selectedVersionForCount() {
+  if (currentAction === "recreate") return fieldValue("oldversion");
+  if (currentAction === "restart") return fieldValue("restart_version");
+  return "";
+}
+
+async function updateSelectedVersionContainerNotice() {
+  if (currentAction !== "recreate" && currentAction !== "restart") return;
+
+  const image = fieldValue("image");
+  const version = selectedVersionForCount();
+  const requestId = ++containerCountRequestId;
+
+  if (!image || !version) return;
+
+  const query = credentialsQuery({ includeTag: shouldFilterRefreshByTag() });
+  if (!query) return;
+
+  query.set("image", image);
+  query.set("version", version);
+
+  try {
+    const response = await fetch(`/containers-count?${query.toString()}`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+    const data = await response.json();
+    if (requestId !== containerCountRequestId) return;
+
+    const count = Number(data.count || 0);
+    const label = count === 1 ? "container uses" : "containers use";
+    setNotice(`${count} ${label} ${image}:${version}`, "info", false);
+  } catch {
+    if (requestId === containerCountRequestId) {
+      setNotice("Container count failed", "error");
+    }
+  }
 }
 
 async function refreshImages() {
   if (!imageOptions || !refreshImagesBtn) return;
-  const query = credentialsQuery();
+  const query = credentialsQuery({ includeTag: shouldFilterRefreshByTag() });
 
   if (!query) {
     setNotice("Save NetBox URL and token for this profile first", "error");
@@ -912,8 +976,6 @@ async function getLogs() {
 }
 
 async function clearLogs() {
-  if (!confirm("Clear all server logs?")) return;
-
   try {
     const response = await fetch("/logs", {
       method: "DELETE",
@@ -1024,7 +1086,9 @@ configProfileSelect?.addEventListener("change", () => {
   replaceOptions(restartVersionOptions, []);
 });
 field("image")?.addEventListener("input", updateOldVersionOptions);
+field("oldversion")?.addEventListener("input", updateSelectedVersionContainerNotice);
 field("restart_version")?.addEventListener("input", updateRestartButtons);
+field("restart_version")?.addEventListener("input", updateSelectedVersionContainerNotice);
 field("instance")?.addEventListener("input", updateRestartButtons);
 logsFullscreenBtn?.addEventListener("click", () => {
   const expanded = logsCard?.classList.toggle("fullscreen");

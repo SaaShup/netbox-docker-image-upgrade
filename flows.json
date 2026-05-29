@@ -58,8 +58,8 @@
     {
         "id": "subflow_apply_proxy",
         "type": "subflow",
-        "name": "Apply proxy",
-        "info": "Applies the selected profile proxy to Node-RED HTTP requests and disables TLS certificate verification for NetBox calls.",
+        "name": "request",
+        "info": "Applies the selected profile proxy settings, disables TLS certificate verification for NetBox calls, and performs the HTTP request.",
         "category": "",
         "in": [
             {
@@ -74,11 +74,11 @@
         ],
         "out": [
             {
-                "x": 440,
+                "x": 820,
                 "y": 80,
                 "wires": [
                     {
-                        "id": "subflow_apply_proxy_change",
+                        "id": "subflow_apply_proxy_request",
                         "port": 0
                     }
                 ]
@@ -147,7 +147,31 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 160,
+        "x": 340,
+        "y": 80,
+        "wires": [
+            [
+                "subflow_apply_proxy_request"
+            ]
+        ]
+    },
+    {
+        "id": "subflow_apply_proxy_request",
+        "type": "http request",
+        "z": "subflow_apply_proxy",
+        "name": "http request",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": true,
+        "headers": [],
+        "x": 630,
         "y": 80,
         "wires": [
             []
@@ -344,6 +368,13 @@
                 "pt": "msg",
                 "to": "false",
                 "tot": "bool"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
             }
         ],
         "action": "",
@@ -356,30 +387,6 @@
         "wires": [
             [
                 "apply_proxy_73f3e5f34c6f1b39"
-            ]
-        ]
-    },
-    {
-        "id": "73f3e5f34c6f1b39",
-        "type": "http request",
-        "z": "d5158039611d4b98",
-        "name": "",
-        "method": "GET",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 980,
-        "y": 220,
-        "wires": [
-            [
-                "c251aba3024d56f3"
             ]
         ]
     },
@@ -438,6 +445,13 @@
                 "pt": "msg",
                 "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
                 "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
             }
         ],
         "action": "",
@@ -450,30 +464,6 @@
         "wires": [
             [
                 "apply_proxy_01e92d6b0fcb76bf"
-            ]
-        ]
-    },
-    {
-        "id": "01e92d6b0fcb76bf",
-        "type": "http request",
-        "z": "d5158039611d4b98",
-        "name": "",
-        "method": "GET",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 470,
-        "y": 300,
-        "wires": [
-            [
-                "62e25cd5752991bc"
             ]
         ]
     },
@@ -562,30 +552,6 @@
         ]
     },
     {
-        "id": "9f73f45cd7734d7f",
-        "type": "http request",
-        "z": "d5158039611d4b98",
-        "name": "",
-        "method": "use",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 690,
-        "y": 380,
-        "wires": [
-            [
-                "21f97ac5da6a1ea8"
-            ]
-        ]
-    },
-    {
         "id": "6d6c5f8c0e8bc79a",
         "type": "change",
         "z": "d5158039611d4b98",
@@ -631,28 +597,6 @@
             [
                 "apply_proxy_e0ec5be02bee7c3e"
             ]
-        ]
-    },
-    {
-        "id": "e0ec5be02bee7c3e",
-        "type": "http request",
-        "z": "d5158039611d4b98",
-        "name": "",
-        "method": "use",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 1150,
-        "y": 480,
-        "wires": [
-            []
         ]
     },
     {
@@ -711,30 +655,6 @@
         ]
     },
     {
-        "id": "1233e36c1ed40b2c",
-        "type": "http request",
-        "z": "d5158039611d4b98",
-        "name": "",
-        "method": "use",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 1370,
-        "y": 300,
-        "wires": [
-            [
-                "6692eaed65e25767"
-            ]
-        ]
-    },
-    {
         "id": "21f97ac5da6a1ea8",
         "type": "delay",
         "z": "d5158039611d4b98",
@@ -785,30 +705,6 @@
         ]
     },
     {
-        "id": "ddfa991fa8e68500",
-        "type": "http request",
-        "z": "d5158039611d4b98",
-        "name": "",
-        "method": "use",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 1650,
-        "y": 380,
-        "wires": [
-            [
-                "ed7ddb2630845e28"
-            ]
-        ]
-    },
-    {
         "id": "2bc10654858e4154",
         "type": "change",
         "z": "d5158039611d4b98",
@@ -841,6 +737,13 @@
                 "pt": "msg",
                 "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
                 "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
             }
         ],
         "action": "",
@@ -854,28 +757,6 @@
             [
                 "apply_proxy_9a0bc1c9cbbaf0e2"
             ]
-        ]
-    },
-    {
-        "id": "9a0bc1c9cbbaf0e2",
-        "type": "http request",
-        "z": "d5158039611d4b98",
-        "name": "",
-        "method": "POST",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 1730,
-        "y": 160,
-        "wires": [
-            []
         ]
     },
     {
@@ -897,6 +778,13 @@
                 "pt": "msg",
                 "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
                 "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
             }
         ],
         "action": "",
@@ -909,30 +797,6 @@
         "wires": [
             [
                 "apply_proxy_b649b3aae6375b6d"
-            ]
-        ]
-    },
-    {
-        "id": "b649b3aae6375b6d",
-        "type": "http request",
-        "z": "d5158039611d4b98",
-        "name": "",
-        "method": "GET",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 930,
-        "y": 160,
-        "wires": [
-            [
-                "08a921bf4f9a4dc0"
             ]
         ]
     },
@@ -1067,12 +931,12 @@
         "id": "apply_proxy_73f3e5f34c6f1b39",
         "type": "subflow:subflow_apply_proxy",
         "z": "d5158039611d4b98",
-        "name": "apply proxy",
+        "name": "request",
         "x": 740,
         "y": 220,
         "wires": [
             [
-                "73f3e5f34c6f1b39"
+                "c251aba3024d56f3"
             ]
         ]
     },
@@ -1080,12 +944,12 @@
         "id": "apply_proxy_01e92d6b0fcb76bf",
         "type": "subflow:subflow_apply_proxy",
         "z": "d5158039611d4b98",
-        "name": "apply proxy",
+        "name": "request",
         "x": 270,
         "y": 300,
         "wires": [
             [
-                "01e92d6b0fcb76bf"
+                "62e25cd5752991bc"
             ]
         ]
     },
@@ -1093,12 +957,12 @@
         "id": "apply_proxy_9f73f45cd7734d7f",
         "type": "subflow:subflow_apply_proxy",
         "z": "d5158039611d4b98",
-        "name": "apply proxy",
+        "name": "request",
         "x": 450,
         "y": 380,
         "wires": [
             [
-                "9f73f45cd7734d7f"
+                "21f97ac5da6a1ea8"
             ]
         ]
     },
@@ -1106,25 +970,23 @@
         "id": "apply_proxy_e0ec5be02bee7c3e",
         "type": "subflow:subflow_apply_proxy",
         "z": "d5158039611d4b98",
-        "name": "apply proxy",
+        "name": "request",
         "x": 910,
         "y": 480,
         "wires": [
-            [
-                "e0ec5be02bee7c3e"
-            ]
+            []
         ]
     },
     {
         "id": "apply_proxy_1233e36c1ed40b2c",
         "type": "subflow:subflow_apply_proxy",
         "z": "d5158039611d4b98",
-        "name": "apply proxy",
+        "name": "request",
         "x": 1130,
         "y": 300,
         "wires": [
             [
-                "1233e36c1ed40b2c"
+                "6692eaed65e25767"
             ]
         ]
     },
@@ -1132,12 +994,12 @@
         "id": "apply_proxy_ddfa991fa8e68500",
         "type": "subflow:subflow_apply_proxy",
         "z": "d5158039611d4b98",
-        "name": "apply proxy",
+        "name": "request",
         "x": 1410,
         "y": 380,
         "wires": [
             [
-                "ddfa991fa8e68500"
+                "ed7ddb2630845e28"
             ]
         ]
     },
@@ -1145,25 +1007,23 @@
         "id": "apply_proxy_9a0bc1c9cbbaf0e2",
         "type": "subflow:subflow_apply_proxy",
         "z": "d5158039611d4b98",
-        "name": "apply proxy",
+        "name": "request",
         "x": 1530,
         "y": 160,
         "wires": [
-            [
-                "9a0bc1c9cbbaf0e2"
-            ]
+            []
         ]
     },
     {
         "id": "apply_proxy_b649b3aae6375b6d",
         "type": "subflow:subflow_apply_proxy",
         "z": "d5158039611d4b98",
-        "name": "apply proxy",
+        "name": "request",
         "x": 710,
         "y": 160,
         "wires": [
             [
-                "b649b3aae6375b6d"
+                "08a921bf4f9a4dc0"
             ]
         ]
     },
@@ -1232,6 +1092,20 @@
             },
             {
                 "t": "set",
+                "p": "tag",
+                "pt": "msg",
+                "to": "req.query.tag ? req.query.tag : (config.tag ? config.tag : $globalContext(\"config\").tag)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "tag_slug",
+                "pt": "msg",
+                "to": "$replace($lowercase($trim($string(tag))), /[^a-z0-9_-]+/, \"-\")",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
                 "p": "url",
                 "pt": "msg",
                 "to": "msg.netbox & \"/api/plugins/docker/hosts/?limit=1000\"",
@@ -1250,6 +1124,13 @@
                 "pt": "msg",
                 "to": "false",
                 "tot": "bool"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
             }
         ],
         "action": "",
@@ -1262,30 +1143,6 @@
         "wires": [
             [
                 "apply_proxy_refresh_hosts_get_request"
-            ]
-        ]
-    },
-    {
-        "id": "refresh_hosts_get_request",
-        "type": "http request",
-        "z": "d35afda971f87177",
-        "name": "",
-        "method": "GET",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 810,
-        "y": 80,
-        "wires": [
-            [
-                "refresh_hosts_has_results"
             ]
         ]
     },
@@ -1324,14 +1181,14 @@
         "id": "refresh_hosts_results",
         "type": "change",
         "z": "d35afda971f87177",
-        "name": "set hosts",
+        "name": "set hosts + init refresh host queue",
         "rules": [
             {
                 "t": "set",
                 "p": "payload",
                 "pt": "msg",
-                "to": "payload.results",
-                "tot": "msg"
+                "to": "$append([], ($hosts := payload.results ? payload.results : []; $boolean(tag_slug) ? ($tagSlug := $lowercase($string(tag_slug)); $tagText := $lowercase($string(tag)); $filter($hosts, function($host) { $count($filter($host.tags ? $host.tags : [], function($t) { ($lowercase($string($t.slug)) = $tagSlug) or ($lowercase($string($t.name)) = $tagText) or ($lowercase($string($t.display)) = $tagText) or ($lowercase($string($t.label)) = $tagText) or ($lowercase($string($t.value)) = $tagText) or ($lowercase($string($t)) = $tagText) })) > 0 })) : $hosts))",
+                "tot": "jsonata"
             },
             {
                 "t": "set",
@@ -1339,6 +1196,64 @@
                 "pt": "msg",
                 "to": "$number($globalContext(\"operationTimeoutSeconds\") ? $globalContext(\"operationTimeoutSeconds\") : 30)",
                 "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "refresh_host_count",
+                "pt": "msg",
+                "to": "$count(payload)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "host_queue",
+                "pt": "msg",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_deadline",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_id",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_name",
+                "pt": "msg"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "host_queue[0]",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "host_queue",
+                "pt": "msg",
+                "to": "$filter(host_queue ? host_queue : [], function($v, $i) { $i > 0 })",
+                "tot": "jsonata"
+            },
+            {
+                "t": "delete",
+                "p": "wait_deadline",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_id",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_name",
+                "pt": "msg"
             }
         ],
         "action": "",
@@ -1350,26 +1265,7 @@
         "y": 80,
         "wires": [
             [
-                "refresh_hosts_split"
-            ]
-        ]
-    },
-    {
-        "id": "refresh_hosts_split",
-        "type": "split",
-        "z": "d35afda971f87177",
-        "name": "split hosts",
-        "splt": "\\n",
-        "spltType": "str",
-        "arraySplt": 1,
-        "arraySpltType": "len",
-        "stream": false,
-        "addname": "",
-        "x": 1340,
-        "y": 80,
-        "wires": [
-            [
-                "refresh_hosts_rate_limit"
+                "refresh_hosts_has_next_host"
             ]
         ]
     },
@@ -1457,30 +1353,6 @@
         ]
     },
     {
-        "id": "refresh_hosts_patch_request",
-        "type": "http request",
-        "z": "d35afda971f87177",
-        "name": "",
-        "method": "use",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 1170,
-        "y": 240,
-        "wires": [
-            [
-                "refresh_hosts_wait_prepare"
-            ]
-        ]
-    },
-    {
         "id": "refresh_hosts_log",
         "type": "change",
         "z": "d35afda971f87177",
@@ -1522,7 +1394,7 @@
                 "t": "set",
                 "p": "payload",
                 "pt": "msg",
-                "to": "$now() & \" REFRESH_HOST : no hosts found \" & msg.statusCode & \"<br>\" & $globalContext(\"logs\")",
+                "to": "$now() & \" REFRESH_HOST : no hosts found\" & (tag ? \" with tag \" & tag : \"\") & \" \" & msg.statusCode & \"<br>\" & $globalContext(\"logs\")",
                 "tot": "jsonata"
             },
             {
@@ -1548,12 +1420,12 @@
         "id": "apply_proxy_refresh_hosts_get_request",
         "type": "subflow:subflow_apply_proxy",
         "z": "d35afda971f87177",
-        "name": "apply proxy",
+        "name": "request",
         "x": 610,
         "y": 80,
         "wires": [
             [
-                "refresh_hosts_get_request"
+                "refresh_hosts_has_results"
             ]
         ]
     },
@@ -1561,49 +1433,57 @@
         "id": "apply_proxy_refresh_hosts_patch_request",
         "type": "subflow:subflow_apply_proxy",
         "z": "d35afda971f87177",
-        "name": "apply proxy",
+        "name": "request",
         "x": 970,
         "y": 240,
         "wires": [
             [
-                "refresh_hosts_patch_request"
-            ]
-        ]
-    },
-    {
-        "id": "refresh_hosts_rate_limit",
-        "type": "function",
-        "z": "d35afda971f87177",
-        "name": "queue host refresh",
-        "func": "const queue = context.get('queue') || [];\nlet busy = context.get('busy') || false;\n\nfunction next() {\n  if (queue.length === 0) {\n    context.set('busy', false);\n    context.set('queue', queue);\n    return null;\n  }\n\n  const nextMsg = queue.shift();\n  context.set('queue', queue);\n  context.set('busy', true);\n  return nextMsg;\n}\n\nif (msg._waitDone) {\n  if (msg._waitDone === 'timeout') {\n    context.set('queue', []);\n    context.set('busy', false);\n    return null;\n  }\n\n  context.set('busy', false);\n  return next();\n}\n\nqueue.push(msg);\ncontext.set('queue', queue);\n\nif (!busy) {\n  return next();\n}\n\nreturn null;",
-        "outputs": 1,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 1130,
-        "y": 160,
-        "wires": [
-            [
-                "refresh_hosts_patch_prepare"
+                "refresh_hosts_wait_prepare"
             ]
         ]
     },
     {
         "id": "refresh_hosts_wait_prepare",
-        "type": "function",
+        "type": "change",
         "z": "d35afda971f87177",
         "name": "wait host ready",
-        "func": "const timeout = Number(msg.wait_timeout || 30);\nmsg.wait_deadline = msg.wait_deadline || (Date.now() + timeout * 1000);\nmsg.url = msg.netbox + '/api/plugins/docker/hosts/' + msg.wait_id + '/';\nmsg.headers = {\n  Authorization: 'Token ' + msg.token,\n  Accept: 'application/json'\n};\nmsg.method = 'GET';\nreturn msg;",
-        "outputs": 1,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 1370,
-        "y": 300,
+        "rules": [
+            {
+                "t": "set",
+                "p": "wait_deadline",
+                "pt": "msg",
+                "to": "wait_deadline ? wait_deadline : ($millis() + ($number(wait_timeout ? wait_timeout : 30) * 1000))",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & \"/api/plugins/docker/hosts/\" & msg.wait_id & \"/\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{ \"Authorization\": \"Token \" & msg.token, \"Accept\": \"application/json\" }",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1960,
+        "y": 240,
         "wires": [
             [
                 "refresh_hosts_apply_proxy_wait_get"
@@ -1614,32 +1494,8 @@
         "id": "refresh_hosts_apply_proxy_wait_get",
         "type": "subflow:subflow_apply_proxy",
         "z": "d35afda971f87177",
-        "name": "apply proxy",
+        "name": "request",
         "x": 1600,
-        "y": 300,
-        "wires": [
-            [
-                "refresh_hosts_wait_get"
-            ]
-        ]
-    },
-    {
-        "id": "refresh_hosts_wait_get",
-        "type": "http request",
-        "z": "d35afda971f87177",
-        "name": "",
-        "method": "use",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 1820,
         "y": 300,
         "wires": [
             [
@@ -1649,27 +1505,30 @@
     },
     {
         "id": "refresh_hosts_wait_check",
-        "type": "function",
+        "type": "switch",
         "z": "d35afda971f87177",
         "name": "host ready?",
-        "func": "function valueOf(value) {\n  if (value && typeof value === 'object') {\n    return String(value.value || value.label || value.display || value.name || '').toLowerCase();\n  }\n  return String(value || '').toLowerCase();\n}\n\nconst item = msg.payload && Array.isArray(msg.payload.results) ? msg.payload.results[0] : msg.payload;\nconst name = msg.wait_name || (item && (item.display || item.name)) || msg.wait_id;\nconst operation = valueOf(item && item.operation);\nconst operationDone = !operation || operation === 'none' || operation === 'null';\n\nmsg.wait_name = name;\nmsg.wait_operation = operation || 'none';\n\nif (operationDone) {\n  return [msg, null, null];\n}\n\nif (Date.now() >= Number(msg.wait_deadline || 0)) {\n  return [null, null, msg];\n}\n\nreturn [null, msg, null];",
-        "outputs": 3,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 2030,
-        "y": 300,
+        "property": "$lowercase($string(payload.operation.value ? payload.operation.value : (payload.operation.label ? payload.operation.label : (payload.operation.display ? payload.operation.display : (payload.operation.name ? payload.operation.name : payload.operation))))) = \"\" or $lowercase($string(payload.operation.value ? payload.operation.value : (payload.operation.label ? payload.operation.label : (payload.operation.display ? payload.operation.display : (payload.operation.name ? payload.operation.name : payload.operation))))) = \"none\" or $lowercase($string(payload.operation.value ? payload.operation.value : (payload.operation.label ? payload.operation.label : (payload.operation.display ? payload.operation.display : (payload.operation.name ? payload.operation.name : payload.operation))))) = \"null\"",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 2620,
+        "y": 240,
         "wires": [
             [
                 "refresh_hosts_wait_ready_log"
             ],
             [
-                "refresh_hosts_wait_poll_delay"
-            ],
-            [
-                "refresh_hosts_wait_timeout_log"
+                "refresh_hosts_wait_timeout_check"
             ]
         ]
     },
@@ -1700,42 +1559,239 @@
     },
     {
         "id": "refresh_hosts_wait_ready_log",
-        "type": "function",
+        "type": "change",
         "z": "d35afda971f87177",
         "name": "log ready",
-        "func": "const logs = global.get('logs') || '';\nconst line = new Date().toISOString() + ' REFRESH_HOST : ' + (msg.wait_name || msg.wait_id) + ' ready<br>';\nglobal.set('logs', line + logs);\nmsg._waitDone = 'success';\nreturn msg;",
-        "outputs": 1,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 2240,
-        "y": 270,
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" REFRESH_HOST : \" & $string(wait_name ? wait_name : wait_id) & \" ready<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "host_queue[0]",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "host_queue",
+                "pt": "msg",
+                "to": "$filter(host_queue ? host_queue : [], function($v, $i) { $i > 0 })",
+                "tot": "jsonata"
+            },
+            {
+                "t": "delete",
+                "p": "wait_deadline",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_id",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_name",
+                "pt": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 3020,
+        "y": 210,
         "wires": [
             [
-                "refresh_hosts_rate_limit"
+                "refresh_hosts_has_next_host"
             ]
         ]
     },
     {
         "id": "refresh_hosts_wait_timeout_log",
-        "type": "function",
+        "type": "change",
         "z": "d35afda971f87177",
         "name": "log timeout",
-        "func": "const logs = global.get('logs') || '';\nconst timeout = Number(msg.wait_timeout || 30);\nconst detail = msg.wait_status ? (' status=' + msg.wait_status + ' operation=' + msg.wait_operation) : (' operation=' + msg.wait_operation);\nconst line = new Date().toISOString() + ' REFRESH_HOST : ' + (msg.wait_name || msg.wait_id) + ' timeout after ' + timeout + 's' + detail + ', stopped<br>';\nglobal.set('logs', line + logs);\nmsg._waitDone = 'timeout';\nreturn msg;",
-        "outputs": 1,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 2240,
-        "y": 330,
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" REFRESH_HOST : \" & $string(wait_name ? wait_name : wait_id) & \" timeout after \" & $string($number(wait_timeout ? wait_timeout : 30)) & \"s\" & \" operation=\" & $lowercase($string(payload.operation.value ? payload.operation.value : (payload.operation.label ? payload.operation.label : (payload.operation.display ? payload.operation.display : (payload.operation.name ? payload.operation.name : payload.operation))))) & \", wait timed out, moving to next item<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "host_queue[0]",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "host_queue",
+                "pt": "msg",
+                "to": "$filter(host_queue ? host_queue : [], function($v, $i) { $i > 0 })",
+                "tot": "jsonata"
+            },
+            {
+                "t": "delete",
+                "p": "wait_deadline",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_id",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_name",
+                "pt": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 3020,
+        "y": 290,
         "wires": [
             [
-                "refresh_hosts_rate_limit"
+                "refresh_hosts_has_next_host"
             ]
+        ]
+    },
+    {
+        "id": "refresh_hosts_wait_timeout_check",
+        "type": "switch",
+        "z": "d35afda971f87177",
+        "name": "wait timed out?",
+        "property": "$millis() >= $number(wait_deadline)",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 2820,
+        "y": 270,
+        "wires": [
+            [
+                "refresh_hosts_wait_timeout_log"
+            ],
+            [
+                "refresh_hosts_wait_poll_delay"
+            ]
+        ]
+    },
+    {
+        "id": "refresh_hosts_has_next_host",
+        "type": "switch",
+        "z": "d35afda971f87177",
+        "name": "host has next?",
+        "property": "$exists(payload.id)",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 1780,
+        "y": 80,
+        "wires": [
+            [
+                "refresh_hosts_patch_prepare"
+            ],
+            [
+                "refresh_hosts_log_complete"
+            ]
+        ]
+    },
+    {
+        "id": "refresh_hosts_log_complete",
+        "type": "change",
+        "z": "d35afda971f87177",
+        "name": "log refresh complete",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & (refresh_host_count = 0 and tag ? \" REFRESH_HOST : no Docker hosts found with tag \" & tag : \" REFRESH_HOST : finished host refresh loop\") & \"<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 2000,
+        "y": 120,
+        "wires": [
+            []
         ]
     },
     {
@@ -1792,6 +1848,20 @@
             },
             {
                 "t": "set",
+                "p": "tag",
+                "pt": "msg",
+                "to": "req.query.tag ? req.query.tag : (config.tag ? config.tag : $globalContext(\"config\").tag)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "tag_slug",
+                "pt": "msg",
+                "to": "$replace($lowercase($trim($string(tag))), /[^a-z0-9_-]+/, \"-\")",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
                 "p": "hostname",
                 "pt": "msg",
                 "to": "config.hostname",
@@ -1831,6 +1901,27 @@
                 "pt": "msg",
                 "to": "true",
                 "tot": "bool"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" RECREATE : upgrade requested for \" & image & \":\" & oldversion & \" -> \" & version & (tag ? \" tag=\" & tag : \"\") & (clean_name ? \" clean_name=\" & $string(clean_name) : \"\") & \"<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
             }
         ],
         "action": "",
@@ -1842,7 +1933,7 @@
         "y": 180,
         "wires": [
             [
-                "d837a0475dee45dc"
+                "recreate_tag_switch"
             ]
         ]
     },
@@ -1863,7 +1954,7 @@
                 "t": "set",
                 "p": "url",
                 "pt": "msg",
-                "to": "msg.netbox & \"/api/plugins/docker/containers/?image_id=\" & msg.imageid & \"&limit=200\"",
+                "to": "netbox & \"/api/plugins/docker/containers/?image_id=\" & imageid & \"&limit=200\"",
                 "tot": "jsonata"
             },
             {
@@ -1879,6 +1970,13 @@
                 "pt": "msg",
                 "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
                 "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
             }
         ],
         "action": "",
@@ -1891,30 +1989,6 @@
         "wires": [
             [
                 "apply_proxy_ebf4cf8587e41ce3"
-            ]
-        ]
-    },
-    {
-        "id": "ebf4cf8587e41ce3",
-        "type": "http request",
-        "z": "a0840e5d7cd65ea0",
-        "name": "",
-        "method": "GET",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 1780,
-        "y": 380,
-        "wires": [
-            [
-                "798b4e154e88c606"
             ]
         ]
     },
@@ -1944,7 +2018,9 @@
             [
                 "bc5907aebb882d2a"
             ],
-            []
+            [
+                "recreate_log_no_containers"
+            ]
         ]
     },
     {
@@ -1962,102 +2038,30 @@
             },
             {
                 "t": "set",
-                "p": "url",
-                "pt": "msg",
-                "to": "msg.netbox & \"/api/plugins/docker/containers/\"",
-                "tot": "jsonata"
-            },
-            {
-                "t": "set",
-                "p": "payload",
-                "pt": "msg",
-                "to": "[\t   $merge(\t       [\t           {\t               \"id\": msg.payload.id,\t               \"image\": msg.newimageid    \t           },\t           (\t               msg.clean_name = true or msg.clean_name = \"true\" or msg.clean_name = \"on\"\t           ) ? {\t               \"name\": $replace(\t                   msg.payload.name ? msg.payload.name : msg.payload.display,\t                   /-17[0-9]{8,}$/,\t                   \"\"\t               )    \t           } : {}  \t       ]\t   )\t]",
-                "tot": "jsonata"
-            },
-            {
-                "t": "set",
-                "p": "headers",
-                "pt": "msg",
-                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
-                "tot": "jsonata"
-            },
-            {
-                "t": "set",
-                "p": "method",
-                "pt": "msg",
-                "to": "PATCH",
-                "tot": "str"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 1800,
-        "y": 460,
-        "wires": [
-            [
-                "apply_proxy_a79cb768fa1fd609"
-            ]
-        ]
-    },
-    {
-        "id": "a79cb768fa1fd609",
-        "type": "http request",
-        "z": "a0840e5d7cd65ea0",
-        "name": "",
-        "method": "use",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 1290,
-        "y": 520,
-        "wires": [
-            [
-                "78be980cee8c08ab"
-            ]
-        ]
-    },
-    {
-        "id": "78be980cee8c08ab",
-        "type": "change",
-        "z": "a0840e5d7cd65ea0",
-        "name": "recreate container",
-        "rules": [
-            {
-                "t": "set",
-                "p": "results",
-                "pt": "msg",
-                "to": "payload.results",
-                "tot": "msg"
-            },
-            {
-                "t": "set",
-                "p": "wait_id",
+                "p": "recreate_container_id",
                 "pt": "msg",
                 "to": "payload.id",
                 "tot": "msg"
             },
             {
                 "t": "set",
-                "p": "wait_name",
+                "p": "recreate_container_name",
                 "pt": "msg",
                 "to": "payload.display ? payload.display : payload.name",
                 "tot": "jsonata"
             },
             {
                 "t": "set",
-                "p": "wait_timeout",
+                "p": "recreate_host_name",
                 "pt": "msg",
-                "to": "$number($globalContext(\"operationTimeoutSeconds\") ? $globalContext(\"operationTimeoutSeconds\") : 30)",
+                "to": "payload.host.display ? payload.host.display : payload.host.name",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "recreate_target_name",
+                "pt": "msg",
+                "to": "(clean_name = true or clean_name = \"true\" or clean_name = \"on\") ? $replace(payload.name ? payload.name : payload.display, /-17[0-9]{8,}$/, \"\") : (payload.name ? payload.name : payload.display)",
                 "tot": "jsonata"
             },
             {
@@ -2071,7 +2075,7 @@
                 "t": "set",
                 "p": "payload",
                 "pt": "msg",
-                "to": "[\t   {\t       \"operation\": \"recreate\",\t       \"id\": msg.payload.id\t   }\t]",
+                "to": "[ $merge([ { \"id\": recreate_container_id, \"image\": newimageid }, (recreate_target_name and recreate_target_name != recreate_container_name) ? { \"name\": recreate_target_name } : {} ]) ]",
                 "tot": "jsonata"
             },
             {
@@ -2094,35 +2098,11 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 1490,
-        "y": 540,
+        "x": 2110,
+        "y": 380,
         "wires": [
             [
-                "apply_proxy_cd130deb569e8cb0"
-            ]
-        ]
-    },
-    {
-        "id": "cd130deb569e8cb0",
-        "type": "http request",
-        "z": "a0840e5d7cd65ea0",
-        "name": "",
-        "method": "use",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 1850,
-        "y": 540,
-        "wires": [
-            [
-                "recreate_wait_prepare"
+                "apply_proxy_a79cb768fa1fd609"
             ]
         ]
     },
@@ -2136,7 +2116,7 @@
                 "t": "set",
                 "p": "url",
                 "pt": "msg",
-                "to": "msg.netbox & \"/api/plugins/docker/images/?name=\" & msg.image & \"&version=\" & msg.oldversion & \"&limit=200\"",
+                "to": "netbox & \"/api/plugins/docker/images/?name=\" & image & \"&version=\" & oldversion & \"&limit=200\" & (host_ids_qs ? host_ids_qs : \"\")",
                 "tot": "jsonata"
             },
             {
@@ -2145,6 +2125,13 @@
                 "pt": "msg",
                 "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
                 "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
             }
         ],
         "action": "",
@@ -2153,7 +2140,7 @@
         "to": "",
         "reg": false,
         "x": 640,
-        "y": 180,
+        "y": 200,
         "wires": [
             [
                 "apply_proxy_3939693576595bc2"
@@ -2161,34 +2148,10 @@
         ]
     },
     {
-        "id": "3939693576595bc2",
-        "type": "http request",
-        "z": "a0840e5d7cd65ea0",
-        "name": "",
-        "method": "GET",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 1120,
-        "y": 180,
-        "wires": [
-            [
-                "4a1bda7b502d8923"
-            ]
-        ]
-    },
-    {
         "id": "45e0558750363197",
         "type": "change",
         "z": "a0840e5d7cd65ea0",
-        "name": "",
+        "name": "init host queue",
         "rules": [
             {
                 "t": "set",
@@ -2196,6 +2159,64 @@
                 "pt": "msg",
                 "to": "payload.results",
                 "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "host_queue",
+                "pt": "msg",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "container_queue",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "current_oldimage",
+                "pt": "msg"
+            },
+            {
+                "t": "set",
+                "p": "current_oldimage",
+                "pt": "msg",
+                "to": "host_queue[0]",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "host_queue",
+                "pt": "msg",
+                "to": "$filter(host_queue ? host_queue : [], function($v, $i) { $i > 0 })",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "current_oldimage",
+                "tot": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "container_queue",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_deadline",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_id",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_name",
+                "pt": "msg"
             }
         ],
         "action": "",
@@ -2207,7 +2228,7 @@
         "y": 180,
         "wires": [
             [
-                "8f600b6e9c76d581"
+                "recreate_host_has_next"
             ]
         ]
     },
@@ -2237,25 +2258,8 @@
             [
                 "45e0558750363197"
             ],
-            []
-        ]
-    },
-    {
-        "id": "9d7a8062c6f83014",
-        "type": "split",
-        "z": "a0840e5d7cd65ea0",
-        "name": "",
-        "splt": "\\n",
-        "spltType": "str",
-        "arraySplt": 1,
-        "arraySpltType": "len",
-        "stream": false,
-        "addname": "",
-        "x": 1320,
-        "y": 460,
-        "wires": [
             [
-                "677c1ef45acfb02d"
+                "recreate_log_no_old_images"
             ]
         ]
     },
@@ -2263,11 +2267,11 @@
         "id": "bc5907aebb882d2a",
         "type": "change",
         "z": "a0840e5d7cd65ea0",
-        "name": "",
+        "name": "init container queue",
         "rules": [
             {
                 "t": "set",
-                "p": "payload",
+                "p": "container_queue",
                 "pt": "msg",
                 "to": "payload.results",
                 "tot": "msg"
@@ -2277,6 +2281,56 @@
                 "p": "rate",
                 "pt": "msg",
                 "to": "$number($globalContext(\"operationTimeoutSeconds\") ? $globalContext(\"operationTimeoutSeconds\") : 30)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" RECREATE : \" & $string($count(container_queue)) & \" container\" & ($count(container_queue) = 1 ? \"\" : \"s\") & \" queued for \" & image & \":\" & oldversion & \" -> \" & version & \" [\" & $join($map(container_queue, function($c) { ( $c.host.display ? $c.host.display : $c.host.name ) & \"/\" & ( $c.display ? $c.display : $c.name ) }), \", \") & \"]<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_deadline",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_id",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_name",
+                "pt": "msg"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "container_queue[0]",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "container_queue",
+                "pt": "msg",
+                "to": "$filter(container_queue ? container_queue : [], function($v, $i) { $i > 0 })",
                 "tot": "jsonata"
             }
         ],
@@ -2289,8 +2343,7 @@
         "y": 460,
         "wires": [
             [
-                "9d7a8062c6f83014",
-                "3ddef8030d0b6ef5"
+                "recreate_container_has_next"
             ]
         ]
     },
@@ -2332,7 +2385,7 @@
                 "t": "set",
                 "p": "url",
                 "pt": "msg",
-                "to": "msg.netbox & \"/api/plugins/docker/images/?name=\" & msg.image & \"&version=\" & msg.version & \"&host_id=\" & msg.host_id",
+                "to": "netbox & \"/api/plugins/docker/images/?name=\" & image & \"&version=\" & version & \"&host_id=\" & host_id",
                 "tot": "jsonata"
             },
             {
@@ -2341,6 +2394,13 @@
                 "pt": "msg",
                 "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
                 "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
             }
         ],
         "action": "",
@@ -2353,30 +2413,6 @@
         "wires": [
             [
                 "apply_proxy_b43091c7840cbd07"
-            ]
-        ]
-    },
-    {
-        "id": "b43091c7840cbd07",
-        "type": "http request",
-        "z": "a0840e5d7cd65ea0",
-        "name": "",
-        "method": "GET",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 1080,
-        "y": 260,
-        "wires": [
-            [
-                "93b7140c9f5a21ef"
             ]
         ]
     },
@@ -2416,8 +2452,8 @@
         "propertyType": "msg",
         "rules": [
             {
-                "t": "eq",
-                "v": "1",
+                "t": "gt",
+                "v": "0",
                 "vt": "num"
             },
             {
@@ -2439,26 +2475,6 @@
         ]
     },
     {
-        "id": "677c1ef45acfb02d",
-        "type": "function",
-        "z": "a0840e5d7cd65ea0",
-        "name": "queue recreate containers",
-        "func": "const queue = context.get('queue') || [];\nlet busy = context.get('busy') || false;\n\nfunction next() {\n  if (queue.length === 0) {\n    context.set('busy', false);\n    context.set('queue', queue);\n    return null;\n  }\n\n  const nextMsg = queue.shift();\n  context.set('queue', queue);\n  context.set('busy', true);\n  return nextMsg;\n}\n\nif (msg._waitDone) {\n  if (msg._waitDone === 'timeout') {\n    context.set('queue', []);\n    context.set('busy', false);\n    return null;\n  }\n\n  context.set('busy', false);\n  return next();\n}\n\nqueue.push(msg);\ncontext.set('queue', queue);\n\nif (!busy) {\n  return next();\n}\n\nreturn null;",
-        "outputs": 1,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 1560,
-        "y": 460,
-        "wires": [
-            [
-                "0cdd6dd2e06ff3ae"
-            ]
-        ]
-    },
-    {
         "id": "cde029ae5b763def",
         "type": "http response",
         "z": "a0840e5d7cd65ea0",
@@ -2468,84 +2484,6 @@
         "x": 400,
         "y": 80,
         "wires": []
-    },
-    {
-        "id": "3ddef8030d0b6ef5",
-        "type": "change",
-        "z": "a0840e5d7cd65ea0",
-        "name": "",
-        "rules": [
-            {
-                "t": "set",
-                "p": "logs",
-                "pt": "msg",
-                "to": "logs",
-                "tot": "global"
-            },
-            {
-                "t": "set",
-                "p": "payload",
-                "pt": "msg",
-                "to": "$now() & \" RECREATE  : \" & $string($count(msg.payload)) & \"<br>\" & msg.logs",
-                "tot": "jsonata"
-            },
-            {
-                "t": "set",
-                "p": "logs",
-                "pt": "global",
-                "to": "payload",
-                "tot": "msg"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 1070,
-        "y": 520,
-        "wires": [
-            []
-        ]
-    },
-    {
-        "id": "090a84d8dfd47125",
-        "type": "change",
-        "z": "a0840e5d7cd65ea0",
-        "name": "",
-        "rules": [
-            {
-                "t": "set",
-                "p": "logs",
-                "pt": "msg",
-                "to": "logs",
-                "tot": "global"
-            },
-            {
-                "t": "set",
-                "p": "payload",
-                "pt": "msg",
-                "to": "$now() & \" RECREATE  : \" & $string(msg.payload.display) & \" \" & msg.statusCode & \"<br>\" & msg.logs",
-                "tot": "jsonata"
-            },
-            {
-                "t": "set",
-                "p": "logs",
-                "pt": "global",
-                "to": "payload",
-                "tot": "msg"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 2090,
-        "y": 540,
-        "wires": [
-            []
-        ]
     },
     {
         "id": "79748666b38039f8",
@@ -2564,34 +2502,15 @@
         ]
     },
     {
-        "id": "8f600b6e9c76d581",
-        "type": "split",
-        "z": "a0840e5d7cd65ea0",
-        "name": "split old images",
-        "splt": "\\n",
-        "spltType": "str",
-        "arraySplt": 1,
-        "arraySpltType": "len",
-        "stream": false,
-        "addname": "",
-        "x": 360,
-        "y": 260,
-        "wires": [
-            [
-                "3e60e0d59090800a"
-            ]
-        ]
-    },
-    {
         "id": "apply_proxy_ebf4cf8587e41ce3",
         "type": "subflow:subflow_apply_proxy",
         "z": "a0840e5d7cd65ea0",
-        "name": "apply proxy",
+        "name": "request",
         "x": 1540,
         "y": 380,
         "wires": [
             [
-                "ebf4cf8587e41ce3"
+                "798b4e154e88c606"
             ]
         ]
     },
@@ -2599,12 +2518,12 @@
         "id": "apply_proxy_a79cb768fa1fd609",
         "type": "subflow:subflow_apply_proxy",
         "z": "a0840e5d7cd65ea0",
-        "name": "apply proxy",
-        "x": 2040,
+        "name": "request",
+        "x": 2270,
         "y": 460,
         "wires": [
             [
-                "a79cb768fa1fd609"
+                "recreate_container_update_status"
             ]
         ]
     },
@@ -2612,12 +2531,12 @@
         "id": "apply_proxy_cd130deb569e8cb0",
         "type": "subflow:subflow_apply_proxy",
         "z": "a0840e5d7cd65ea0",
-        "name": "apply proxy",
+        "name": "request",
         "x": 1690,
         "y": 540,
         "wires": [
             [
-                "cd130deb569e8cb0"
+                "recreate_operation_request_status"
             ]
         ]
     },
@@ -2625,12 +2544,12 @@
         "id": "apply_proxy_3939693576595bc2",
         "type": "subflow:subflow_apply_proxy",
         "z": "a0840e5d7cd65ea0",
-        "name": "apply proxy",
+        "name": "request",
         "x": 880,
         "y": 180,
         "wires": [
             [
-                "3939693576595bc2"
+                "4a1bda7b502d8923"
             ]
         ]
     },
@@ -2638,12 +2557,12 @@
         "id": "apply_proxy_b43091c7840cbd07",
         "type": "subflow:subflow_apply_proxy",
         "z": "a0840e5d7cd65ea0",
-        "name": "apply proxy",
+        "name": "request",
         "x": 840,
         "y": 260,
         "wires": [
             [
-                "b43091c7840cbd07"
+                "93b7140c9f5a21ef"
             ]
         ]
     },
@@ -2699,33 +2618,9 @@
         "id": "apply_proxy_recreate_create_versioned_image",
         "type": "subflow:subflow_apply_proxy",
         "z": "a0840e5d7cd65ea0",
-        "name": "apply proxy",
+        "name": "request",
         "x": 710,
         "y": 320,
-        "wires": [
-            [
-                "recreate_create_versioned_image_request"
-            ]
-        ]
-    },
-    {
-        "id": "recreate_create_versioned_image_request",
-        "type": "http request",
-        "z": "a0840e5d7cd65ea0",
-        "name": "",
-        "method": "use",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 340,
-        "y": 380,
         "wires": [
             [
                 "recreate_versioned_image_created"
@@ -2877,17 +2772,45 @@
     },
     {
         "id": "recreate_wait_prepare",
-        "type": "function",
+        "type": "change",
         "z": "a0840e5d7cd65ea0",
         "name": "wait container ready",
-        "func": "const timeout = Number(msg.wait_timeout || 30);\nmsg.wait_deadline = msg.wait_deadline || (Date.now() + timeout * 1000);\nmsg.url = msg.netbox + '/api/plugins/docker/containers/' + msg.wait_id + '/';\nmsg.headers = {\n  Authorization: 'Token ' + msg.token,\n  Accept: 'application/json'\n};\nmsg.method = 'GET';\nreturn msg;",
-        "outputs": 1,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 2090,
+        "rules": [
+            {
+                "t": "set",
+                "p": "wait_deadline",
+                "pt": "msg",
+                "to": "wait_deadline ? wait_deadline : ($millis() + ($number(wait_timeout ? wait_timeout : 30) * 1000))",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & \"/api/plugins/docker/containers/\" & msg.wait_id & \"/\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{ \"Authorization\": \"Token \" & msg.token, \"Accept\": \"application/json\" }",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1920,
         "y": 620,
         "wires": [
             [
@@ -2899,32 +2822,8 @@
         "id": "recreate_apply_proxy_wait_get",
         "type": "subflow:subflow_apply_proxy",
         "z": "a0840e5d7cd65ea0",
-        "name": "apply proxy",
+        "name": "request",
         "x": 2320,
-        "y": 620,
-        "wires": [
-            [
-                "recreate_wait_get"
-            ]
-        ]
-    },
-    {
-        "id": "recreate_wait_get",
-        "type": "http request",
-        "z": "a0840e5d7cd65ea0",
-        "name": "",
-        "method": "use",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 2540,
         "y": 620,
         "wires": [
             [
@@ -2934,27 +2833,30 @@
     },
     {
         "id": "recreate_wait_check",
-        "type": "function",
+        "type": "switch",
         "z": "a0840e5d7cd65ea0",
         "name": "container ready?",
-        "func": "function valueOf(value) {\n  if (value && typeof value === 'object') {\n    return String(value.value || value.label || value.display || value.name || '').toLowerCase();\n  }\n  return String(value || '').toLowerCase();\n}\n\nconst item = msg.payload && Array.isArray(msg.payload.results) ? msg.payload.results[0] : msg.payload;\nconst name = msg.wait_name || (item && (item.display || item.name)) || msg.wait_id;\nconst status = valueOf(item && item.status);\nconst operation = valueOf(item && item.operation);\nconst operationDone = !operation || operation === 'none' || operation === 'null';\nconst ready = status === 'running' && operationDone;\n\nmsg.wait_name = name;\nmsg.wait_status = status || 'unknown';\nmsg.wait_operation = operation || 'none';\n\nif (ready) {\n  return [msg, null, null];\n}\n\nif (Date.now() >= Number(msg.wait_deadline || 0)) {\n  return [null, null, msg];\n}\n\nreturn [null, msg, null];",
-        "outputs": 3,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 2750,
-        "y": 620,
+        "property": "$substring($lowercase($string(payload.status.value ? payload.status.value : (payload.status.label ? payload.status.label : (payload.status.display ? payload.status.display : (payload.status.name ? payload.status.name : payload.status))))), 0, 7) = \"running\" and ($lowercase($string(payload.operation.value ? payload.operation.value : (payload.operation.label ? payload.operation.label : (payload.operation.display ? payload.operation.display : (payload.operation.name ? payload.operation.name : payload.operation))))) = \"\" or $lowercase($string(payload.operation.value ? payload.operation.value : (payload.operation.label ? payload.operation.label : (payload.operation.display ? payload.operation.display : (payload.operation.name ? payload.operation.name : payload.operation))))) = \"none\" or $lowercase($string(payload.operation.value ? payload.operation.value : (payload.operation.label ? payload.operation.label : (payload.operation.display ? payload.operation.display : (payload.operation.name ? payload.operation.name : payload.operation))))) = \"null\")",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 2610,
+        "y": 340,
         "wires": [
             [
                 "recreate_wait_ready_log"
             ],
             [
-                "recreate_wait_poll_delay"
-            ],
-            [
-                "recreate_wait_timeout_log"
+                "recreate_wait_timeout_check"
             ]
         ]
     },
@@ -2975,8 +2877,8 @@
         "drop": false,
         "allowrate": false,
         "outputs": 1,
-        "x": 2750,
-        "y": 690,
+        "x": 2180,
+        "y": 800,
         "wires": [
             [
                 "recreate_wait_prepare"
@@ -2985,41 +2887,991 @@
     },
     {
         "id": "recreate_wait_ready_log",
-        "type": "function",
+        "type": "change",
         "z": "a0840e5d7cd65ea0",
         "name": "log ready",
-        "func": "const logs = global.get('logs') || '';\nconst line = new Date().toISOString() + ' RECREATE : ' + (msg.wait_name || msg.wait_id) + ' ready<br>';\nglobal.set('logs', line + logs);\nmsg._waitDone = 'success';\nreturn msg;",
-        "outputs": 1,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 2960,
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" RECREATE : \" & $string(wait_name ? wait_name : wait_id) & \" ready status=\" & $lowercase($string(payload.status.value ? payload.status.value : (payload.status.label ? payload.status.label : (payload.status.display ? payload.status.display : (payload.status.name ? payload.status.name : payload.status))))) & \" operation=\" & $lowercase($string(payload.operation.value ? payload.operation.value : (payload.operation.label ? payload.operation.label : (payload.operation.display ? payload.operation.display : (payload.operation.name ? payload.operation.name : payload.operation))))) & \"<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "container_queue[0]",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "container_queue",
+                "pt": "msg",
+                "to": "$filter(container_queue ? container_queue : [], function($v, $i) { $i > 0 })",
+                "tot": "jsonata"
+            },
+            {
+                "t": "delete",
+                "p": "wait_deadline",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_id",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_name",
+                "pt": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 2980,
         "y": 590,
         "wires": [
             [
-                "677c1ef45acfb02d"
+                "recreate_container_has_next"
             ]
         ]
     },
     {
         "id": "recreate_wait_timeout_log",
-        "type": "function",
+        "type": "change",
         "z": "a0840e5d7cd65ea0",
         "name": "log timeout",
-        "func": "const logs = global.get('logs') || '';\nconst timeout = Number(msg.wait_timeout || 30);\nconst detail = msg.wait_status ? (' status=' + msg.wait_status + ' operation=' + msg.wait_operation) : (' operation=' + msg.wait_operation);\nconst line = new Date().toISOString() + ' RECREATE : ' + (msg.wait_name || msg.wait_id) + ' timeout after ' + timeout + 's' + detail + ', stopped<br>';\nglobal.set('logs', line + logs);\nmsg._waitDone = 'timeout';\nreturn msg;",
-        "outputs": 1,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 2960,
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" RECREATE : \" & $string(wait_name ? wait_name : wait_id) & \" timeout after \" & $string($number(wait_timeout ? wait_timeout : 30)) & \"s status=\" & $lowercase($string(payload.status.value ? payload.status.value : (payload.status.label ? payload.status.label : (payload.status.display ? payload.status.display : (payload.status.name ? payload.status.name : payload.status))))) & \" operation=\" & $lowercase($string(payload.operation.value ? payload.operation.value : (payload.operation.label ? payload.operation.label : (payload.operation.display ? payload.operation.display : (payload.operation.name ? payload.operation.name : payload.operation))))) & \", wait timed out, moving to next item<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "container_queue[0]",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "container_queue",
+                "pt": "msg",
+                "to": "$filter(container_queue ? container_queue : [], function($v, $i) { $i > 0 })",
+                "tot": "jsonata"
+            },
+            {
+                "t": "delete",
+                "p": "wait_deadline",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_id",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_name",
+                "pt": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 2980,
+        "y": 670,
+        "wires": [
+            [
+                "recreate_container_has_next"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_wait_timeout_check",
+        "type": "switch",
+        "z": "a0840e5d7cd65ea0",
+        "name": "wait timed out?",
+        "property": "$millis() >= $number(wait_deadline)",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 2780,
         "y": 650,
         "wires": [
             [
-                "677c1ef45acfb02d"
+                "recreate_wait_timeout_log"
+            ],
+            [
+                "recreate_wait_poll_delay"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_container_update_status",
+        "type": "switch",
+        "z": "a0840e5d7cd65ea0",
+        "name": "container image updated?",
+        "property": "$number(statusCode) >= 200 and $number(statusCode) < 300",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 1170,
+        "y": 600,
+        "wires": [
+            [
+                "recreate_log_container_updated"
+            ],
+            [
+                "recreate_log_container_update_failed"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_log_container_updated",
+        "type": "change",
+        "z": "a0840e5d7cd65ea0",
+        "name": "log image updated + recreate container",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" RECREATE : \" & $string((recreate_host_name ? recreate_host_name : (input.host.display ? input.host.display : input.host.name)) & \"/\" & (recreate_container_name ? recreate_container_name : (input.display ? input.display : input.name))) & \" image set to \" & image & \":\" & version & \" (\" & $string(statusCode) & \")<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "results",
+                "pt": "msg",
+                "to": "payload.results",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "wait_id",
+                "pt": "msg",
+                "to": "recreate_container_id ? recreate_container_id : input.id",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "wait_name",
+                "pt": "msg",
+                "to": "(recreate_host_name ? recreate_host_name : (input.host.display ? input.host.display : input.host.name)) & \"/\" & (recreate_container_name ? recreate_container_name : (input.display ? input.display : input.name))",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "wait_timeout",
+                "pt": "msg",
+                "to": "$number($globalContext(\"operationTimeoutSeconds\") ? $globalContext(\"operationTimeoutSeconds\") : 30)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & \"/api/plugins/docker/containers/\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "[ { \"operation\": \"recreate\", \"id\": (recreate_container_id ? recreate_container_id : input.id) } ]",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "PATCH",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1740,
+        "y": 500,
+        "wires": [
+            [
+                "apply_proxy_cd130deb569e8cb0"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_log_container_update_failed",
+        "type": "change",
+        "z": "a0840e5d7cd65ea0",
+        "name": "log image update failed",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" RECREATE : \" & $string((recreate_host_name ? recreate_host_name : (input.host.display ? input.host.display : input.host.name)) & \"/\" & (recreate_container_name ? recreate_container_name : (input.display ? input.display : input.name))) & \" image update failed \" & $string(statusCode) & \" payload=\" & $substring($string(payload), 0, 240) & \"<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "container_queue[0]",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "container_queue",
+                "pt": "msg",
+                "to": "$filter(container_queue ? container_queue : [], function($v, $i) { $i > 0 })",
+                "tot": "jsonata"
+            },
+            {
+                "t": "delete",
+                "p": "wait_deadline",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_id",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_name",
+                "pt": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1760,
+        "y": 560,
+        "wires": [
+            [
+                "recreate_container_has_next"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_operation_request_status",
+        "type": "switch",
+        "z": "a0840e5d7cd65ea0",
+        "name": "recreate requested?",
+        "property": "$number(statusCode) >= 200 and $number(statusCode) < 300",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 2080,
+        "y": 540,
+        "wires": [
+            [
+                "recreate_log_operation_requested"
+            ],
+            [
+                "recreate_log_operation_failed"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_log_operation_requested",
+        "type": "change",
+        "z": "a0840e5d7cd65ea0",
+        "name": "log recreate requested",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" RECREATE : \" & $string(wait_name ? wait_name : wait_id) & \" recreate requested (\" & $string(statusCode) & \")<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 2320,
+        "y": 520,
+        "wires": [
+            [
+                "recreate_wait_prepare"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_log_operation_failed",
+        "type": "change",
+        "z": "a0840e5d7cd65ea0",
+        "name": "log recreate failed",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" RECREATE : \" & $string(wait_name ? wait_name : wait_id) & \" recreate request failed \" & $string(statusCode) & \" payload=\" & $substring($string(payload), 0, 240) & \"<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "container_queue[0]",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "container_queue",
+                "pt": "msg",
+                "to": "$filter(container_queue ? container_queue : [], function($v, $i) { $i > 0 })",
+                "tot": "jsonata"
+            },
+            {
+                "t": "delete",
+                "p": "wait_deadline",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_id",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_name",
+                "pt": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 2320,
+        "y": 580,
+        "wires": [
+            [
+                "recreate_container_has_next"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_tag_switch",
+        "type": "switch",
+        "z": "a0840e5d7cd65ea0",
+        "name": "tagged upgrade?",
+        "property": "$boolean(tag_slug)",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 610,
+        "y": 120,
+        "wires": [
+            [
+                "recreate_tagged_hosts_url"
+            ],
+            [
+                "d837a0475dee45dc"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_tagged_hosts_url",
+        "type": "change",
+        "z": "a0840e5d7cd65ea0",
+        "name": "get tagged hosts",
+        "rules": [
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "netbox & \"/api/plugins/docker/hosts/?limit=1000\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{ \"Authorization\": \"Token \" & token, \"Accept\": \"application/json\" }",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "rejectUnauthorized",
+                "pt": "msg",
+                "to": "false",
+                "tot": "bool"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 840,
+        "y": 120,
+        "wires": [
+            [
+                "apply_proxy_recreate_tagged_hosts"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_recreate_tagged_hosts",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "a0840e5d7cd65ea0",
+        "name": "request",
+        "x": 1060,
+        "y": 120,
+        "wires": [
+            [
+                "recreate_tagged_host_ids"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_tagged_host_ids",
+        "type": "change",
+        "z": "a0840e5d7cd65ea0",
+        "name": "host ids",
+        "rules": [
+            {
+                "t": "set",
+                "p": "host_ids_qs",
+                "pt": "msg",
+                "to": "($tagSlug := $lowercase($string(tag_slug)); $tagText := $lowercase($string(tag)); $hosts := $filter(payload.results ? payload.results : [], function($host) { $count($filter($host.tags ? $host.tags : [], function($tag) { ($lowercase($string($tag.slug)) = $tagSlug) or ($lowercase($string($tag.name)) = $tagText) or ($lowercase($string($tag.display)) = $tagText) or ($lowercase($string($tag.label)) = $tagText) or ($lowercase($string($tag.value)) = $tagText) or ($lowercase($string($tag)) = $tagText) })) > 0 }); $join($map($hosts, function($host) { \"&host_id=\" & $string($host.id) }), \"\"))",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1480,
+        "y": 120,
+        "wires": [
+            [
+                "recreate_tagged_hosts_found"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_tagged_hosts_found",
+        "type": "switch",
+        "z": "a0840e5d7cd65ea0",
+        "name": "tagged hosts found?",
+        "property": "$boolean(host_ids_qs)",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 1680,
+        "y": 120,
+        "wires": [
+            [
+                "d837a0475dee45dc"
+            ],
+            [
+                "recreate_log_no_tagged_hosts"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_log_no_tagged_hosts",
+        "type": "change",
+        "z": "a0840e5d7cd65ea0",
+        "name": "log no tagged hosts",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" RECREATE : no Docker hosts found with tag \" & tag & \" for \" & image & \":\" & oldversion & \" -> \" & version & \"<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1900,
+        "y": 160,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "recreate_log_no_old_images",
+        "type": "change",
+        "z": "a0840e5d7cd65ea0",
+        "name": "log no old images",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" RECREATE : no old images found for \" & image & \":\" & oldversion & (tag ? \" with tag \" & tag : \"\") & \"<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1610,
+        "y": 220,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "recreate_log_no_containers",
+        "type": "change",
+        "z": "a0840e5d7cd65ea0",
+        "name": "log no containers",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" RECREATE : no containers found on \" & host_name & \" using old image \" & image & \":\" & oldversion & \" (image id \" & $string(oldimageid) & \")<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "current_oldimage",
+                "pt": "msg",
+                "to": "host_queue[0]",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "host_queue",
+                "pt": "msg",
+                "to": "$filter(host_queue ? host_queue : [], function($v, $i) { $i > 0 })",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "current_oldimage",
+                "tot": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "container_queue",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_deadline",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_id",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_name",
+                "pt": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1060,
+        "y": 520,
+        "wires": [
+            [
+                "recreate_host_has_next"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_host_has_next",
+        "type": "switch",
+        "z": "a0840e5d7cd65ea0",
+        "name": "host has next?",
+        "property": "$exists(payload.id)",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 2260,
+        "y": 180,
+        "wires": [
+            [
+                "3e60e0d59090800a"
+            ],
+            [
+                "recreate_log_all_done"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_log_all_done",
+        "type": "change",
+        "z": "a0840e5d7cd65ea0",
+        "name": "log complete",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" RECREATE : finished \" & image & \":\" & oldversion & \" -> \" & version & \"<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 2480,
+        "y": 220,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "recreate_container_has_next",
+        "type": "switch",
+        "z": "a0840e5d7cd65ea0",
+        "name": "container has next?",
+        "property": "$exists(payload.id)",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 1810,
+        "y": 460,
+        "wires": [
+            [
+                "0cdd6dd2e06ff3ae"
+            ],
+            [
+                "recreate_log_host_done"
+            ]
+        ]
+    },
+    {
+        "id": "recreate_log_host_done",
+        "type": "change",
+        "z": "a0840e5d7cd65ea0",
+        "name": "log host complete",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" RECREATE : \" & host_name & \" complete, moving to next host<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "current_oldimage",
+                "pt": "msg",
+                "to": "host_queue[0]",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "host_queue",
+                "pt": "msg",
+                "to": "$filter(host_queue ? host_queue : [], function($v, $i) { $i > 0 })",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "current_oldimage",
+                "tot": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "container_queue",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_deadline",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_id",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_name",
+                "pt": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 2050,
+        "y": 520,
+        "wires": [
+            [
+                "recreate_host_has_next"
             ]
         ]
     },
@@ -3077,6 +3929,20 @@
             },
             {
                 "t": "set",
+                "p": "tag",
+                "pt": "msg",
+                "to": "req.query.tag ? req.query.tag : (config.tag ? config.tag : $globalContext(\"config\").tag)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "tag_slug",
+                "pt": "msg",
+                "to": "$replace($lowercase($trim($string(tag))), /[^a-z0-9_-]+/, \"-\")",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
                 "p": "image",
                 "pt": "msg",
                 "to": "config.image",
@@ -3116,6 +3982,27 @@
                 "pt": "msg",
                 "to": "config.restart_mode",
                 "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" RESTART : restart requested\" & (restart_mode = \"instance\" ? \" for instance \" & instanceShort : \" for \" & image & \":\" & restart_version) & (tag ? \" tag=\" & tag : \"\") & \"<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
             }
         ],
         "action": "",
@@ -3127,47 +4014,8 @@
         "y": 180,
         "wires": [
             [
-                "a1c1b1a0f0040001"
+                "restart_tag_switch"
             ]
-        ]
-    },
-    {
-        "id": "6aec21d061c2da7a",
-        "type": "change",
-        "z": "47309e7eb1ed7972",
-        "name": "get hostid",
-        "rules": [
-            {
-                "t": "set",
-                "p": "url",
-                "pt": "msg",
-                "to": "msg.netbox & \"/api/plugins/docker/hosts/?name=\" & msg.hostname",
-                "tot": "jsonata"
-            },
-            {
-                "t": "set",
-                "p": "headers",
-                "pt": "msg",
-                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
-                "tot": "jsonata"
-            },
-            {
-                "t": "set",
-                "p": "rejectUnauthorized",
-                "pt": "msg",
-                "to": "false",
-                "tot": "bool"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 160,
-        "y": 80,
-        "wires": [
-            []
         ]
     },
     {
@@ -3187,7 +4035,7 @@
                 "t": "set",
                 "p": "url",
                 "pt": "msg",
-                "to": "msg.netbox & \"/api/plugins/docker/containers/?image_id=\" & msg.imageid & \"&limit=200\"",
+                "to": "netbox & \"/api/plugins/docker/containers/?image_id=\" & imageid & \"&limit=200\"",
                 "tot": "jsonata"
             },
             {
@@ -3203,6 +4051,13 @@
                 "pt": "msg",
                 "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
                 "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
             }
         ],
         "action": "",
@@ -3215,30 +4070,6 @@
         "wires": [
             [
                 "apply_proxy_c6663711a72ec63e"
-            ]
-        ]
-    },
-    {
-        "id": "c6663711a72ec63e",
-        "type": "http request",
-        "z": "47309e7eb1ed7972",
-        "name": "",
-        "method": "GET",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 1290,
-        "y": 260,
-        "wires": [
-            [
-                "7daed88fc6423676"
             ]
         ]
     },
@@ -3268,7 +4099,9 @@
             [
                 "d4d7027979bfe448"
             ],
-            []
+            [
+                "restart_log_no_containers_for_image"
+            ]
         ]
     },
     {
@@ -3348,30 +4181,6 @@
         ]
     },
     {
-        "id": "e6f06c7e6d447ad6",
-        "type": "http request",
-        "z": "47309e7eb1ed7972",
-        "name": "",
-        "method": "use",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 1440,
-        "y": 360,
-        "wires": [
-            [
-                "restart_wait_prepare"
-            ]
-        ]
-    },
-    {
         "id": "1206f1148f917404",
         "type": "change",
         "z": "47309e7eb1ed7972",
@@ -3381,7 +4190,7 @@
                 "t": "set",
                 "p": "url",
                 "pt": "msg",
-                "to": "msg.netbox & \"/api/plugins/docker/images/?name=\" & msg.image & \"&version=\" & msg.restart_version & \"&limit=200\"",
+                "to": "netbox & \"/api/plugins/docker/images/?name=\" & image & \"&version=\" & restart_version & \"&limit=200\" & (host_ids_qs ? host_ids_qs : \"\")",
                 "tot": "jsonata"
             },
             {
@@ -3390,6 +4199,13 @@
                 "pt": "msg",
                 "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
                 "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
             }
         ],
         "action": "",
@@ -3406,34 +4222,10 @@
         ]
     },
     {
-        "id": "1ef666d9ba2191c1",
-        "type": "http request",
-        "z": "47309e7eb1ed7972",
-        "name": "",
-        "method": "GET",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 1360,
-        "y": 180,
-        "wires": [
-            [
-                "a97941218f17b88d"
-            ]
-        ]
-    },
-    {
         "id": "013b14aee24eebf9",
         "type": "change",
         "z": "47309e7eb1ed7972",
-        "name": "",
+        "name": "init restart image queue",
         "rules": [
             {
                 "t": "set",
@@ -3441,6 +4233,67 @@
                 "pt": "msg",
                 "to": "payload.results",
                 "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "image_queue",
+                "pt": "msg",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "container_queue",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_deadline",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_id",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_name",
+                "pt": "msg"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "image_queue[0]",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "image_queue",
+                "pt": "msg",
+                "to": "$filter(image_queue ? image_queue : [], function($v, $i) { $i > 0 })",
+                "tot": "jsonata"
+            },
+            {
+                "t": "delete",
+                "p": "container_queue",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_deadline",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_id",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_name",
+                "pt": "msg"
             }
         ],
         "action": "",
@@ -3452,7 +4305,7 @@
         "y": 260,
         "wires": [
             [
-                "a1c1b1a0f0030001"
+                "restart_image_has_next"
             ]
         ]
     },
@@ -3486,33 +4339,14 @@
         ]
     },
     {
-        "id": "38b25596b8879610",
-        "type": "split",
-        "z": "47309e7eb1ed7972",
-        "name": "",
-        "splt": "\\n",
-        "spltType": "str",
-        "arraySplt": 1,
-        "arraySpltType": "len",
-        "stream": false,
-        "addname": "",
-        "x": 480,
-        "y": 360,
-        "wires": [
-            [
-                "83ec24b3be755314"
-            ]
-        ]
-    },
-    {
         "id": "d4d7027979bfe448",
         "type": "change",
         "z": "47309e7eb1ed7972",
-        "name": "",
+        "name": "init restart container queue",
         "rules": [
             {
                 "t": "set",
-                "p": "payload",
+                "p": "container_queue",
                 "pt": "msg",
                 "to": "payload.results",
                 "tot": "msg"
@@ -3522,6 +4356,56 @@
                 "p": "rate",
                 "pt": "msg",
                 "to": "$number($globalContext(\"operationTimeoutSeconds\") ? $globalContext(\"operationTimeoutSeconds\") : 30)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" RESTART  : \" & $string($count(container_queue)) & \" container\" & ($count(container_queue) = 1 ? \"\" : \"s\") & \" queued for restart [\" & $join($map(container_queue, function($c) { ( $c.host.display ? $c.host.display : $c.host.name ) & \"/\" & ( $c.display ? $c.display : $c.name ) }), \", \") & \"]<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_deadline",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_id",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_name",
+                "pt": "msg"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "container_queue[0]",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "container_queue",
+                "pt": "msg",
+                "to": "$filter(container_queue ? container_queue : [], function($v, $i) { $i > 0 })",
                 "tot": "jsonata"
             }
         ],
@@ -3534,9 +4418,7 @@
         "y": 300,
         "wires": [
             [
-                "96e3b644172be37e",
-                "6af54db44072d8c8",
-                "8f40c26a58d47965"
+                "restart_container_has_next"
             ]
         ]
     },
@@ -3566,26 +4448,6 @@
         ]
     },
     {
-        "id": "83ec24b3be755314",
-        "type": "function",
-        "z": "47309e7eb1ed7972",
-        "name": "queue restart containers",
-        "func": "const queue = context.get('queue') || [];\nlet busy = context.get('busy') || false;\n\nfunction next() {\n  if (queue.length === 0) {\n    context.set('busy', false);\n    context.set('queue', queue);\n    return null;\n  }\n\n  const nextMsg = queue.shift();\n  context.set('queue', queue);\n  context.set('busy', true);\n  return nextMsg;\n}\n\nif (msg._waitDone) {\n  if (msg._waitDone === 'timeout') {\n    context.set('queue', []);\n    context.set('busy', false);\n    return null;\n  }\n\n  context.set('busy', false);\n  return next();\n}\n\nqueue.push(msg);\ncontext.set('queue', queue);\n\nif (!busy) {\n  return next();\n}\n\nreturn null;",
-        "outputs": 1,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 720,
-        "y": 360,
-        "wires": [
-            [
-                "2b51638803c74211"
-            ]
-        ]
-    },
-    {
         "id": "23e3ee9359f3eb15",
         "type": "http response",
         "z": "47309e7eb1ed7972",
@@ -3595,84 +4457,6 @@
         "x": 400,
         "y": 80,
         "wires": []
-    },
-    {
-        "id": "83a533c9ce37c823",
-        "type": "change",
-        "z": "47309e7eb1ed7972",
-        "name": "",
-        "rules": [
-            {
-                "t": "set",
-                "p": "logs",
-                "pt": "msg",
-                "to": "logs",
-                "tot": "global"
-            },
-            {
-                "t": "set",
-                "p": "payload",
-                "pt": "msg",
-                "to": "$now() & \" RESTART  : \" & $string(msg.payload.display) & \" \" & msg.statusCode & \"<br>\" & msg.logs",
-                "tot": "jsonata"
-            },
-            {
-                "t": "set",
-                "p": "logs",
-                "pt": "global",
-                "to": "payload",
-                "tot": "msg"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 1680,
-        "y": 360,
-        "wires": [
-            []
-        ]
-    },
-    {
-        "id": "6af54db44072d8c8",
-        "type": "change",
-        "z": "47309e7eb1ed7972",
-        "name": "",
-        "rules": [
-            {
-                "t": "set",
-                "p": "logs",
-                "pt": "msg",
-                "to": "logs",
-                "tot": "global"
-            },
-            {
-                "t": "set",
-                "p": "payload",
-                "pt": "msg",
-                "to": "$now() & \" RESTART  : \" & $string($count(msg.payload)) & \" container\" & ($count(msg.payload) = 1 ? \"\" : \"s\") & \" queued for restart<br>\" & msg.logs",
-                "tot": "jsonata"
-            },
-            {
-                "t": "set",
-                "p": "logs",
-                "pt": "global",
-                "to": "payload",
-                "tot": "msg"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 1780,
-        "y": 200,
-        "wires": [
-            []
-        ]
     },
     {
         "id": "8f40c26a58d47965",
@@ -3694,28 +4478,7 @@
         "x": 320,
         "y": 360,
         "wires": [
-            [
-                "38b25596b8879610"
-            ]
-        ]
-    },
-    {
-        "id": "a1c1b1a0f0030001",
-        "type": "split",
-        "z": "47309e7eb1ed7972",
-        "name": "split images",
-        "splt": "\\n",
-        "spltType": "str",
-        "arraySplt": 1,
-        "arraySpltType": "len",
-        "stream": false,
-        "addname": "",
-        "x": 570,
-        "y": 260,
-        "wires": [
-            [
-                "c7e0b77dfe548ff2"
-            ]
+            []
         ]
     },
     {
@@ -3759,7 +4522,7 @@
                 "t": "set",
                 "p": "url",
                 "pt": "msg",
-                "to": "msg.netbox & \"/api/plugins/docker/containers/?name=\" & msg.instanceShort",
+                "to": "netbox & \"/api/plugins/docker/containers/?name=\" & instanceShort & (host_ids_qs ? host_ids_qs : \"\")",
                 "tot": "jsonata"
             },
             {
@@ -3775,6 +4538,13 @@
                 "pt": "msg",
                 "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
                 "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
             }
         ],
         "action": "",
@@ -3787,30 +4557,6 @@
         "wires": [
             [
                 "apply_proxy_a1c1b1a0f0040003"
-            ]
-        ]
-    },
-    {
-        "id": "a1c1b1a0f0040003",
-        "type": "http request",
-        "z": "47309e7eb1ed7972",
-        "name": "",
-        "method": "GET",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 1360,
-        "y": 80,
-        "wires": [
-            [
-                "a1c1b1a0f0040004"
             ]
         ]
     },
@@ -3847,12 +4593,12 @@
         "id": "apply_proxy_c6663711a72ec63e",
         "type": "subflow:subflow_apply_proxy",
         "z": "47309e7eb1ed7972",
-        "name": "apply proxy",
+        "name": "request",
         "x": 1050,
         "y": 260,
         "wires": [
             [
-                "c6663711a72ec63e"
+                "7daed88fc6423676"
             ]
         ]
     },
@@ -3860,12 +4606,12 @@
         "id": "apply_proxy_e6f06c7e6d447ad6",
         "type": "subflow:subflow_apply_proxy",
         "z": "47309e7eb1ed7972",
-        "name": "apply proxy",
+        "name": "request",
         "x": 1200,
         "y": 360,
         "wires": [
             [
-                "e6f06c7e6d447ad6"
+                "restart_wait_prepare"
             ]
         ]
     },
@@ -3873,12 +4619,12 @@
         "id": "apply_proxy_1ef666d9ba2191c1",
         "type": "subflow:subflow_apply_proxy",
         "z": "47309e7eb1ed7972",
-        "name": "apply proxy",
+        "name": "request",
         "x": 1120,
         "y": 180,
         "wires": [
             [
-                "1ef666d9ba2191c1"
+                "a97941218f17b88d"
             ]
         ]
     },
@@ -3886,29 +4632,57 @@
         "id": "apply_proxy_a1c1b1a0f0040003",
         "type": "subflow:subflow_apply_proxy",
         "z": "47309e7eb1ed7972",
-        "name": "apply proxy",
+        "name": "request",
         "x": 1120,
         "y": 80,
         "wires": [
             [
-                "a1c1b1a0f0040003"
+                "a1c1b1a0f0040004"
             ]
         ]
     },
     {
         "id": "restart_wait_prepare",
-        "type": "function",
+        "type": "change",
         "z": "47309e7eb1ed7972",
         "name": "wait container ready",
-        "func": "const timeout = Number(msg.wait_timeout || 30);\nmsg.wait_deadline = msg.wait_deadline || (Date.now() + timeout * 1000);\nmsg.url = msg.netbox + '/api/plugins/docker/containers/' + msg.wait_id + '/';\nmsg.headers = {\n  Authorization: 'Token ' + msg.token,\n  Accept: 'application/json'\n};\nmsg.method = 'GET';\nreturn msg;",
-        "outputs": 1,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 1680,
-        "y": 430,
+        "rules": [
+            {
+                "t": "set",
+                "p": "wait_deadline",
+                "pt": "msg",
+                "to": "wait_deadline ? wait_deadline : ($millis() + ($number(wait_timeout ? wait_timeout : 30) * 1000))",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & \"/api/plugins/docker/containers/\" & msg.wait_id & \"/\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{ \"Authorization\": \"Token \" & msg.token, \"Accept\": \"application/json\" }",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1100,
+        "y": 520,
         "wires": [
             [
                 "restart_apply_proxy_wait_get"
@@ -3919,32 +4693,8 @@
         "id": "restart_apply_proxy_wait_get",
         "type": "subflow:subflow_apply_proxy",
         "z": "47309e7eb1ed7972",
-        "name": "apply proxy",
+        "name": "request",
         "x": 1910,
-        "y": 430,
-        "wires": [
-            [
-                "restart_wait_get"
-            ]
-        ]
-    },
-    {
-        "id": "restart_wait_get",
-        "type": "http request",
-        "z": "47309e7eb1ed7972",
-        "name": "",
-        "method": "use",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 2130,
         "y": 430,
         "wires": [
             [
@@ -3954,27 +4704,30 @@
     },
     {
         "id": "restart_wait_check",
-        "type": "function",
+        "type": "switch",
         "z": "47309e7eb1ed7972",
         "name": "container ready?",
-        "func": "function valueOf(value) {\n  if (value && typeof value === 'object') {\n    return String(value.value || value.label || value.display || value.name || '').toLowerCase();\n  }\n  return String(value || '').toLowerCase();\n}\n\nconst item = msg.payload && Array.isArray(msg.payload.results) ? msg.payload.results[0] : msg.payload;\nconst name = msg.wait_name || (item && (item.display || item.name)) || msg.wait_id;\nconst status = valueOf(item && item.status);\nconst operation = valueOf(item && item.operation);\nconst operationDone = !operation || operation === 'none' || operation === 'null';\nconst ready = status === 'running' && operationDone;\n\nmsg.wait_name = name;\nmsg.wait_status = status || 'unknown';\nmsg.wait_operation = operation || 'none';\n\nif (ready) {\n  return [msg, null, null];\n}\n\nif (Date.now() >= Number(msg.wait_deadline || 0)) {\n  return [null, null, msg];\n}\n\nreturn [null, msg, null];",
-        "outputs": 3,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 2340,
-        "y": 430,
+        "property": "$substring($lowercase($string(payload.status.value ? payload.status.value : (payload.status.label ? payload.status.label : (payload.status.display ? payload.status.display : (payload.status.name ? payload.status.name : payload.status))))), 0, 7) = \"running\" and ($lowercase($string(payload.operation.value ? payload.operation.value : (payload.operation.label ? payload.operation.label : (payload.operation.display ? payload.operation.display : (payload.operation.name ? payload.operation.name : payload.operation))))) = \"\" or $lowercase($string(payload.operation.value ? payload.operation.value : (payload.operation.label ? payload.operation.label : (payload.operation.display ? payload.operation.display : (payload.operation.name ? payload.operation.name : payload.operation))))) = \"none\" or $lowercase($string(payload.operation.value ? payload.operation.value : (payload.operation.label ? payload.operation.label : (payload.operation.display ? payload.operation.display : (payload.operation.name ? payload.operation.name : payload.operation))))) = \"null\")",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 1760,
+        "y": 520,
         "wires": [
             [
                 "restart_wait_ready_log"
             ],
             [
-                "restart_wait_poll_delay"
-            ],
-            [
-                "restart_wait_timeout_log"
+                "restart_wait_timeout_check"
             ]
         ]
     },
@@ -4005,41 +4758,610 @@
     },
     {
         "id": "restart_wait_ready_log",
-        "type": "function",
+        "type": "change",
         "z": "47309e7eb1ed7972",
         "name": "log ready",
-        "func": "const logs = global.get('logs') || '';\nconst line = new Date().toISOString() + ' RESTART : ' + (msg.wait_name || msg.wait_id) + ' ready<br>';\nglobal.set('logs', line + logs);\nmsg._waitDone = 'success';\nreturn msg;",
-        "outputs": 1,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 2550,
-        "y": 400,
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" RESTART : \" & $string(wait_name ? wait_name : wait_id) & \" ready<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "container_queue[0]",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "container_queue",
+                "pt": "msg",
+                "to": "$filter(container_queue ? container_queue : [], function($v, $i) { $i > 0 })",
+                "tot": "jsonata"
+            },
+            {
+                "t": "delete",
+                "p": "wait_deadline",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_id",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_name",
+                "pt": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 2160,
+        "y": 490,
         "wires": [
             [
-                "83ec24b3be755314"
+                "restart_container_has_next"
             ]
         ]
     },
     {
         "id": "restart_wait_timeout_log",
-        "type": "function",
+        "type": "change",
         "z": "47309e7eb1ed7972",
         "name": "log timeout",
-        "func": "const logs = global.get('logs') || '';\nconst timeout = Number(msg.wait_timeout || 30);\nconst detail = msg.wait_status ? (' status=' + msg.wait_status + ' operation=' + msg.wait_operation) : (' operation=' + msg.wait_operation);\nconst line = new Date().toISOString() + ' RESTART : ' + (msg.wait_name || msg.wait_id) + ' timeout after ' + timeout + 's' + detail + ', stopped<br>';\nglobal.set('logs', line + logs);\nmsg._waitDone = 'timeout';\nreturn msg;",
-        "outputs": 1,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 2550,
-        "y": 460,
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" RESTART : \" & $string(wait_name ? wait_name : wait_id) & \" timeout after \" & $string($number(wait_timeout ? wait_timeout : 30)) & \"s\" & \" status=\" & $lowercase($string(payload.status.value ? payload.status.value : (payload.status.label ? payload.status.label : (payload.status.display ? payload.status.display : (payload.status.name ? payload.status.name : payload.status))))) & \" operation=\" & $lowercase($string(payload.operation.value ? payload.operation.value : (payload.operation.label ? payload.operation.label : (payload.operation.display ? payload.operation.display : (payload.operation.name ? payload.operation.name : payload.operation))))) & \", wait timed out, moving to next item<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "container_queue[0]",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "container_queue",
+                "pt": "msg",
+                "to": "$filter(container_queue ? container_queue : [], function($v, $i) { $i > 0 })",
+                "tot": "jsonata"
+            },
+            {
+                "t": "delete",
+                "p": "wait_deadline",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_id",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_name",
+                "pt": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 2160,
+        "y": 570,
         "wires": [
             [
-                "83ec24b3be755314"
+                "restart_container_has_next"
+            ]
+        ]
+    },
+    {
+        "id": "restart_wait_timeout_check",
+        "type": "switch",
+        "z": "47309e7eb1ed7972",
+        "name": "wait timed out?",
+        "property": "$millis() >= $number(wait_deadline)",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 1960,
+        "y": 550,
+        "wires": [
+            [
+                "restart_wait_timeout_log"
+            ],
+            [
+                "restart_wait_poll_delay"
+            ]
+        ]
+    },
+    {
+        "id": "restart_tag_switch",
+        "type": "switch",
+        "z": "47309e7eb1ed7972",
+        "name": "tagged restart?",
+        "property": "$boolean(tag_slug)",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 610,
+        "y": 120,
+        "wires": [
+            [
+                "restart_tagged_hosts_url"
+            ],
+            [
+                "a1c1b1a0f0040001"
+            ]
+        ]
+    },
+    {
+        "id": "restart_tagged_hosts_url",
+        "type": "change",
+        "z": "47309e7eb1ed7972",
+        "name": "get tagged hosts",
+        "rules": [
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "netbox & \"/api/plugins/docker/hosts/?limit=1000\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{ \"Authorization\": \"Token \" & token, \"Accept\": \"application/json\" }",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "rejectUnauthorized",
+                "pt": "msg",
+                "to": "false",
+                "tot": "bool"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 840,
+        "y": 360,
+        "wires": [
+            [
+                "apply_proxy_restart_tagged_hosts"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_restart_tagged_hosts",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "47309e7eb1ed7972",
+        "name": "request",
+        "x": 1060,
+        "y": 360,
+        "wires": [
+            [
+                "restart_tagged_host_ids"
+            ]
+        ]
+    },
+    {
+        "id": "restart_tagged_host_ids",
+        "type": "change",
+        "z": "47309e7eb1ed7972",
+        "name": "host ids",
+        "rules": [
+            {
+                "t": "set",
+                "p": "host_ids_qs",
+                "pt": "msg",
+                "to": "($tagSlug := $lowercase($string(tag_slug)); $tagText := $lowercase($string(tag)); $hosts := $filter(payload.results ? payload.results : [], function($host) { $count($filter($host.tags ? $host.tags : [], function($tag) { ($lowercase($string($tag.slug)) = $tagSlug) or ($lowercase($string($tag.name)) = $tagText) or ($lowercase($string($tag.display)) = $tagText) or ($lowercase($string($tag.label)) = $tagText) or ($lowercase($string($tag.value)) = $tagText) or ($lowercase($string($tag)) = $tagText) })) > 0 }); $join($map($hosts, function($host) { \"&host_id=\" & $string($host.id) }), \"\"))",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1480,
+        "y": 360,
+        "wires": [
+            [
+                "restart_tagged_hosts_found"
+            ]
+        ]
+    },
+    {
+        "id": "restart_tagged_hosts_found",
+        "type": "switch",
+        "z": "47309e7eb1ed7972",
+        "name": "tagged hosts found?",
+        "property": "$boolean(host_ids_qs)",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 1680,
+        "y": 360,
+        "wires": [
+            [
+                "a1c1b1a0f0040001"
+            ],
+            [
+                "restart_log_no_tagged_hosts"
+            ]
+        ]
+    },
+    {
+        "id": "restart_log_no_tagged_hosts",
+        "type": "change",
+        "z": "47309e7eb1ed7972",
+        "name": "log no tagged hosts",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" RESTART : no Docker hosts found with tag \" & tag & \"<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1900,
+        "y": 400,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "restart_take_next_image",
+        "type": "change",
+        "z": "47309e7eb1ed7972",
+        "name": "take next restart image",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "image_queue[0]",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "image_queue",
+                "pt": "msg",
+                "to": "$filter(image_queue ? image_queue : [], function($v, $i) { $i > 0 })",
+                "tot": "jsonata"
+            },
+            {
+                "t": "delete",
+                "p": "container_queue",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_deadline",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_id",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_name",
+                "pt": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 800,
+        "y": 260,
+        "wires": [
+            [
+                "restart_image_has_next"
+            ]
+        ]
+    },
+    {
+        "id": "restart_image_has_next",
+        "type": "switch",
+        "z": "47309e7eb1ed7972",
+        "name": "image has next?",
+        "property": "$exists(payload.id)",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 1030,
+        "y": 260,
+        "wires": [
+            [
+                "c7e0b77dfe548ff2"
+            ],
+            [
+                "restart_log_complete"
+            ]
+        ]
+    },
+    {
+        "id": "restart_log_complete",
+        "type": "change",
+        "z": "47309e7eb1ed7972",
+        "name": "log restart complete",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" RESTART : finished restart loop<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1250,
+        "y": 320,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "restart_log_no_containers_for_image",
+        "type": "change",
+        "z": "47309e7eb1ed7972",
+        "name": "log no restart containers",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" RESTART : no containers found for image id \" & $string(imageid) & \"<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "image_queue[0]",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "image_queue",
+                "pt": "msg",
+                "to": "$filter(image_queue ? image_queue : [], function($v, $i) { $i > 0 })",
+                "tot": "jsonata"
+            },
+            {
+                "t": "delete",
+                "p": "container_queue",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_deadline",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_id",
+                "pt": "msg"
+            },
+            {
+                "t": "delete",
+                "p": "wait_name",
+                "pt": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1780,
+        "y": 260,
+        "wires": [
+            [
+                "restart_image_has_next"
+            ]
+        ]
+    },
+    {
+        "id": "restart_container_has_next",
+        "type": "switch",
+        "z": "47309e7eb1ed7972",
+        "name": "container has next?",
+        "property": "$exists(payload.id)",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 980,
+        "y": 360,
+        "wires": [
+            [
+                "2b51638803c74211"
+            ],
+            [
+                "restart_container_queue_done"
+            ]
+        ]
+    },
+    {
+        "id": "restart_container_queue_done",
+        "type": "switch",
+        "z": "47309e7eb1ed7972",
+        "name": "more images?",
+        "property": "$count(image_queue ? image_queue : []) > 0",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 1220,
+        "y": 400,
+        "wires": [
+            [
+                "restart_take_next_image"
+            ],
+            [
+                "restart_log_complete"
             ]
         ]
     },
@@ -4098,6 +5420,13 @@
                 "pt": "msg",
                 "to": "false",
                 "tot": "bool"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
             }
         ],
         "action": "",
@@ -4167,30 +5496,6 @@
         ]
     },
     {
-        "id": "48244cfac6e87985",
-        "type": "http request",
-        "z": "64ed409ae244327b",
-        "name": "",
-        "method": "use",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 680,
-        "y": 260,
-        "wires": [
-            [
-                "70f49231324ec37b"
-            ]
-        ]
-    },
-    {
         "id": "ce466fc9782d3b86",
         "type": "change",
         "z": "64ed409ae244327b",
@@ -4239,28 +5544,6 @@
         ]
     },
     {
-        "id": "68d767e300ed1980",
-        "type": "http request",
-        "z": "64ed409ae244327b",
-        "name": "",
-        "method": "use",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 1590,
-        "y": 260,
-        "wires": [
-            []
-        ]
-    },
-    {
         "id": "51d47d8a40445af3",
         "type": "change",
         "z": "64ed409ae244327b",
@@ -4279,6 +5562,13 @@
                 "pt": "msg",
                 "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
                 "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
             }
         ],
         "action": "",
@@ -4291,30 +5581,6 @@
         "wires": [
             [
                 "apply_proxy_450f65ea867dc44e"
-            ]
-        ]
-    },
-    {
-        "id": "450f65ea867dc44e",
-        "type": "http request",
-        "z": "64ed409ae244327b",
-        "name": "",
-        "method": "GET",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 1120,
-        "y": 80,
-        "wires": [
-            [
-                "9135b25f8c332ccd"
             ]
         ]
     },
@@ -4373,6 +5639,13 @@
                 "pt": "msg",
                 "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
                 "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
             }
         ],
         "action": "",
@@ -4386,28 +5659,6 @@
             [
                 "apply_proxy_16745e1a3e42d7d6"
             ]
-        ]
-    },
-    {
-        "id": "16745e1a3e42d7d6",
-        "type": "http request",
-        "z": "64ed409ae244327b",
-        "name": "",
-        "method": "DELETE",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 1550,
-        "y": 140,
-        "wires": [
-            []
         ]
     },
     {
@@ -4513,6 +5764,13 @@
                 "pt": "msg",
                 "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
                 "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
             }
         ],
         "action": "",
@@ -4525,30 +5783,6 @@
         "wires": [
             [
                 "apply_proxy_b08a1029cbcb8fc8"
-            ]
-        ]
-    },
-    {
-        "id": "b08a1029cbcb8fc8",
-        "type": "http request",
-        "z": "64ed409ae244327b",
-        "name": "",
-        "method": "GET",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 1120,
-        "y": 180,
-        "wires": [
-            [
-                "3c246a6ce6ebab03"
             ]
         ]
     },
@@ -4610,12 +5844,12 @@
         "id": "apply_proxy_48244cfac6e87985",
         "type": "subflow:subflow_apply_proxy",
         "z": "64ed409ae244327b",
-        "name": "apply proxy",
+        "name": "request",
         "x": 440,
         "y": 260,
         "wires": [
             [
-                "48244cfac6e87985"
+                "70f49231324ec37b"
             ]
         ]
     },
@@ -4623,25 +5857,23 @@
         "id": "apply_proxy_68d767e300ed1980",
         "type": "subflow:subflow_apply_proxy",
         "z": "64ed409ae244327b",
-        "name": "apply proxy",
+        "name": "request",
         "x": 1350,
         "y": 260,
         "wires": [
-            [
-                "68d767e300ed1980"
-            ]
+            []
         ]
     },
     {
         "id": "apply_proxy_450f65ea867dc44e",
         "type": "subflow:subflow_apply_proxy",
         "z": "64ed409ae244327b",
-        "name": "apply proxy",
+        "name": "request",
         "x": 880,
         "y": 80,
         "wires": [
             [
-                "450f65ea867dc44e"
+                "9135b25f8c332ccd"
             ]
         ]
     },
@@ -4649,25 +5881,23 @@
         "id": "apply_proxy_16745e1a3e42d7d6",
         "type": "subflow:subflow_apply_proxy",
         "z": "64ed409ae244327b",
-        "name": "apply proxy",
+        "name": "request",
         "x": 1310,
         "y": 140,
         "wires": [
-            [
-                "16745e1a3e42d7d6"
-            ]
+            []
         ]
     },
     {
         "id": "apply_proxy_b08a1029cbcb8fc8",
         "type": "subflow:subflow_apply_proxy",
         "z": "64ed409ae244327b",
-        "name": "apply proxy",
+        "name": "request",
         "x": 880,
         "y": 180,
         "wires": [
             [
-                "b08a1029cbcb8fc8"
+                "3c246a6ce6ebab03"
             ]
         ]
     },
@@ -4927,6 +6157,13 @@
                 "pt": "msg",
                 "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
                 "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
             }
         ],
         "action": "",
@@ -4939,30 +6176,6 @@
         "wires": [
             [
                 "apply_proxy_e405f58e15b5b967"
-            ]
-        ]
-    },
-    {
-        "id": "e405f58e15b5b967",
-        "type": "http request",
-        "z": "15790c4c601c21e4",
-        "name": "",
-        "method": "GET",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 1120,
-        "y": 80,
-        "wires": [
-            [
-                "fd1dbd967b25512f"
             ]
         ]
     },
@@ -4982,30 +6195,6 @@
         "wires": [
             [
                 "cadad459bab9652f"
-            ]
-        ]
-    },
-    {
-        "id": "f822d0b4fedbe21b",
-        "type": "http request",
-        "z": "15790c4c601c21e4",
-        "name": "",
-        "method": "POST",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 1330,
-        "y": 160,
-        "wires": [
-            [
-                "5a73e730b3f35a75"
             ]
         ]
     },
@@ -5042,6 +6231,13 @@
                 "pt": "msg",
                 "to": "{\t   \"host\": msg.results.host.id,\t   \"name\": msg.image,\t   \"version\": msg.version,\t   \"registry\": msg.results.registry.id\t}",
                 "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
             }
         ],
         "action": "",
@@ -5209,6 +6405,13 @@
                 "pt": "msg",
                 "to": "[{\t   \"id\": msg.results.id, \"host\": msg.results.host.id,\t   \"name\": msg.image,\t   \"version\": msg.version,\t   \"registry\": msg.results.registry.id\t}]",
                 "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
             }
         ],
         "action": "",
@@ -5225,37 +6428,15 @@
         ]
     },
     {
-        "id": "6d490b545ad0dc4c",
-        "type": "http request",
-        "z": "15790c4c601c21e4",
-        "name": "",
-        "method": "DELETE",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 1400,
-        "y": 240,
-        "wires": [
-            []
-        ]
-    },
-    {
         "id": "apply_proxy_e405f58e15b5b967",
         "type": "subflow:subflow_apply_proxy",
         "z": "15790c4c601c21e4",
-        "name": "apply proxy",
+        "name": "request",
         "x": 880,
         "y": 80,
         "wires": [
             [
-                "e405f58e15b5b967"
+                "fd1dbd967b25512f"
             ]
         ]
     },
@@ -5263,12 +6444,12 @@
         "id": "apply_proxy_f822d0b4fedbe21b",
         "type": "subflow:subflow_apply_proxy",
         "z": "15790c4c601c21e4",
-        "name": "apply proxy",
+        "name": "request",
         "x": 1150,
         "y": 160,
         "wires": [
             [
-                "f822d0b4fedbe21b"
+                "5a73e730b3f35a75"
             ]
         ]
     },
@@ -5276,13 +6457,11 @@
         "id": "apply_proxy_6d490b545ad0dc4c",
         "type": "subflow:subflow_apply_proxy",
         "z": "15790c4c601c21e4",
-        "name": "apply proxy",
+        "name": "request",
         "x": 1160,
         "y": 240,
         "wires": [
-            [
-                "6d490b545ad0dc4c"
-            ]
+            []
         ]
     },
     {
@@ -5392,31 +6571,6 @@
         ]
     },
     {
-        "id": "82ae9ffa34434352",
-        "type": "http request",
-        "z": "21d6665eb37042e8",
-        "name": "",
-        "method": "GET",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": false,
-        "headers": [],
-        "x": 1120,
-        "y": 80,
-        "wires": [
-            [
-                "e992ee6eb7559901",
-                "9322fc637b3ddea0"
-            ]
-        ]
-    },
-    {
         "id": "20461edbf6653a39",
         "type": "change",
         "z": "21d6665eb37042e8",
@@ -5456,6 +6610,13 @@
                 "pt": "msg",
                 "to": "payload.proxy",
                 "tot": "msg"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
             }
         ],
         "action": "",
@@ -5734,6 +6895,20 @@
             },
             {
                 "t": "set",
+                "p": "tag",
+                "pt": "msg",
+                "to": "req.query.tag ? req.query.tag : (config.tag ? config.tag : $globalContext(\"config\").tag)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "tag_slug",
+                "pt": "msg",
+                "to": "$replace($lowercase($trim($string(msg.tag))), /[^a-z0-9_-]+/, \"-\")",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
                 "p": "url",
                 "pt": "msg",
                 "to": "msg.netbox & \"/api/plugins/docker/containers/?limit=1000\"",
@@ -5752,6 +6927,13 @@
                 "pt": "msg",
                 "to": "false",
                 "tot": "bool"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
             }
         ],
         "action": "",
@@ -5763,31 +6945,7 @@
         "y": 480,
         "wires": [
             [
-                "apply_proxy_a1c1b1a0f0010003"
-            ]
-        ]
-    },
-    {
-        "id": "a1c1b1a0f0010003",
-        "type": "http request",
-        "z": "21d6665eb37042e8",
-        "name": "",
-        "method": "GET",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 880,
-        "y": 280,
-        "wires": [
-            [
-                "a1c1b1a0f0010004"
+                "instances_tag_switch"
             ]
         ]
     },
@@ -5875,6 +7033,20 @@
             },
             {
                 "t": "set",
+                "p": "tag",
+                "pt": "msg",
+                "to": "req.query.tag ? req.query.tag : (config.tag ? config.tag : $globalContext(\"config\").tag)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "tag_slug",
+                "pt": "msg",
+                "to": "$replace($lowercase($trim($string(msg.tag))), /[^a-z0-9_-]+/, \"-\")",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
                 "p": "url",
                 "pt": "msg",
                 "to": "msg.netbox & \"/api/plugins/docker/images/?limit=1000\"",
@@ -5893,6 +7065,13 @@
                 "pt": "msg",
                 "to": "false",
                 "tot": "bool"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
             }
         ],
         "action": "",
@@ -5904,31 +7083,7 @@
         "y": 580,
         "wires": [
             [
-                "apply_proxy_a1c1b1a0f0020003"
-            ]
-        ]
-    },
-    {
-        "id": "a1c1b1a0f0020003",
-        "type": "http request",
-        "z": "21d6665eb37042e8",
-        "name": "",
-        "method": "GET",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 880,
-        "y": 380,
-        "wires": [
-            [
-                "a1c1b1a0f0020004"
+                "images_tag_switch"
             ]
         ]
     },
@@ -6036,12 +7191,13 @@
         "id": "apply_proxy_82ae9ffa34434352",
         "type": "subflow:subflow_apply_proxy",
         "z": "21d6665eb37042e8",
-        "name": "apply proxy",
+        "name": "request",
         "x": 880,
         "y": 80,
         "wires": [
             [
-                "82ae9ffa34434352"
+                "e992ee6eb7559901",
+                "9322fc637b3ddea0"
             ]
         ]
     },
@@ -6049,12 +7205,12 @@
         "id": "apply_proxy_a1c1b1a0f0010003",
         "type": "subflow:subflow_apply_proxy",
         "z": "21d6665eb37042e8",
-        "name": "apply proxy",
+        "name": "request",
         "x": 640,
         "y": 380,
         "wires": [
             [
-                "a1c1b1a0f0010003"
+                "a1c1b1a0f0010004"
             ]
         ]
     },
@@ -6062,13 +7218,1172 @@
         "id": "apply_proxy_a1c1b1a0f0020003",
         "type": "subflow:subflow_apply_proxy",
         "z": "21d6665eb37042e8",
-        "name": "apply proxy",
+        "name": "request",
         "x": 640,
         "y": 480,
         "wires": [
             [
-                "a1c1b1a0f0020003"
+                "a1c1b1a0f0020004"
             ]
         ]
+    },
+    {
+        "id": "images_tag_switch",
+        "type": "switch",
+        "z": "21d6665eb37042e8",
+        "name": "tagged image refresh?",
+        "property": "$boolean(tag_slug)",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 620,
+        "y": 580,
+        "wires": [
+            [
+                "images_tagged_hosts_url"
+            ],
+            [
+                "apply_proxy_a1c1b1a0f0020003"
+            ]
+        ]
+    },
+    {
+        "id": "images_tagged_hosts_url",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "get tagged hosts",
+        "rules": [
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "netbox & \"/api/plugins/docker/hosts/?limit=1000\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{ \"Authorization\": \"Token \" & token, \"Accept\": \"application/json\" }",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "rejectUnauthorized",
+                "pt": "msg",
+                "to": "false",
+                "tot": "bool"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 860,
+        "y": 560,
+        "wires": [
+            [
+                "apply_proxy_images_tagged_hosts"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_images_tagged_hosts",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "21d6665eb37042e8",
+        "name": "request",
+        "x": 1080,
+        "y": 560,
+        "wires": [
+            [
+                "images_tagged_hosts_results"
+            ]
+        ]
+    },
+    {
+        "id": "images_tagged_hosts_results",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "host results",
+        "rules": [
+            {
+                "t": "set",
+                "p": "host_ids_qs",
+                "pt": "msg",
+                "to": "($tagSlug := $lowercase($string(tag_slug)); $tagText := $lowercase($string(tag)); $hosts := $filter(payload.results ? payload.results : [], function($host) { $count($filter($host.tags ? $host.tags : [], function($tag) { ($lowercase($string($tag.slug)) = $tagSlug) or ($lowercase($string($tag.name)) = $tagText) or ($lowercase($string($tag.display)) = $tagText) or ($lowercase($string($tag.label)) = $tagText) or ($lowercase($string($tag.value)) = $tagText) or ($lowercase($string($tag)) = $tagText) })) > 0 }); $join($map($hosts, function($host) { \"&host_id=\" & $string($host.id) }), \"\"))",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1480,
+        "y": 560,
+        "wires": [
+            [
+                "images_tagged_hosts_any"
+            ]
+        ]
+    },
+    {
+        "id": "images_tagged_hosts_any",
+        "type": "switch",
+        "z": "21d6665eb37042e8",
+        "name": "hosts found?",
+        "property": "$boolean(host_ids_qs)",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 1680,
+        "y": 560,
+        "wires": [
+            [
+                "images_tagged_host_images_url"
+            ],
+            [
+                "images_tagged_empty"
+            ]
+        ]
+    },
+    {
+        "id": "images_tagged_hosts_split",
+        "type": "split",
+        "z": "21d6665eb37042e8",
+        "name": "split tagged hosts",
+        "splt": "\\n",
+        "spltType": "str",
+        "arraySplt": 1,
+        "arraySpltType": "len",
+        "stream": false,
+        "addname": "",
+        "x": 1880,
+        "y": 540,
+        "wires": [
+            [
+                "images_tagged_host_images_url"
+            ]
+        ]
+    },
+    {
+        "id": "images_tagged_host_images_url",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "get host images",
+        "rules": [
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "netbox & \"/api/plugins/docker/images/?limit=1000\" & host_ids_qs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{ \"Authorization\": \"Token \" & token, \"Accept\": \"application/json\" }",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "rejectUnauthorized",
+                "pt": "msg",
+                "to": "false",
+                "tot": "bool"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 2080,
+        "y": 540,
+        "wires": [
+            [
+                "apply_proxy_images_tagged_host_images"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_images_tagged_host_images",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "21d6665eb37042e8",
+        "name": "request",
+        "x": 2300,
+        "y": 540,
+        "wires": [
+            [
+                "images_tagged_format_host_images"
+            ]
+        ]
+    },
+    {
+        "id": "images_tagged_format_host_images",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "format host images",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$map(payload.results ? payload.results : [], function($v) { { \"name\": $v.name, \"version\": $v.version } })",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 2720,
+        "y": 540,
+        "wires": [
+            [
+                "a1c1b1a0f0020005"
+            ]
+        ]
+    },
+    {
+        "id": "images_tagged_join_images",
+        "type": "join",
+        "z": "21d6665eb37042e8",
+        "name": "join host images",
+        "mode": "auto",
+        "build": "array",
+        "property": "payload",
+        "propertyType": "msg",
+        "key": "topic",
+        "joiner": "\\n",
+        "joinerType": "str",
+        "accumulate": false,
+        "timeout": "",
+        "count": "",
+        "reduceRight": false,
+        "reduceExp": "",
+        "reduceInit": "",
+        "reduceInitType": "",
+        "reduceFixup": "",
+        "x": 2940,
+        "y": 540,
+        "wires": [
+            [
+                "images_tagged_flatten_images"
+            ]
+        ]
+    },
+    {
+        "id": "images_tagged_flatten_images",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "flatten images",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$reduce(payload, function($a, $v) { $append($a, $v) }, [])",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 3160,
+        "y": 540,
+        "wires": [
+            [
+                "a1c1b1a0f0020005"
+            ]
+        ]
+    },
+    {
+        "id": "images_tagged_empty",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "empty images",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "[]",
+                "tot": "json"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1880,
+        "y": 600,
+        "wires": [
+            [
+                "a1c1b1a0f0020005"
+            ]
+        ]
+    },
+    {
+        "id": "instances_tag_switch",
+        "type": "switch",
+        "z": "21d6665eb37042e8",
+        "name": "tagged instance refresh?",
+        "property": "$boolean(tag_slug)",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 620,
+        "y": 500,
+        "wires": [
+            [
+                "instances_tagged_hosts_url"
+            ],
+            [
+                "apply_proxy_a1c1b1a0f0010003"
+            ]
+        ]
+    },
+    {
+        "id": "instances_tagged_hosts_url",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "get tagged hosts",
+        "rules": [
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "netbox & \"/api/plugins/docker/hosts/?limit=1000\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{ \"Authorization\": \"Token \" & token, \"Accept\": \"application/json\" }",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "rejectUnauthorized",
+                "pt": "msg",
+                "to": "false",
+                "tot": "bool"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 860,
+        "y": 460,
+        "wires": [
+            [
+                "apply_proxy_instances_tagged_hosts"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_instances_tagged_hosts",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "21d6665eb37042e8",
+        "name": "request",
+        "x": 1080,
+        "y": 460,
+        "wires": [
+            [
+                "instances_tagged_hosts_results"
+            ]
+        ]
+    },
+    {
+        "id": "instances_tagged_hosts_results",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "host results",
+        "rules": [
+            {
+                "t": "set",
+                "p": "host_ids_qs",
+                "pt": "msg",
+                "to": "($tagSlug := $lowercase($string(tag_slug)); $tagText := $lowercase($string(tag)); $hosts := $filter(payload.results ? payload.results : [], function($host) { $count($filter($host.tags ? $host.tags : [], function($tag) { ($lowercase($string($tag.slug)) = $tagSlug) or ($lowercase($string($tag.name)) = $tagText) or ($lowercase($string($tag.display)) = $tagText) or ($lowercase($string($tag.label)) = $tagText) or ($lowercase($string($tag.value)) = $tagText) or ($lowercase($string($tag)) = $tagText) })) > 0 }); $join($map($hosts, function($host) { \"&host_id=\" & $string($host.id) }), \"\"))",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1480,
+        "y": 460,
+        "wires": [
+            [
+                "instances_tagged_hosts_any"
+            ]
+        ]
+    },
+    {
+        "id": "instances_tagged_hosts_any",
+        "type": "switch",
+        "z": "21d6665eb37042e8",
+        "name": "hosts found?",
+        "property": "$boolean(host_ids_qs)",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 1680,
+        "y": 460,
+        "wires": [
+            [
+                "instances_tagged_host_containers_url"
+            ],
+            [
+                "instances_tagged_empty"
+            ]
+        ]
+    },
+    {
+        "id": "instances_tagged_hosts_split",
+        "type": "split",
+        "z": "21d6665eb37042e8",
+        "name": "split tagged hosts",
+        "splt": "\\n",
+        "spltType": "str",
+        "arraySplt": 1,
+        "arraySpltType": "len",
+        "stream": false,
+        "addname": "",
+        "x": 1880,
+        "y": 440,
+        "wires": [
+            [
+                "instances_tagged_host_containers_url"
+            ]
+        ]
+    },
+    {
+        "id": "instances_tagged_host_containers_url",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "get host containers",
+        "rules": [
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "netbox & \"/api/plugins/docker/containers/?limit=1000\" & host_ids_qs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{ \"Authorization\": \"Token \" & token, \"Accept\": \"application/json\" }",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "rejectUnauthorized",
+                "pt": "msg",
+                "to": "false",
+                "tot": "bool"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 2100,
+        "y": 440,
+        "wires": [
+            [
+                "apply_proxy_instances_tagged_host_containers"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_instances_tagged_host_containers",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "21d6665eb37042e8",
+        "name": "request",
+        "x": 2340,
+        "y": 440,
+        "wires": [
+            [
+                "instances_tagged_format_host_containers"
+            ]
+        ]
+    },
+    {
+        "id": "instances_tagged_format_host_containers",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "format host containers",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$sort($distinct($map(payload.results ? payload.results : [], function($v) { $v.display ? $v.display : $v.name })))",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 2820,
+        "y": 440,
+        "wires": [
+            [
+                "a1c1b1a0f0010005"
+            ]
+        ]
+    },
+    {
+        "id": "instances_tagged_join_containers",
+        "type": "join",
+        "z": "21d6665eb37042e8",
+        "name": "join host containers",
+        "mode": "auto",
+        "build": "array",
+        "property": "payload",
+        "propertyType": "msg",
+        "key": "topic",
+        "joiner": "\\n",
+        "joinerType": "str",
+        "accumulate": false,
+        "timeout": "",
+        "count": "",
+        "reduceRight": false,
+        "reduceExp": "",
+        "reduceInit": "",
+        "reduceInitType": "",
+        "reduceFixup": "",
+        "x": 3060,
+        "y": 440,
+        "wires": [
+            [
+                "instances_tagged_flatten_containers"
+            ]
+        ]
+    },
+    {
+        "id": "instances_tagged_flatten_containers",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "flatten containers",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$sort($distinct($reduce(payload, function($a, $v) { $append($a, $v) }, [])))",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 3300,
+        "y": 440,
+        "wires": [
+            [
+                "a1c1b1a0f0010005"
+            ]
+        ]
+    },
+    {
+        "id": "instances_tagged_empty",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "empty instances",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "[]",
+                "tot": "json"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1880,
+        "y": 500,
+        "wires": [
+            [
+                "a1c1b1a0f0010005"
+            ]
+        ]
+    },
+    {
+        "id": "containers_count_in",
+        "type": "http in",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "url": "/containers-count",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 160,
+        "y": 720,
+        "wires": [
+            [
+                "containers_count_init"
+            ]
+        ]
+    },
+    {
+        "id": "containers_count_init",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "prepare count",
+        "rules": [
+            {
+                "t": "set",
+                "p": "netbox",
+                "pt": "msg",
+                "to": "req.query.netbox ? req.query.netbox : (config.netbox ? config.netbox : $globalContext(\"config\").netbox)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "token",
+                "pt": "msg",
+                "to": "req.query.token ? req.query.token : (config.token ? config.token : $globalContext(\"config\").token)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "proxy",
+                "pt": "msg",
+                "to": "req.query.proxy ? req.query.proxy : (config.proxy ? config.proxy : $globalContext(\"config\").proxy)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "tag",
+                "pt": "msg",
+                "to": "req.query.tag ? req.query.tag : (config.tag ? config.tag : $globalContext(\"config\").tag)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "tag_slug",
+                "pt": "msg",
+                "to": "$replace($lowercase($trim($string(tag))), /[^a-z0-9_-]+/, \"-\")",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "image",
+                "pt": "msg",
+                "to": "req.query.image",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "version",
+                "pt": "msg",
+                "to": "req.query.version",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{ \"Authorization\": \"Token \" & token, \"Accept\": \"application/json\" }",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "rejectUnauthorized",
+                "pt": "msg",
+                "to": "false",
+                "tot": "bool"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 380,
+        "y": 720,
+        "wires": [
+            [
+                "containers_count_has_tag"
+            ]
+        ]
+    },
+    {
+        "id": "containers_count_has_tag",
+        "type": "switch",
+        "z": "21d6665eb37042e8",
+        "name": "tagged count?",
+        "property": "$boolean(tag_slug)",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 600,
+        "y": 720,
+        "wires": [
+            [
+                "containers_count_hosts_url"
+            ],
+            [
+                "containers_count_images_url"
+            ]
+        ]
+    },
+    {
+        "id": "containers_count_hosts_url",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "get tagged hosts",
+        "rules": [
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "netbox & \"/api/plugins/docker/hosts/?limit=1000\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{ \"Authorization\": \"Token \" & token, \"Accept\": \"application/json\" }",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "rejectUnauthorized",
+                "pt": "msg",
+                "to": "false",
+                "tot": "bool"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 840,
+        "y": 700,
+        "wires": [
+            [
+                "apply_proxy_containers_count_hosts"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_containers_count_hosts",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "21d6665eb37042e8",
+        "name": "request",
+        "x": 1060,
+        "y": 700,
+        "wires": [
+            [
+                "containers_count_host_ids"
+            ]
+        ]
+    },
+    {
+        "id": "containers_count_host_ids",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "host ids",
+        "rules": [
+            {
+                "t": "set",
+                "p": "host_ids_qs",
+                "pt": "msg",
+                "to": "($tagSlug := $lowercase($string(tag_slug)); $tagText := $lowercase($string(tag)); $hosts := $filter(payload.results ? payload.results : [], function($host) { $count($filter($host.tags ? $host.tags : [], function($tag) { ($lowercase($string($tag.slug)) = $tagSlug) or ($lowercase($string($tag.name)) = $tagText) or ($lowercase($string($tag.display)) = $tagText) or ($lowercase($string($tag.label)) = $tagText) or ($lowercase($string($tag.value)) = $tagText) or ($lowercase($string($tag)) = $tagText) })) > 0 }); $join($map($hosts, function($host) { \"&host_id=\" & $string($host.id) }), \"\"))",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1490,
+        "y": 700,
+        "wires": [
+            [
+                "containers_count_hosts_found"
+            ]
+        ]
+    },
+    {
+        "id": "containers_count_hosts_found",
+        "type": "switch",
+        "z": "21d6665eb37042e8",
+        "name": "hosts found?",
+        "property": "$boolean(host_ids_qs)",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 1690,
+        "y": 700,
+        "wires": [
+            [
+                "containers_count_images_url"
+            ],
+            [
+                "containers_count_zero"
+            ]
+        ]
+    },
+    {
+        "id": "containers_count_images_url",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "get images",
+        "rules": [
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "netbox & \"/api/plugins/docker/images/?limit=1000&name=\" & image & \"&version=\" & version & (host_ids_qs ? host_ids_qs : \"\")",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{ \"Authorization\": \"Token \" & token, \"Accept\": \"application/json\" }",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "rejectUnauthorized",
+                "pt": "msg",
+                "to": "false",
+                "tot": "bool"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 840,
+        "y": 760,
+        "wires": [
+            [
+                "apply_proxy_containers_count_images"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_containers_count_images",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "21d6665eb37042e8",
+        "name": "request",
+        "x": 1060,
+        "y": 760,
+        "wires": [
+            [
+                "containers_count_image_ids"
+            ]
+        ]
+    },
+    {
+        "id": "containers_count_image_ids",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "image ids",
+        "rules": [
+            {
+                "t": "set",
+                "p": "image_ids_qs",
+                "pt": "msg",
+                "to": "$join($map(payload.results ? payload.results : [], function($image) { \"&image_id=\" & $string($image.id) }), \"\")",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1490,
+        "y": 760,
+        "wires": [
+            [
+                "containers_count_images_found"
+            ]
+        ]
+    },
+    {
+        "id": "containers_count_images_found",
+        "type": "switch",
+        "z": "21d6665eb37042e8",
+        "name": "images found?",
+        "property": "$boolean(image_ids_qs)",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 1690,
+        "y": 760,
+        "wires": [
+            [
+                "containers_count_containers_url"
+            ],
+            [
+                "containers_count_zero"
+            ]
+        ]
+    },
+    {
+        "id": "containers_count_containers_url",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "count containers",
+        "rules": [
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "netbox & \"/api/plugins/docker/containers/?limit=1\" & image_ids_qs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{ \"Authorization\": \"Token \" & token, \"Accept\": \"application/json\" }",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "rejectUnauthorized",
+                "pt": "msg",
+                "to": "false",
+                "tot": "bool"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1910,
+        "y": 740,
+        "wires": [
+            [
+                "apply_proxy_containers_count_containers"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_containers_count_containers",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "21d6665eb37042e8",
+        "name": "request",
+        "x": 2150,
+        "y": 740,
+        "wires": [
+            [
+                "containers_count_format"
+            ]
+        ]
+    },
+    {
+        "id": "containers_count_format",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "format count",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "{ \"count\": payload.count ? payload.count : 0 }",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 2610,
+        "y": 740,
+        "wires": [
+            [
+                "containers_count_response"
+            ]
+        ]
+    },
+    {
+        "id": "containers_count_zero",
+        "type": "change",
+        "z": "21d6665eb37042e8",
+        "name": "zero count",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "{\"count\":0}",
+                "tot": "json"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1910,
+        "y": 800,
+        "wires": [
+            [
+                "containers_count_response"
+            ]
+        ]
+    },
+    {
+        "id": "containers_count_response",
+        "type": "http response",
+        "z": "21d6665eb37042e8",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 2830,
+        "y": 760,
+        "wires": []
     }
 ]
