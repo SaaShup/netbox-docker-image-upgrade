@@ -248,7 +248,7 @@
                 "p": "version",
                 "pt": "msg",
                 "to": "config.version",
-                "tot": "global"
+                "tot": "msg"
             },
             {
                 "t": "set",
@@ -344,8 +344,7 @@
         "y": 220,
         "wires": [
             [
-                "458387080417f52a",
-                "c9baa00a19d15c11"
+                "458387080417f52a"
             ]
         ]
     },
@@ -500,8 +499,217 @@
         "y": 300,
         "wires": [
             [
-                "3cf9824c67655d6f"
+                "create_log_image_found"
             ],
+            [
+                "create_log_image_lookup_failed"
+            ]
+        ]
+    },
+    {
+        "id": "create_log_image_lookup_failed",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "log image lookup failed",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" CREATE : image lookup failed for \" & image & \":\" & version & \" on \" & hostname & \" count=\" & $string(payload.count ? payload.count : 0) & (tag ? \" tag=\" & tag : \"\") & \"<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 900,
+        "y": 340,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "create_log_image_found",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "log image found",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "$now() & \" CREATE : image \" & image & \":\" & version & \" found on \" & hostname & \" image_id=\" & $string(payload.results[0].id) & \"<br>\" & logs",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 890,
+        "y": 260,
+        "wires": [
+            [
+                "3cf9824c67655d6f"
+            ]
+        ]
+    },
+    {
+        "id": "create_log_volume_created",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "log volume created",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "$now() & \" CREATE : volume prepared for \" & instanceShort & \" on \" & hostname & \" status=\" & $string(statusCode ? statusCode : \"\") & \"<br>\" & logs",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1370,
+        "y": 300,
+        "wires": [
+            [
+                "6692eaed65e25767"
+            ]
+        ]
+    },
+    {
+        "id": "create_log_container_created",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "log container created",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "$now() & \" CREATE : container \" & instanceShort & \" created id=\" & $string(payload.id ? payload.id : \"\") & \" status=\" & $string(statusCode ? statusCode : \"\") & \"<br>\" & logs",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 690,
+        "y": 380,
+        "wires": [
+            [
+                "21f97ac5da6a1ea8"
+            ]
+        ]
+    },
+    {
+        "id": "create_log_container_configured",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "log container configured",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "$now() & \" CREATE : container \" & instanceShort & \" configured network=\" & network & \" status=\" & $string(statusCode ? statusCode : \"\") & \"<br>\" & logs",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1640,
+        "y": 380,
+        "wires": [
+            [
+                "ed7ddb2630845e28"
+            ]
+        ]
+    },
+    {
+        "id": "create_log_recreate_requested",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "log recreate requested",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "$now() & \" CREATE : container \" & instanceShort & \" recreate requested status=\" & $string(statusCode ? statusCode : \"\") & \"<br>\" & logs",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1160,
+        "y": 480,
+        "wires": [
             []
         ]
     },
@@ -751,7 +959,7 @@
                 "t": "set",
                 "p": "method",
                 "pt": "msg",
-                "to": "GET",
+                "to": "POST",
                 "tot": "str"
             }
         ],
@@ -835,6 +1043,47 @@
             [
                 "2bc10654858e4154"
             ],
+            [
+                "create_log_dns_zone_missing"
+            ]
+        ]
+    },
+    {
+        "id": "create_log_dns_zone_missing",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "log dns zone missing",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" CREATE : Cloudflare zone not found for \" & instanceZone & \" while creating \" & instance & \" count=\" & $string(payload.count ? payload.count : 0) & \"<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1340,
+        "y": 220,
+        "wires": [
             []
         ]
     },
@@ -971,7 +1220,7 @@
         "y": 380,
         "wires": [
             [
-                "21f97ac5da6a1ea8"
+                "create_log_container_created"
             ]
         ]
     },
@@ -983,7 +1232,9 @@
         "x": 910,
         "y": 480,
         "wires": [
-            []
+            [
+                "create_log_recreate_requested"
+            ]
         ]
     },
     {
@@ -995,7 +1246,7 @@
         "y": 300,
         "wires": [
             [
-                "6692eaed65e25767"
+                "create_log_volume_created"
             ]
         ]
     },
@@ -1008,7 +1259,7 @@
         "y": 380,
         "wires": [
             [
-                "ed7ddb2630845e28"
+                "create_log_container_configured"
             ]
         ]
     },
@@ -1018,6 +1269,40 @@
         "z": "d5158039611d4b98",
         "name": "request",
         "x": 1530,
+        "y": 160,
+        "wires": [
+            [
+                "create_log_dns_record_requested"
+            ]
+        ]
+    },
+    {
+        "id": "create_log_dns_record_requested",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "log dns record requested",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "$now() & \" CREATE : Cloudflare DNS record requested for \" & instance & \" -> \" & hostname & \".\" & instanceZone & \" status=\" & $string(statusCode ? statusCode : \"\") & \"<br>\" & logs",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1770,
         "y": 160,
         "wires": [
             []
@@ -1060,7 +1345,7 @@
                 "t": "set",
                 "p": "url",
                 "pt": "msg",
-                "to": "msg.netbox & \"/api/plugins/docker/containers/?limit=1000\" & host_ids_qs",
+                "to": "msg.netbox & \"/api/plugins/docker/images/?name=\" & msg.image & \"&version=\" & msg.version & \"&limit=1000\" & msg.host_ids_qs",
                 "tot": "jsonata"
             },
             {
@@ -1131,6 +1416,105 @@
         "y": 220,
         "wires": [
             [
+                "create_filter_hosts_with_image"
+            ]
+        ]
+    },
+    {
+        "id": "create_filter_hosts_with_image",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "filter hosts with image",
+        "rules": [
+            {
+                "t": "set",
+                "p": "image_results",
+                "pt": "msg",
+                "to": "payload.results ? payload.results : []",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "host_candidates",
+                "pt": "msg",
+                "to": "($images := image_results ? image_results : (payload.results ? payload.results : []); $hosts := host_candidates ? host_candidates : []; $imageHostId := function($img) { $string($img.host.id ? $img.host.id : ($img.host.value ? $img.host.value : $img.host)) }; $filter($hosts, function($host) { $count($filter($images, function($img) { $imageHostId($img) = $string($host.id) })) > 0 }))",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "host_ids_qs",
+                "pt": "msg",
+                "to": "$join($map(host_candidates, function($host) { \"&host_id=\" & $string($host.id) }), \"\")",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "msg.netbox & \"/api/plugins/docker/containers/?limit=1000\" & host_ids_qs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1430,
+        "y": 220,
+        "wires": [
+            [
+                "create_has_image_hosts"
+            ]
+        ]
+    },
+    {
+        "id": "create_has_image_hosts",
+        "type": "switch",
+        "z": "d5158039611d4b98",
+        "name": "image hosts found?",
+        "property": "$count(host_candidates)",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "gt",
+                "v": "0",
+                "vt": "num"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 1660,
+        "y": 220,
+        "wires": [
+            [
+                "apply_proxy_create_eligible_host_containers"
+            ],
+            [
+                "create_log_no_image_hosts"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_create_eligible_host_containers",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "d5158039611d4b98",
+        "name": "request",
+        "x": 1890,
+        "y": 220,
+        "wires": [
+            [
                 "create_select_host"
             ]
         ]
@@ -1180,7 +1564,8 @@
         "wires": [
             [
                 "c023f5d33cc1a8f6",
-                "create_log_selected_host"
+                "create_log_selected_host",
+                "c9baa00a19d15c11"
             ]
         ]
     },
@@ -1218,6 +1603,45 @@
         "to": "",
         "reg": false,
         "x": 1220,
+        "y": 300,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "create_log_no_image_hosts",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "log no image hosts",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" CREATE : no Docker hosts found with image \" & image & \":\" & version & (tag ? \" tag=\" & tag : \"\") & \"<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1900,
         "y": 300,
         "wires": [
             []
@@ -3780,6 +4204,13 @@
                 "pt": "msg",
                 "to": "($tagSlug := $lowercase($string(tag_slug)); $tagText := $lowercase($string(tag)); $hosts := $filter(payload.results ? payload.results : [], function($host) { $count($filter($host.tags ? $host.tags : [], function($tag) { ($lowercase($string($tag.slug)) = $tagSlug) or ($lowercase($string($tag.name)) = $tagText) or ($lowercase($string($tag.display)) = $tagText) or ($lowercase($string($tag.label)) = $tagText) or ($lowercase($string($tag.value)) = $tagText) or ($lowercase($string($tag)) = $tagText) })) > 0 }); $join($map($hosts, function($host) { \"&host_id=\" & $string($host.id) }), \"\"))",
                 "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "host_ids",
+                "pt": "msg",
+                "to": "($tagSlug := $lowercase($string(tag_slug)); $tagText := $lowercase($string(tag)); $hosts := $filter(payload.results ? payload.results : [], function($host) { $count($filter($host.tags ? $host.tags : [], function($tag) { ($lowercase($string($tag.slug)) = $tagSlug) or ($lowercase($string($tag.name)) = $tagText) or ($lowercase($string($tag.display)) = $tagText) or ($lowercase($string($tag.label)) = $tagText) or ($lowercase($string($tag.value)) = $tagText) or ($lowercase($string($tag)) = $tagText) })) > 0 }); $map($hosts, function($host) { $string($host.id) }))",
+                "tot": "jsonata"
             }
         ],
         "action": "",
@@ -5919,6 +6350,47 @@
             [
                 "5fceda08ca763358"
             ],
+            [
+                "delete_log_dns_record_missing"
+            ]
+        ]
+    },
+    {
+        "id": "delete_log_dns_record_missing",
+        "type": "change",
+        "z": "64ed409ae244327b",
+        "name": "log dns record missing",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" DELETE : Cloudflare DNS record not found for \" & instance & \" count=\" & $string(payload.count ? payload.count : 0) & \"<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1600,
+        "y": 120,
+        "wires": [
             []
         ]
     },
@@ -5926,7 +6398,7 @@
         "id": "5fceda08ca763358",
         "type": "change",
         "z": "64ed409ae244327b",
-        "name": "",
+        "name": "delete dns record",
         "rules": [
             {
                 "t": "set",
@@ -5953,7 +6425,7 @@
                 "t": "set",
                 "p": "method",
                 "pt": "msg",
-                "to": "GET",
+                "to": "DELETE",
                 "tot": "str"
             }
         ],
@@ -6006,6 +6478,20 @@
             },
             {
                 "t": "set",
+                "p": "tag",
+                "pt": "msg",
+                "to": "req.query.tag ? req.query.tag : (config.tag ? config.tag : $globalContext(\"config\").tag)",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "tag_slug",
+                "pt": "msg",
+                "to": "$replace($lowercase($trim($string(tag))), /[^a-z0-9_-]+/, \"-\")",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
                 "p": "instance",
                 "pt": "msg",
                 "to": "config.instance",
@@ -6042,9 +6528,194 @@
         "y": 180,
         "wires": [
             [
-                "90e279516261e3c3",
+                "delete_tag_switch",
                 "51d47d8a40445af3"
             ]
+        ]
+    },
+    {
+        "id": "delete_tag_switch",
+        "type": "switch",
+        "z": "64ed409ae244327b",
+        "name": "tag configured?",
+        "property": "$boolean(tag_slug)",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 620,
+        "y": 140,
+        "wires": [
+            [
+                "delete_tagged_hosts_url"
+            ],
+            [
+                "90e279516261e3c3"
+            ]
+        ]
+    },
+    {
+        "id": "delete_tagged_hosts_url",
+        "type": "change",
+        "z": "64ed409ae244327b",
+        "name": "get tagged hosts",
+        "rules": [
+            {
+                "t": "set",
+                "p": "url",
+                "pt": "msg",
+                "to": "netbox & \"/api/plugins/docker/hosts/?limit=1000\"",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{ \"Authorization\": \"Token \" & token, \"Accept\": \"application/json\" }",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "rejectUnauthorized",
+                "pt": "msg",
+                "to": "false",
+                "tot": "bool"
+            },
+            {
+                "t": "set",
+                "p": "method",
+                "pt": "msg",
+                "to": "GET",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 850,
+        "y": 120,
+        "wires": [
+            [
+                "apply_proxy_delete_tagged_hosts"
+            ]
+        ]
+    },
+    {
+        "id": "apply_proxy_delete_tagged_hosts",
+        "type": "subflow:subflow_apply_proxy",
+        "z": "64ed409ae244327b",
+        "name": "request",
+        "x": 1080,
+        "y": 120,
+        "wires": [
+            [
+                "delete_tagged_host_ids"
+            ]
+        ]
+    },
+    {
+        "id": "delete_tagged_host_ids",
+        "type": "change",
+        "z": "64ed409ae244327b",
+        "name": "host ids",
+        "rules": [
+            {
+                "t": "set",
+                "p": "host_ids_qs",
+                "pt": "msg",
+                "to": "($tagSlug := $lowercase($string(tag_slug)); $tagText := $lowercase($string(tag)); $hosts := $filter(payload.results ? payload.results : [], function($host) { $count($filter($host.tags ? $host.tags : [], function($tag) { ($lowercase($string($tag.slug)) = $tagSlug) or ($lowercase($string($tag.name)) = $tagText) or ($lowercase($string($tag.display)) = $tagText) or ($lowercase($string($tag.label)) = $tagText) or ($lowercase($string($tag.value)) = $tagText) or ($lowercase($string($tag)) = $tagText) })) > 0 }); $join($map($hosts, function($host) { \"&host_id=\" & $string($host.id) }), \"\"))",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1290,
+        "y": 120,
+        "wires": [
+            [
+                "delete_tagged_hosts_found"
+            ]
+        ]
+    },
+    {
+        "id": "delete_tagged_hosts_found",
+        "type": "switch",
+        "z": "64ed409ae244327b",
+        "name": "tagged hosts found?",
+        "property": "$boolean(host_ids_qs)",
+        "propertyType": "jsonata",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 2,
+        "x": 1510,
+        "y": 120,
+        "wires": [
+            [
+                "90e279516261e3c3"
+            ],
+            [
+                "delete_log_no_tagged_hosts"
+            ]
+        ]
+    },
+    {
+        "id": "delete_log_no_tagged_hosts",
+        "type": "change",
+        "z": "64ed409ae244327b",
+        "name": "log no tagged hosts",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" DELETE : no Docker hosts found with tag \" & tag & \" for \" & instanceShort & \"<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1750,
+        "y": 160,
+        "wires": [
+            []
         ]
     },
     {
@@ -6057,7 +6728,7 @@
                 "t": "set",
                 "p": "url",
                 "pt": "msg",
-                "to": "msg.netbox & \"/api/plugins/docker/containers/?name=\" & msg.instanceShort",
+                "to": "msg.netbox & \"/api/plugins/docker/containers/?name=\" & msg.instanceShort & (msg.host_ids_qs ? msg.host_ids_qs : \"\")",
                 "tot": "jsonata"
             },
             {
@@ -6121,6 +6792,47 @@
             [
                 "0bc452107b041894"
             ],
+            [
+                "delete_log_container_not_unique"
+            ]
+        ]
+    },
+    {
+        "id": "delete_log_container_not_unique",
+        "type": "change",
+        "z": "64ed409ae244327b",
+        "name": "log no unique container",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "$now() & \" DELETE : cannot delete \" & instanceShort & \", expected 1 container got \" & $string(payload.count ? payload.count : 0) & (tag ? \" tag=\" & tag : \"\") & \"<br>\" & logs",
+                "tot": "jsonata"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1600,
+        "y": 220,
+        "wires": [
             []
         ]
     },
@@ -6170,6 +6882,40 @@
         "x": 1350,
         "y": 260,
         "wires": [
+            [
+                "delete_log_container_deleted"
+            ]
+        ]
+    },
+    {
+        "id": "delete_log_container_deleted",
+        "type": "change",
+        "z": "64ed409ae244327b",
+        "name": "log container deleted",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "$now() & \" DELETE : container \" & instanceShort & \" deleted id=\" & $string(container.id) & \" status=\" & $string(statusCode ? statusCode : \"\") & \"<br>\" & logs",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1580,
+        "y": 260,
+        "wires": [
             []
         ]
     },
@@ -6194,6 +6940,40 @@
         "x": 1310,
         "y": 140,
         "wires": [
+            [
+                "delete_log_dns_record_deleted"
+            ]
+        ]
+    },
+    {
+        "id": "delete_log_dns_record_deleted",
+        "type": "change",
+        "z": "64ed409ae244327b",
+        "name": "log dns record deleted",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "$now() & \" DELETE : Cloudflare DNS record delete requested for \" & instance & \" status=\" & $string(statusCode ? statusCode : \"\") & \"<br>\" & logs",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1540,
+        "y": 140,
+        "wires": [
             []
         ]
     },
@@ -6203,6 +6983,67 @@
         "z": "64ed409ae244327b",
         "name": "request",
         "x": 880,
+        "y": 180,
+        "wires": [
+            [
+                "delete_filter_container_results"
+            ]
+        ]
+    },
+    {
+        "id": "delete_filter_container_results",
+        "type": "change",
+        "z": "64ed409ae244327b",
+        "name": "filter container results",
+        "rules": [
+            {
+                "t": "set",
+                "p": "payload",
+                "pt": "msg",
+                "to": "($ids := host_ids ? host_ids : []; $idMatches := function($container) { $count($ids) = 0 or $count($filter($ids, function($id) { $string($id) = $string($container.host.id ? $container.host.id : ($container.host.value ? $container.host.value : $container.host)) })) > 0 }; $matches := $append([], $filter(payload.results ? payload.results : [], function($container) { $lowercase($string($container.name ? $container.name : $container.display)) = $lowercase($string(instanceShort)) and $idMatches($container) })); { \"count\": $count($matches), \"results\": $matches })",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1110,
+        "y": 180,
+        "wires": [
+            [
+                "delete_log_container_lookup"
+            ]
+        ]
+    },
+    {
+        "id": "delete_log_container_lookup",
+        "type": "change",
+        "z": "64ed409ae244327b",
+        "name": "log container lookup",
+        "rules": [
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "msg",
+                "to": "logs",
+                "tot": "global"
+            },
+            {
+                "t": "set",
+                "p": "logs",
+                "pt": "global",
+                "to": "$now() & \" DELETE : lookup \" & instanceShort & \" count=\" & $string(payload.count ? payload.count : 0) & (tag ? \" tag=\" & tag : \"\") & (host_ids_qs ? \" hosts=\" & host_ids_qs : \"\") & \"<br>\" & logs",
+                "tot": "jsonata"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1320,
         "y": 180,
         "wires": [
             [
@@ -7492,7 +8333,7 @@
                 "t": "set",
                 "p": "payload",
                 "pt": "msg",
-                "to": "$map(payload.results, function($v) { { \"name\": $v.name, \"version\": $v.version } })",
+                "to": "$append([], $map(payload.results ? payload.results : [], function($v) { ($text := function($value) { $type($value) = \"object\" ? ($value.version ? $value.version : ($value.tag ? $value.tag : ($value.name ? $value.name : ($value.display ? $value.display : ($value.label ? $value.label : ($value.value ? $value.value : \"\")))))) : $string($value) }; $display := $text($v.display); $rawName := $text($v.name); $rawVersion := $text($v.version); $rawTag := $text($v.tag); $source := $rawName ? $rawName : $display; $parts := $split($source, \":\"); $hasTaggedName := $count($parts) > 1 and $contains($reverse($parts)[0], \"/\") = false; { \"name\": $hasTaggedName ? $join($filter($parts, function($part, $index) { $index < $count($parts) - 1 }), \":\") : $source, \"version\": $rawVersion ? $rawVersion : ($rawTag ? $rawTag : ($hasTaggedName ? $reverse($parts)[0] : \"\")), \"display\": $display } ) }))",
                 "tot": "jsonata"
             }
         ],
@@ -7858,7 +8699,7 @@
                 "t": "set",
                 "p": "payload",
                 "pt": "msg",
-                "to": "$map(payload.results ? payload.results : [], function($v) { { \"name\": $v.name, \"version\": $v.version } })",
+                "to": "$append([], $map(payload.results ? payload.results : [], function($v) { ($text := function($value) { $type($value) = \"object\" ? ($value.version ? $value.version : ($value.tag ? $value.tag : ($value.name ? $value.name : ($value.display ? $value.display : ($value.label ? $value.label : ($value.value ? $value.value : \"\")))))) : $string($value) }; $display := $text($v.display); $rawName := $text($v.name); $rawVersion := $text($v.version); $rawTag := $text($v.tag); $source := $rawName ? $rawName : $display; $parts := $split($source, \":\"); $hasTaggedName := $count($parts) > 1 and $contains($reverse($parts)[0], \"/\") = false; { \"name\": $hasTaggedName ? $join($filter($parts, function($part, $index) { $index < $count($parts) - 1 }), \":\") : $source, \"version\": $rawVersion ? $rawVersion : ($rawTag ? $rawTag : ($hasTaggedName ? $reverse($parts)[0] : \"\")), \"display\": $display } ) }))",
                 "tot": "jsonata"
             }
         ],

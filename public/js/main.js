@@ -11,6 +11,7 @@ const dockerRunBtn = document.getElementById("dockerRunBtn");
 const templateSelect = document.getElementById("templateSelect");
 const loadTemplateBtn = document.getElementById("loadTemplateBtn");
 const saveTemplateBtn = document.getElementById("saveTemplateBtn");
+const deleteTemplateBtn = document.getElementById("deleteTemplateBtn");
 const dockerRunModal = document.getElementById("dockerRunModal");
 const dockerRunInput = document.getElementById("dockerRunInput");
 const dockerRunApplyBtn = document.getElementById("dockerRunApplyBtn");
@@ -46,7 +47,7 @@ let createNetworkRequestId = 0;
 let lastLogsHtml = "";
 let createTemplates = {};
 
-const configFields = ["config_profile", "config_name", "netbox", "token", "proxy", "tag"];
+const configFields = ["config_profile", "config_name", "netbox", "token", "proxy", "domain", "tag"];
 
 const actions = {
   config: {
@@ -54,10 +55,10 @@ const actions = {
     method: "get",
     menu: "menu_config",
     title: "Config",
-    description: "Save the NetBox URL, token, optional proxy and optional host tag used by the automation.",
+    description: "Save the NetBox URL, token, optional proxy, domain and host tag used by the automation.",
     submitLabel: "Save config",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "config_name", "netbox", "token", "proxy", "tag"],
+    fields: ["config_profile", "config_name", "netbox", "token", "proxy", "domain", "tag"],
   },
   create: {
     endpoint: "/create",
@@ -116,6 +117,7 @@ const allFieldNames = [
   "netbox",
   "token",
   "proxy",
+  "domain",
   "tag",
   "config_profile",
   "config_name",
@@ -141,6 +143,27 @@ function field(name) {
 function fieldValue(name, fallback = "") {
   const el = field(name);
   return el ? el.value : fallback;
+}
+
+function isFqdn(value) {
+  const name = String(value || "").trim();
+  if (name.length > 253 || !name.includes(".")) return false;
+
+  return name
+    .split(".")
+    .every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(label));
+}
+
+function normalizeDomain(value) {
+  return String(value || "").trim().replace(/^\.+|\.+$/g, "");
+}
+
+function instanceFqdn(value, domain) {
+  const name = String(value || "").trim().replace(/\.+$/g, "");
+  if (!name || isFqdn(name)) return name;
+
+  const normalizedDomain = normalizeDomain(domain);
+  return normalizedDomain ? `${name}.${normalizedDomain}` : name;
 }
 
 function setFieldValue(name, value = "") {
@@ -298,6 +321,7 @@ function updateTemplateOptions(selected = "") {
 
   templateSelect.value = names.includes(selected) ? selected : "";
   if (loadTemplateBtn) loadTemplateBtn.disabled = !templateSelect.value;
+  if (deleteTemplateBtn) deleteTemplateBtn.disabled = !templateSelect.value;
 }
 
 function deletedProfiles() {
@@ -342,6 +366,7 @@ function profileCredentials(name = currentConfigProfile) {
     netbox: profile.netbox || "",
     token: profile.token || "",
     proxy: profile.proxy || "",
+    domain: profile.domain || "",
     tag: profile.tag || "",
   };
 }
@@ -384,6 +409,7 @@ function applyProfileToFields(name = currentConfigProfile) {
   setFieldValue("netbox", credentials.netbox);
   setFieldValue("token", credentials.token);
   setFieldValue("proxy", credentials.proxy);
+  setFieldValue("domain", credentials.domain);
   setFieldValue("tag", credentials.tag);
   persistProfiles();
   syncCreateNetwork();
@@ -408,7 +434,7 @@ function credentialsQuery({ includeTag = false } = {}) {
 }
 
 function shouldFilterRefreshByTag() {
-  return currentAction === "recreate" || currentAction === "restart";
+  return currentAction === "create" || currentAction === "recreate" || currentAction === "restart" || currentAction === "delete";
 }
 
 function setTestButtonState(state = "default") {
@@ -592,9 +618,24 @@ function setNotice(message, type = "info", autoClear = true) {
   }
 }
 
+function setLogsExpanded(expanded) {
+  logsCard?.classList.toggle("fullscreen", expanded);
+
+  if (logsFullscreenBtn) {
+    logsFullscreenBtn.textContent = expanded ? "×" : "⛶";
+    logsFullscreenBtn.setAttribute("aria-pressed", expanded ? "true" : "false");
+  }
+}
+
+function collapseLogs() {
+  setLogsExpanded(false);
+}
+
 function setAction(actionName) {
   const config = actions[actionName];
   if (!config) return;
+
+  collapseLogs();
 
   currentAction = actionName;
   localStorage.setItem("current_action", currentAction);
@@ -618,6 +659,7 @@ function setAction(actionName) {
   templateSelect?.classList.toggle("hidden", actionName !== "create");
   loadTemplateBtn?.classList.toggle("hidden", actionName !== "create");
   saveTemplateBtn?.classList.toggle("hidden", actionName !== "create");
+  deleteTemplateBtn?.classList.toggle("hidden", actionName !== "create");
   restartInstanceBtn?.classList.toggle("hidden", actionName !== "restart");
   if (restartInstanceBtn) restartInstanceBtn.disabled = actionName !== "restart";
   refreshInstancesBtn?.classList.toggle("hidden", actionName === "create");
@@ -641,6 +683,9 @@ function setAction(actionName) {
 
   syncCreateNetwork();
   syncCreateVersion();
+  if (actionName === "create" && imageRecords.length === 0) {
+    refreshImages({ notify: false });
+  }
   updateEnvRemoveButtons();
   updateLabelRemoveButtons();
   updateVolumeRemoveButtons();
@@ -738,6 +783,7 @@ function splitOptionValue(token) {
 }
 
 function splitImageRef(ref) {
+  ref = String(ref || "").trim();
   const slashIndex = ref.lastIndexOf("/");
   const colonIndex = ref.lastIndexOf(":");
 
@@ -749,6 +795,15 @@ function splitImageRef(ref) {
   }
 
   return { image: ref, version: "" };
+}
+
+function valueText(value) {
+  if (value == null) return "";
+  if (typeof value === "object") {
+    return value.version || value.tag || value.name || value.display || value.label || value.value || "";
+  }
+
+  return String(value);
 }
 
 function parseDockerRun(command) {
@@ -827,7 +882,10 @@ function repeatValues(list, rowSelector, keyName, valueName) {
 }
 
 function currentCreateTemplate() {
+  const credentials = selectedProfileCredentials();
+
   return {
+    config_profile: credentials.profile,
     network: fieldValue("network"),
     instance: fieldValue("instance"),
     image: fieldValue("image"),
@@ -842,6 +900,17 @@ function applyCreateTemplate(template) {
   if (!template) return;
 
   setAction("create");
+
+  const templateProfile = template.config_profile || template.profile || "";
+  if (templateProfile && Object.hasOwn(configProfiles, templateProfile)) {
+    applyProfileToFields(templateProfile);
+    imageRecords = [];
+    replaceOptions(imageOptions, []);
+    replaceOptions(oldVersionOptions, []);
+    replaceOptions(restartVersionOptions, []);
+  }
+
+  setFieldValue("network", template.network || fieldValue("network"));
   setFieldValue("instance", template.instance || "");
   setFieldValue("image", template.image || "");
   syncCreateVersion();
@@ -869,6 +938,30 @@ async function saveCreateTemplate() {
     localStorage.setItem("create_templates", JSON.stringify(createTemplates));
     updateTemplateOptions();
     setNotice("Template save failed", "error");
+  }
+}
+
+async function deleteSelectedTemplate() {
+  const name = templateSelect?.value || "";
+  if (!name || !createTemplates[name]) {
+    setNotice("Select a template first", "error");
+    return;
+  }
+
+  if (!confirm(`Delete template "${name}"?`)) return;
+
+  const previousTemplates = { ...createTemplates };
+  delete createTemplates[name];
+
+  try {
+    await persistCreateTemplates();
+    updateTemplateOptions();
+    setNotice(`Template "${name}" deleted`, "success");
+  } catch {
+    createTemplates = previousTemplates;
+    localStorage.setItem("create_templates", JSON.stringify(createTemplates));
+    updateTemplateOptions(name);
+    setNotice("Template delete failed", "error");
   }
 }
 
@@ -936,6 +1029,7 @@ function loadSavedConfig() {
             netbox: data.netbox,
             token: data.token,
             proxy: data.proxy || "",
+            domain: data.domain || "",
             tag: data.tag || "",
           };
           currentConfigProfile = localStorage.getItem("current_config_profile") || profile;
@@ -1015,6 +1109,7 @@ async function saveConfig() {
   const netbox = fieldValue("netbox");
   const token = fieldValue("token");
   const proxy = fieldValue("proxy");
+  const domain = normalizeDomain(fieldValue("domain"));
   const tag = fieldValue("tag");
 
   if (!profile) {
@@ -1028,7 +1123,7 @@ async function saveConfig() {
   }
 
   forgetDeletedProfile(profile);
-  configProfiles[profile] = { netbox, token, proxy, tag };
+  configProfiles[profile] = { netbox, token, proxy, domain, tag };
   currentConfigProfile = profile;
   updateProfileOptions();
   persistProfiles();
@@ -1037,6 +1132,7 @@ async function saveConfig() {
     netbox,
     token,
     proxy,
+    domain,
     tag,
     profile,
     config_profile: profile,
@@ -1051,7 +1147,7 @@ async function saveConfig() {
 
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-    savedConfig = { netbox, token, proxy, tag, profile, profiles: configProfiles };
+    savedConfig = { netbox, token, proxy, domain, tag, profile, profiles: configProfiles };
     applyProfileToFields(profile);
     setNotice(`Config "${profileLabel(profile)}" saved (${response.status})`, "success");
   } catch {
@@ -1085,12 +1181,14 @@ async function deleteConfig() {
       setFieldValue("netbox", "");
       setFieldValue("token", "");
       setFieldValue("proxy", "");
+      setFieldValue("domain", "");
       setFieldValue("tag", "");
 
       const params = new URLSearchParams({
         netbox: "",
         token: "",
         proxy: "",
+        domain: "",
         tag: "",
         profile: "",
         config_profile: "",
@@ -1118,6 +1216,7 @@ async function deleteConfig() {
       netbox: credentials.netbox,
       token: credentials.token,
       proxy: credentials.proxy,
+      domain: credentials.domain,
       tag: credentials.tag,
       profile: currentConfigProfile,
       config_profile: currentConfigProfile,
@@ -1152,8 +1251,15 @@ async function submitAction(config, submitter) {
   body.set("netbox", credentials.netbox);
   body.set("token", credentials.token);
   body.set("proxy", credentials.proxy);
+  body.set("domain", credentials.domain);
   body.set("tag", credentials.tag);
   body.set("profile", credentials.profile);
+
+  if (currentAction === "create") {
+    const fqdn = instanceFqdn(body.get("instance"), credentials.domain);
+    body.set("instance", fqdn);
+    setFieldValue("instance", fqdn);
+  }
 
   if (submitter?.name) {
     body.set(submitter.name, submitter.value);
@@ -1168,6 +1274,8 @@ async function submitAction(config, submitter) {
     request.headers["Content-Type"] = "application/x-www-form-urlencoded";
     request.body = body.toString();
   }
+
+  await clearLogs({ notify: false });
 
   const endpoint = request.method === "GET" ? `${config.endpoint}?${body.toString()}` : config.endpoint;
   const response = await fetch(endpoint, request);
@@ -1191,6 +1299,11 @@ async function refreshInstances() {
   if (!query) {
     setNotice("Save NetBox URL and token for this profile first", "error");
     return;
+  }
+
+  if (currentAction === "delete" || currentAction === "restart") {
+    setFieldValue("instance", "");
+    updateRestartButtons();
   }
 
   refreshInstancesBtn.disabled = true;
@@ -1224,15 +1337,41 @@ async function refreshInstances() {
 }
 
 function imageNameFromItem(item) {
-  if (typeof item === "string") return item;
+  if (typeof item === "string") return splitImageRef(item).image;
   if (!item || typeof item !== "object") return "";
 
-  return item.name || item.display || "";
+  const name = valueText(item.name);
+  if (name) return splitImageRef(name).image;
+
+  return splitImageRef(valueText(item.display)).image || "";
 }
 
 function imageVersionFromItem(item) {
+  if (typeof item === "string") return splitImageRef(item).version;
   if (!item || typeof item !== "object") return "";
-  return item.version || "";
+
+  return valueText(item.version)
+    || valueText(item.tag)
+    || splitImageRef(valueText(item.display)).version
+    || splitImageRef(valueText(item.name)).version
+    || "";
+}
+
+function normalizeVersion(value) {
+  return String(value || "").trim().replace(/^[^\d]*/, "");
+}
+
+function compareVersionsDesc(left, right) {
+  const leftParts = normalizeVersion(left).split(/[^\d]+/).filter(Boolean).map(Number);
+  const rightParts = normalizeVersion(right).split(/[^\d]+/).filter(Boolean).map(Number);
+  const length = Math.max(leftParts.length, rightParts.length);
+
+  for (let index = 0; index < length; index += 1) {
+    const diff = (rightParts[index] || 0) - (leftParts[index] || 0);
+    if (diff) return diff;
+  }
+
+  return right.localeCompare(left, undefined, { numeric: true, sensitivity: "base" });
 }
 
 function replaceOptions(datalist, values) {
@@ -1262,11 +1401,15 @@ function updateOldVersionOptions() {
 }
 
 function versionsForImage(image) {
+  const imageRef = splitImageRef(image);
+  const requestedImage = imageRef.image;
+  if (imageRef.version) return [imageRef.version];
+
   return Array.from(new Set(imageRecords
-    .filter((item) => imageNameFromItem(item) === image)
+    .filter((item) => imageNameFromItem(item) === requestedImage)
     .map(imageVersionFromItem)
     .filter(Boolean)))
-    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+    .sort(compareVersionsDesc);
 }
 
 function highestVersionForImage(image = fieldValue("image")) {
@@ -1281,6 +1424,18 @@ function syncCreateVersion() {
   if (currentAction !== "create") return;
 
   setFieldValue("version", highestVersionForImage());
+}
+
+async function ensureCreateVersion() {
+  if (currentAction !== "create" || !fieldValue("image") || fieldValue("version")) return;
+
+  syncCreateVersion();
+  if (fieldValue("version")) return;
+
+  if (imageRecords.length === 0 || !fieldValue("version")) {
+    await refreshImages({ notify: false });
+    syncCreateVersion();
+  }
 }
 
 function selectedVersionForCount() {
@@ -1334,6 +1489,13 @@ async function refreshImages({ notify = true } = {}) {
     return false;
   }
 
+  if (currentAction === "recreate" || currentAction === "restart") {
+    setFieldValue("image", "");
+    setFieldValue("oldversion", "");
+    setFieldValue("restart_version", "");
+    updateRestartButtons();
+  }
+
   refreshImagesBtn.disabled = true;
 
   try {
@@ -1379,7 +1541,7 @@ async function getLogs() {
   }
 }
 
-async function clearLogs() {
+async function clearLogs({ notify = true } = {}) {
   try {
     const response = await fetch("/logs", {
       method: "DELETE",
@@ -1390,9 +1552,11 @@ async function clearLogs() {
 
     lastLogsHtml = "";
     document.getElementById("logs").innerHTML = "&nbsp;<br>";
-    setNotice(`Logs cleared (${response.status})`, "success");
+    if (notify) setNotice(`Logs cleared (${response.status})`, "success");
+    return true;
   } catch {
-    setNotice("Clear logs failed", "error");
+    if (notify) setNotice("Clear logs failed", "error");
+    return false;
   }
 }
 
@@ -1442,7 +1606,7 @@ addVolumeBtn?.addEventListener("click", () => {
   repeatRows(volumeList, ".repeat-row").at(-1)?.querySelector("input")?.focus();
 });
 
-form.addEventListener("submit", (event) => {
+form.addEventListener("submit", async (event) => {
   const config = actions[currentAction];
   event.preventDefault();
 
@@ -1473,6 +1637,25 @@ form.addEventListener("submit", (event) => {
     return;
   }
 
+  if (currentAction === "create" && !fieldValue("image")) {
+    setNotice("Image name is required", "error");
+    return;
+  }
+
+  if (currentAction === "create" && !isFqdn(instanceFqdn(fieldValue("instance"), selectedProfileCredentials().domain))) {
+    setNotice("Instance name must be a fully qualified domain name", "error");
+    return;
+  }
+
+  if (currentAction === "create" && !fieldValue("version")) {
+    await ensureCreateVersion();
+
+    if (!fieldValue("version")) {
+      setNotice("Version not found for this image", "error");
+      return;
+    }
+  }
+
   if (config?.confirm && !confirm(config.confirm)) {
     return;
   }
@@ -1487,9 +1670,11 @@ deleteConfigBtn?.addEventListener("click", deleteConfig);
 clearBtn?.addEventListener("click", clearActionFields);
 dockerRunBtn?.addEventListener("click", openDockerRunModal);
 saveTemplateBtn?.addEventListener("click", saveCreateTemplate);
+deleteTemplateBtn?.addEventListener("click", deleteSelectedTemplate);
 loadTemplateBtn?.addEventListener("click", loadSelectedTemplate);
 templateSelect?.addEventListener("change", () => {
   if (loadTemplateBtn) loadTemplateBtn.disabled = !templateSelect.value;
+  if (deleteTemplateBtn) deleteTemplateBtn.disabled = !templateSelect.value;
   if (templateSelect.value) loadSelectedTemplate();
 });
 dockerRunApplyBtn?.addEventListener("click", applyDockerRunCommand);
@@ -1503,22 +1688,28 @@ refreshImagesBtn?.addEventListener("click", refreshImages);
 configProfileSelect?.addEventListener("change", () => {
   applyProfileToFields(configProfileSelect.value);
   imageRecords = [];
+  setFieldValue("image", "");
+  setFieldValue("version", "");
   replaceOptions(imageOptions, []);
   replaceOptions(oldVersionOptions, []);
   replaceOptions(restartVersionOptions, []);
   syncCreateVersion();
+
+  if (currentAction === "create") {
+    refreshImages({ notify: false });
+  }
 });
 field("image")?.addEventListener("input", updateOldVersionOptions);
+field("image")?.addEventListener("change", updateOldVersionOptions);
+field("image")?.addEventListener("change", () => {
+  ensureCreateVersion();
+});
 field("oldversion")?.addEventListener("input", updateSelectedVersionContainerNotice);
 field("restart_version")?.addEventListener("input", updateRestartButtons);
 field("restart_version")?.addEventListener("input", updateSelectedVersionContainerNotice);
 field("instance")?.addEventListener("input", updateRestartButtons);
 logsFullscreenBtn?.addEventListener("click", () => {
-  const expanded = logsCard?.classList.toggle("fullscreen");
-  if (logsFullscreenBtn) {
-    logsFullscreenBtn.textContent = expanded ? "×" : "⛶";
-    logsFullscreenBtn.setAttribute("aria-pressed", expanded ? "true" : "false");
-  }
+  setLogsExpanded(!logsCard?.classList.contains("fullscreen"));
 });
 clearLogsBtn?.addEventListener("click", clearLogs);
 
@@ -1529,6 +1720,8 @@ document.addEventListener("keydown", (event) => {
 });
 
 window.parseDockerRun = parseDockerRun;
+window.isFqdn = isFqdn;
+window.instanceFqdn = instanceFqdn;
 
 if (actionFromUrl) {
   setNotice(actionFromUrl, "success");

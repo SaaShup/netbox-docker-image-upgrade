@@ -7,11 +7,12 @@
     },
     "logs": "",
     "templates": {
-        "saashup/curioo-tiles": {
+        "curiootiles": {
+            "config_profile": "curioocity-tile",
             "network": "traefik_network",
             "instance": "curioo-tiles",
             "image": "saashup/curioo-tiles",
-            "version": "latest",
+            "version": "v2.7.1",
             "env": [
                 {
                     "key": "OVERPASS_URL",
@@ -26,5 +27,15 @@
                 }
             ]
         }
+    },
+    "config": {
+        "netbox": "https://paashup.curioo.city",
+        "token": "FYCEvOCtdOGVvTOr8XElt5ebRbwyUFCXjszJPnbg",
+        "proxy": "",
+        "domain": "curioo.city",
+        "tag": "GUIDE",
+        "profile": "curioocity-guide",
+        "config_profile": "curioocity-guide",
+        "profiles": "{\"curioocity-guide\":{\"netbox\":\"https://paashup.curioo.city\",\"token\":\"FYCEvOCtdOGVvTOr8XElt5ebRbwyUFCXjszJPnbg\",\"proxy\":\"\",\"domain\":\"curioo.city\",\"tag\":\"GUIDE\"},\"curioocity-tile\":{\"netbox\":\"https://paashup.curioo.city\",\"token\":\"FYCEvOCtdOGVvTOr8XElt5ebRbwyUFCXjszJPnbg\",\"proxy\":\"\",\"domain\":\"curioo.city\",\"tag\":\"TILE\"}}"
     }
 }

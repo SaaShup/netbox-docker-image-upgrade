@@ -9,7 +9,7 @@ docker run -d -v netbox-docker-image-upgrade:/data -p 1880:1880 --name netbox-do
 
 # Config profiles
 
-The admin UI supports multiple named NetBox configs. In the Config menu, choose or enter a profile name, fill the NetBox URL, token, optional proxy URL and optional host tag slug, then save. Create, Upgrade, Restart, Delete, host refresh, instance refresh and image refresh all use the selected profile. When a tag is set, Create, Upgrade, Restart and refresh lists first load hosts with that tag. Create selects the matching host with the fewest containers.
+The admin UI supports multiple named NetBox configs. In the Config menu, choose or enter a profile name, fill the NetBox URL, token, optional proxy URL, optional domain and optional host tag slug, then save. Create, Upgrade, Restart, Delete, host refresh, instance refresh and image refresh all use the selected profile. When a domain is set, Create turns a short instance name into an FQDN by appending that domain. When a tag is set, Create, Upgrade, Restart and refresh lists first load hosts with that tag. Create selects the matching host with the fewest containers.
 
 # Refresh hosts
 

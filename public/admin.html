@@ -47,7 +47,8 @@
         <button type="button" class="btn btn-secondary hidden" id="dockerRunBtn">Docker run</button>
         <select class="toolbar-select hidden" id="templateSelect" aria-label="Create template"></select>
         <button type="button" class="btn btn-secondary hidden" id="loadTemplateBtn">Load template</button>
-        <button type="button" class="btn btn-secondary hidden" id="saveTemplateBtn">Create template</button>
+        <button type="button" class="btn btn-secondary hidden" id="saveTemplateBtn">Save template</button>
+        <button type="button" class="btn btn-danger hidden" id="deleteTemplateBtn">Delete template</button>
       </section>
 
       <section class="content-grid">
@@ -82,6 +83,11 @@
               <label class="field" data-field="proxy">
                 <span>Proxy URL</span>
                 <input type="url" id="proxy" name="proxy" placeholder="http://proxy.example.com:8080">
+              </label>
+
+              <label class="field" data-field="domain">
+                <span>Domain</span>
+                <input type="text" id="domain" name="domain" placeholder="paashup.cloud">
               </label>
 
               <label class="field" data-field="tag">

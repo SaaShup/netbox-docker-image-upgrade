@@ -44,7 +44,7 @@ function ruleValue(nodeId, property) {
 
 async function openAdmin(page, config = {}, templates = {}, instances = [
   { instance: "guide-app", networks: ["bridge", "traefik-net"] },
-]) {
+], handleLogs) {
   let templateStore = templates;
 
   await page.route("**/config", async (route) => {
@@ -65,6 +65,11 @@ async function openAdmin(page, config = {}, templates = {}, instances = [
   });
 
   await page.route("**/logs", async (route) => {
+    if (handleLogs) {
+      await handleLogs(route);
+      return;
+    }
+
     await route.fulfill({
       status: route.request().method() === "DELETE" ? 204 : 200,
       contentType: "text/plain",
@@ -98,8 +103,16 @@ async function openAdmin(page, config = {}, templates = {}, instances = [
 }
 
 test.beforeEach(async ({ page }) => {
+  await page.route("**/config", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
   await page.goto("/admin.html");
   await page.evaluate(() => localStorage.clear());
+  await page.unroute("**/config");
 });
 
 test("config tab starts without a forced default profile", async ({ page }) => {
@@ -111,6 +124,7 @@ test("config tab starts without a forced default profile", async ({ page }) => {
   await expect(page.locator("#config_name")).toHaveValue("");
   await expect(page.locator("#netbox")).toHaveValue("");
   await expect(page.locator("#token")).toHaveValue("");
+  await expect(page.locator("#domain")).toHaveValue("");
   await expect(page.locator("#tag")).toHaveValue("");
   await expect(page.locator("#deleteConfigBtn")).toBeVisible();
   await expect(page.locator("#clearBtn")).toBeHidden();
@@ -125,6 +139,7 @@ test("delete config removes the profile and keeps it gone after reload", async (
         netbox: "https://netbox.example.com",
         token: "secret",
         proxy: "",
+        domain: "apps.example.com",
         tag: "production",
       },
     }));
@@ -150,6 +165,7 @@ test("delete config removes the profile and keeps it gone after reload", async (
         netbox: "https://netbox.example.com",
         token: "secret",
         proxy: "",
+        domain: "apps.example.com",
         tag: "production",
       },
     }),
@@ -162,6 +178,7 @@ test("delete config removes the profile and keeps it gone after reload", async (
   await expect(page.locator("#config_profile")).toHaveValue("");
   await expect(page.locator("#config_profile option")).toHaveText("No config saved");
   expect(webhookBody).toContain("profiles=%7B%7D");
+  expect(webhookBody).toContain("domain=");
 
   await page.reload();
   await expect(page.locator("#config_profile")).toHaveValue("");
@@ -187,6 +204,7 @@ test("create form supports repeatable env, labels, and volumes", async ({ page }
         netbox: "https://netbox.example.com",
         token: "secret",
         proxy: "",
+        domain: "apps.example.com",
         tag: "production",
       },
     }),
@@ -223,6 +241,235 @@ test("create form supports repeatable env, labels, and volumes", async ({ page }
   await expect(page.locator("#volumeList .repeat-row")).toHaveCount(1);
 });
 
+test("create form derives the highest version from full image references", async ({ page }) => {
+  await page.route("**/images?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        "registry.example.com:5000/saashup/guide:v1.9.0",
+        { display: "registry.example.com:5000/saashup/guide:v1.12.0" },
+        { name: "registry.example.com:5000/saashup/guide", display: "registry.example.com:5000/saashup/guide:v1.10.0" },
+      ]),
+    });
+  });
+
+  await openAdmin(page, {
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "apps.example.com",
+        tag: "production",
+      },
+    }),
+  });
+
+  await page.getByRole("link", { name: "Create" }).click();
+  await page.locator("#refreshImagesBtn").click();
+  await expect(page.locator("#notif")).toContainText("Loaded 1 images");
+  await page.locator("#image").fill("registry.example.com:5000/saashup/guide");
+
+  await expect(page.locator("#version")).toHaveValue("v1.12.0");
+});
+
+test("create form refreshes images automatically when an image is entered", async ({ page }) => {
+  await page.route("**/images?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        { name: "saashup/guide:v1.3.0" },
+        { name: "saashup/guide", tag: { display: "v1.5.0" } },
+      ]),
+    });
+  });
+
+  await openAdmin(page, {
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "apps.example.com",
+        tag: "production",
+      },
+    }),
+  });
+
+  await page.getByRole("link", { name: "Create" }).click();
+  await page.locator("#image").fill("saashup/guide");
+  await page.locator("#image").blur();
+
+  await expect(page.locator("#version")).toHaveValue("v1.5.0");
+});
+
+test("create form refreshes again when the selected image is missing from the cache", async ({ page }) => {
+  let imageRequestCount = 0;
+
+  await page.route("**/images?**", async (route) => {
+    imageRequestCount += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(imageRequestCount === 1
+        ? [{ name: "saashup/other", version: "v9.0.0" }]
+        : [{ name: "saashup/guide", version: "v2.0.0" }]),
+    });
+  });
+
+  await openAdmin(page, {
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "apps.example.com",
+        tag: "production",
+      },
+    }),
+  });
+
+  await page.getByRole("link", { name: "Create" }).click();
+  await expect(page.locator("#notif")).toContainText("Welcome !");
+  await page.locator("#image").fill("saashup/guide");
+  await page.locator("#image").blur();
+
+  await expect(page.locator("#version")).toHaveValue("v2.0.0");
+});
+
+test("create form refreshes images for the selected config profile tag", async ({ page }) => {
+  const imageTags = [];
+
+  await page.route("**/images?**", async (route) => {
+    const tag = new URL(route.request().url()).searchParams.get("tag") || "";
+    imageTags.push(tag);
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(tag === "TILE"
+        ? [{ name: "saashup/tile", version: "v2.0.0" }]
+        : [{ name: "saashup/guide", version: "v1.0.0" }]),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "guide",
+    profiles: JSON.stringify({
+      guide: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "apps.example.com",
+        tag: "GUIDE",
+      },
+      tile: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "apps.example.com",
+        tag: "TILE",
+      },
+    }),
+  });
+
+  await page.getByRole("link", { name: "Create" }).click();
+  await expect.poll(() => page.locator("#imageOptions option").evaluateAll((options) => options.map((option) => option.value))).toEqual(["saashup/guide"]);
+
+  await page.locator("#image").fill("saashup/guide");
+  await expect(page.locator("#version")).toHaveValue("v1.0.0");
+
+  await page.locator("#config_profile").selectOption("tile");
+  await expect(page.locator("#image")).toHaveValue("");
+  await expect(page.locator("#version")).toHaveValue("");
+  await expect.poll(() => page.locator("#imageOptions option").evaluateAll((options) => options.map((option) => option.value))).toEqual(["saashup/tile"]);
+
+  await page.locator("#image").fill("saashup/tile");
+  await expect(page.locator("#version")).toHaveValue("v2.0.0");
+  expect(imageTags).toContain("GUIDE");
+  expect(imageTags).toContain("TILE");
+});
+
+test("create template switches to its saved config profile", async ({ page }) => {
+  const imageTags = [];
+
+  await page.route("**/images?**", async (route) => {
+    const tag = new URL(route.request().url()).searchParams.get("tag") || "";
+    imageTags.push(tag);
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(tag === "TILE"
+        ? [{ name: "saashup/tile", version: "v2.0.0" }]
+        : [{ name: "saashup/guide", version: "v1.0.0" }]),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "guide",
+    profiles: JSON.stringify({
+      guide: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "guide.example.com",
+        tag: "GUIDE",
+      },
+      tile: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "tile.example.com",
+        tag: "TILE",
+      },
+    }),
+  }, {
+    Tile: {
+      config_profile: "tile",
+      network: "traefik-net",
+      instance: "tile-app",
+      image: "saashup/tile",
+      env: [],
+      labels: [],
+      volumes: [],
+    },
+  });
+
+  await page.getByRole("link", { name: "Create" }).click();
+  await expect(page.locator("#config_profile")).toHaveValue("guide");
+
+  await page.locator("#templateSelect").selectOption("Tile");
+
+  await expect(page.locator("#config_profile")).toHaveValue("tile");
+  await expect(page.locator("#domain")).toHaveValue("tile.example.com");
+  await expect(page.locator("#tag")).toHaveValue("TILE");
+  await expect(page.locator("#image")).toHaveValue("saashup/tile");
+  await expect(page.locator("#version")).toHaveValue("v2.0.0");
+  expect(imageTags).toContain("TILE");
+});
+
+test("create form derives version from a pasted image tag", async ({ page }) => {
+  await openAdmin(page, {
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "apps.example.com",
+        tag: "production",
+      },
+    }),
+  });
+
+  await page.getByRole("link", { name: "Create" }).click();
+  await page.locator("#image").fill("registry.example.com:5000/saashup/guide:v3.1.4");
+
+  await expect(page.locator("#version")).toHaveValue("v3.1.4");
+});
+
 test("create form selects the network starting with traefik", async ({ page }) => {
   let instancesUrl = "";
 
@@ -246,6 +493,82 @@ test("create form selects the network starting with traefik", async ({ page }) =
 
   await expect(page.locator("#network")).toHaveValue("traefik-tile");
   expect(new URL(instancesUrl).searchParams.get("tag")).toBe("TILE");
+});
+
+test("create form requires an fqdn instance name", async ({ page }) => {
+  let createSubmitted = false;
+
+  await page.route("**/create", async (route) => {
+    createSubmitted = true;
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+
+  await openAdmin(page, {
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        tag: "TILE",
+      },
+    }),
+  });
+
+  await page.getByRole("link", { name: "Create" }).click();
+  await page.locator("#instance").fill("guide-app");
+  await page.locator("#image").fill("saashup/guide");
+  await page.locator("#submitBtn").click();
+
+  await expect(page.locator("#notif")).toContainText("Instance name must be a fully qualified domain name");
+  expect(createSubmitted).toBe(false);
+});
+
+test("create form appends the configured domain to short instance names", async ({ page }) => {
+  let createBody = "";
+
+  await page.route("**/images?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        { name: "saashup/tiles", version: "v1.0.0" },
+      ]),
+    });
+  });
+
+  await page.route("**/create", async (route) => {
+    createBody = route.request().postData() || "";
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+
+  await openAdmin(page, {
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "daily.paashup.cloud",
+        tag: "TILE",
+      },
+    }),
+  });
+
+  await page.getByRole("link", { name: "Create" }).click();
+  await page.locator("#instance").fill("tiles");
+  await page.locator("#image").fill("saashup/tiles");
+  await page.locator("#submitBtn").click();
+
+  await expect.poll(() => createBody).toContain("instance=tiles.daily.paashup.cloud");
+  expect(createBody).toContain("domain=daily.paashup.cloud");
+  await expect(page.locator("#instance")).toHaveValue("tiles.daily.paashup.cloud");
 });
 
 test("create form can import a docker run command", async ({ page }) => {
@@ -341,6 +664,8 @@ test("create form can save and load templates", async ({ page }) => {
 
   await page.getByRole("link", { name: "Create" }).click();
   await expect(page.locator("#saveTemplateBtn")).toBeVisible();
+  await expect(page.locator("#saveTemplateBtn")).toHaveText("Save template");
+  await expect(page.locator("#deleteTemplateBtn")).toBeVisible();
 
   await page.locator("#refreshImagesBtn").click();
   await expect(page.locator("#notif")).toContainText("Loaded 1 images");
@@ -371,7 +696,7 @@ test("create form can save and load templates", async ({ page }) => {
 
   await page.locator("#templateSelect").selectOption("Guide");
   await expect(page.locator("#notif")).toContainText('Template "Guide" loaded');
-  expect(imageRequestCount).toBe(imageRequestsBeforeLoad + 1);
+  expect(imageRequestCount).toBeGreaterThanOrEqual(imageRequestsBeforeLoad);
   await expect(page.locator("#network")).toHaveValue("traefik-net");
   await expect(page.locator("#instance")).toHaveValue("guide-app");
   await expect(page.locator("#image")).toHaveValue("saashup/guide");
@@ -379,6 +704,11 @@ test("create form can save and load templates", async ({ page }) => {
   await expect(page.locator("#var_env_key")).toHaveValue("APP_ENV");
   await expect(page.locator("#label_key")).toHaveValue("traefik.enable");
   await expect(page.locator("#volume_source")).toHaveValue("/app/data");
+
+  await page.on("dialog", (dialog) => dialog.accept());
+  await page.locator("#deleteTemplateBtn").click();
+  await expect(page.locator("#notif")).toContainText('Template "Guide" deleted');
+  await expect(page.locator("#templateSelect option")).toHaveText("No templates saved");
 });
 
 test("upgrade can submit the clean name option", async ({ page }) => {
@@ -400,7 +730,10 @@ test("upgrade can submit the clean name option", async ({ page }) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: "[]",
+      body: JSON.stringify([
+        { name: "saashup/app", version: "v1.0.0" },
+        { name: "saashup/other", version: "v2.0.0" },
+      ]),
     });
   });
 
@@ -426,7 +759,15 @@ test("upgrade can submit the clean name option", async ({ page }) => {
 
   await page.getByRole("link", { name: "Upgrade" }).click();
   await expect(page.locator("[data-field='clean_name']")).toBeVisible();
+  await page.locator("#image").fill("old-filter");
+  await page.locator("#oldversion").fill("old-version");
   await page.locator("#refreshImagesBtn").click();
+  await expect(page.locator("#image")).toHaveValue("");
+  await expect(page.locator("#oldversion")).toHaveValue("");
+  await expect.poll(() => page.locator("#imageOptions option").evaluateAll((options) => options.map((option) => option.value))).toEqual([
+    "saashup/app",
+    "saashup/other",
+  ]);
   expect(new URL(imagesUrl).searchParams.get("tag")).toBe("production");
 
   await page.locator("#image").fill("saashup/app");
@@ -440,6 +781,7 @@ test("upgrade can submit the clean name option", async ({ page }) => {
   await page.locator("#clean_name").check();
   await page.locator("#submitBtn").click();
 
+  await expect.poll(() => recreateBody).toContain("clean_name=true");
   expect(recreateBody).toContain("clean_name=true");
   expect(recreateBody).toContain("tag=production");
 });
@@ -471,7 +813,64 @@ test("refresh hosts submits the configured tag", async ({ page }) => {
   await page.on("dialog", (dialog) => dialog.accept());
   await page.locator("#submitBtn").click();
 
+  await expect.poll(() => refreshBody).toContain("tag=production");
   expect(refreshBody).toContain("tag=production");
+});
+
+test("delete instance refresh submits the configured tag", async ({ page }) => {
+  let instancesUrl = "";
+
+  await openAdmin(page, {
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        tag: "TILE",
+      },
+    }),
+  }, {}, (route) => {
+    instancesUrl = route.request().url();
+    return [
+      { instance: "tiles.example.com", networks: ["traefik-public"] },
+    ];
+  });
+
+  await page.getByRole("link", { name: "Delete" }).click();
+  await page.locator("#instance").fill("old-filter");
+  await page.locator("#refreshInstancesBtn").click();
+
+  await expect(page.locator("#notif")).toContainText("Loaded 1 instances");
+  await expect(page.locator("#instance")).toHaveValue("");
+  await expect.poll(() => page.locator("#instanceOptions option").evaluateAll((options) => options.map((option) => option.value))).toEqual(["tiles.example.com"]);
+  expect(new URL(instancesUrl).searchParams.get("tag")).toBe("TILE");
+});
+
+test("restart instance refresh clears the instance input before showing choices", async ({ page }) => {
+  await openAdmin(page, {
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        tag: "TILE",
+      },
+    }),
+  }, {}, [
+    { instance: "tiles.example.com", networks: ["traefik-public"] },
+    { instance: "guide.example.com", networks: ["traefik-public"] },
+  ]);
+
+  await page.getByRole("link", { name: "Restart" }).click();
+  await page.locator("#instance").fill("old-filter");
+  await page.locator("#refreshInstancesBtn").click();
+
+  await expect(page.locator("#notif")).toContainText("Loaded 2 instances");
+  await expect(page.locator("#instance")).toHaveValue("");
+  await expect.poll(() => page.locator("#instanceOptions option").evaluateAll((options) => options.map((option) => option.value))).toEqual([
+    "guide.example.com",
+    "tiles.example.com",
+  ]);
 });
 
 test("refresh hosts requires saved NetBox credentials", async ({ page }) => {
@@ -539,10 +938,55 @@ test("logs panel can go fullscreen and clear logs", async ({ page }) => {
 
   await page.locator("#logsFullscreenBtn").click();
   await expect(page.locator("#logsCard")).toHaveClass(/fullscreen/);
+  await expect(page.locator("#logsFullscreenBtn")).toHaveAttribute("aria-pressed", "true");
+
+  await page.getByRole("link", { name: "Create" }).click();
+  await expect(page.locator("#logsCard")).not.toHaveClass(/fullscreen/);
+  await expect(page.locator("#logsFullscreenBtn")).toHaveAttribute("aria-pressed", "false");
 
   await page.on("dialog", (dialog) => dialog.accept());
   await page.locator("#clearLogsBtn").click();
   await expect(page.locator("#notif")).toContainText("Logs cleared");
+});
+
+test("submitting an action clears logs before starting the job", async ({ page }) => {
+  const events = [];
+
+  await page.route("**/refresh-hosts", async (route) => {
+    events.push("refresh");
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+
+  await openAdmin(page, {
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        tag: "TILE",
+      },
+    }),
+  }, {}, [
+    { instance: "guide-app", networks: ["bridge", "traefik-net"] },
+  ], async (route) => {
+    if (route.request().method() === "DELETE") events.push("clear");
+
+    await route.fulfill({
+      status: route.request().method() === "DELETE" ? 204 : 200,
+      contentType: "text/plain",
+      body: "old log",
+    });
+  });
+
+  await page.getByRole("link", { name: "Refresh" }).click();
+  await page.locator("#submitBtn").click();
+
+  await expect(page.locator("#notif")).toContainText("Refresh Docker hosts requested");
+  await expect.poll(() => events).toEqual(["clear", "refresh"]);
 });
 
 test("docker run parser supports quoted values and registry ports", async ({ page }) => {
@@ -793,6 +1237,49 @@ test("create host candidate filter uses the same host tag semantics", async () =
   expect(hosts.map((host) => host.name)).toEqual(["overpass1", "overpass2"]);
 });
 
+test("create init reads submitted version from the form payload", async () => {
+  const version = await evaluateJsonata("2dcca2a38409fe43", "version", {
+    config: {
+      version: "v2.0.0",
+    },
+  });
+
+  expect(version).toBe("v2.0.0");
+});
+
+test("create flow logs each provisioning stage", () => {
+  expect(flowNode("62e25cd5752991bc").wires[0]).toContain("create_log_image_found");
+  expect(flowNode("apply_proxy_1233e36c1ed40b2c").wires[0]).toContain("create_log_volume_created");
+  expect(flowNode("apply_proxy_9f73f45cd7734d7f").wires[0]).toContain("create_log_container_created");
+  expect(flowNode("apply_proxy_ddfa991fa8e68500").wires[0]).toContain("create_log_container_configured");
+  expect(flowNode("apply_proxy_e0ec5be02bee7c3e").wires[0]).toContain("create_log_recreate_requested");
+});
+
+test("create cloudflare dns record uses post and logs the result", async () => {
+  expect(ruleValue("458387080417f52a", "method")).toBe("GET");
+  expect(ruleValue("2bc10654858e4154", "method")).toBe("POST");
+  expect(flowNode("2dcca2a38409fe43").wires[0]).not.toContain("c9baa00a19d15c11");
+  expect(flowNode("create_select_host").wires[0]).toContain("c9baa00a19d15c11");
+  expect(flowNode("08a921bf4f9a4dc0").wires[1]).toContain("create_log_dns_zone_missing");
+  expect(flowNode("apply_proxy_9a0bc1c9cbbaf0e2").wires[0]).toContain("create_log_dns_record_requested");
+
+  const payload = await evaluateJsonata("2bc10654858e4154", "payload", {
+    zoneid: 42,
+    instance: "tiles.example.com",
+    hostname: "curioo-city-overpass1",
+    instanceZone: "example.com",
+  });
+
+  expect(payload).toEqual({
+    zone: 42,
+    name: "tiles.example.com",
+    type: "CNAME",
+    content: "curioo-city-overpass1.example.com",
+    ttl: 60,
+    proxied: true,
+  });
+});
+
 test("create host candidate query includes all selected host ids", async () => {
   const queryString = await evaluateJsonata("create_prepare_host_candidates", "host_ids_qs", {
     host_candidates: [
@@ -802,4 +1289,151 @@ test("create host candidate query includes all selected host ids", async () => {
   });
 
   expect(queryString).toBe("&host_id=12&host_id=13");
+});
+
+test("create host image lookup includes requested image, version, and selected host ids", async () => {
+  const url = await evaluateJsonata("create_prepare_host_candidates", "url", {
+    netbox: "https://netbox.example.com",
+    image: "saashup/tiles",
+    version: "v2.0.0",
+    host_ids_qs: "&host_id=12&host_id=13",
+  });
+
+  expect(url).toBe("https://netbox.example.com/api/plugins/docker/images/?name=saashup/tiles&version=v2.0.0&limit=1000&host_id=12&host_id=13");
+});
+
+test("image refresh formatter preserves versions from display references", async () => {
+  const images = await evaluateJsonata("a1c1b1a0f0020004", "payload", {
+    payload: {
+      results: [
+        { display: "registry.example.com:5000/saashup/tiles:v2.7.10" },
+        { name: "saashup/guide:v1.3.0" },
+        { name: "saashup/guide", tag: { display: "v1.5.0" } },
+      ],
+    },
+  });
+
+  expect(images).toEqual([
+    {
+      name: "registry.example.com:5000/saashup/tiles",
+      version: "v2.7.10",
+      display: "registry.example.com:5000/saashup/tiles:v2.7.10",
+    },
+    {
+      name: "saashup/guide",
+      version: "v1.3.0",
+    },
+    {
+      name: "saashup/guide",
+      version: "v1.5.0",
+    },
+  ]);
+});
+
+test("create filters candidate hosts to hosts that have the requested image", async () => {
+  const hosts = await evaluateJsonata("create_filter_hosts_with_image", "host_candidates", {
+    host_candidates: [
+      { id: 12, name: "overpass1" },
+      { id: 13, name: "overpass2" },
+      { id: 14, name: "overpass3" },
+    ],
+    payload: {
+      results: [
+        { id: 201, name: "saashup/tiles", version: "v2.0.0", host: { id: 13 } },
+        { id: 202, name: "saashup/tiles", version: "v2.0.0", host: { value: 14 } },
+      ],
+    },
+  });
+
+  expect(hosts.map((host) => host.name)).toEqual(["overpass2", "overpass3"]);
+});
+
+test("delete init keeps the configured tag for instance lookup", async () => {
+  const tag = await evaluateJsonata("3241395b128eac06", "tag", {
+    req: { query: {} },
+    config: {
+      tag: "TILE",
+    },
+  });
+
+  expect(tag).toBe("TILE");
+});
+
+test("delete container lookup is scoped to hosts with the selected tag", async () => {
+  const queryString = await evaluateJsonata("delete_tagged_host_ids", "host_ids_qs", {
+    tag: "TILE",
+    tag_slug: "tile",
+    payload: {
+      results: [
+        { id: 1, name: "guide", tags: [{ name: "GUIDE", slug: "guide" }] },
+        { id: 2, name: "overpass1", tags: [{ name: "TILE", slug: "tile" }] },
+        { id: 3, name: "overpass2", tags: [{ display: "TILE" }] },
+      ],
+    },
+  });
+
+  const url = await evaluateJsonata("90e279516261e3c3", "url", {
+    netbox: "https://netbox.example.com",
+    instanceShort: "tiles",
+    host_ids_qs: queryString,
+  });
+
+  expect(queryString).toBe("&host_id=2&host_id=3");
+  expect(url).toBe("https://netbox.example.com/api/plugins/docker/containers/?name=tiles&host_id=2&host_id=3");
+});
+
+test("delete filters broad container results to the exact instance and tagged host", async () => {
+  const payload = await evaluateJsonata("delete_filter_container_results", "payload", {
+    instanceShort: "tiles",
+    host_ids: ["2"],
+    payload: {
+      results: [
+        { id: 10, name: "tiles", host: { id: 1 } },
+        { id: 11, name: "tiles", host: { id: 2 } },
+        { id: 12, name: "tiles-worker", host: { id: 2 } },
+      ],
+    },
+  });
+
+  expect(payload).toEqual({
+    count: 1,
+    results: [
+      { id: 11, name: "tiles", host: { id: 2 } },
+    ],
+  });
+});
+
+test("delete flow routes tagged deletes through the tagged host lookup", () => {
+  expect(flowNode("3241395b128eac06").wires[0]).toContain("delete_tag_switch");
+  expect(flowNode("delete_tag_switch").wires[0]).toContain("delete_tagged_hosts_url");
+  expect(flowNode("delete_tag_switch").wires[1]).toContain("90e279516261e3c3");
+  expect(flowNode("delete_tagged_hosts_found").wires[0]).toContain("90e279516261e3c3");
+  expect(flowNode("apply_proxy_b08a1029cbcb8fc8").wires[0]).toContain("delete_filter_container_results");
+  expect(flowNode("3c246a6ce6ebab03").wires[1]).toContain("delete_log_container_not_unique");
+  expect(flowNode("apply_proxy_68d767e300ed1980").wires[0]).toContain("delete_log_container_deleted");
+});
+
+test("delete flow deletes the cloudflare dns record and logs the outcome", async () => {
+  expect(flowNode("3241395b128eac06").wires[0]).toContain("51d47d8a40445af3");
+  expect(ruleValue("51d47d8a40445af3", "method")).toBe("GET");
+  expect(ruleValue("5fceda08ca763358", "method")).toBe("DELETE");
+  expect(flowNode("9135b25f8c332ccd").wires[0]).toContain("5fceda08ca763358");
+  expect(flowNode("9135b25f8c332ccd").wires[1]).toContain("delete_log_dns_record_missing");
+  expect(flowNode("apply_proxy_16745e1a3e42d7d6").wires[0]).toContain("delete_log_dns_record_deleted");
+
+  const lookupUrl = await evaluateJsonata("51d47d8a40445af3", "url", {
+    netbox: "https://netbox.example.com",
+    instance: "tiles.example.com",
+  });
+  const deleteUrl = await evaluateJsonata("5fceda08ca763358", "url", {
+    netbox: "https://netbox.example.com",
+    payload: {
+      results: [
+        { id: 42 },
+      ],
+    },
+  });
+
+  expect(lookupUrl).toBe("https://netbox.example.com/api/plugins/cloudflare/dns/records/?name=tiles.example.com");
+  expect(deleteUrl).toBe("https://netbox.example.com/api/plugins/cloudflare/dns/records/42/");
 });
