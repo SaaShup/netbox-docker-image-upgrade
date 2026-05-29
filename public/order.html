@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Order Saashup Instance</title>
+  <link rel="icon" href="saashup_logo.svg">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body class="order-page">
+  <main class="main">
+    <form id="instanceForm" action="/create" method="post">
+      <div hidden>
+        <label data-field="config_profile">
+          <select id="config_profile" name="config_profile"></select>
+        </label>
+
+        <label data-field="network">
+          <input type="text" id="network" name="network">
+        </label>
+
+        <label data-field="instance">
+          <input type="text" id="instance" name="instance" list="instanceOptions">
+          <button type="button" id="refreshInstancesBtn">Refresh instances</button>
+          <datalist id="instanceOptions"></datalist>
+        </label>
+
+        <label data-field="image">
+          <input type="text" id="image" name="image" list="imageOptions">
+          <button type="button" id="refreshImagesBtn">Refresh images</button>
+          <datalist id="imageOptions"></datalist>
+        </label>
+
+        <label data-field="version">
+          <input type="text" id="version" name="version">
+        </label>
+
+        <div data-field="env_vars">
+          <div id="envList">
+            <div class="env-row">
+              <input type="text" id="var_env_key" name="var_env_key">
+              <input type="text" id="var_env_value" name="var_env_value">
+              <button type="button" class="env-remove" disabled>Remove</button>
+            </div>
+          </div>
+        </div>
+
+        <div data-field="labels">
+          <div id="labelList">
+            <div class="repeat-row">
+              <input type="text" id="label_key" name="label_key">
+              <input type="text" id="label_value" name="label_value">
+              <button type="button" class="repeat-remove" disabled>Remove</button>
+            </div>
+          </div>
+        </div>
+
+        <div data-field="volumes">
+          <div id="volumeList">
+            <div class="repeat-row">
+              <input type="text" id="volume_source" name="volume_source">
+              <input type="text" id="volume_name" name="volume_name">
+              <button type="button" class="repeat-remove" disabled>Remove</button>
+            </div>
+          </div>
+        </div>
+
+        <input type="text" id="config_name" name="config_name">
+        <input type="url" id="netbox" name="netbox">
+        <input type="password" id="token" name="token" autocomplete="off">
+        <input type="url" id="proxy" name="proxy">
+        <input type="text" id="domain" name="domain">
+        <input type="text" id="tag" name="tag">
+        <input type="text" id="oldversion" name="oldversion" list="oldVersionOptions">
+        <datalist id="oldVersionOptions"></datalist>
+        <input type="text" id="restart_version" name="restart_version" list="restartVersionOptions">
+        <datalist id="restartVersionOptions"></datalist>
+        <input type="checkbox" id="clean_name" name="clean_name" value="true">
+        <select id="templateSelect" aria-label="Create template"></select>
+      </div>
+
+      <p class="order-status hidden" id="orderStatus" role="status"></p>
+
+      <div class="form-actions" id="orderActions">
+        <p class="order-question">Are you sure you want to install an instance?</p>
+        <button type="submit" class="btn btn-primary" id="submitBtn">Yes</button>
+        <button type="button" class="btn btn-secondary" id="orderCancelBtn">No</button>
+      </div>
+    </form>
+  </main>
+
+  <script src="js/main.js"></script>
+</body>
+</html>

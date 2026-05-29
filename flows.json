@@ -9621,5 +9621,152 @@
         "x": 2830,
         "y": 760,
         "wires": []
+    },
+    {
+        "id": "admin_alias_in",
+        "type": "http in",
+        "z": "d5158039611d4b98",
+        "name": "admin alias",
+        "url": "/admin",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 150,
+        "y": 620,
+        "wires": [
+            [
+                "admin_alias_prepare"
+            ]
+        ]
+    },
+    {
+        "id": "order_alias_in",
+        "type": "http in",
+        "z": "d5158039611d4b98",
+        "name": "order alias",
+        "url": "/order",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 150,
+        "y": 660,
+        "wires": [
+            [
+                "order_alias_prepare"
+            ]
+        ]
+    },
+    {
+        "id": "admin_alias_prepare",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "admin html",
+        "rules": [
+            {
+                "t": "set",
+                "p": "statusCode",
+                "pt": "msg",
+                "to": "200",
+                "tot": "num"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\"Content-Type\":\"text/html; charset=utf-8\"}",
+                "tot": "json"
+            },
+            {
+                "t": "set",
+                "p": "filename",
+                "pt": "msg",
+                "to": "public/admin.html",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 390,
+        "y": 620,
+        "wires": [
+            [
+                "html_alias_file"
+            ]
+        ]
+    },
+    {
+        "id": "order_alias_prepare",
+        "type": "change",
+        "z": "d5158039611d4b98",
+        "name": "order html",
+        "rules": [
+            {
+                "t": "set",
+                "p": "statusCode",
+                "pt": "msg",
+                "to": "200",
+                "tot": "num"
+            },
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\"Content-Type\":\"text/html; charset=utf-8\"}",
+                "tot": "json"
+            },
+            {
+                "t": "set",
+                "p": "filename",
+                "pt": "msg",
+                "to": "public/order.html",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 390,
+        "y": 660,
+        "wires": [
+            [
+                "html_alias_file"
+            ]
+        ]
+    },
+    {
+        "id": "html_alias_file",
+        "type": "file in",
+        "z": "d5158039611d4b98",
+        "name": "read html alias",
+        "filename": "filename",
+        "filenameType": "msg",
+        "format": "utf8",
+        "chunk": false,
+        "sendError": false,
+        "encoding": "none",
+        "allProps": false,
+        "x": 620,
+        "y": 640,
+        "wires": [
+            [
+                "html_alias_response"
+            ]
+        ]
+    },
+    {
+        "id": "html_alias_response",
+        "type": "http response",
+        "z": "d5158039611d4b98",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 850,
+        "y": 640,
+        "wires": []
     }
 ]

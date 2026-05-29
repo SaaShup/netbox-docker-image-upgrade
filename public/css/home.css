@@ -83,6 +83,11 @@ a {
   background: var(--primary);
 }
 
+.nav .nav-cta-secondary {
+  color: var(--primary);
+  background: #eef4ff;
+}
+
 .hero {
   width: min(1180px, calc(100% - 32px));
   margin: 76px auto 0;

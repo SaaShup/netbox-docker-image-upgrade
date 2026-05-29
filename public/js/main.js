@@ -1,5 +1,7 @@
 const urlParams = new URLSearchParams(window.location.search);
 const actionFromUrl = urlParams.get("action");
+const isOrderPage = document.body?.classList.contains("order-page");
+const orderTemplateName = urlParams.get("template") || "";
 
 const form = document.getElementById("instanceForm");
 const submitBtn = document.getElementById("submitBtn");
@@ -12,6 +14,7 @@ const templateSelect = document.getElementById("templateSelect");
 const loadTemplateBtn = document.getElementById("loadTemplateBtn");
 const saveTemplateBtn = document.getElementById("saveTemplateBtn");
 const deleteTemplateBtn = document.getElementById("deleteTemplateBtn");
+const orderCancelBtn = document.getElementById("orderCancelBtn");
 const dockerRunModal = document.getElementById("dockerRunModal");
 const dockerRunInput = document.getElementById("dockerRunInput");
 const dockerRunApplyBtn = document.getElementById("dockerRunApplyBtn");
@@ -35,8 +38,10 @@ const logsCard = document.getElementById("logsCard");
 const logsFullscreenBtn = document.getElementById("logsFullscreenBtn");
 const clearLogsBtn = document.getElementById("clearLogsBtn");
 const configProfileSelect = document.getElementById("config_profile");
+const orderActions = document.getElementById("orderActions");
+const orderStatus = document.getElementById("orderStatus");
 
-let currentAction = localStorage.getItem("current_action") || "config";
+let currentAction = isOrderPage ? "create" : (localStorage.getItem("current_action") || "config");
 let currentConfigProfile = localStorage.getItem("current_config_profile") || "";
 let noticeTimeout = null;
 let savedConfig = {};
@@ -592,6 +597,8 @@ function clearVolumeRows() {
 
 function setNotice(message, type = "info", autoClear = true) {
   const notif = document.getElementById("notif");
+  if (!notif) return;
+
   notif.textContent = message;
   notif.className = "notice";
 
@@ -616,6 +623,21 @@ function setNotice(message, type = "info", autoClear = true) {
       setNotice("Welcome !", "info", false);
     }, 4000);
   }
+}
+
+function setOrderStatus(message, type = "success") {
+  if (!orderStatus) return;
+
+  orderStatus.textContent = message;
+  orderStatus.className = `order-status ${type}`;
+}
+
+function hideOrderActions() {
+  orderActions?.classList.add("hidden");
+}
+
+function showOrderActions() {
+  orderActions?.classList.remove("hidden");
 }
 
 function setLogsExpanded(expanded) {
@@ -646,8 +668,8 @@ function setAction(actionName) {
   form.action = config.endpoint;
   form.method = config.method;
 
-  formTitle.textContent = config.title;
-  formDescription.textContent = config.description;
+  if (formTitle) formTitle.textContent = config.title;
+  if (formDescription) formDescription.textContent = config.description;
   submitBtn.textContent = config.submitLabel;
   submitBtn.className = config.buttonClass;
   submitBtn.name = actionName === "restart" ? "restart_mode" : "";
@@ -980,6 +1002,48 @@ async function loadSelectedTemplate() {
   setNotice(`Template "${name}" loaded`, "success");
 }
 
+function createTemplateEntry(name) {
+  if (!name) return null;
+  if (createTemplates[name]) return { name, template: createTemplates[name] };
+
+  const match = Object.keys(createTemplates)
+    .find((templateName) => templateName.toLowerCase() === name.toLowerCase());
+
+  return match ? { name: match, template: createTemplates[match] } : null;
+}
+
+async function applyOrderTemplate() {
+  setAction("create");
+
+  const entry = createTemplateEntry(orderTemplateName);
+  if (!entry) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Yes";
+    hideOrderActions();
+    setOrderStatus(orderTemplateName ? `Template "${orderTemplateName}" not found` : "Template is required", "error");
+    return;
+  }
+
+  showOrderActions();
+  applyCreateTemplate(entry.template);
+  submitBtn.textContent = "Yes";
+
+  if (templateSelect) {
+    updateTemplateOptions(entry.name);
+  }
+
+  const imagesLoaded = await refreshImages({ notify: false });
+  if (imagesLoaded) {
+    syncCreateVersion();
+  }
+
+  await ensureCreateVersion();
+
+  if (!fieldValue("network")) {
+    syncCreateNetwork();
+  }
+}
+
 function applyDockerRunCommand() {
   const parsed = parseDockerRun(dockerRunInput?.value || "");
   const currentNetwork = fieldValue("network");
@@ -1275,10 +1339,25 @@ async function submitAction(config, submitter) {
     request.body = body.toString();
   }
 
-  await clearLogs({ notify: false });
+  if (!isOrderPage) {
+    await clearLogs({ notify: false });
+  }
 
   const endpoint = request.method === "GET" ? `${config.endpoint}?${body.toString()}` : config.endpoint;
+  if (isOrderPage) submitBtn.disabled = true;
+
   const response = await fetch(endpoint, request);
+  if (isOrderPage) {
+    if (response.status === 202) {
+      hideOrderActions();
+      setOrderStatus("Thank you, your instance installation has been requested.", "success");
+    } else {
+      submitBtn.disabled = false;
+      setOrderStatus(`Installation request failed (${response.status})`, "error");
+    }
+    return;
+  }
+
   const type = response.ok ? "success" : "error";
   const result = response.ok ? "requested" : "failed";
 
@@ -1661,6 +1740,12 @@ form.addEventListener("submit", async (event) => {
   }
 
   submitAction(config, event.submitter).catch(() => {
+    if (isOrderPage) {
+      submitBtn.disabled = false;
+      setOrderStatus("Installation request failed", "error");
+      return;
+    }
+
     setNotice(`${config.title} failed`, "error");
   });
 });
@@ -1712,6 +1797,9 @@ logsFullscreenBtn?.addEventListener("click", () => {
   setLogsExpanded(!logsCard?.classList.contains("fullscreen"));
 });
 clearLogsBtn?.addEventListener("click", clearLogs);
+orderCancelBtn?.addEventListener("click", () => {
+  window.location.href = "/";
+});
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !dockerRunModal?.classList.contains("hidden")) {
@@ -1723,20 +1811,28 @@ window.parseDockerRun = parseDockerRun;
 window.isFqdn = isFqdn;
 window.instanceFqdn = instanceFqdn;
 
-if (actionFromUrl) {
-  setNotice(actionFromUrl, "success");
+async function initializePage() {
+  await loadCreateTemplates();
+  updateTemplateOptions();
+  setAction(currentAction);
+  await loadSavedConfig();
 
-  const actionKey = actionFromUrl.split(" ")[0].toLowerCase();
-  if (actions[actionKey]) setAction(actionKey);
+  if (isOrderPage) {
+    await applyOrderTemplate();
+  } else if (actionFromUrl) {
+    setNotice(actionFromUrl, "success");
 
-  const cleanUrl = window.location.origin + window.location.pathname;
-  window.history.replaceState(window.history.state, "", cleanUrl);
+    const actionKey = actionFromUrl.split(" ")[0].toLowerCase();
+    if (actions[actionKey]) setAction(actionKey);
+
+    const cleanUrl = window.location.origin + window.location.pathname;
+    window.history.replaceState(window.history.state, "", cleanUrl);
+  }
+
+  if (!isOrderPage) {
+    getLogs();
+    setInterval(getLogs, 3000);
+  }
 }
 
-loadCreateTemplates();
-updateTemplateOptions();
-setAction(currentAction);
-loadSavedConfig();
-
-getLogs();
-setInterval(getLogs, 3000);
+initializePage();

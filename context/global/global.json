@@ -5,7 +5,7 @@
         "HTTP_PROXY": "",
         "HTTPS_PROXY": ""
     },
-    "logs": "",
+    "logs": "2026-05-29T19:21:54.048Z DELETE : container curioo-tiles deleted id=3166 status=204<br>2026-05-29T19:21:38.359Z DELETE : lookup curioo-tiles count=1 tag=TILE hosts=&host_id=39&host_id=42<br>2026-05-29T19:21:37.683Z DELETE : Cloudflare DNS record delete requested for curioo-tiles status=204<br>",
     "templates": {
         "curiootiles": {
             "config_profile": "curioocity-tile",

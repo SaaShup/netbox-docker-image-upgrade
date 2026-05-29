@@ -44,9 +44,10 @@ function ruleValue(nodeId, property) {
 
 async function openAdmin(page, config = {}, templates = {}, instances = [
   { instance: "guide-app", networks: ["bridge", "traefik-net"] },
-], handleLogs) {
+], handleLogs, pagePath = "/admin.html") {
   let templateStore = templates;
 
+  await page.unroute("**/config").catch(() => {});
   await page.route("**/config", async (route) => {
     if (route.request().method() === "GET") {
       await route.fulfill({
@@ -99,10 +100,16 @@ async function openAdmin(page, config = {}, templates = {}, instances = [
     });
   });
 
-  await page.goto("/admin.html");
+  await page.goto(pagePath);
 }
 
 test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    if (!sessionStorage.getItem("__test_storage_cleared__")) {
+      localStorage.clear();
+      sessionStorage.setItem("__test_storage_cleared__", "true");
+    }
+  });
   await page.route("**/config", async (route) => {
     await route.fulfill({
       status: 200,
@@ -111,8 +118,19 @@ test.beforeEach(async ({ page }) => {
     });
   });
   await page.goto("/admin.html");
-  await page.evaluate(() => localStorage.clear());
-  await page.unroute("**/config");
+  await expect(page.locator("#form-title")).toHaveText("Config");
+});
+
+test("home top bar links to order and extensionless admin", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.locator(".site-header .nav .nav-cta")).toHaveText(["Order", "Open admin"]);
+  await expect(page.locator(".site-header .nav .nav-cta").first()).toHaveAttribute("href", "/order");
+  await expect(page.locator(".site-header .nav .nav-cta").last()).toHaveAttribute("href", "/admin");
+
+  await page.goto("/admin");
+  await expect(page).toHaveURL(/\/admin$/);
+  await expect(page.locator("#form-title")).toHaveText("Config");
 });
 
 test("config tab starts without a forced default profile", async ({ page }) => {
@@ -471,7 +489,7 @@ test("create form derives version from a pasted image tag", async ({ page }) => 
 });
 
 test("create form selects the network starting with traefik", async ({ page }) => {
-  let instancesUrl = "";
+  const instanceTags = [];
 
   await openAdmin(page, {
     profiles: JSON.stringify({
@@ -483,7 +501,7 @@ test("create form selects the network starting with traefik", async ({ page }) =
       },
     }),
   }, {}, (route) => {
-    instancesUrl = route.request().url();
+    instanceTags.push(new URL(route.request().url()).searchParams.get("tag"));
     return [
       { instance: "tile-app", networks: ["bridge", "traefik-tile"] },
     ];
@@ -492,7 +510,7 @@ test("create form selects the network starting with traefik", async ({ page }) =
   await page.getByRole("link", { name: "Create" }).click();
 
   await expect(page.locator("#network")).toHaveValue("traefik-tile");
-  expect(new URL(instancesUrl).searchParams.get("tag")).toBe("TILE");
+  expect(instanceTags).toContain("TILE");
 });
 
 test("create form requires an fqdn instance name", async ({ page }) => {
@@ -709,6 +727,206 @@ test("create form can save and load templates", async ({ page }) => {
   await page.locator("#deleteTemplateBtn").click();
   await expect(page.locator("#notif")).toContainText('Template "Guide" deleted');
   await expect(page.locator("#templateSelect option")).toHaveText("No templates saved");
+});
+
+test("order page creates an instance from the requested template", async ({ page }) => {
+  let createBody = "";
+  let logsRequests = 0;
+  const templates = {
+    curiootiles: {
+      config_profile: "tile",
+      network: "traefik-public",
+      instance: "curiootiles",
+      image: "saashup/curiootiles",
+      env: [{ key: "APP_ENV", value: "production" }],
+      labels: [{ key: "traefik.enable", value: "true" }],
+      volumes: [{ key: "/app/data", value: "curiootiles-data" }],
+    },
+  };
+
+  await page.route("**/images?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        { name: "saashup/curiootiles", version: "v2.0.0" },
+      ]),
+    });
+  });
+
+  await page.route("**/create", async (route) => {
+    createBody = route.request().postData() || "";
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "guide",
+    profiles: JSON.stringify({
+      guide: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "guide.example.com",
+        tag: "GUIDE",
+      },
+      tile: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "daily.paashup.cloud",
+        tag: "TILE",
+      },
+    }),
+  }, templates, [
+    { instance: "tiles.example.com", networks: ["traefik-public"] },
+  ], async (route) => {
+    logsRequests += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "text/plain",
+      body: "",
+    });
+  }, "/order?template=curiootiles");
+
+  await expect(page).toHaveURL(/\/order\?template=curiootiles$/);
+  await expect(page.locator("#submitBtn")).toBeVisible();
+  await expect(page.locator(".order-question")).toHaveText("Are you sure you want to install an instance?");
+  await expect(page.locator("#submitBtn")).toHaveText("Yes");
+  await expect(page.locator("#orderCancelBtn")).toHaveText("No");
+  await expect(page.locator(".sidebar")).toBeHidden();
+  await expect(page.locator("#image")).toBeHidden();
+  await expect(page.locator("#config_profile")).toHaveValue("tile");
+  await expect(page.locator("#instance")).toHaveValue("curiootiles");
+  await expect(page.locator("#image")).toHaveValue("saashup/curiootiles");
+  await expect(page.locator("#version")).toHaveValue("v2.0.0");
+
+  await page.locator("#submitBtn").click();
+
+  await expect.poll(() => createBody).toContain("instance=curiootiles.daily.paashup.cloud");
+  await expect(page.locator("#orderActions")).toBeHidden();
+  await expect(page.locator("#orderStatus")).toHaveClass(/success/);
+  await expect(page.locator("#orderStatus")).toHaveText("Thank you, your instance installation has been requested.");
+  expect(createBody).toContain("profile=tile");
+  expect(createBody).toContain("tag=TILE");
+  expect(createBody).toContain("network=traefik-public");
+  expect(createBody).toContain("image=saashup%2Fcuriootiles");
+  expect(createBody).toContain("version=v2.0.0");
+  expect(createBody).toContain("var_env_key=APP_ENV");
+  expect(createBody).toContain("var_env_value=production");
+  expect(logsRequests).toBe(0);
+});
+
+test("order page hides the order form when the requested template is missing", async ({ page }) => {
+  await openAdmin(page, {
+    profile: "tile",
+    profiles: JSON.stringify({
+      tile: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "daily.paashup.cloud",
+        tag: "TILE",
+      },
+    }),
+  }, {}, [], undefined, "/order?template=missing");
+
+  await expect(page.locator("#orderActions")).toBeHidden();
+  await expect(page.locator("#orderStatus")).toHaveClass(/error/);
+  await expect(page.locator("#orderStatus")).toHaveText('Template "missing" not found');
+});
+
+test("order page displays an error when create is not accepted", async ({ page }) => {
+  const templates = {
+    curiootiles: {
+      config_profile: "tile",
+      network: "traefik-public",
+      instance: "curiootiles",
+      image: "saashup/curiootiles",
+      env: [],
+      labels: [],
+      volumes: [],
+    },
+  };
+
+  await page.route("**/images?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([{ name: "saashup/curiootiles", version: "v2.0.0" }]),
+    });
+  });
+
+  await page.route("**/create", async (route) => {
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "tile",
+    profiles: JSON.stringify({
+      tile: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "daily.paashup.cloud",
+        tag: "TILE",
+      },
+    }),
+  }, templates, [
+    { instance: "tiles.example.com", networks: ["traefik-public"] },
+  ], undefined, "/order?template=curiootiles");
+
+  await page.locator("#submitBtn").click();
+
+  await expect(page.locator("#orderActions")).toBeVisible();
+  await expect(page.locator("#submitBtn")).toBeEnabled();
+  await expect(page.locator("#orderStatus")).toHaveClass(/error/);
+  await expect(page.locator("#orderStatus")).toHaveText("Installation request failed (500)");
+});
+
+test("order page no button redirects to home", async ({ page }) => {
+  const templates = {
+    curiootiles: {
+      config_profile: "tile",
+      network: "traefik-public",
+      instance: "curiootiles",
+      image: "saashup/curiootiles",
+      env: [],
+      labels: [],
+      volumes: [],
+    },
+  };
+
+  await page.route("**/images?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([{ name: "saashup/curiootiles", version: "v2.0.0" }]),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "tile",
+    profiles: JSON.stringify({
+      tile: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "daily.paashup.cloud",
+        tag: "TILE",
+      },
+    }),
+  }, templates, [], undefined, "/order?template=curiootiles");
+
+  await page.locator("#orderCancelBtn").click();
+  await expect(page).toHaveURL(/\/$/);
 });
 
 test("upgrade can submit the clean name option", async ({ page }) => {
