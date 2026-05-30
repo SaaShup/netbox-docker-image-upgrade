@@ -11,6 +11,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 COPY public ./public
+COPY lib ./lib
 COPY server.js ./server.js
 
 RUN mkdir -p /data && chown -R node:node /data /usr/src/app

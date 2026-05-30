@@ -91,6 +91,56 @@ jobs:
         with:
           context: .
           push: false
+          load: true
           tags: netbox-docker-image-upgrade:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Run image
+        run: |
+          docker run -d \
+            --name netbox-docker-image-upgrade-ci \
+            -p 1880:1880 \
+            -e ADMIN_ALLOWED_EMAILS=ci@example.com \
+            netbox-docker-image-upgrade:ci
+
+      - name: Validate container API
+        run: |
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:1880/version > /tmp/version.json; then
+              break
+            fi
+            sleep 1
+          done
+
+          test -s /tmp/version.json
+
+          node <<'NODE'
+          const fs = require("fs");
+          const packageJson = require("./package.json");
+          const version = JSON.parse(fs.readFileSync("/tmp/version.json", "utf8"));
+          if (version.name !== packageJson.name || version.version !== packageJson.version) {
+            throw new Error(`Unexpected /version response: ${JSON.stringify(version)}`);
+          }
+          NODE
+
+          curl -fsS http://127.0.0.1:1880/ > /tmp/home.html
+          grep -q "SaaShup" /tmp/home.html
+
+          curl -fsS http://127.0.0.1:1880/session/user > /tmp/session.json
+          grep -q '"email"' /tmp/session.json
+
+          curl -fsS http://127.0.0.1:1880/metrics > /tmp/metrics.txt
+          grep -q "saashup_app_info" /tmp/metrics.txt
+          grep -q "saashup_http_requests_total" /tmp/metrics.txt
+
+          curl -fsS -H "x-auth-request-email: ci@example.com" http://127.0.0.1:1880/admin > /tmp/admin.html
+          grep -q "Admin" /tmp/admin.html
+
+      - name: Show container logs
+        if: always()
+        run: docker logs netbox-docker-image-upgrade-ci || true
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f netbox-docker-image-upgrade-ci || true
