@@ -220,7 +220,7 @@ test("config page imports config profiles and templates", async ({ page }) => {
   expect(localTemplates.Guide.image).toBe("saashup/guide");
 });
 
-test("admin header shows oauth user and logs out through oauth2 proxy", async ({ page }) => {
+test("admin header shows oauth user and logs out through app auth", async ({ page }) => {
   await page.route("**/session/user", async (route) => {
     await route.fulfill({
       status: 200,
@@ -241,7 +241,26 @@ test("admin header shows oauth user and logs out through oauth2 proxy", async ({
   await expect(page.locator("#authEmail")).toHaveText("ada@example.com");
 
   await page.locator("#logoutBtn").click();
-  await expect(page).toHaveURL(/\/oauth2\/sign_out\?rd=/);
+  await expect(page).toHaveURL("/");
+});
+
+test("admin sidebar can collapse and expand", async ({ page }) => {
+  await page.goto("/admin");
+  const shell = page.locator(".app-shell");
+  const toggle = page.locator("#sidebarToggle");
+
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await toggle.click();
+  await expect(shell).toHaveClass(/sidebar-collapsed/);
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator("#menu_config .nav-label")).toHaveCSS("opacity", "0");
+
+  await page.reload();
+  await expect(shell).toHaveClass(/sidebar-collapsed/);
+
+  await toggle.click();
+  await expect(shell).not.toHaveClass(/sidebar-collapsed/);
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
 });
 
 test("metrics endpoint exposes prometheus runtime metrics", async ({ request }) => {
@@ -1217,7 +1236,7 @@ test("order page informs the user when the max instance limit is reached", async
   expect(createCalled).toBe(false);
 });
 
-test("order page shows oauth user and logs out through oauth2 proxy", async ({ page }) => {
+test("order page shows oauth user and logs out through app auth", async ({ page }) => {
   let resolveAuth;
   const authReady = new Promise((resolve) => {
     resolveAuth = resolve;
@@ -1281,7 +1300,7 @@ test("order page shows oauth user and logs out through oauth2 proxy", async ({ p
   await expect(page.locator(".order-question")).toHaveText("Are you sure you want to install an instance?");
 
   await page.locator("#logoutBtn").click();
-  await expect(page).toHaveURL(/\/oauth2\/sign_out\?rd=/);
+  await expect(page).toHaveURL("/");
 });
 
 test("order page generates and submits an instance name when the template has none", async ({ page }) => {

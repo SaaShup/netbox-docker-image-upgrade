@@ -15,6 +15,27 @@ App to deploy new image to all containers
 docker run -d -v netbox-docker-image-upgrade:/data -p 1880:1880 --name netbox-docker-image-upgrade saashup/netbox-docker-image-upgrade
 ```
 
+# Keycloak
+
+The app can authenticate directly with Keycloak using OIDC, so an external oauth2-proxy container is not required. Configure a confidential Keycloak client with this redirect URI:
+
+```
+https://your-domain.example/oidc/callback
+```
+
+Then start the app with:
+
+```
+OIDC_ISSUER_URL=https://your-domain.example/auth/realms/paashup
+OIDC_CLIENT_ID=saashup
+OIDC_CLIENT_SECRET=...
+OIDC_REDIRECT_URI=https://your-domain.example/oidc/callback
+SAASHUP_SESSION_SECRET=...
+ADMIN_ALLOWED_EMAILS=admin@example.com
+```
+
+`/admin` and `/order` redirect unauthenticated users to Keycloak. `ADMIN_ALLOWED_EMAILS` still controls who can access admin-only actions.
+
 # Config profiles
 
 The admin UI supports multiple named NetBox configs. In the Config menu, choose or enter a profile name, fill the NetBox URL, token, optional proxy URL, optional domain and optional host tag slug, then save. Create, Upgrade, Operate, Delete, host refresh, instance refresh and image refresh all use the selected profile. When a domain is set, Create turns a short instance name into an FQDN by appending that domain. When a tag is set, Create, Upgrade, Operate and refresh lists first load hosts with that tag. Create selects the matching host with the fewest containers.

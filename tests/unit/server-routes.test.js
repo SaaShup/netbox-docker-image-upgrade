@@ -14,6 +14,7 @@ function jsonResponse(payload, status = 200) {
 async function loadServer({
   adminEmails = "",
   configureDelayMs = "0",
+  oidc = false,
   operationTimeoutSeconds = "1",
   recreateDelayMs = "0",
 } = {}) {
@@ -27,6 +28,19 @@ async function loadServer({
   process.env.CREATE_RECREATE_DELAY_MS = recreateDelayMs;
   if (adminEmails) process.env.ADMIN_ALLOWED_EMAILS = adminEmails;
   else delete process.env.ADMIN_ALLOWED_EMAILS;
+  if (oidc) {
+    process.env.OIDC_ISSUER_URL = "https://id.example.com/auth/realms/paashup";
+    process.env.OIDC_CLIENT_ID = "saashup";
+    process.env.OIDC_CLIENT_SECRET = "secret";
+    process.env.OIDC_REDIRECT_URI = "https://app.example.com/oidc/callback";
+    process.env.SESSION_SECRET = "test-session-secret";
+  } else {
+    delete process.env.OIDC_ISSUER_URL;
+    delete process.env.OIDC_CLIENT_ID;
+    delete process.env.OIDC_CLIENT_SECRET;
+    delete process.env.OIDC_REDIRECT_URI;
+    delete process.env.SESSION_SECRET;
+  }
 
   const fetchMock = vi.fn();
   delete require.cache[require.resolve("../../server")];
@@ -46,6 +60,10 @@ function writeState(dataPath, state) {
 
 function readState(dataPath) {
   return JSON.parse(fs.readFileSync(path.join(dataPath, "app-state.json"), "utf8"));
+}
+
+function cookieHeader(setCookie) {
+  return setCookie.map((value) => value.split(";")[0]).join("; ");
 }
 
 function setupNetBoxFetch(fetchMock, {
@@ -213,6 +231,11 @@ describe("server routes", () => {
     delete process.env.OPERATION_POLL_MS;
     delete process.env.CREATE_CONFIGURE_DELAY_MS;
     delete process.env.CREATE_RECREATE_DELAY_MS;
+    delete process.env.OIDC_ISSUER_URL;
+    delete process.env.OIDC_CLIENT_ID;
+    delete process.env.OIDC_CLIENT_SECRET;
+    delete process.env.OIDC_REDIRECT_URI;
+    delete process.env.SESSION_SECRET;
   });
 
   test("serves version, user session, metrics, and protected admin pages", async () => {
@@ -229,6 +252,60 @@ describe("server routes", () => {
     await request.get("/metrics").expect(200).expect((res) => {
       expect(res.text).toContain("saashup_app_info");
       expect(res.text).toContain('route="/admin"');
+    });
+  });
+
+  test("handles Keycloak OIDC login, session, admin access, and logout", async () => {
+    const { request, setOidcFetchForTests } = await loadServer({ adminEmails: "allowed@example.com", oidc: true });
+    const oidcFetch = vi.fn(async (url, options = {}) => {
+      const pathname = new URL(String(url)).pathname;
+      if (pathname.endsWith("/.well-known/openid-configuration")) {
+        return jsonResponse({
+          authorization_endpoint: "https://id.example.com/auth",
+          token_endpoint: "https://id.example.com/token",
+          userinfo_endpoint: "https://id.example.com/userinfo",
+        });
+      }
+      if (pathname === "/token" && options.method === "POST") {
+        expect(String(options.body)).toContain("code=abc");
+        return jsonResponse({ access_token: "token" });
+      }
+      if (pathname === "/userinfo") {
+        expect(options.headers.Authorization).toBe("Bearer token");
+        return jsonResponse({ email: "allowed@example.com", preferred_username: "allowed", name: "Allowed User" });
+      }
+      return jsonResponse({ detail: "not found" }, 404);
+    });
+    setOidcFetchForTests(oidcFetch);
+
+    await request.get("/admin").expect(302).expect((res) => {
+      expect(res.headers.location).toContain("/login?rd=%2Fadmin");
+    });
+
+    const login = await request.get("/login").query({ rd: "/admin" }).expect(302);
+    const loginLocation = new URL(login.headers.location);
+    const state = loginLocation.searchParams.get("state");
+    expect(loginLocation.searchParams.get("client_id")).toBe("saashup");
+    expect(loginLocation.searchParams.get("redirect_uri")).toBe("https://app.example.com/oidc/callback");
+    expect(loginLocation.searchParams.get("code_challenge_method")).toBe("S256");
+
+    const callback = await request
+      .get("/oidc/callback")
+      .query({ code: "abc", state })
+      .set("Cookie", cookieHeader(login.headers["set-cookie"]))
+      .expect(302);
+    expect(callback.headers.location).toBe("/admin");
+    const sessionCookie = cookieHeader(callback.headers["set-cookie"]);
+
+    await request.get("/session/user").set("Cookie", sessionCookie).expect(200).expect((res) => {
+      expect(res.body).toMatchObject({ email: "allowed@example.com", user: "allowed", name: "Allowed User" });
+    });
+    await request.get("/admin").set("Cookie", sessionCookie).expect(200);
+
+    await request.get("/logout").query({ rd: "/" }).set("Cookie", sessionCookie).expect(302).expect((res) => {
+      expect(res.headers.location).toBe("/");
+      expect(res.headers["set-cookie"].join("\n")).toContain("saashup_session=");
+      expect(res.headers["set-cookie"].join("\n")).toContain("Max-Age=0");
     });
   });
 

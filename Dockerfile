@@ -1,9 +1,20 @@
 FROM node:24-alpine
 
-ENV NODE_ENV=production
-ENV DATAPATH=/data
-ENV APPPATH=/usr/src/app
-ENV PORT=1880
+ENV NODE_ENV=production \
+    DATAPATH=/data \
+    APPPATH=/usr/src/app \
+    PORT=1880 \
+    OPERATION_TIMEOUT_SECONDS=30 \
+    OPERATION_POLL_MS=3000 \
+    CREATE_CONFIGURE_DELAY_MS=5000 \
+    CREATE_RECREATE_DELAY_MS=5000 \
+    ADMIN_ALLOWED_EMAILS="" \
+    OIDC_ENABLED=true \
+    OIDC_ISSUER_URL="" \
+    OIDC_CLIENT_ID="" \
+    OIDC_CLIENT_SECRET="" \
+    OIDC_REDIRECT_URI="" \
+    SESSION_SECRET="" 
 
 WORKDIR /usr/src/app
 

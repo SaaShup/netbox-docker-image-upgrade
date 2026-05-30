@@ -12,42 +12,47 @@
 <body>
   <div class="app-shell">
     <aside class="sidebar">
-      <a href="/" class="brand" aria-label="Go to home page">
-        <img src="saashup_logo.svg" alt="SaaShup" class="brand-logo">
-        <div>
-          <h1>Saashup</h1>
-          <p>Admin console</p>
-        </div>
-      </a>
+      <div class="sidebar-top">
+        <a href="/" class="brand" aria-label="Go to home page">
+          <img src="saashup_logo.svg" alt="SaaShup" class="brand-logo">
+          <div class="brand-copy">
+            <h1>Saashup</h1>
+            <p>Admin console</p>
+          </div>
+        </a>
+        <button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Collapse menu" aria-expanded="true" title="Collapse menu">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18 9 12l6-6"></path></svg>
+        </button>
+      </div>
 
       <nav class="nav">
-        <a href="#" class="menu nav-item active" data-action="config" id="menu_config">
+        <a href="#" class="menu nav-item active" data-action="config" id="menu_config" title="Config">
           <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M4.6 7.5l2.6 1.5M16.8 15l2.6 1.5M4.6 16.5 7.2 15M16.8 9l2.6-1.5"></path><circle cx="12" cy="12" r="4"></circle></svg></span>
-          <span>Config</span>
+          <span class="nav-label">Config</span>
         </a>
-        <a href="#" class="menu nav-item" data-action="create" id="menu_create">
+        <a href="#" class="menu nav-item" data-action="create" id="menu_create" title="Create">
           <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg></span>
-          <span>Create</span>
+          <span class="nav-label">Create</span>
         </a>
-        <a href="#" class="menu nav-item" data-action="recreate" id="menu_recreate">
+        <a href="#" class="menu nav-item" data-action="recreate" id="menu_recreate" title="Upgrade">
           <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6v5h-5"></path><path d="M4 18v-5h5"></path><path d="M19 11a7 7 0 0 0-11.7-5.1"></path><path d="M5 13a7 7 0 0 0 11.7 5.1"></path></svg></span>
-          <span>Upgrade</span>
+          <span class="nav-label">Upgrade</span>
         </a>
-        <a href="#" class="menu nav-item" data-action="restart" id="menu_restart">
+        <a href="#" class="menu nav-item" data-action="restart" id="menu_restart" title="Operate">
           <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path></svg></span>
-          <span>Operate</span>
+          <span class="nav-label">Operate</span>
         </a>
-        <a href="#" class="menu nav-item danger" data-action="delete" id="menu_delete">
+        <a href="#" class="menu nav-item danger" data-action="delete" id="menu_delete" title="Delete">
           <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h16"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M6 7l1 14h10l1-14"></path><path d="M9 7V4h6v3"></path></svg></span>
-          <span>Delete</span>
+          <span class="nav-label">Delete</span>
         </a>
-        <a href="#" class="menu nav-item danger" data-action="refresh_hosts" id="menu_refresh_hosts">
+        <a href="#" class="menu nav-item danger" data-action="refresh_hosts" id="menu_refresh_hosts" title="Refresh">
           <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.9-3"></path><path d="M4 5v5h5"></path><path d="M4 13a8 8 0 0 0 14.9 3"></path><path d="M20 19v-5h-5"></path></svg></span>
-          <span>Refresh</span>
+          <span class="nav-label">Refresh</span>
         </a>
-        <a href="#" class="menu nav-item" data-action="report" id="menu_report">
+        <a href="#" class="menu nav-item" data-action="report" id="menu_report" title="Report">
           <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19V5"></path><path d="M4 19h16"></path><path d="M8 16v-5"></path><path d="M12 16V8"></path><path d="M16 16v-3"></path></svg></span>
-          <span>Report</span>
+          <span class="nav-label">Report</span>
         </a>
       </nav>
     </aside>

@@ -52,20 +52,35 @@ body {
 .app-shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: var(--sidebar-width, 280px) 1fr;
+  transition: grid-template-columns 0.18s ease;
+}
+
+.app-shell.sidebar-collapsed {
+  --sidebar-width: 92px;
 }
 
 .sidebar {
   background: #111827;
   color: white;
   padding: 28px 22px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sidebar-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 34px;
 }
 
 .brand {
   display: flex;
   align-items: center;
   gap: 14px;
-  margin-bottom: 34px;
+  min-width: 0;
   color: inherit;
   text-decoration: none;
 }
@@ -88,6 +103,73 @@ body {
   color: #aab4c5;
   margin: 2px 0 0;
   font-size: 0.9rem;
+}
+
+.brand-copy,
+.nav-label {
+  overflow: hidden;
+  white-space: nowrap;
+  transition: opacity 0.12s ease, width 0.18s ease;
+}
+
+.sidebar-toggle {
+  display: grid;
+  place-items: center;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #e5e7eb;
+  cursor: pointer;
+}
+
+.sidebar-toggle:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.sidebar-toggle svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.18s ease;
+}
+
+.app-shell.sidebar-collapsed .sidebar {
+  padding-inline: 18px;
+}
+
+.app-shell.sidebar-collapsed .sidebar-top {
+  justify-content: center;
+}
+
+.app-shell.sidebar-collapsed .brand {
+  display: none;
+}
+
+.app-shell.sidebar-collapsed .sidebar-toggle svg {
+  transform: rotate(180deg);
+}
+
+.app-shell.sidebar-collapsed .nav {
+  justify-items: center;
+}
+
+.app-shell.sidebar-collapsed .nav-item {
+  width: 48px;
+  height: 48px;
+  justify-content: center;
+  padding: 0;
+}
+
+.app-shell.sidebar-collapsed .nav-label {
+  width: 0;
+  opacity: 0;
 }
 
 .nav {
@@ -942,8 +1024,40 @@ body.order-page #orderCancelBtn {
     grid-template-columns: 1fr;
   }
 
+  .app-shell.sidebar-collapsed {
+    --sidebar-width: auto;
+  }
+
   .sidebar {
     position: static;
+  }
+
+  .sidebar-top {
+    margin-bottom: 20px;
+  }
+
+  .sidebar-toggle {
+    display: none;
+  }
+
+  .app-shell.sidebar-collapsed .brand {
+    display: flex;
+  }
+
+  .app-shell.sidebar-collapsed .nav {
+    justify-items: stretch;
+  }
+
+  .app-shell.sidebar-collapsed .nav-item {
+    width: auto;
+    height: auto;
+    justify-content: flex-start;
+    padding: 12px 14px;
+  }
+
+  .app-shell.sidebar-collapsed .nav-label {
+    width: auto;
+    opacity: 1;
   }
 
   .nav {
