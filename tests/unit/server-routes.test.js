@@ -623,6 +623,53 @@ describe("server routes", () => {
       });
   });
 
+  test("reserves order slots immediately when create is accepted", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock);
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", max_instances: 1, profile: "prod", config_profile: "prod" },
+      templates: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.post("/create")
+      .set("x-auth-request-email", "buyer@example.com")
+      .send({
+        instance: "tiles.example.com",
+        image: "saashup/tile",
+        version: "v2.0.0",
+        port_value: "8080",
+        order_request: "true",
+        order_template: "Tiles",
+        profile: "prod",
+      })
+      .expect(202);
+
+    expect(readState(dataPath).order_counts["buyer@example.com"]?.prod).toBe(1);
+    expect(readState(dataPath).order_instances["buyer@example.com"]?.prod).toEqual([
+      expect.objectContaining({ instance: "tiles.example.com", template: "Tiles" }),
+    ]);
+
+    await request.post("/create")
+      .set("x-auth-request-email", "buyer@example.com")
+      .send({
+        instance: "tiles-second.example.com",
+        image: "saashup/tile",
+        version: "v2.0.0",
+        port_value: "8080",
+        order_request: "true",
+        order_template: "Tiles",
+        profile: "prod",
+      })
+      .expect(429)
+      .expect((res) => {
+        expect(res.body.code).toBe("max_instances_reached");
+        expect(res.body.used_instances).toBe(1);
+      });
+  });
+
   test("accepts write operations and records logs", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock);
