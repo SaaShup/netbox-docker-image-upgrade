@@ -375,7 +375,7 @@ function reportProfiles(source) {
 
 function reportUserCount(profile, profiles) {
   const counts = plainObject(readState().order_counts);
-  const profileNames = profile === "all" ? profiles.map((item) => item.name) : [profile || ""];
+  const profileNames = profile === "all" ? profiles.map((item) => item.name).filter(Boolean) : [profile || ""];
   const includeAllProfiles = profile === "all" && !profileNames.length;
   return Object.values(counts).filter((userCounts) => {
     const userProfileCounts = plainObject(userCounts);
@@ -455,10 +455,13 @@ app.get("/order/limit", (req, res) => res.json(currentUsage(req, req.query.profi
 app.post("/create", async (req, res) => {
   const data = { ...selectedProfileConfig(req.body), ...req.body };
   data.saashup_owner = authUserFromRequest(req).email || "";
-  const usage = currentUsage(req, data.profile || data.config_profile || "");
-  if (req.body.order_request === "true" && usage.reached) {
+  const orderProfile = data.profile || data.config_profile || "";
+  const usage = currentUsage(req, orderProfile);
+  const isOrderRequest = req.body.order_request === "true";
+  if (isOrderRequest && usage.reached) {
     return res.status(429).json({ code: "max_instances_reached", detail: `You have reached your maximum of ${usage.max} instance${usage.max === 1 ? "" : "s"} for this config.`, max_instances: usage.max, used_instances: usage.used });
   }
+  if (isOrderRequest) recordOrderInstance(req, orderProfile, data);
   asyncOperation(res, async () => {
     const client = new NetBoxClient(data);
     const hosts = await dockerHosts(client, data.tag);
@@ -485,7 +488,6 @@ app.post("/create", async (req, res) => {
     if (createRecreateDelayMs > 0) await delay(createRecreateDelayMs);
     await waitForContainerConfigured(client, container.id, `${hostName(container)}/${valueText(container.display || container.name)}`);
     await requestContainerOperation(client, container, "recreate", "CREATE");
-    if (req.body.order_request === "true") recordOrderInstance(req, data.profile || data.config_profile || "", data);
   });
 });
 
