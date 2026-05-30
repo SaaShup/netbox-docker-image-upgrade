@@ -4,6 +4,8 @@ const isOrderPage = document.body?.classList.contains("order-page");
 const orderTemplateName = urlParams.get("template") || "";
 
 const form = document.getElementById("instanceForm");
+const appShell = document.querySelector(".app-shell");
+const sidebarToggle = document.getElementById("sidebarToggle");
 const formCard = document.querySelector(".form-card");
 const submitBtn = document.getElementById("submitBtn");
 const restartInstanceBtn = document.getElementById("restartInstanceBtn");
@@ -71,6 +73,7 @@ let logsPollFailed = false;
 let createTemplates = {};
 let generatedCreateInstanceName = "";
 const logsPollFailureNotice = "Activity logs unavailable: network error";
+const sidebarCollapsedStorageKey = "sidebar_collapsed";
 
 const configFields = ["config_profile", "config_name", "netbox", "token", "proxy", "domain", "tag", "max_instances"];
 
@@ -232,6 +235,21 @@ async function loadAuthUser() {
 function logout() {
   const returnUrl = window.location.origin + "/";
   window.location.href = `/logout?rd=${encodeURIComponent(returnUrl)}`;
+}
+
+function setSidebarCollapsed(collapsed) {
+  appShell?.classList.toggle("sidebar-collapsed", collapsed);
+  if (sidebarToggle) {
+    sidebarToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    sidebarToggle.setAttribute("aria-label", collapsed ? "Expand menu" : "Collapse menu");
+    sidebarToggle.title = collapsed ? "Expand menu" : "Collapse menu";
+  }
+  localStorage.setItem(sidebarCollapsedStorageKey, collapsed ? "true" : "false");
+}
+
+function initializeSidebar() {
+  if (isOrderPage || !appShell) return;
+  setSidebarCollapsed(localStorage.getItem(sidebarCollapsedStorageKey) === "true");
 }
 
 function isFqdn(value) {
@@ -2335,6 +2353,9 @@ deleteTemplateBtn?.addEventListener("click", deleteSelectedTemplate);
 loadTemplateBtn?.addEventListener("click", loadSelectedTemplate);
 orderTemplateBtn?.addEventListener("click", openSelectedTemplateOrder);
 logoutBtn?.addEventListener("click", logout);
+sidebarToggle?.addEventListener("click", () => {
+  setSidebarCollapsed(!appShell?.classList.contains("sidebar-collapsed"));
+});
 refreshReportBtn?.addEventListener("click", refreshImageReport);
 reportProfileSelect?.addEventListener("change", refreshImageReport);
 templateSelect?.addEventListener("change", () => {
@@ -2396,6 +2417,7 @@ window.isFqdn = isFqdn;
 window.instanceFqdn = instanceFqdn;
 
 async function initializePage() {
+  initializeSidebar();
   await loadCreateTemplates();
   updateTemplateOptions();
   setAction(currentAction);

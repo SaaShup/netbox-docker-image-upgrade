@@ -244,6 +244,25 @@ test("admin header shows oauth user and logs out through app auth", async ({ pag
   await expect(page).toHaveURL("/");
 });
 
+test("admin sidebar can collapse and expand", async ({ page }) => {
+  await page.goto("/admin");
+  const shell = page.locator(".app-shell");
+  const toggle = page.locator("#sidebarToggle");
+
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await toggle.click();
+  await expect(shell).toHaveClass(/sidebar-collapsed/);
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator("#menu_config .nav-label")).toHaveCSS("opacity", "0");
+
+  await page.reload();
+  await expect(shell).toHaveClass(/sidebar-collapsed/);
+
+  await toggle.click();
+  await expect(shell).not.toHaveClass(/sidebar-collapsed/);
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+});
+
 test("metrics endpoint exposes prometheus runtime metrics", async ({ request }) => {
   const response = await request.get("/metrics");
   const body = await response.text();
