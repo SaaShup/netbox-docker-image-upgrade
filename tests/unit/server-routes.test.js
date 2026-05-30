@@ -231,6 +231,7 @@ describe("server routes", () => {
     delete process.env.OPERATION_POLL_MS;
     delete process.env.CREATE_CONFIGURE_DELAY_MS;
     delete process.env.CREATE_RECREATE_DELAY_MS;
+    delete process.env.LOCAL_DEV_EMAIL;
     delete process.env.OIDC_ISSUER_URL;
     delete process.env.OIDC_CLIENT_ID;
     delete process.env.OIDC_CLIENT_SECRET;
@@ -670,6 +671,49 @@ describe("server routes", () => {
       });
   });
 
+  test("records sparse order reservations before async create work", async () => {
+    const { dataPath, request } = await loadServer();
+    writeState(dataPath, {
+      config: { max_instances: 3, profile: "prod", config_profile: "prod" },
+      templates: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.post("/create")
+      .set("x-auth-request-email", "buyer@example.com")
+      .send({ order_request: "true", profile: "prod" })
+      .expect(202);
+
+    expect(readState(dataPath).order_counts["buyer@example.com"].prod).toBe(1);
+    expect(readState(dataPath).order_instances["buyer@example.com"].prod).toEqual([
+      expect.objectContaining({ instance: "", template: "", image: "", version: "" }),
+    ]);
+  });
+
+  test("reports users across all stored orders when no report profiles exist", async () => {
+    const { dataPath, request } = await loadServer();
+    writeState(dataPath, {
+      config: {},
+      templates: {},
+      order_counts: {
+        "buyer@example.com": { prod: 2 },
+        "empty@example.com": { prod: 0 },
+        "staging@example.com": { staging: 1 },
+      },
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.get("/report/images")
+      .query({ profile: "all" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.total_users).toBe(2);
+      });
+  });
+
   test("accepts write operations and records logs", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock);
@@ -793,6 +837,21 @@ describe("server routes", () => {
       .expect(202);
     await vi.waitFor(() => expect(readState(dataPath).order_instances["buyer@example.com"].prod).toEqual([]));
     await vi.waitFor(() => expect(readState(dataPath).order_counts["buyer@example.com"].prod).toBe(0));
+
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+    await request.post("/delete")
+      .set("x-auth-request-email", "missing@example.com")
+      .send({ instance: "tiles.example.com", order_request: "true", profile: "prod" })
+      .expect(202);
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : container tiles deleted"));
+    expect(readState(dataPath).order_counts).toEqual({});
+    expect(readState(dataPath).order_instances).toEqual({});
 
     await request.post("/refresh-hosts").send({}).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("REFRESH_HOST : finished"));

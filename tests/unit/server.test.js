@@ -243,13 +243,18 @@ describe("server helpers", () => {
     process.env.ENABLE_EDITOR = "1";
     const oldUser = process.env.USER;
     const oldLogname = process.env.LOGNAME;
+    const oldLocalDevEmail = process.env.LOCAL_DEV_EMAIL;
     delete process.env.USER;
     delete process.env.LOGNAME;
     expect(authUserFromRequest({ headers: {} })).toEqual({ email: "", user: "Local dev", name: "Local dev" });
+    process.env.LOCAL_DEV_EMAIL = "dev@example.com";
+    expect(authUserFromRequest({ headers: {} })).toEqual({ email: "dev@example.com", user: "dev@example.com", name: "dev@example.com" });
     if (oldUser === undefined) delete process.env.USER;
     else process.env.USER = oldUser;
     if (oldLogname === undefined) delete process.env.LOGNAME;
     else process.env.LOGNAME = oldLogname;
+    if (oldLocalDevEmail === undefined) delete process.env.LOCAL_DEV_EMAIL;
+    else process.env.LOCAL_DEV_EMAIL = oldLocalDevEmail;
     delete process.env.ENABLE_EDITOR;
   });
 

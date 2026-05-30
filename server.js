@@ -375,7 +375,7 @@ function reportProfiles(source) {
 
 function reportUserCount(profile, profiles) {
   const counts = plainObject(readState().order_counts);
-  const profileNames = profile === "all" ? profiles.map((item) => item.name) : [profile || ""];
+  const profileNames = profile === "all" ? profiles.map((item) => item.name).filter(Boolean) : [profile || ""];
   const includeAllProfiles = profile === "all" && !profileNames.length;
   return Object.values(counts).filter((userCounts) => {
     const userProfileCounts = plainObject(userCounts);
