@@ -1,5 +1,56 @@
-data = require("./package.json")
+const data = require("./package.json")
 const proxyEnv = {};
+
+function firstHeader(req, names) {
+    for (const name of names) {
+        const value = req.headers?.[name];
+        if (Array.isArray(value) && value[0]) return value[0];
+        if (value) return value;
+    }
+
+    return "";
+}
+
+function authUserFromRequest(req) {
+    const email = firstHeader(req, [
+        "x-auth-request-email",
+        "x-forwarded-email",
+        "x-auth-request-user-email",
+    ]);
+    const user = firstHeader(req, [
+        "x-auth-request-user",
+        "x-forwarded-user",
+        "x-auth-request-preferred-username",
+        "x-forwarded-preferred-username",
+    ]);
+    const name = firstHeader(req, [
+        "x-auth-request-preferred-username",
+        "x-forwarded-preferred-username",
+        "x-auth-request-user",
+        "x-forwarded-user",
+        "x-auth-request-email",
+        "x-forwarded-email",
+    ]);
+
+    if (name || user || email || !("ENABLE_EDITOR" in process.env)) {
+        return { user, email, name };
+    }
+
+    const devUser = process.env.USER || process.env.LOGNAME || "Local dev";
+    return { user: devUser, email: "", name: devUser };
+}
+
+function authUserMiddleware(req, res, next) {
+    const requestPath = String(req.url || "").split("?")[0];
+
+    if (requestPath === "/auth/user") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify(authUserFromRequest(req)));
+        return;
+    }
+
+    next();
+}
 
 module.exports = {
     credentialSecret: "saashup",
@@ -16,10 +67,11 @@ module.exports = {
     uiPort: process.env.PORT || 1880,
     disableEditor: !('ENABLE_EDITOR' in process.env),
     httpStatic: [
-        { path: 'public', root: '/' },
+        { path: 'public', root: '/', middleware: authUserMiddleware },
     ],
     httpAdminRoot: '/nodered',
     httpNodeRoot: "/",
+    httpNodeMiddleware: authUserMiddleware,
     diagnostics: {
         enabled: true,
         ui: true,

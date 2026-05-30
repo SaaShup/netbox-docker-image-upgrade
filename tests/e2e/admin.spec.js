@@ -150,6 +150,30 @@ test("config tab starts without a forced default profile", async ({ page }) => {
   await expect(page.locator("#saveTemplateBtn")).toBeHidden();
 });
 
+test("admin header shows oauth user and logs out through oauth2 proxy", async ({ page }) => {
+  await page.route("**/auth/user", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        name: "Ada Lovelace",
+        user: "ada",
+        email: "ada@example.com",
+      }),
+    });
+  });
+
+  await openAdmin(page, {});
+
+  await expect(page.locator("#authUser")).toBeVisible();
+  await expect(page.locator("#authAvatar")).toHaveText("AL");
+  await expect(page.locator("#authName")).toHaveText("Ada Lovelace");
+  await expect(page.locator("#authEmail")).toHaveText("ada@example.com");
+
+  await page.locator("#logoutBtn").click();
+  await expect(page).toHaveURL(/\/oauth2\/sign_out\?rd=/);
+});
+
 test("delete config removes the profile and keeps it gone after reload", async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("config_profiles", JSON.stringify({
@@ -203,7 +227,7 @@ test("delete config removes the profile and keeps it gone after reload", async (
   await expect(page.locator("#config_profile option")).toHaveText("No config saved");
 });
 
-test("create form supports repeatable env, labels, and volumes", async ({ page }) => {
+test("create form supports repeatable env, labels, ports, and volumes", async ({ page }) => {
   await page.route("**/images?**", async (route) => {
     await route.fulfill({
       status: 200,
@@ -238,12 +262,19 @@ test("create form supports repeatable env, labels, and volumes", async ({ page }
   await expect(page.locator("#version")).toHaveAttribute("readonly", "");
   await expect(page.locator("[data-field='env_vars']")).toBeVisible();
   await expect(page.locator("[data-field='labels']")).toBeVisible();
+  await expect(page.locator("[data-field='ports']")).toBeVisible();
   await expect(page.locator("[data-field='volumes']")).toBeVisible();
+  await expect(page.locator("#port_value")).toHaveAttribute("required", "");
+  await expect(page.locator("#envList .env-remove")).toBeEnabled();
+  await expect(page.locator("#labelList .repeat-remove")).toBeEnabled();
+  await expect(page.locator("#volume_name")).toHaveAttribute("readonly", "");
+  await expect(page.locator("#volumeList .repeat-remove")).toBeEnabled();
 
   await page.locator("#refreshImagesBtn").click();
   await expect(page.locator("#notif")).toContainText("Loaded 2 images");
   await page.locator("#image").fill("saashup/guide");
   await expect(page.locator("#version")).toHaveValue("v1.10.0");
+  const generatedInstance = await page.locator("#instance").inputValue();
 
   await page.locator("#addEnvBtn").click();
   await page.locator("#addLabelBtn").click();
@@ -251,13 +282,26 @@ test("create form supports repeatable env, labels, and volumes", async ({ page }
 
   await expect(page.locator("#envList .env-row")).toHaveCount(2);
   await expect(page.locator("#labelList .repeat-row")).toHaveCount(2);
+  await expect(page.locator("#portList .repeat-row")).toHaveCount(1);
   await expect(page.locator("#volumeList .repeat-row")).toHaveCount(2);
+  await page.locator('#volumeList [name="volume_source"]').first().fill("/app/data");
+  await page.locator('#volumeList [name="volume_source"]').nth(1).fill("/app/cache");
+  await expect(page.locator('#volumeList [name="volume_name"]').first()).toHaveValue(`${generatedInstance}-data`);
+  await expect(page.locator('#volumeList [name="volume_name"]').nth(1)).toHaveValue(`${generatedInstance}-data-2`);
 
+  await page.locator("#envList .env-remove").last().click();
   await page.locator("#labelList .repeat-remove").last().click();
   await page.locator("#volumeList .repeat-remove").last().click();
 
+  await expect(page.locator("#envList .env-row")).toHaveCount(1);
   await expect(page.locator("#labelList .repeat-row")).toHaveCount(1);
   await expect(page.locator("#volumeList .repeat-row")).toHaveCount(1);
+  await page.locator("#envList .env-remove").click();
+  await expect(page.locator("#envList .env-row")).toHaveCount(0);
+  await page.locator("#labelList .repeat-remove").click();
+  await expect(page.locator("#labelList .repeat-row")).toHaveCount(0);
+  await page.locator("#volumeList .repeat-remove").click();
+  await expect(page.locator("#volumeList .repeat-row")).toHaveCount(0);
 });
 
 test("create form generates a random instance name when empty", async ({ page }) => {
@@ -282,6 +326,27 @@ test("create form generates a random instance name when empty", async ({ page })
 
   await expect(page.locator("#instance")).toHaveValue(/^production-[a-z0-9]{16}$/);
   await expect.poll(() => page.locator("#instance").inputValue()).not.toBe(firstName);
+});
+
+test("create form preloads a profile-based random instance name on page load", async ({ page }) => {
+  await page.evaluate(() => localStorage.setItem("current_action", "create"));
+
+  await openAdmin(page, {
+    profile: "production",
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "apps.example.com",
+        tag: "production",
+      },
+    }),
+  });
+
+  await expect(page.locator("#form-title")).toHaveText("Create instance");
+  await expect(page.locator("#instance")).toHaveValue(/^production-[a-z0-9]{16}$/);
+  await expect(page.locator("#instance")).not.toHaveValue(/^app-[a-z0-9]{16}$/);
 });
 
 test("create form derives the highest version from full image references", async ({ page }) => {
@@ -477,6 +542,7 @@ test("create template switches to its saved config profile", async ({ page }) =>
       image: "saashup/tile",
       env: [],
       labels: [],
+      ports: [{ value: "8080" }],
       volumes: [],
     },
   });
@@ -489,8 +555,11 @@ test("create template switches to its saved config profile", async ({ page }) =>
   await expect(page.locator("#config_profile")).toHaveValue("tile");
   await expect(page.locator("#domain")).toHaveValue("tile.example.com");
   await expect(page.locator("#tag")).toHaveValue("TILE");
+  await expect(page.locator("#instance")).toHaveValue(/^tile-[a-z0-9]{16}$/);
+  await expect(page.locator("#instance")).not.toHaveValue("tile-app");
   await expect(page.locator("#image")).toHaveValue("saashup/tile");
   await expect(page.locator("#version")).toHaveValue("v2.0.0");
+  await expect(page.locator("#port_value")).toHaveValue("8080");
   expect(imageTags).toContain("TILE");
 });
 
@@ -564,6 +633,7 @@ test("create form requires an fqdn instance name", async ({ page }) => {
   await page.getByRole("link", { name: "Create" }).click();
   await page.locator("#instance").fill("guide-app");
   await page.locator("#image").fill("saashup/guide");
+  await page.locator("#port_value").fill("3000");
   await page.locator("#submitBtn").click();
 
   await expect(page.locator("#notif")).toContainText("Instance name must be a fully qualified domain name");
@@ -607,10 +677,12 @@ test("create form appends the configured domain to short instance names", async 
   await page.getByRole("link", { name: "Create" }).click();
   await page.locator("#instance").fill("tiles");
   await page.locator("#image").fill("saashup/tiles");
+  await page.locator("#port_value").fill("3000");
   await page.locator("#submitBtn").click();
 
   await expect.poll(() => createBody).toContain("instance=tiles.daily.paashup.cloud");
   expect(createBody).toContain("domain=daily.paashup.cloud");
+  expect(createBody).toContain("port_value=3000");
   await expect(page.locator("#instance")).toHaveValue("tiles.daily.paashup.cloud");
 });
 
@@ -660,7 +732,7 @@ test("create form can import a docker run command", async ({ page }) => {
 
   await page.locator("#dockerRunInput").fill([
     "docker run -d --name guide-app --network mgmt",
-    "-e APP_ENV=production --label traefik.enable=true",
+    "-e APP_ENV=production --label traefik.enable=true -p 8080:3000",
     "-v guide-data:/app/data saashup/guide:v1.2.3",
   ].join(" "));
   await page.locator("#dockerRunApplyBtn").click();
@@ -675,8 +747,9 @@ test("create form can import a docker run command", async ({ page }) => {
   await expect(page.locator("#var_env_value")).toHaveValue("production");
   await expect(page.locator("#label_key")).toHaveValue("traefik.enable");
   await expect(page.locator("#label_value")).toHaveValue("true");
+  await expect(page.locator("#port_value")).toHaveValue("3000");
   await expect(page.locator("#volume_source")).toHaveValue("/app/data");
-  await expect(page.locator("#volume_name")).toHaveValue("guide-data");
+  await expect(page.locator("#volume_name")).toHaveValue("guide-app-data");
 });
 
 test("create form can save and load templates", async ({ page }) => {
@@ -708,6 +781,8 @@ test("create form can save and load templates", async ({ page }) => {
   await page.getByRole("link", { name: "Create" }).click();
   await expect(page.locator("#saveTemplateBtn")).toBeVisible();
   await expect(page.locator("#saveTemplateBtn")).toHaveText("Save template");
+  await expect(page.locator("#orderTemplateBtn")).toBeVisible();
+  await expect(page.locator("#orderTemplateBtn")).toBeDisabled();
   await expect(page.locator("#deleteTemplateBtn")).toBeVisible();
 
   await page.locator("#refreshImagesBtn").click();
@@ -719,15 +794,20 @@ test("create form can save and load templates", async ({ page }) => {
   await page.locator("#var_env_value").fill("production");
   await page.locator("#label_key").fill("traefik.enable");
   await page.locator("#label_value").fill("true");
+  await page.locator("#port_value").fill("3000");
   await page.locator("#volume_source").fill("/app/data");
-  await page.locator("#volume_name").fill("guide-data");
+  await expect(page.locator("#volume_name")).toHaveValue("guide-app-data");
 
   page.once("dialog", async (dialog) => {
     expect(dialog.message()).toBe("Template name");
+    expect(dialog.defaultValue()).toBe("");
     await dialog.accept("Guide");
   });
   await page.locator("#saveTemplateBtn").click();
   await expect(page.locator("#notif")).toContainText('Template "Guide" saved');
+  const savedTemplate = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")).Guide);
+  expect(savedTemplate).not.toHaveProperty("instance");
+  expect(savedTemplate.volumes).toEqual([{ key: "/app/data" }]);
 
   await page.evaluate(() => localStorage.removeItem("create_templates"));
   await page.reload();
@@ -739,19 +819,61 @@ test("create form can save and load templates", async ({ page }) => {
 
   await page.locator("#templateSelect").selectOption("Guide");
   await expect(page.locator("#notif")).toContainText('Template "Guide" loaded');
+  await expect(page.locator("#orderTemplateBtn")).toBeEnabled();
   expect(imageRequestCount).toBeGreaterThanOrEqual(imageRequestsBeforeLoad);
   await expect(page.locator("#network")).toHaveValue("traefik-net");
-  await expect(page.locator("#instance")).toHaveValue("guide-app");
+  await expect(page.locator("#instance")).toHaveValue(/^production-[a-z0-9]{16}$/);
+  await expect(page.locator("#instance")).not.toHaveValue("guide-app");
   await expect(page.locator("#image")).toHaveValue("saashup/guide");
   await expect(page.locator("#version")).toHaveValue("v1.10.0");
   await expect(page.locator("#var_env_key")).toHaveValue("APP_ENV");
   await expect(page.locator("#label_key")).toHaveValue("traefik.enable");
+  await expect(page.locator("#port_value")).toHaveValue("3000");
   await expect(page.locator("#volume_source")).toHaveValue("/app/data");
+  const loadedInstance = await page.locator("#instance").inputValue();
+  await expect(page.locator("#volume_name")).toHaveValue(`${loadedInstance}-data`);
+
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toBe("Template name");
+    expect(dialog.defaultValue()).toBe("Guide");
+    await dialog.dismiss();
+  });
+  await page.locator("#saveTemplateBtn").click();
 
   await page.on("dialog", (dialog) => dialog.accept());
   await page.locator("#deleteTemplateBtn").click();
   await expect(page.locator("#notif")).toContainText('Template "Guide" deleted');
   await expect(page.locator("#templateSelect option")).toHaveText("No templates saved");
+});
+
+test("create template order button opens the selected order page", async ({ page }) => {
+  await openAdmin(page, {
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        tag: "production",
+      },
+    }),
+  }, {
+    "Guide App": {
+      config_profile: "production",
+      network: "traefik-net",
+      image: "saashup/guide",
+      ports: [{ value: "3000" }],
+    },
+  });
+
+  await page.getByRole("link", { name: "Create" }).click();
+  await expect(page.locator("#orderTemplateBtn")).toBeDisabled();
+  await expect(page.locator("#orderTemplateBtn")).toHaveClass(/btn-primary/);
+
+  await page.locator("#templateSelect").selectOption("Guide App");
+  await expect(page.locator("#orderTemplateBtn")).toBeEnabled();
+  await page.locator("#orderTemplateBtn").click();
+
+  await expect(page).toHaveURL(/\/order\?template=Guide%20App$/);
 });
 
 test("order page creates an instance from the requested template", async ({ page }) => {
@@ -765,6 +887,7 @@ test("order page creates an instance from the requested template", async ({ page
       image: "saashup/curiootiles",
       env: [{ key: "APP_ENV", value: "production" }],
       labels: [{ key: "traefik.enable", value: "true" }],
+      ports: [{ value: "3000" }],
       volumes: [{ key: "/app/data", value: "curiootiles-data" }],
     },
   };
@@ -843,7 +966,77 @@ test("order page creates an instance from the requested template", async ({ page
   expect(createBody).toContain("version=v2.0.0");
   expect(createBody).toContain("var_env_key=APP_ENV");
   expect(createBody).toContain("var_env_value=production");
+  expect(createBody).toContain("port_value=3000");
+  expect(createBody).toContain(`volume_name=${generatedName}-data`);
+  expect(createBody).not.toContain("curiootiles-data");
   expect(logsRequests).toBe(0);
+});
+
+test("order page shows oauth user and logs out through oauth2 proxy", async ({ page }) => {
+  let resolveAuth;
+  const authReady = new Promise((resolve) => {
+    resolveAuth = resolve;
+  });
+
+  await page.route("**/auth/user", async (route) => {
+    await authReady;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        name: "Ada Lovelace",
+        user: "ada",
+        email: "ada@example.com",
+      }),
+    });
+  });
+
+  await page.route("**/images?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        { name: "saashup/demo", version: "v1.0.0" },
+      ]),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "demo",
+    profiles: JSON.stringify({
+      demo: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "daily.paashup.cloud",
+        tag: "DEMO",
+      },
+    }),
+  }, {
+    demo: {
+      config_profile: "demo",
+      network: "traefik-public",
+      image: "saashup/demo",
+      ports: [{ value: "3000" }],
+    },
+  }, [], undefined, "/order?template=demo");
+
+  await expect(page.locator("#orderLoading")).toBeVisible();
+  await expect(page.locator("#authUser")).toBeHidden();
+  await expect(page.locator("#orderActions")).toBeHidden();
+
+  resolveAuth();
+
+  await expect(page.locator("#authUser")).toBeVisible();
+  await expect(page.locator("#authAvatar")).toHaveText("AL");
+  await expect(page.locator("#authName")).toHaveText("Ada Lovelace");
+  await expect(page.locator("#authEmail")).toHaveText("ada@example.com");
+  await expect(page.locator("#orderLoading")).toBeHidden();
+  await expect(page.locator("#orderActions")).toBeVisible();
+  await expect(page.locator(".order-question")).toHaveText("Are you sure you want to install an instance?");
+
+  await page.locator("#logoutBtn").click();
+  await expect(page).toHaveURL(/\/oauth2\/sign_out\?rd=/);
 });
 
 test("order page generates and submits an instance name when the template has none", async ({ page }) => {
@@ -855,6 +1048,7 @@ test("order page generates and submits an instance name when the template has no
       image: "saashup/curiootiles",
       env: [],
       labels: [],
+      ports: [{ value: "3000" }],
       volumes: [],
     },
   };
@@ -928,6 +1122,7 @@ test("order page displays an error when create is not accepted", async ({ page }
       image: "saashup/curiootiles",
       env: [],
       labels: [],
+      ports: [{ value: "3000" }],
       volumes: [],
     },
   };
@@ -980,6 +1175,7 @@ test("order page no button redirects to home", async ({ page }) => {
       image: "saashup/curiootiles",
       env: [],
       labels: [],
+      ports: [{ value: "3000" }],
       volumes: [],
     },
   };
@@ -1294,6 +1490,7 @@ test("docker run parser supports quoted values and registry ports", async ({ pag
     "docker run --name tile-api --network proxy",
     "--env PUBLIC_URL=https://tiles.example.com/a?b=c",
     "--label traefik.http.routers.tile.rule=Host(`tiles.example.com`)",
+    "--publish 127.0.0.1:8443:443/tcp",
     "--volume tile-cache:/app/cache:ro",
     "registry.example.com:5000/saashup/tile-api:v2.4.1",
   ].join(" ")));
@@ -1309,6 +1506,7 @@ test("docker run parser supports quoted values and registry ports", async ({ pag
     key: "traefik.http.routers.tile.rule",
     value: "Host(`tiles.example.com`)",
   });
+  expect(parsed.ports).toContainEqual({ value: "443" });
   expect(parsed.volumes).toContainEqual({ name: "tile-cache", source: "/app/cache" });
 });
 
@@ -1551,6 +1749,27 @@ test("create flow logs each provisioning stage", () => {
   expect(flowNode("apply_proxy_9f73f45cd7734d7f").wires[0]).toContain("create_log_container_created");
   expect(flowNode("apply_proxy_ddfa991fa8e68500").wires[0]).toContain("create_log_container_configured");
   expect(flowNode("apply_proxy_e0ec5be02bee7c3e").wires[0]).toContain("create_log_recreate_requested");
+});
+
+test("create flow does not synthesize default volumes or mounts", async () => {
+  const volumePayload = await evaluateJsonata("3cf9824c67655d6f", "payload", {
+    host_id: 42,
+  });
+  const containerPayload = await evaluateJsonata("1d13b67923d9a132", "payload", {
+    container: { id: 24 },
+    host_id: 42,
+    network: "traefik-public",
+    instance: "guide.example.com",
+    instanceShort: "guide",
+    port_value: "8080",
+  });
+
+  expect(volumePayload).toEqual([]);
+  expect(containerPayload[0].mounts).toEqual([]);
+  expect(containerPayload[0].labels).toContainEqual({
+    key: "traefik.http.services.guide.loadbalancer.server.port",
+    value: "8080",
+  });
 });
 
 test("create cloudflare dns record uses post and logs the result", async () => {

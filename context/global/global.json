@@ -5,25 +5,44 @@
         "HTTP_PROXY": "",
         "HTTPS_PROXY": ""
     },
-    "logs": "",
+    "logs": "2026-05-30T05:34:34.688Z DELETE : lookup curioocity-tile-g3q4yxdvy0rzpam6 count=1 tag=TILE hosts=&host_id=39&host_id=42<br>2026-05-30T05:34:34.456Z DELETE : Cloudflare DNS record not found for curioocity-tile-g3q4yxdvy0rzpam6 count=0<br>",
     "templates": {
         "curiootiles": {
             "config_profile": "curioocity-tile",
             "network": "traefik_network",
-            "instance": "curioo-tiles",
             "image": "saashup/curioo-tiles",
             "version": "v2.7.1",
             "env": [
                 {
                     "key": "OVERPASS_URL",
-                    "value": "https://overpass/api/interpreter"
+                    "value": "http://overpass"
+                },
+                {
+                    "key": "KEYCLOAK_CLIENT_ID",
+                    "value": "tilemap"
+                },
+                {
+                    "key": "KEYCLOAK_CLIENT_SECRET",
+                    "value": "GvB4SfOpkoXyM2AcF4NWG2yOG7PkH75e"
+                },
+                {
+                    "key": "KEYCLOAK_REALM",
+                    "value": "curioo"
+                },
+                {
+                    "key": "KEYCLOAK_URL",
+                    "value": "https://connect.curioo.city"
                 }
             ],
             "labels": [],
+            "ports": [
+                {
+                    "value": "3000"
+                }
+            ],
             "volumes": [
                 {
-                    "key": "/app/cache",
-                    "value": "curioo-tiles-cache"
+                    "key": "/data"
                 }
             ]
         }
