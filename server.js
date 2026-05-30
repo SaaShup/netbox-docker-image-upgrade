@@ -83,19 +83,56 @@ function asyncOperation(res, fn) {
 function currentUsage(req, profile) {
   const state = readState();
   const counts = plainObject(state.order_counts);
+  const instances = plainObject(state.order_instances);
   const userKey = userOrderKey(req);
+  const emailKey = String(authUserFromRequest(req).email || "").trim().toLowerCase();
   const used = Number(counts[userKey]?.[profile] || 0);
   const config = selectedProfileConfig({ profile, config_profile: profile });
   const max = maxInstancesValue(config.max_instances);
-  return { profile, used, max, remaining: Math.max(0, max - used), reached: used >= max };
+  const userInstances = emailKey && Array.isArray(instances[emailKey]?.[profile]) ? instances[emailKey][profile] : [];
+  return { profile, used, max, remaining: Math.max(0, max - used), reached: used >= max, instances: userInstances };
 }
 
-function incrementUsage(req, profile) {
+function recordOrderInstance(req, profile, data) {
   writeState((state) => {
     const userKey = userOrderKey(req);
+    const emailKey = String(authUserFromRequest(req).email || "").trim().toLowerCase();
     state.order_counts = plainObject(state.order_counts);
     if (!state.order_counts[userKey]) state.order_counts[userKey] = {};
     state.order_counts[userKey][profile] = Number(state.order_counts[userKey][profile] || 0) + 1;
+
+    if (emailKey) {
+      state.order_instances = plainObject(state.order_instances);
+      if (!state.order_instances[emailKey]) state.order_instances[emailKey] = {};
+      const instances = Array.isArray(state.order_instances[emailKey][profile]) ? state.order_instances[emailKey][profile] : [];
+      instances.push({
+        instance: data.instance || "",
+        template: data.order_template || "",
+        image: data.image || "",
+        version: data.version || "",
+        created_at: new Date().toISOString(),
+      });
+      state.order_instances[emailKey][profile] = instances;
+    }
+    return state;
+  });
+}
+
+function removeOrderInstance(req, profile, instance) {
+  writeState((state) => {
+    const userKey = userOrderKey(req);
+    const emailKey = String(authUserFromRequest(req).email || "").trim().toLowerCase();
+    state.order_counts = plainObject(state.order_counts);
+    if (state.order_counts[userKey]) {
+      state.order_counts[userKey][profile] = Math.max(0, Number(state.order_counts[userKey][profile] || 0) - 1);
+    }
+    if (emailKey) {
+      state.order_instances = plainObject(state.order_instances);
+      const instances = Array.isArray(state.order_instances[emailKey]?.[profile]) ? state.order_instances[emailKey][profile] : [];
+      if (state.order_instances[emailKey]) {
+        state.order_instances[emailKey][profile] = instances.filter((item) => item.instance !== instance);
+      }
+    }
     return state;
   });
 }
@@ -180,6 +217,7 @@ app.delete("/config", requireAdmin, (req, res) => {
 app.get("/webhook", requireAdmin, (req, res) => {
   const profiles = parseProfiles(req.query.profiles);
   const config = {
+    customer_name: req.query.customer_name || "",
     netbox: req.query.netbox || "",
     token: req.query.token || "",
     proxy: req.query.proxy || "",
@@ -218,6 +256,7 @@ app.get("/portable-config", requireAdmin, (req, res) => {
     config: { ...config, profiles: parseProfiles(config.profiles) },
     templates: plainObject(state.templates),
     order_counts: plainObject(state.order_counts),
+    order_instances: plainObject(state.order_instances),
   };
   res.attachment(`saashup-config-${new Date().toISOString().slice(0, 10)}.json`).json(payload);
 });
@@ -235,6 +274,7 @@ app.post("/portable-config", requireAdmin, (req, res) => {
     state.config = config;
     state.templates = plainObject(payload.templates);
     state.order_counts = plainObject(payload.order_counts);
+    state.order_instances = plainObject(payload.order_instances);
     return state;
   });
   res.json({ status: "imported", profiles: names.length, templates: Object.keys(plainObject(payload.templates)).length });
@@ -333,6 +373,17 @@ function reportProfiles(source) {
   return [{ name: "", config: selectedProfileConfig(source) }];
 }
 
+function reportUserCount(profile, profiles) {
+  const counts = plainObject(readState().order_counts);
+  const profileNames = profile === "all" ? profiles.map((item) => item.name) : [profile || ""];
+  const includeAllProfiles = profile === "all" && !profileNames.length;
+  return Object.values(counts).filter((userCounts) => {
+    const userProfileCounts = plainObject(userCounts);
+    if (includeAllProfiles) return Object.values(userProfileCounts).some((count) => Number(count || 0) > 0);
+    return profileNames.some((name) => Number(userProfileCounts[name] || 0) > 0);
+  }).length;
+}
+
 async function imageReportForProfile(name, config) {
   if (!config.netbox || !config.token) return { hosts: 0, rows: [] };
 
@@ -376,6 +427,7 @@ async function imageReportForProfile(name, config) {
 app.get("/report/images", requireAdmin, async (req, res) => {
   try {
     const profiles = reportProfiles(req.query);
+    const requestedProfile = req.query.profile || req.query.config_profile || "";
     const results = [];
     let totalHosts = 0;
 
@@ -386,11 +438,12 @@ app.get("/report/images", requireAdmin, async (req, res) => {
     }
 
     res.json({
-      profile: req.query.profile || req.query.config_profile || "",
+      profile: requestedProfile,
       rows: results,
       total_hosts: totalHosts,
       total_images: results.length,
       total_containers: results.reduce((total, row) => total + Number(row.containers || 0), 0),
+      total_users: reportUserCount(requestedProfile, profiles),
     });
   } catch (error) {
     res.status(error.statusCode || 502).json({ detail: error.message, payload: error.payload });
@@ -401,6 +454,7 @@ app.get("/order/limit", (req, res) => res.json(currentUsage(req, req.query.profi
 
 app.post("/create", async (req, res) => {
   const data = { ...selectedProfileConfig(req.body), ...req.body };
+  data.saashup_owner = authUserFromRequest(req).email || "";
   const usage = currentUsage(req, data.profile || data.config_profile || "");
   if (req.body.order_request === "true" && usage.reached) {
     return res.status(429).json({ code: "max_instances_reached", detail: `You have reached your maximum of ${usage.max} instance${usage.max === 1 ? "" : "s"} for this config.`, max_instances: usage.max, used_instances: usage.used });
@@ -431,7 +485,7 @@ app.post("/create", async (req, res) => {
     if (createRecreateDelayMs > 0) await delay(createRecreateDelayMs);
     await waitForContainerConfigured(client, container.id, `${hostName(container)}/${valueText(container.display || container.name)}`);
     await requestContainerOperation(client, container, "recreate", "CREATE");
-    if (req.body.order_request === "true") incrementUsage(req, data.profile || data.config_profile || "");
+    if (req.body.order_request === "true") recordOrderInstance(req, data.profile || data.config_profile || "", data);
   });
 });
 
@@ -497,6 +551,7 @@ app.post("/delete", (req, res) => {
     await client.request("DELETE", `/api/plugins/docker/containers/${container.id}/`, { expected: [200, 202, 204] });
     logLine(`DELETE : container ${instanceShort(data.instance)} deleted id=${container.id}`);
     await deleteDnsRecord(client, data);
+    if (req.body.order_request === "true") removeOrderInstance(req, data.profile || data.config_profile || "", data.instance || "");
   });
 });
 

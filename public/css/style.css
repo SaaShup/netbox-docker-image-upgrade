@@ -443,8 +443,8 @@ h2 {
 
 .report-toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
-  gap: 16px;
+  grid-template-columns: minmax(140px, 170px) minmax(0, 1fr);
+  gap: 12px;
   align-items: end;
   margin-bottom: 18px;
 }
@@ -453,9 +453,9 @@ h2 {
   min-height: 44px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding: 10px 12px;
+  gap: 8px;
+  flex-wrap: nowrap;
+  padding: 8px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--field-bg);
@@ -466,10 +466,11 @@ h2 {
 .report-stat {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  min-width: 132px;
-  min-height: 50px;
-  padding: 8px 10px;
+  flex: 1 1 0;
+  gap: 7px;
+  min-width: 0;
+  min-height: 46px;
+  padding: 7px 8px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--panel);
@@ -483,17 +484,17 @@ h2 {
 .report-stat-icon {
   display: grid;
   place-items: center;
-  flex: 0 0 32px;
-  width: 32px;
-  height: 32px;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
   border-radius: 10px;
   background: var(--button-soft);
   color: var(--primary);
 }
 
 .report-stat-icon svg {
-  width: 19px;
-  height: 19px;
+  width: 17px;
+  height: 17px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.9;
@@ -514,7 +515,7 @@ h2 {
 
 .report-stat-copy small {
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 0.74rem;
 }
 
 .report-table-wrap {
@@ -885,6 +886,7 @@ body.order-page .app-shell {
 body.order-page .main {
   min-height: 100vh;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 24px;
@@ -981,6 +983,120 @@ body.order-page .order-status {
 
 body.order-page .order-status.hidden {
   display: none;
+}
+
+body.order-page .order-instances {
+  width: min(760px, 100%);
+  margin: 0 0 18px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--panel-soft);
+  box-shadow: var(--shadow);
+}
+
+body.order-page .order-instances.hidden {
+  display: none;
+}
+
+.order-instances-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.order-instances-header .eyebrow {
+  margin: 0 0 4px;
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.order-instances-header h2 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.order-instance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+}
+
+.order-instance-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+}
+
+.order-instance-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  background: var(--button-soft);
+  color: var(--primary);
+}
+
+.order-instance-icon svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.order-instance-copy {
+  display: grid;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.order-instance-delete {
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  margin-left: auto;
+  border-radius: 10px;
+}
+
+.order-instance-copy strong,
+.order-instance-copy a,
+.order-instance-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.order-instance-copy strong,
+.order-instance-copy a {
+  color: var(--text);
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.order-instance-copy a:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+.order-instance-copy small {
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 body.order-page .order-status.success {
