@@ -9,15 +9,22 @@
         "email": "contact@saashup.com"
     },
     "scripts": {
-        "test": "npm run test:e2e",
-        "dev": "ENABLE_EDITOR=1 DATAPATH=. node-red -s settings.js -u $(pwd)",
+        "test": "npm run test:unit && npm run test:e2e",
+        "test:unit": "vitest run",
+        "coverage": "vitest run --coverage",
+        "start": "node server.js",
+        "dev": "node server.js",
         "test:e2e": "playwright test"
     },
     "license": "BSD-3-Clause",
     "dependencies": {
-        "node-red": "*"
+        "express": "^5.1.0",
+        "undici": "^7.16.0"
     },
     "devDependencies": {
-        "@playwright/test": "^1.60.0"
+        "@playwright/test": "^1.60.0",
+        "@vitest/coverage-v8": "^4.1.7",
+        "supertest": "^7.2.2",
+        "vitest": "^4.1.7"
     }
 }

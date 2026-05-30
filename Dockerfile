@@ -1,16 +1,21 @@
-FROM nodered/node-red:4.1.10-minimal
-USER node-red
-WORKDIR /usr/src/node-red
+FROM node:24-alpine
 
-COPY package.json /usr/src/node-red/package.json
-RUN ln -s /usr/src/node-red/package.json /data/package.json
-
-RUN npm install --omit=dev
-
-COPY public /usr/src/node-red/public
-COPY flows.json /usr/src/node-red/flows.json
-COPY settings.js /usr/src/node-red/settings.js
-
-ENV FLOWS=/usr/src/node-red/flows.json
+ENV NODE_ENV=production
 ENV DATAPATH=/data
-ENV APPPATH=/usr/src/node-red
+ENV APPPATH=/usr/src/app
+ENV PORT=1880
+
+WORKDIR /usr/src/app
+
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+COPY public ./public
+COPY server.js ./server.js
+
+RUN mkdir -p /data && chown -R node:node /data /usr/src/app
+
+USER node
+EXPOSE 1880
+
+CMD ["node", "server.js"]

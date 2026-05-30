@@ -34,11 +34,27 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
-      - name: Check frontend JavaScript syntax
-        run: node -c public/js/main.js
+      - name: Check JavaScript syntax
+        run: |
+          node -c server.js
+          node -c public/js/main.js
+          node -c public/js/theme.js
+          node -c public/js/version.js
+
+      - name: Run unit tests with coverage
+        run: npm run coverage
 
       - name: Run end-to-end tests
-        run: npm test
+        run: npm run test:e2e
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload Playwright report
         if: always()
