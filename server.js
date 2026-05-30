@@ -1,4 +1,5 @@
 const path = require("path");
+const crypto = require("crypto");
 const express = require("express");
 const packageJson = require("./package.json");
 const { authUserFromRequest, createAuthHelpers, maxInstancesValue } = require("./lib/auth");
@@ -35,6 +36,7 @@ const operationTimeoutSeconds = Number(process.env.OPERATION_TIMEOUT_SECONDS || 
 const operationPollMs = Number(process.env.OPERATION_POLL_MS || 3000);
 const createConfigureDelayMs = Number(process.env.CREATE_CONFIGURE_DELAY_MS || 5000);
 const createRecreateDelayMs = Number(process.env.CREATE_RECREATE_DELAY_MS || 5000);
+const dockerhubWebhookSecret = String(process.env.DOCKERHUB_WEBHOOK_SECRET || "");
 const adminAllowedEmails = String(process.env.ADMIN_ALLOWED_EMAILS || "")
   .split(",")
   .map((email) => email.trim().toLowerCase())
@@ -145,6 +147,18 @@ function requireAdmin(req, res, next) {
   res.status(403).sendFile(path.join(publicPath, "forbidden.html"));
 }
 
+function timingSafeStringEqual(left, right) {
+  const leftBuffer = Buffer.from(String(left || ""));
+  const rightBuffer = Buffer.from(String(right || ""));
+  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function dockerhubWebhookAllowed(req) {
+  if (!dockerhubWebhookSecret) return true;
+  const provided = req.params.secret || req.query.secret || req.get("x-saashup-webhook-secret") || "";
+  return timingSafeStringEqual(provided, dockerhubWebhookSecret);
+}
+
 app.disable("x-powered-by");
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 app.use(express.json({ limit: "1mb" }));
@@ -160,6 +174,20 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+app.post(["/dockerhub/:profile", "/dockerhub/:profile/:secret"], (req, res) => {
+  if (!dockerhubWebhookAllowed(req)) return res.status(403).json({ detail: "invalid webhook secret" });
+  res.status(202).json({ status: "accepted" });
+  const tag = req.body?.push_data?.tag;
+  if (!tag || tag === "latest") return;
+  const image = req.body?.repository?.repo_name;
+  const config = selectedProfileConfig({ profile: req.params.profile });
+  const body = { ...config, image, version: tag, clean_name: false };
+  Promise.resolve()
+    .then(() => recreateContainers(body))
+    .catch((error) => logLine(`DOCKERHUB : failed ${error.message}`));
+});
+
 app.use(oidcAuth.attachUser);
 
 app.get("/session/user", (req, res) => res.json(authUserFromRequest(req)));
@@ -569,18 +597,6 @@ app.post("/refresh-hosts", (req, res) => {
     }
     logLine("REFRESH_HOST : finished host refresh loop");
   });
-});
-
-app.post("/dockerhub", (req, res) => {
-  res.status(202).json({ status: "accepted" });
-  const tag = req.body?.push_data?.tag;
-  if (!tag || tag === "latest") return;
-  const image = req.body?.repository?.repo_name;
-  const config = selectedProfileConfig({});
-  const body = { ...config, image, version: tag, clean_name: false };
-  Promise.resolve()
-    .then(() => recreateContainers(body))
-    .catch((error) => logLine(`DOCKERHUB : failed ${error.message}`));
 });
 
 /* v8 ignore next 6 */
