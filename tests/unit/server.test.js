@@ -1,0 +1,379 @@
+const {
+  asArray,
+  authUserFromRequest,
+  containerConfigPayloadFromForm,
+  containerCreatePayloadFromForm,
+  hostMatchesTag,
+  imageNameFromRef,
+  instanceShort,
+  instanceZone,
+  isContainerRunning,
+  isContainerStopped,
+  isOperationDone,
+  isReadyContainer,
+  maxInstancesValue,
+  metricLabel,
+  metricLine,
+  operationLabel,
+  parseProfiles,
+  plainObject,
+  routeLabel,
+  statusClass,
+  valueText,
+  volumePayloadsFromForm,
+} = require("../../server");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const { createAuthHelpers, firstHeader } = require("../../lib/auth");
+const {
+  containerNetworkNames,
+  formData,
+  hostName,
+  normalizedStatus,
+} = require("../../lib/docker");
+const { createMetrics } = require("../../lib/metrics");
+const { NetBoxClient, dockerHosts, hostIdQuery, setNetBoxFetchForTests } = require("../../lib/netbox");
+const { createOperationHelpers } = require("../../lib/operations");
+const { createStateStore, defaultState, readJson, writeJson } = require("../../lib/state");
+
+describe("server helpers", () => {
+  test("normalizes profile JSON safely", () => {
+    expect(parseProfiles("")).toEqual({});
+    expect(parseProfiles('{"prod":{"tag":"PROD"}}')).toEqual({ prod: { tag: "PROD" } });
+    expect(parseProfiles({ dev: { tag: "DEV" } })).toEqual({ dev: { tag: "DEV" } });
+    expect(parseProfiles("[1,2,3]")).toEqual({});
+    expect(parseProfiles("not json")).toEqual({});
+  });
+
+  test("clamps max instance values to the supported range", () => {
+    expect(maxInstancesValue(undefined)).toBe(1);
+    expect(maxInstancesValue("-3")).toBe(0);
+    expect(maxInstancesValue("4.9")).toBe(4);
+    expect(maxInstancesValue("99")).toBe(10);
+  });
+
+  test("matches docker host tags from NetBox and custom field fallbacks", () => {
+    expect(hostMatchesTag({ tags: [{ name: "TILE" }] }, "tile")).toBe(true);
+    expect(hostMatchesTag({ tags: [{ display: "TILE" }] }, "tile")).toBe(true);
+    expect(hostMatchesTag({ tags: ["tile"] }, "tile")).toBe(true);
+    expect(hostMatchesTag({ tags: [{ slug: "guide" }] }, "tile")).toBe(false);
+    expect(hostMatchesTag({ tag: "tile" }, "TILE")).toBe(true);
+    expect(hostMatchesTag({ role: "tile" }, "TILE")).toBe(true);
+    expect(hostMatchesTag({ custom_fields: { role: "tile" } }, "TILE")).toBe(true);
+    expect(hostMatchesTag({ cf: { role: "tile" } }, "TILE")).toBe(true);
+    expect(hostMatchesTag({ tags: [] }, "")).toBe(true);
+  });
+
+  test("extracts image names without stripping registry ports", () => {
+    expect(imageNameFromRef()).toBe("");
+    expect(imageNameFromRef("registry.example.com:5000/saashup/tile-api:v2.4.1")).toBe("registry.example.com:5000/saashup/tile-api");
+    expect(imageNameFromRef("saashup/tile-api")).toBe("saashup/tile-api");
+  });
+
+  test("builds create and configure container payloads from repeatable form fields", () => {
+    const data = {
+      instance: "tiles.example.com",
+      host_id: 42,
+      network: "traefik-public",
+      var_env_key: ["NODE_ENV", ""],
+      var_env_value: ["production", ""],
+      label_key: ["traefik.http.routers.tiles.middlewares"],
+      label_value: ["true"],
+      port_value: ["8080"],
+      volume_source: ["/app/data", ""],
+      volume_name: ["tiles-data", ""],
+    };
+
+    expect(volumePayloadsFromForm(data)).toEqual([{ host: 42, name: "tiles-data" }]);
+    expect(containerCreatePayloadFromForm(data, 12)).toEqual({
+      host: 42,
+      name: "tiles",
+      image: 12,
+      restart_policy: "unless-stopped",
+    });
+    expect(containerConfigPayloadFromForm(data, 31)).toEqual({
+      id: 31,
+      host: 42,
+      network_settings: [{ network: { host: 42, name: "traefik-public" } }],
+      env: [{ var_name: "NODE_ENV", value: "production" }],
+      labels: [
+        { key: "traefik.enable", value: "true" },
+        { key: "traefik.http.routers.tiles.rule", value: "Host(`tiles.example.com`)" },
+        { key: "traefik.http.routers.tiles.entrypoints", value: "http" },
+        { key: "traefik.http.services.tiles.loadbalancer.server.port", value: "8080" },
+        { key: "traefik.http.middlewares.force-https-header.headers.customrequestheaders.X-Forwarded-Proto", value: "https" },
+        {
+          key: "traefik.http.middlewares.tiles.ipallowlist.sourcerange",
+          value: "173.245.48.0/20, 103.21.244.0/22, 103.22.200.0/22, 103.31.4.0/22, 141.101.64.0/18, 108.162.192.0/18, 190.93.240.0/20, 188.114.96.0/20, 197.234.240.0/22, 198.41.128.0/17, 162.158.0.0/15, 104.16.0.0/13, 104.24.0.0/14, 172.64.0.0/13, 131.0.72.0/22, 2400:cb00::/32, 2606:4700::/32, 2803:f800::/32, 2405:b500::/32, 2405:8100::/32, 2a06:98c0::/29, 2c0f:f248::/32",
+        },
+        { key: "traefik.http.routers.tiles.middlewares", value: "force-https-header" },
+        { key: "traefik.http.routers.tiles.middlewares", value: "true" },
+      ],
+      mounts: [
+        {
+          source: "/app/data",
+          volume: { name: "tiles-data" },
+          read_only: false,
+        },
+      ],
+    });
+
+    expect(containerConfigPayloadFromForm({
+      instance: "api.example.com",
+      host_id: 7,
+      label_key: ["empty.value"],
+      volume_source: ["/cache"],
+    }, 9)).toMatchObject({
+      network_settings: [],
+      env: [],
+      labels: expect.arrayContaining([{ key: "empty.value", value: "" }]),
+      mounts: [{ source: "/cache", volume: { name: "api-data-1" }, read_only: false }],
+    });
+  });
+
+  test("derives route, operation, and status metric labels", () => {
+    const metrics = createMetrics();
+    expect(routeLabel({ originalUrl: "" })).toBe("/");
+    expect(routeLabel({ originalUrl: "/admin.html?x=1" })).toBe("/admin");
+    expect(routeLabel({ originalUrl: "/order.html" }, metrics)).toBe("/order");
+    expect(routeLabel({ originalUrl: "/missing" })).toBe("other");
+    expect(operationLabel({ originalUrl: "/dockerhub" })).toBe("upgrade");
+    expect(operationLabel({ originalUrl: "/missing" })).toBe("");
+    expect(statusClass(201)).toBe("2xx");
+    expect(statusClass("oops")).toBe("other");
+  });
+
+  test("escapes metric labels and renders metric lines", () => {
+    expect(metricLabel('a"b\\c\n')).toBe('a\\"b\\\\c\\n');
+    expect(metricLine("app_info", 1, { version: "1.0.0" })).toBe('app_info{version="1.0.0"} 1');
+    expect(metricLine("app_info", 1)).toBe("app_info 1");
+  });
+
+  test("normalizes status and operation values from NetBox objects", () => {
+    expect(valueText({ display: "Running" })).toBe("Running");
+    expect(valueText({ name: "named" })).toBe("named");
+    expect(valueText({ label: "labeled" })).toBe("labeled");
+    expect(valueText({ value: "valued" })).toBe("valued");
+    expect(valueText({})).toBe("");
+    expect(valueText(null)).toBe("");
+    expect(normalizedStatus(undefined, "status")).toBe("");
+    expect(isContainerRunning({ state: "created", status: "created" })).toBe(false);
+    expect(isContainerRunning({ state: "running", status: "created" })).toBe(true);
+    expect(isContainerRunning({ state: "created", status: "running" })).toBe(true);
+    expect(isContainerStopped({ state: "none", status: "unknown", operation: "none" })).toBe(true);
+    expect(isContainerStopped({ state: "unknown", status: "created", operation: "none" })).toBe(true);
+    expect(isContainerStopped({ state: "created", status: "created", operation: "none" })).toBe(true);
+    expect(isContainerStopped({ state: "unknown", status: "exited", operation: "none" })).toBe(true);
+    expect(isContainerStopped({ state: "unknown", status: "stopped", operation: "none" })).toBe(true);
+    expect(isContainerStopped({ state: "running", status: "running", operation: "none" })).toBe(false);
+    expect(isReadyContainer({ status: { display: "running" }, operation: { display: "none" } })).toBe(true);
+    expect(isReadyContainer({ status: "running", operation: "" })).toBe(true);
+    expect(isReadyContainer({ status: "running", operation: "null" })).toBe(true);
+    expect(isReadyContainer({ status: "exited", operation: "none" })).toBe(false);
+    expect(isOperationDone({ operation: { value: "none" } })).toBe(true);
+    expect(isOperationDone({ operation: "" })).toBe(true);
+    expect(isOperationDone({ operation: "null" })).toBe(true);
+  });
+
+  test("reads oauth2-proxy auth headers with local development fallback", () => {
+    expect(authUserFromRequest({
+      headers: {
+        "x-auth-request-email": "user@example.com",
+        "x-auth-request-user": "user",
+      },
+    })).toEqual({ email: "user@example.com", user: "user", name: "user" });
+    expect(firstHeader({ headers: { "x-test": ["first", "ignored"] } }, ["x-test"])).toBe("first");
+    expect(firstHeader({ headers: { "x-test": null, "x-next": "next" } }, ["x-test", "x-next"])).toBe("next");
+    process.env.ENABLE_EDITOR = "1";
+    const oldUser = process.env.USER;
+    const oldLogname = process.env.LOGNAME;
+    delete process.env.USER;
+    delete process.env.LOGNAME;
+    expect(authUserFromRequest({ headers: {} })).toEqual({ email: "", user: "Local dev", name: "Local dev" });
+    if (oldUser === undefined) delete process.env.USER;
+    else process.env.USER = oldUser;
+    if (oldLogname === undefined) delete process.env.LOGNAME;
+    else process.env.LOGNAME = oldLogname;
+    delete process.env.ENABLE_EDITOR;
+  });
+
+  test("small value helpers keep request parsing predictable", () => {
+    expect(asArray(undefined)).toEqual([]);
+    expect(asArray(null)).toEqual([]);
+    expect(asArray("")).toEqual([]);
+    expect(asArray("one")).toEqual(["one"]);
+    expect(plainObject([])).toEqual({});
+    expect(hostName({ host: { name: "host-a" } })).toBe("host-a");
+    expect(hostName({ display: "direct-host" })).toBe("direct-host");
+    expect(containerNetworkNames({ network_settings: [{ network: { name: "bridge" } }, { network: "" }, {}] })).toEqual(["bridge"]);
+    expect(containerNetworkNames({ network_settings: null })).toEqual([]);
+    expect(formData({ method: "GET", query: { a: 1 }, body: { a: 2 } })).toEqual({ a: 1 });
+    expect(formData({ method: "POST", query: { a: 1 }, body: { a: 2 } })).toEqual({ a: 2 });
+    expect(instanceShort("tiles.example.com")).toBe("tiles");
+    expect(instanceShort()).toBe("");
+    expect(instanceZone("tiles.example.com")).toBe("example.com");
+    expect(instanceZone("tiles")).toBe("");
+    expect(instanceZone()).toBe("");
+  });
+
+  test("auth helpers enforce admin lists and resolve selected profiles", () => {
+    const helpers = createAuthHelpers({
+      adminAllowedEmails: ["allowed@example.com"],
+      readState: () => ({
+        config: {
+          profile: "prod",
+          profiles: JSON.stringify({ prod: { tag: "prod-tag", token: "profile-token" } }),
+          token: "base-token",
+        },
+      }),
+    });
+
+    expect(helpers.isAdminAllowed({ headers: { "x-auth-request-email": "allowed@example.com" } })).toBe(true);
+    expect(helpers.isAdminAllowed({ headers: { "x-auth-request-email": "denied@example.com" } })).toBe(false);
+    expect(helpers.userOrderKey({ headers: { "x-auth-request-user": "Alice" } })).toBe("alice");
+    expect(helpers.userOrderKey({ headers: {}, ip: "127.0.0.1" })).toBe("127.0.0.1");
+    expect(helpers.userOrderKey({ headers: {} })).toBe("anonymous");
+    expect(helpers.selectedProfileConfig({ image: "app" })).toMatchObject({ profile: "prod", config_profile: "prod", tag: "prod-tag", token: "profile-token", image: "app" });
+    expect(helpers.selectedProfileConfig({ profile: "missing" })).toMatchObject({ profile: "missing", config_profile: "missing", token: "base-token" });
+  });
+
+  test("state store reads, writes, migrates legacy state, and falls back safely", () => {
+    const dataPath = fs.mkdtempSync(path.join(os.tmpdir(), "state-test-"));
+    const store = createStateStore(dataPath);
+    writeJson(store.legacyContextFile, {
+      config: { netbox: "https://netbox.example.com" },
+      templates: { app: { image: "app" } },
+      order_counts: { user: { prod: 1 } },
+      logs: "legacy log",
+    });
+    expect(store.readState()).toMatchObject({ config: { netbox: "https://netbox.example.com" }, templates: { app: { image: "app" } }, logs: "legacy log" });
+    store.writeState((state) => {
+      state.config = { saved: true };
+    });
+    expect(store.readState().config).toEqual({ saved: true });
+    store.writeState({ templates: { direct: true } });
+    expect(store.readState().templates).toEqual({ direct: true });
+    store.logLine("hello");
+    expect(store.readState().logs).toContain("hello<br>");
+
+    const invalidPath = fs.mkdtempSync(path.join(os.tmpdir(), "state-invalid-"));
+    const invalidStore = createStateStore(invalidPath);
+    writeJson(invalidStore.legacyContextFile, []);
+    expect(invalidStore.readState()).toEqual(defaultState());
+    expect(readJson(path.join(invalidPath, "missing.json"), { fallback: true })).toEqual({ fallback: true });
+  });
+
+  test("NetBox client handles query params, payload shapes, and errors", async () => {
+    const calls = [];
+    setNetBoxFetchForTests(async (url, options) => {
+      calls.push({ url: String(url), options });
+      if (String(url).includes("/text")) return { status: 200, text: async () => "plain text" };
+      if (String(url).includes("/bad")) return { status: 500, text: async () => '{"detail":"bad"}' };
+      if (String(url).includes("/array")) return { status: 200, text: async () => '[{"id":1}]' };
+      if (String(url).includes("/empty")) return { status: 200, text: async () => "" };
+      return { status: 200, text: async () => '{"results":[{"id":2}]}' };
+    });
+
+    await expect(new NetBoxClient({}).request("GET", "/api/status/")).rejects.toMatchObject({ statusCode: 400 });
+    const client = new NetBoxClient({ netbox: "https://netbox.example.com/", token: "secret" });
+    await expect(client.list("/api/items/", { id: [1, "", null, 2] })).resolves.toEqual([{ id: 2 }]);
+    expect(calls.at(-1).url).toContain("id=1");
+    expect(calls.at(-1).url).toContain("id=2");
+    await expect(client.request("POST", "/api/empty", { body: { ok: true }, expected: [200] })).resolves.toMatchObject({ payload: {} });
+    expect(calls.at(-1).options.headers["Content-Type"]).toBe("application/json");
+    await expect(client.request("GET", "/api/text")).resolves.toMatchObject({ payload: "plain text" });
+    await expect(client.request("GET", "/api/bad")).rejects.toMatchObject({ statusCode: 500, payload: { detail: "bad" } });
+    await expect(client.list("/api/array")).resolves.toEqual([{ id: 1 }]);
+    await expect(client.list("/api/empty")).resolves.toEqual([]);
+
+    const proxyClient = new NetBoxClient({ netbox: "https://netbox.example.com", token: "secret", proxy: "http://127.0.0.1:3128" });
+    await expect(proxyClient.request("GET", "/api/items/")).resolves.toMatchObject({ statusCode: 200 });
+    expect(calls.at(-1).options.dispatcher).toBeTruthy();
+
+    setNetBoxFetchForTests(async () => ({ status: 200, text: async () => '{"results":[{"id":1,"tags":[{"slug":"prod"}]}]}' }));
+    await expect(dockerHosts(client, "prod")).resolves.toEqual([{ id: 1, tags: [{ slug: "prod" }] }]);
+    await expect(hostIdQuery(client, "")).resolves.toEqual({});
+    await expect(hostIdQuery(client, "prod")).resolves.toEqual({ host_id: [1] });
+    await expect(hostIdQuery(client, "missing")).resolves.toEqual({ host_id: "__none__" });
+    setNetBoxFetchForTests();
+  });
+
+  test("operation helpers cover wait, image, and DNS branches", async () => {
+    vi.useFakeTimers();
+    const logs = [];
+    const helpers = createOperationHelpers({
+      logLine: (line) => logs.push(line),
+      operationPollMs: 5,
+      operationTimeoutSeconds: 0.01,
+    });
+
+    const readyClient = {
+      request: vi.fn(async (method, apiPath, options = {}) => {
+        if (apiPath.includes("/containers/1/")) return { payload: { status: "running", operation: "none" }, statusCode: 200 };
+        if (apiPath.includes("/containers/2/")) return { payload: { state: "created", status: "created", operation: "none" }, statusCode: 200 };
+        if (apiPath.includes("/containers/3/")) return { payload: { state: "exited", status: "exited", operation: "none" }, statusCode: 200 };
+        if (apiPath.includes("/containers/4/")) return { payload: { state: "created", operation: "none" }, statusCode: 200 };
+        if (apiPath.includes("/hosts/7/")) return { payload: { operation: "none", state: "active" }, statusCode: 200 };
+        if (method === "PATCH") return { payload: {}, statusCode: 202 };
+        return { payload: {}, statusCode: 200 };
+      }),
+      list: vi.fn(async (apiPath, query) => {
+        if (apiPath.includes("/images/") && query.version === "v2") return [{ id: 22, host: { id: query.host_id } }];
+        if (apiPath.includes("/cloudflare/dns/accounts/")) return [{ id: 51 }];
+        if (apiPath.includes("/cloudflare/dns/records/")) return [{ id: 61 }];
+        return [];
+      }),
+    };
+
+    await expect(helpers.waitForContainerConfigured(readyClient, 2, "host/container")).resolves.toBe(true);
+    await expect(helpers.waitForContainerConfigured(readyClient, 4, "host/no-status")).resolves.toBe(true);
+    await expect(helpers.waitForContainerStopped(readyClient, 3, "host/container")).resolves.toBe(true);
+    await expect(helpers.waitForHostReady(readyClient, 7, "host")).resolves.toBe(true);
+    await expect(helpers.requestContainerOperation(readyClient, { id: 1, host: { name: "host" }, name: "container" }, "restart", "RESTART")).resolves.toBeUndefined();
+    await expect(helpers.ensureImageOnHost(readyClient, { host: { id: 7, display: "host" } }, "app", "v2")).resolves.toEqual({ id: 22, host: { id: 7 } });
+    await expect(helpers.createDnsRecord(readyClient, { instance: "app.example.com" }, { name: "host" })).resolves.toBeUndefined();
+    await expect(helpers.deleteDnsRecord(readyClient, { instance: "app.example.com" })).resolves.toBeUndefined();
+
+    const timeoutClient = {
+      request: vi.fn(async (method, apiPath) => {
+        if (apiPath.includes("/containers/")) return { payload: { state: "none", status: "none", operation: "pull" }, statusCode: 200 };
+        if (apiPath.includes("/hosts/")) return { payload: { operation: "refresh", state: "active" }, statusCode: 200 };
+        return { payload: {}, statusCode: 200 };
+      }),
+    };
+    const configured = helpers.waitForContainerConfigured(timeoutClient, 9, "host/pending");
+    const stopped = helpers.waitForContainerStopped(timeoutClient, 9, "host/pending");
+    const hostReady = helpers.waitForHostReady(timeoutClient, 9, "host");
+    const operationReady = helpers.requestContainerOperation(timeoutClient, { id: 9, host: { name: "host" }, name: "pending" }, "restart", "RESTART");
+    await vi.advanceTimersByTimeAsync(20);
+    await expect(configured).resolves.toBe(false);
+    await expect(stopped).resolves.toBe(false);
+    await expect(hostReady).resolves.toBe(false);
+    await expect(operationReady).resolves.toBeUndefined();
+
+    const createImageClient = {
+      list: vi.fn(async () => []),
+      request: vi.fn(async () => ({ payload: [{ id: 99 }], statusCode: 201 })),
+    };
+    const createdImage = helpers.ensureImageOnHost(createImageClient, { host: 8, registry: 4 }, "app", "v3");
+    await vi.advanceTimersByTimeAsync(5000);
+    await expect(createdImage).resolves.toEqual({ id: 99 });
+
+    await expect(helpers.createDnsRecord(readyClient, { instance: "shortname" }, { name: "host" })).resolves.toBeUndefined();
+    await expect(helpers.createDnsRecord(readyClient, { instance: "primitive.example.com" }, "primitive-host")).resolves.toBeUndefined();
+    await expect(helpers.createDnsRecord({ list: vi.fn(async () => []) }, { instance: "app.missing" }, { name: "host" })).resolves.toBeUndefined();
+    await expect(helpers.createDnsRecord({ list: vi.fn(async () => { throw new Error("zone down"); }) }, { instance: "app.example.com" }, { name: "host" })).resolves.toBeUndefined();
+    await expect(helpers.createDnsRecord({ list: vi.fn(async () => { throw {}; }) }, { instance: "app.example.com" }, { name: "host" })).resolves.toBeUndefined();
+    await expect(helpers.deleteDnsRecord({ list: vi.fn(async () => []) }, { instance: "app.example.com" })).resolves.toBeUndefined();
+    await expect(helpers.deleteDnsRecord({ list: vi.fn(async () => { throw new Error("record down"); }) }, { instance: "app.example.com" })).resolves.toBeUndefined();
+    await expect(helpers.deleteDnsRecord({ list: vi.fn(async () => { throw {}; }) }, { instance: "app.example.com" })).resolves.toBeUndefined();
+
+    expect(logs.join("\n")).toContain("ready status=running");
+    expect(logs.join("\n")).toContain("still has state=none");
+    expect(logs.join("\n")).toContain("stop timeout");
+    expect(logs.join("\n")).toContain("Cloudflare DNS record failed");
+    expect(logs.join("\n")).toContain("Cloudflare DNS record delete failed");
+    vi.useRealTimers();
+  });
+});

@@ -18,6 +18,7 @@
 
     <nav class="nav">
       <a href="#features">Features</a>
+      <a href="#services">Services</a>
       <a href="#workflow">Workflow</a>
       <a href="#security">Security</a>
       <button type="button" class="theme-toggle" data-theme-toggle aria-label="Toggle theme" title="Toggle theme">☾</button>
@@ -42,9 +43,14 @@
         </div>
 
         <div class="hero-meta">
-          <span>Docker</span>
-          <span>Traefik</span>
-          <span>Cloudflare</span>
+          <span><img src="assets/logos/docker.svg" alt="" aria-hidden="true">Docker</span>
+          <span><img src="assets/logos/traefik.svg" alt="" aria-hidden="true">Traefik</span>
+          <span><img src="assets/logos/cloudflare.svg" alt="" aria-hidden="true">Cloudflare</span>
+          <span><img src="assets/logos/netbox.svg" alt="" aria-hidden="true">NetBox</span>
+          <span><img src="assets/logos/keycloak.svg" alt="" aria-hidden="true">Keycloak</span>
+          <span><img src="assets/logos/prometheus.svg" alt="" aria-hidden="true">Prometheus</span>
+          <span><img src="assets/logos/grafana.svg" alt="" aria-hidden="true">Grafana</span>
+          <span><img src="assets/logos/flowg.png" alt="" aria-hidden="true">FlowG</span>
         </div>
       </div>
 
@@ -69,6 +75,79 @@
         SaaShup helps teams focus on product and revenue while the platform handles the SaaS engine around the application.
         This tool focuses on one operational part of that engine: controlled Docker image upgrades and instance lifecycle actions.
       </p>
+    </section>
+
+    <section class="section" id="services">
+      <div class="section-heading">
+        <p class="eyebrow">Platform services</p>
+        <h2>The foundation around every instance</h2>
+      </div>
+
+      <div class="service-grid">
+        <article class="service-card">
+          <div class="service-logo">
+            <img src="assets/logos/netbox.svg" alt="NetBox logo" loading="lazy">
+          </div>
+          <h3>CMDB</h3>
+          <p>NetBox keeps infrastructure, Docker hosts and instance inventory organized as the operational source of truth.</p>
+        </article>
+
+        <article class="service-card">
+          <div class="service-logo">
+            <img src="assets/logos/keycloak.svg" alt="Keycloak logo" loading="lazy">
+          </div>
+          <h3>Authentication</h3>
+          <p>Keycloak provides identity, SSO and group-based access for the admin and order workflows.</p>
+        </article>
+
+        <article class="service-card">
+          <div class="service-logo">
+            <img src="assets/logos/prometheus.svg" alt="Prometheus logo" loading="lazy">
+          </div>
+          <h3>Monitoring</h3>
+          <p>Prometheus collects metrics from the platform, containers and lifecycle automation.</p>
+        </article>
+
+        <article class="service-card">
+          <div class="service-logo">
+            <img src="assets/logos/grafana.svg" alt="Grafana logo" loading="lazy">
+          </div>
+          <h3>Dashboard</h3>
+          <p>Grafana turns platform metrics into dashboards for capacity, health and operational visibility.</p>
+        </article>
+
+        <article class="service-card">
+          <div class="service-logo">
+            <img src="assets/logos/flowg.png" alt="FlowG logo" loading="lazy">
+          </div>
+          <h3>Logging</h3>
+          <p>FlowG centralizes container and system logs so operators can trace activity from one place.</p>
+        </article>
+
+        <article class="service-card">
+          <div class="service-logo">
+            <img src="assets/logos/traefik.svg" alt="Traefik logo" loading="lazy">
+          </div>
+          <h3>Routing</h3>
+          <p>Traefik routes public traffic to each service and applies the platform edge rules automatically.</p>
+        </article>
+
+        <article class="service-card">
+          <div class="service-logo">
+            <img src="assets/logos/cloudflare.svg" alt="Cloudflare logo" loading="lazy">
+          </div>
+          <h3>DNS and Edge</h3>
+          <p>Cloudflare handles DNS and edge protection for instance domains created by the platform.</p>
+        </article>
+
+        <article class="service-card">
+          <div class="service-logo">
+            <img src="assets/logos/docker.svg" alt="Docker logo" loading="lazy">
+          </div>
+          <h3>Runtime</h3>
+          <p>Docker runs the application containers, volumes and lifecycle operations behind each order.</p>
+        </article>
+      </div>
     </section>
 
     <section class="section" id="features">
