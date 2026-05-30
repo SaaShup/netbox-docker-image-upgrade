@@ -4,6 +4,8 @@ const path = require("path");
 const nodeRedUtil = require("@node-red/util").util;
 
 const repoRoot = path.resolve(__dirname, "../..");
+const packageJson = require(path.join(repoRoot, "package.json"));
+const appVersion = `v${packageJson.version}`;
 
 function readFlows() {
   return JSON.parse(fs.readFileSync(path.join(repoRoot, "flows.json"), "utf8"));
@@ -127,10 +129,12 @@ test("home top bar links to order and extensionless admin", async ({ page }) => 
   await expect(page.locator(".site-header .nav .nav-cta")).toHaveText(["Order", "Open admin"]);
   await expect(page.locator(".site-header .nav .nav-cta").first()).toHaveAttribute("href", "/order");
   await expect(page.locator(".site-header .nav .nav-cta").last()).toHaveAttribute("href", "/admin");
+  await expect(page.locator("[data-app-version]")).toHaveText(appVersion);
 
   await page.goto("/admin");
   await expect(page).toHaveURL(/\/admin$/);
   await expect(page.locator("#form-title")).toHaveText("Config");
+  await expect(page.locator("[data-app-version]")).toHaveText(appVersion);
 });
 
 test("config tab starts without a forced default profile", async ({ page }) => {
@@ -151,7 +155,7 @@ test("config tab starts without a forced default profile", async ({ page }) => {
 });
 
 test("admin header shows oauth user and logs out through oauth2 proxy", async ({ page }) => {
-  await page.route("**/auth/user", async (route) => {
+  await page.route("**/session/user", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -172,6 +176,42 @@ test("admin header shows oauth user and logs out through oauth2 proxy", async ({
 
   await page.locator("#logoutBtn").click();
   await expect(page).toHaveURL(/\/oauth2\/sign_out\?rd=/);
+});
+
+test("metrics endpoint exposes prometheus runtime metrics", async ({ request }) => {
+  const response = await request.get("/metrics");
+  const body = await response.text();
+
+  expect(response.status()).toBe(200);
+  expect(response.headers()["content-type"]).toContain("text/plain");
+  expect(body).toContain("# HELP saashup_app_info Application build information.");
+  expect(body).toContain('saashup_app_info{name="netbox-docker-image-upgrade"');
+  expect(body).toContain("saashup_process_uptime_seconds");
+  expect(body).toContain('saashup_process_memory_bytes{type="rss"}');
+  expect(body).toContain('saashup_http_requests_total{route="/metrics"}');
+  expect(body).toContain('saashup_http_requests_total{route="/create"}');
+  expect(body).toContain('saashup_http_requests_total{route="/refresh-hosts"}');
+  expect(body).toContain('saashup_http_requests_total{route="/delete"}');
+  expect(body).toContain('saashup_http_requests_total{route="/restart"}');
+  expect(body).toContain('saashup_http_requests_total{route="/recreate"}');
+  expect(body).toContain('saashup_http_requests_total{route="/config"}');
+  expect(body).toContain('saashup_operation_requests_total{operation="create",status_class="2xx"}');
+  expect(body).toContain('saashup_operation_requests_total{operation="refresh",status_class="2xx"}');
+  expect(body).toContain('saashup_operation_requests_total{operation="delete",status_class="2xx"}');
+  expect(body).toContain('saashup_operation_requests_total{operation="restart",status_class="2xx"}');
+  expect(body).toContain('saashup_operation_requests_total{operation="upgrade",status_class="2xx"}');
+  expect(body).toContain('saashup_operation_requests_total{operation="config",status_class="2xx"}');
+});
+
+test("version endpoint exposes package version", async ({ request }) => {
+  const response = await request.get("/version");
+
+  expect(response.status()).toBe(200);
+  await expect(response).toBeOK();
+  expect(await response.json()).toMatchObject({
+    name: packageJson.name,
+    version: packageJson.version,
+  });
 });
 
 test("delete config removes the profile and keeps it gone after reload", async ({ page }) => {
@@ -943,6 +983,7 @@ test("order page creates an instance from the requested template", async ({ page
   await expect(page).toHaveURL(/\/order\?template=curiootiles$/);
   await expect(page.locator("#submitBtn")).toBeVisible();
   await expect(page.locator(".order-question")).toHaveText("Are you sure you want to install an instance?");
+  await expect(page.locator("[data-app-version]")).toHaveText(appVersion);
   await expect(page.locator("#submitBtn")).toHaveText("Yes");
   await expect(page.locator("#orderCancelBtn")).toHaveText("No");
   await expect(page.locator(".sidebar")).toBeHidden();
@@ -978,7 +1019,7 @@ test("order page shows oauth user and logs out through oauth2 proxy", async ({ p
     resolveAuth = resolve;
   });
 
-  await page.route("**/auth/user", async (route) => {
+  await page.route("**/session/user", async (route) => {
     await authReady;
     await route.fulfill({
       status: 200,

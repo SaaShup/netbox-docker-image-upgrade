@@ -178,7 +178,7 @@ async function loadAuthUser() {
   if (!authUser) return;
 
   try {
-    const response = await fetch("/auth/user", {
+    const response = await fetch("/session/user", {
       headers: { Accept: "application/json" },
     });
 
