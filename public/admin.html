@@ -36,6 +36,14 @@
           <h2>Manage Docker instances</h2>
           <p class="subtitle">Configure access once, then create, upgrade, refresh, restart or delete instances.</p>
         </div>
+        <div class="auth-user hidden" id="authUser">
+          <div class="auth-avatar" id="authAvatar" aria-hidden="true">?</div>
+          <div class="auth-copy">
+            <span id="authName">Signed in</span>
+            <small id="authEmail"></small>
+          </div>
+          <button type="button" class="btn btn-secondary auth-logout" id="logoutBtn">Logout</button>
+        </div>
       </header>
 
       <section class="notice" id="notif">Welcome !</section>
@@ -49,6 +57,7 @@
         <button type="button" class="btn btn-secondary hidden" id="loadTemplateBtn">Load template</button>
         <button type="button" class="btn btn-secondary hidden" id="saveTemplateBtn">Save template</button>
         <button type="button" class="btn btn-danger hidden" id="deleteTemplateBtn">Delete template</button>
+        <button type="button" class="btn btn-primary hidden" id="orderTemplateBtn">Order template</button>
       </section>
 
       <section class="content-grid">
@@ -164,12 +173,22 @@
                 <button type="button" class="btn btn-secondary repeat-add" id="addLabelBtn">+ Add label</button>
               </div>
 
+              <div class="field repeat-field" data-field="ports">
+                <span>Ports</span>
+                <div class="repeat-list" id="portList">
+                  <div class="repeat-row">
+                    <input type="number" id="port_value" name="port_value" min="1" max="65535" required placeholder="3000" aria-label="Container service port">
+                    <button type="button" class="icon-btn repeat-remove" aria-label="Remove port" disabled>&times;</button>
+                  </div>
+                </div>
+              </div>
+
               <div class="field repeat-field" data-field="volumes">
                 <span>Volumes</span>
                 <div class="repeat-list" id="volumeList">
                   <div class="repeat-row">
                     <input type="text" id="volume_source" name="volume_source" placeholder="/app/data" aria-label="Volume source path">
-                    <input type="text" id="volume_name" name="volume_name" placeholder="instance-data" aria-label="Volume name">
+                    <input type="text" id="volume_name" name="volume_name" placeholder="instance-data" aria-label="Volume name" readonly>
                     <button type="button" class="icon-btn repeat-remove" aria-label="Remove volume" disabled>&times;</button>
                   </div>
                 </div>

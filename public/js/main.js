@@ -12,6 +12,7 @@ const clearBtn = document.getElementById("clearBtn");
 const dockerRunBtn = document.getElementById("dockerRunBtn");
 const templateSelect = document.getElementById("templateSelect");
 const loadTemplateBtn = document.getElementById("loadTemplateBtn");
+const orderTemplateBtn = document.getElementById("orderTemplateBtn");
 const saveTemplateBtn = document.getElementById("saveTemplateBtn");
 const deleteTemplateBtn = document.getElementById("deleteTemplateBtn");
 const orderCancelBtn = document.getElementById("orderCancelBtn");
@@ -26,6 +27,7 @@ const envList = document.getElementById("envList");
 const addEnvBtn = document.getElementById("addEnvBtn");
 const labelList = document.getElementById("labelList");
 const addLabelBtn = document.getElementById("addLabelBtn");
+const portList = document.getElementById("portList");
 const volumeList = document.getElementById("volumeList");
 const addVolumeBtn = document.getElementById("addVolumeBtn");
 const instanceOptions = document.getElementById("instanceOptions");
@@ -39,7 +41,13 @@ const logsFullscreenBtn = document.getElementById("logsFullscreenBtn");
 const clearLogsBtn = document.getElementById("clearLogsBtn");
 const configProfileSelect = document.getElementById("config_profile");
 const orderActions = document.getElementById("orderActions");
+const orderLoading = document.getElementById("orderLoading");
 const orderStatus = document.getElementById("orderStatus");
+const authUser = document.getElementById("authUser");
+const authAvatar = document.getElementById("authAvatar");
+const authName = document.getElementById("authName");
+const authEmail = document.getElementById("authEmail");
+const logoutBtn = document.getElementById("logoutBtn");
 
 let currentAction = isOrderPage ? "create" : (localStorage.getItem("current_action") || "config");
 let currentConfigProfile = localStorage.getItem("current_config_profile") || "";
@@ -51,6 +59,7 @@ let containerCountRequestId = 0;
 let createNetworkRequestId = 0;
 let lastLogsHtml = "";
 let createTemplates = {};
+let generatedCreateInstanceName = "";
 
 const configFields = ["config_profile", "config_name", "netbox", "token", "proxy", "domain", "tag"];
 
@@ -73,7 +82,7 @@ const actions = {
     description: "Create a container, volume, DNS record and Traefik labels.",
     submitLabel: "Create instance",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "network", "instance", "image", "version", "env_vars", "labels", "volumes"],
+    fields: ["config_profile", "network", "instance", "image", "version", "env_vars", "labels", "ports", "volumes"],
   },
   recreate: {
     endpoint: "/recreate",
@@ -137,6 +146,7 @@ const allFieldNames = [
   "var_env_value",
   "label_key",
   "label_value",
+  "port_value",
   "volume_source",
   "volume_name",
 ];
@@ -148,6 +158,50 @@ function field(name) {
 function fieldValue(name, fallback = "") {
   const el = field(name);
   return el ? el.value : fallback;
+}
+
+function userInitials(value) {
+  const words = String(value || "")
+    .trim()
+    .split(/[\s._@-]+/)
+    .filter(Boolean);
+
+  if (!words.length) return "?";
+
+  return words
+    .slice(0, 2)
+    .map((word) => word[0].toUpperCase())
+    .join("");
+}
+
+async function loadAuthUser() {
+  if (!authUser) return;
+
+  try {
+    const response = await fetch("/auth/user", {
+      headers: { Accept: "application/json" },
+    });
+
+    if (!response.ok) return;
+
+    const user = await response.json();
+    const displayName = user.name || user.user || user.email || "";
+
+    if (!displayName) return;
+
+    if (authName) authName.textContent = displayName;
+    if (authEmail) authEmail.textContent = user.email && user.email !== displayName ? user.email : "";
+    if (authAvatar) authAvatar.textContent = userInitials(displayName);
+
+    authUser.classList.remove("hidden");
+  } catch (error) {
+    authUser.classList.add("hidden");
+  }
+}
+
+function logoutFromProxy() {
+  const returnUrl = window.location.origin + "/";
+  window.location.href = `/oauth2/sign_out?rd=${encodeURIComponent(returnUrl)}`;
 }
 
 function isFqdn(value) {
@@ -199,10 +253,48 @@ function instanceNamePrefix() {
   return prefix || "app";
 }
 
-function ensureRandomCreateInstanceName() {
-  if (currentAction !== "create" || fieldValue("instance")) return;
+function instanceShortName() {
+  const name = String(fieldValue("instance") || "instance").trim();
+  const shortName = (name.includes(".") ? name.split(".")[0] : name)
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 
-  setFieldValue("instance", `${instanceNamePrefix()}-${randomInstanceSuffix()}`);
+  return shortName || "instance";
+}
+
+function generatedVolumeName(index) {
+  const suffix = index === 0 ? "data" : `data-${index + 1}`;
+  return `${instanceShortName()}-${suffix}`;
+}
+
+function syncVolumeNames() {
+  let sourceIndex = 0;
+
+  repeatRows(volumeList, ".repeat-row").forEach((row) => {
+    const sourceInput = row.querySelector('[name="volume_source"]');
+    const nameInput = row.querySelector('[name="volume_name"]');
+    if (!nameInput) return;
+
+    if (!sourceInput?.value) {
+      nameInput.value = "";
+      return;
+    }
+
+    nameInput.value = generatedVolumeName(sourceIndex);
+    sourceIndex += 1;
+  });
+}
+
+function ensureRandomCreateInstanceName() {
+  if (currentAction !== "create") return;
+
+  const currentName = fieldValue("instance");
+  if (currentName && currentName !== generatedCreateInstanceName) return;
+
+  generatedCreateInstanceName = `${instanceNamePrefix()}-${randomInstanceSuffix()}`;
+  setFieldValue("instance", generatedCreateInstanceName);
+  syncVolumeNames();
 }
 
 function setFieldValue(name, value = "") {
@@ -360,6 +452,7 @@ function updateTemplateOptions(selected = "") {
 
   templateSelect.value = names.includes(selected) ? selected : "";
   if (loadTemplateBtn) loadTemplateBtn.disabled = !templateSelect.value;
+  if (orderTemplateBtn) orderTemplateBtn.disabled = !templateSelect.value;
   if (deleteTemplateBtn) deleteTemplateBtn.disabled = !templateSelect.value;
 }
 
@@ -542,20 +635,34 @@ function updateRepeatRemoveButtons(rows, removeSelector) {
 }
 
 function updateEnvRemoveButtons() {
-  updateRepeatRemoveButtons(envRows(), ".env-remove");
+  envRows().forEach((row) => {
+    const button = row.querySelector(".env-remove");
+    if (button) button.disabled = false;
+  });
 }
 
 function updateLabelRemoveButtons() {
-  updateRepeatRemoveButtons(repeatRows(labelList, ".repeat-row"), ".repeat-remove");
+  repeatRows(labelList, ".repeat-row").forEach((row) => {
+    const button = row.querySelector(".repeat-remove");
+    if (button) button.disabled = false;
+  });
+}
+
+function updatePortRemoveButtons() {
+  updateRepeatRemoveButtons(repeatRows(portList, ".repeat-row"), ".repeat-remove");
 }
 
 function updateVolumeRemoveButtons() {
-  updateRepeatRemoveButtons(repeatRows(volumeList, ".repeat-row"), ".repeat-remove");
+  repeatRows(volumeList, ".repeat-row").forEach((row) => {
+    const button = row.querySelector(".repeat-remove");
+    if (button) button.disabled = false;
+  });
 }
 
 function addEnvRow(key = "", value = "") {
   if (!envList) return;
 
+  const isFirstRow = envRows().length === 0;
   const row = document.createElement("div");
   row.className = "env-row";
   row.innerHTML = `
@@ -564,8 +671,14 @@ function addEnvRow(key = "", value = "") {
     <button type="button" class="icon-btn env-remove" aria-label="Remove environment variable">&times;</button>
   `;
 
-  row.querySelector('[name="var_env_key"]').value = key;
-  row.querySelector('[name="var_env_value"]').value = value;
+  const keyInput = row.querySelector('[name="var_env_key"]');
+  const valueInput = row.querySelector('[name="var_env_value"]');
+  if (isFirstRow) {
+    keyInput.id = "var_env_key";
+    valueInput.id = "var_env_value";
+  }
+  keyInput.value = key;
+  valueInput.value = value;
   envList.appendChild(row);
   updateEnvRemoveButtons();
 }
@@ -573,6 +686,7 @@ function addEnvRow(key = "", value = "") {
 function addLabelRow(key = "", value = "") {
   if (!labelList) return;
 
+  const isFirstRow = repeatRows(labelList, ".repeat-row").length === 0;
   const row = document.createElement("div");
   row.className = "repeat-row";
   row.innerHTML = `
@@ -581,8 +695,14 @@ function addLabelRow(key = "", value = "") {
     <button type="button" class="icon-btn repeat-remove" aria-label="Remove label">&times;</button>
   `;
 
-  row.querySelector('[name="label_key"]').value = key;
-  row.querySelector('[name="label_value"]').value = value;
+  const keyInput = row.querySelector('[name="label_key"]');
+  const valueInput = row.querySelector('[name="label_value"]');
+  if (isFirstRow) {
+    keyInput.id = "label_key";
+    valueInput.id = "label_value";
+  }
+  keyInput.value = key;
+  valueInput.value = value;
   labelList.appendChild(row);
   updateLabelRemoveButtons();
 }
@@ -590,26 +710,35 @@ function addLabelRow(key = "", value = "") {
 function addVolumeRow(source = "", name = "") {
   if (!volumeList) return;
 
+  const isFirstRow = repeatRows(volumeList, ".repeat-row").length === 0;
   const row = document.createElement("div");
   row.className = "repeat-row";
   row.innerHTML = `
     <input type="text" name="volume_source" placeholder="/app/data" aria-label="Volume source path">
-    <input type="text" name="volume_name" placeholder="instance-data" aria-label="Volume name">
+    <input type="text" name="volume_name" placeholder="instance-data" aria-label="Volume name" readonly>
     <button type="button" class="icon-btn repeat-remove" aria-label="Remove volume">&times;</button>
   `;
 
-  row.querySelector('[name="volume_source"]').value = source;
-  row.querySelector('[name="volume_name"]').value = name;
+  const sourceInput = row.querySelector('[name="volume_source"]');
+  const nameInput = row.querySelector('[name="volume_name"]');
+  if (isFirstRow) {
+    sourceInput.id = "volume_source";
+    nameInput.id = "volume_name";
+  }
+  sourceInput.value = source;
+  nameInput.value = name;
   volumeList.appendChild(row);
+  syncVolumeNames();
   updateVolumeRemoveButtons();
 }
 
-function clearEnvRows() {
-  const rows = envRows();
+function setPortValue(value = "") {
+  setFieldValue("port_value", value);
+  updatePortRemoveButtons();
+}
 
-  rows.slice(1).forEach((row) => row.remove());
-  setFieldValue("var_env_key", "");
-  setFieldValue("var_env_value", "");
+function clearEnvRows() {
+  envRows().forEach((row) => row.remove());
   updateEnvRemoveButtons();
 }
 
@@ -622,11 +751,18 @@ function clearRepeatRows(list, rowSelector, fields, updateButtons) {
 }
 
 function clearLabelRows() {
-  clearRepeatRows(labelList, ".repeat-row", ["label_key", "label_value"], updateLabelRemoveButtons);
+  repeatRows(labelList, ".repeat-row").forEach((row) => row.remove());
+  updateLabelRemoveButtons();
 }
 
 function clearVolumeRows() {
-  clearRepeatRows(volumeList, ".repeat-row", ["volume_source", "volume_name"], updateVolumeRemoveButtons);
+  repeatRows(volumeList, ".repeat-row").forEach((row) => row.remove());
+  syncVolumeNames();
+  updateVolumeRemoveButtons();
+}
+
+function clearPortRows() {
+  setPortValue("");
 }
 
 function setNotice(message, type = "info", autoClear = true) {
@@ -674,6 +810,10 @@ function showOrderActions() {
   orderActions?.classList.remove("hidden");
 }
 
+function hideOrderLoading() {
+  orderLoading?.classList.add("hidden");
+}
+
 function setLogsExpanded(expanded) {
   logsCard?.classList.toggle("fullscreen", expanded);
 
@@ -714,6 +854,7 @@ function setAction(actionName) {
   dockerRunBtn?.classList.toggle("hidden", actionName !== "create");
   templateSelect?.classList.toggle("hidden", actionName !== "create");
   loadTemplateBtn?.classList.toggle("hidden", actionName !== "create");
+  orderTemplateBtn?.classList.toggle("hidden", actionName !== "create");
   saveTemplateBtn?.classList.toggle("hidden", actionName !== "create");
   deleteTemplateBtn?.classList.toggle("hidden", actionName !== "create");
   restartInstanceBtn?.classList.toggle("hidden", actionName !== "restart");
@@ -745,6 +886,7 @@ function setAction(actionName) {
   }
   updateEnvRemoveButtons();
   updateLabelRemoveButtons();
+  updatePortRemoveButtons();
   updateVolumeRemoveButtons();
   updateRestartButtons();
 }
@@ -770,6 +912,7 @@ function clearActionFields() {
 
   clearEnvRows();
   clearLabelRows();
+  clearPortRows();
   clearVolumeRows();
   syncCreateNetwork();
   syncCreateVersion();
@@ -864,9 +1007,14 @@ function valueText(value) {
   return String(value);
 }
 
+function parsePublishPort(value) {
+  const port = String(value || "").split(":").pop().replace(/\/.*$/, "");
+  return /^\d+$/.test(port) ? port : "";
+}
+
 function parseDockerRun(command) {
   const tokens = tokenizeDockerRun(command);
-  const parsed = { env: [], labels: [], volumes: [] };
+  const parsed = { env: [], labels: [], ports: [], volumes: [] };
   let i = 0;
 
   if (tokens[i] === "docker") i += 1;
@@ -906,7 +1054,10 @@ function parseDockerRun(command) {
       if (parts.length >= 2) {
         parsed.volumes.push({ name: parts[0], source: parts[1] });
       }
-    } else if (option === "-p" || option === "--publish" || option === "--restart" || option === "--hostname" || option === "--user" || option === "-u" || option === "-w" || option === "--workdir" || option === "--entrypoint" || option === "--pull" || option === "--env-file" || option === "--add-host" || option === "--dns") {
+    } else if (option === "-p" || option === "--publish") {
+      const port = parsePublishPort(readValue());
+      if (port && parsed.ports.length === 0) parsed.ports.push({ value: port });
+    } else if (option === "--restart" || option === "--hostname" || option === "--user" || option === "-u" || option === "-w" || option === "--workdir" || option === "--entrypoint" || option === "--pull" || option === "--env-file" || option === "--add-host" || option === "--dns") {
       readValue();
     }
 
@@ -920,6 +1071,13 @@ function setRepeatRows(items, clearFn, addFn, selectors) {
   clearFn();
 
   if (!items.length) return;
+
+  if (!field(selectors.key)) {
+    items.forEach((item) => {
+      addFn(item.key ?? item.source ?? "", item.value ?? item.name ?? "");
+    });
+    return;
+  }
 
   const first = items[0];
   setFieldValue(selectors.key, first.key ?? first.source ?? "");
@@ -939,18 +1097,31 @@ function repeatValues(list, rowSelector, keyName, valueName) {
     .filter((item) => item.key || item.value);
 }
 
+function portValues() {
+  return repeatRows(portList, ".repeat-row")
+    .map((row) => ({ value: row.querySelector('[name="port_value"]')?.value || "" }))
+    .filter((item) => item.value)
+    .slice(0, 1);
+}
+
+function volumeValues() {
+  return repeatRows(volumeList, ".repeat-row")
+    .map((row) => ({ key: row.querySelector('[name="volume_source"]')?.value || "" }))
+    .filter((item) => item.key);
+}
+
 function currentCreateTemplate() {
   const credentials = selectedProfileCredentials();
 
   return {
     config_profile: credentials.profile,
     network: fieldValue("network"),
-    instance: fieldValue("instance"),
     image: fieldValue("image"),
     version: fieldValue("version"),
     env: repeatValues(envList, ".env-row", "var_env_key", "var_env_value"),
     labels: repeatValues(labelList, ".repeat-row", "label_key", "label_value"),
-    volumes: repeatValues(volumeList, ".repeat-row", "volume_source", "volume_name"),
+    ports: portValues(),
+    volumes: volumeValues(),
   };
 }
 
@@ -969,19 +1140,21 @@ function applyCreateTemplate(template) {
   }
 
   setFieldValue("network", template.network || fieldValue("network"));
-  setFieldValue("instance", template.instance || "");
+  generatedCreateInstanceName = "";
+  setFieldValue("instance", "");
   ensureRandomCreateInstanceName();
   setFieldValue("image", template.image || "");
   syncCreateVersion();
   setRepeatRows(template.env || [], clearEnvRows, addEnvRow, { key: "var_env_key", value: "var_env_value" });
   setRepeatRows(template.labels || [], clearLabelRows, addLabelRow, { key: "label_key", value: "label_value" });
+  setPortValue((template.ports || [])[0]?.value || "");
   setRepeatRows(template.volumes || [], clearVolumeRows, addVolumeRow, { key: "volume_source", value: "volume_name" });
 }
 
 async function saveCreateTemplate() {
   if (currentAction !== "create") setAction("create");
 
-  const suggested = fieldValue("image") || fieldValue("instance") || "template";
+  const suggested = templateSelect?.value || "";
   const name = (prompt("Template name", suggested) || "").trim();
   if (!name) return;
 
@@ -1039,6 +1212,16 @@ async function loadSelectedTemplate() {
   setNotice(`Template "${name}" loaded`, "success");
 }
 
+function openSelectedTemplateOrder() {
+  const name = templateSelect?.value || "";
+  if (!name) {
+    setNotice("Select a template first", "error");
+    return;
+  }
+
+  window.location.href = `/order?template=${encodeURIComponent(name)}`;
+}
+
 function createTemplateEntry(name) {
   if (!name) return null;
   if (createTemplates[name]) return { name, template: createTemplates[name] };
@@ -1049,7 +1232,7 @@ function createTemplateEntry(name) {
   return match ? { name: match, template: createTemplates[match] } : null;
 }
 
-async function applyOrderTemplate() {
+async function applyOrderTemplate({ reveal = true } = {}) {
   setAction("create");
 
   const entry = createTemplateEntry(orderTemplateName);
@@ -1058,10 +1241,10 @@ async function applyOrderTemplate() {
     submitBtn.textContent = "Yes";
     hideOrderActions();
     setOrderStatus(orderTemplateName ? `Template "${orderTemplateName}" not found` : "Template is required", "error");
-    return;
+    return false;
   }
 
-  showOrderActions();
+  if (reveal) showOrderActions();
   applyCreateTemplate(entry.template);
   setFieldValue("instance", "");
   ensureRandomCreateInstanceName();
@@ -1081,6 +1264,8 @@ async function applyOrderTemplate() {
   if (!fieldValue("network")) {
     syncCreateNetwork();
   }
+
+  return true;
 }
 
 function applyDockerRunCommand() {
@@ -1100,6 +1285,7 @@ function applyDockerRunCommand() {
 
   setRepeatRows(parsed.env, clearEnvRows, addEnvRow, { key: "var_env_key", value: "var_env_value" });
   setRepeatRows(parsed.labels, clearLabelRows, addLabelRow, { key: "label_key", value: "label_value" });
+  setPortValue(parsed.ports[0]?.value || "");
   setRepeatRows(parsed.volumes, clearVolumeRows, addVolumeRow, { key: "volume_source", value: "volume_name" });
 
   closeDockerRunModal();
@@ -1141,12 +1327,14 @@ function loadSavedConfig() {
 
       updateProfileOptions();
       applyProfileToFields(currentConfigProfile);
+      ensureRandomCreateInstanceName();
       return data;
     })
     .catch(() => {
       configProfiles = applyDeletedProfileFilter(storedProfiles());
       updateProfileOptions();
       applyProfileToFields(currentConfigProfile);
+      ensureRandomCreateInstanceName();
       return {};
     });
 }
@@ -1343,6 +1531,8 @@ async function deleteConfig() {
 }
 
 async function submitAction(config, submitter) {
+  syncVolumeNames();
+
   const body = new URLSearchParams(new FormData(form));
   const credentials = selectedProfileCredentials();
   let createdInstanceFqdn = "";
@@ -1718,7 +1908,12 @@ volumeList?.addEventListener("click", (event) => {
   if (!button || button.disabled) return;
 
   button.closest(".repeat-row")?.remove();
+  syncVolumeNames();
   updateVolumeRemoveButtons();
+});
+
+volumeList?.addEventListener("input", (event) => {
+  if (event.target.matches('[name="volume_source"]')) syncVolumeNames();
 });
 
 addVolumeBtn?.addEventListener("click", () => {
@@ -1762,6 +1957,11 @@ form.addEventListener("submit", async (event) => {
     return;
   }
 
+  if (currentAction === "create" && !fieldValue("port_value")) {
+    setNotice("Service port is required", "error");
+    return;
+  }
+
   if (currentAction === "create" && !isFqdn(instanceFqdn(fieldValue("instance"), selectedProfileCredentials().domain))) {
     setNotice("Instance name must be a fully qualified domain name", "error");
     return;
@@ -1798,8 +1998,11 @@ dockerRunBtn?.addEventListener("click", openDockerRunModal);
 saveTemplateBtn?.addEventListener("click", saveCreateTemplate);
 deleteTemplateBtn?.addEventListener("click", deleteSelectedTemplate);
 loadTemplateBtn?.addEventListener("click", loadSelectedTemplate);
+orderTemplateBtn?.addEventListener("click", openSelectedTemplateOrder);
+logoutBtn?.addEventListener("click", logoutFromProxy);
 templateSelect?.addEventListener("change", () => {
   if (loadTemplateBtn) loadTemplateBtn.disabled = !templateSelect.value;
+  if (orderTemplateBtn) orderTemplateBtn.disabled = !templateSelect.value;
   if (deleteTemplateBtn) deleteTemplateBtn.disabled = !templateSelect.value;
   if (templateSelect.value) loadSelectedTemplate();
 });
@@ -1834,7 +2037,10 @@ field("image")?.addEventListener("change", () => {
 field("oldversion")?.addEventListener("input", updateSelectedVersionContainerNotice);
 field("restart_version")?.addEventListener("input", updateRestartButtons);
 field("restart_version")?.addEventListener("input", updateSelectedVersionContainerNotice);
-field("instance")?.addEventListener("input", updateRestartButtons);
+field("instance")?.addEventListener("input", () => {
+  updateRestartButtons();
+  syncVolumeNames();
+});
 logsFullscreenBtn?.addEventListener("click", () => {
   setLogsExpanded(!logsCard?.classList.contains("fullscreen"));
 });
@@ -1860,7 +2066,11 @@ async function initializePage() {
   await loadSavedConfig();
 
   if (isOrderPage) {
-    await applyOrderTemplate();
+    hideOrderActions();
+    const orderReady = await applyOrderTemplate({ reveal: false });
+    await loadAuthUser();
+    hideOrderLoading();
+    if (orderReady) showOrderActions();
   } else if (actionFromUrl) {
     setNotice(actionFromUrl, "success");
 
@@ -1870,6 +2080,8 @@ async function initializePage() {
     const cleanUrl = window.location.origin + window.location.pathname;
     window.history.replaceState(window.history.state, "", cleanUrl);
   }
+
+  if (!isOrderPage) loadAuthUser();
 
   if (!isOrderPage) {
     getLogs();

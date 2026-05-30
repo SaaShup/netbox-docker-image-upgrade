@@ -10,6 +10,15 @@
 
 <body class="order-page">
   <main class="main">
+    <div class="auth-user order-auth hidden" id="authUser">
+      <div class="auth-avatar" id="authAvatar" aria-hidden="true">?</div>
+      <div class="auth-copy">
+        <span id="authName">Signed in</span>
+        <small id="authEmail"></small>
+      </div>
+      <button type="button" class="btn btn-secondary auth-logout" id="logoutBtn">Logout</button>
+    </div>
+
     <form id="instanceForm" action="/create" method="post">
       <div hidden>
         <label data-field="config_profile">
@@ -56,11 +65,20 @@
           </div>
         </div>
 
+        <div data-field="ports">
+          <div id="portList">
+            <div class="repeat-row">
+              <input type="number" id="port_value" name="port_value" min="1" max="65535" required>
+              <button type="button" class="repeat-remove" disabled>Remove</button>
+            </div>
+          </div>
+        </div>
+
         <div data-field="volumes">
           <div id="volumeList">
             <div class="repeat-row">
               <input type="text" id="volume_source" name="volume_source">
-              <input type="text" id="volume_name" name="volume_name">
+              <input type="text" id="volume_name" name="volume_name" readonly>
               <button type="button" class="repeat-remove" disabled>Remove</button>
             </div>
           </div>
@@ -82,7 +100,12 @@
 
       <p class="order-status hidden" id="orderStatus" role="status"></p>
 
-      <div class="form-actions" id="orderActions">
+      <div class="order-loading" id="orderLoading" role="status">
+        <span class="order-spinner" aria-hidden="true"></span>
+        <span>Loading order</span>
+      </div>
+
+      <div class="form-actions hidden" id="orderActions">
         <p class="order-question">Are you sure you want to install an instance?</p>
         <button type="submit" class="btn btn-primary" id="submitBtn">Yes</button>
         <button type="button" class="btn btn-secondary" id="orderCancelBtn">No</button>
