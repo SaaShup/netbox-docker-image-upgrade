@@ -1,7 +1,10 @@
 :root {
+  color-scheme: light;
   --bg: #f5f8ff;
   --panel: #ffffff;
   --panel-dark: #0f172a;
+  --panel-soft: rgba(255, 255, 255, 0.78);
+  --button-soft: #eef4ff;
   --text: #102033;
   --muted: #667085;
   --border: #d9e2ef;
@@ -10,6 +13,22 @@
   --accent: #35c2ff;
   --shadow: 0 24px 70px rgba(16, 32, 51, 0.14);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0b1220;
+  --panel: #111827;
+  --panel-dark: #020617;
+  --panel-soft: rgba(17, 24, 39, 0.82);
+  --button-soft: #1f2937;
+  --text: #eef4ff;
+  --muted: #9ca3af;
+  --border: #283548;
+  --primary: #6aa2ff;
+  --primary-dark: #3b82f6;
+  --accent: #7dd3fc;
+  --shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
 }
 
 * {
@@ -36,8 +55,8 @@ a {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(217, 226, 239, 0.9);
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
   border-radius: 22px;
   backdrop-filter: blur(14px);
   position: sticky;
@@ -75,7 +94,7 @@ a {
 
 .nav a:hover {
   color: var(--text);
-  background: #eef4ff;
+  background: var(--button-soft);
 }
 
 .nav .nav-cta {
@@ -85,7 +104,24 @@ a {
 
 .nav .nav-cta-secondary {
   color: var(--primary);
-  background: #eef4ff;
+  background: var(--button-soft);
+}
+
+.theme-toggle {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  font: 900 1.15rem/1 Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.theme-toggle:hover {
+  background: var(--button-soft);
 }
 
 .hero {
@@ -150,7 +186,7 @@ h1 {
 
 .btn-secondary {
   color: var(--text);
-  background: white;
+  background: var(--panel);
   border: 1px solid var(--border);
 }
 
@@ -162,8 +198,8 @@ h1 {
 }
 
 .hero-meta span {
-  color: #344054;
-  background: white;
+  color: var(--text);
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 8px 12px;
@@ -216,7 +252,7 @@ pre {
 }
 
 .intro {
-  background: white;
+  background: var(--panel);
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
   border-radius: 28px;
@@ -225,7 +261,7 @@ pre {
 
 .intro p {
   margin: 0;
-  color: #344054;
+  color: var(--text);
   font-size: 1.25rem;
   line-height: 1.7;
 }
@@ -249,7 +285,7 @@ h2 {
 }
 
 .card {
-  background: white;
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 24px;
   padding: 24px;
@@ -262,7 +298,7 @@ h2 {
   border-radius: 14px;
   display: grid;
   place-items: center;
-  background: #eef4ff;
+  background: var(--button-soft);
   color: var(--primary);
   font-size: 1.4rem;
   font-weight: 900;
@@ -298,7 +334,7 @@ h2 {
 }
 
 .steps li {
-  background: white;
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 18px;
   padding: 18px;

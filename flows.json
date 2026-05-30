@@ -2751,7 +2751,7 @@
                 "t": "set",
                 "p": "payload",
                 "pt": "msg",
-                "to": "$now() & \" RECREATE : upgrade requested for \" & image & \":\" & oldversion & \" -> \" & version & (tag ? \" tag=\" & tag : \"\") & (clean_name ? \" clean_name=\" & $string(clean_name) : \"\") & \"<br>\" & logs",
+                "to": "$now() & \" RECREATE : upgrade requested for \" & image & \":\" & (oldversion ? oldversion : \"all previous versions\") & \" -> \" & version & (tag ? \" tag=\" & tag : \"\") & (clean_name ? \" clean_name=\" & $string(clean_name) : \"\") & \"<br>\" & logs",
                 "tot": "jsonata"
             },
             {
@@ -2954,7 +2954,7 @@
                 "t": "set",
                 "p": "url",
                 "pt": "msg",
-                "to": "netbox & \"/api/plugins/docker/images/?name=\" & image & \"&version=\" & oldversion & \"&limit=200\" & (host_ids_qs ? host_ids_qs : \"\")",
+                "to": "netbox & \"/api/plugins/docker/images/?name=\" & image & (oldversion ? \"&version=\" & oldversion : \"\") & \"&limit=200\" & (host_ids_qs ? host_ids_qs : \"\")",
                 "tot": "jsonata"
             },
             {
@@ -2995,8 +2995,8 @@
                 "t": "set",
                 "p": "payload",
                 "pt": "msg",
-                "to": "payload.results",
-                "tot": "msg"
+                "to": "$append([], $filter(payload.results ? payload.results : [], function($img) { oldversion ? $string($img.version) = $string(oldversion) : $string($img.version) != $string(version) }))",
+                "tot": "jsonata"
             },
             {
                 "t": "set",
@@ -3153,7 +3153,7 @@
                 "t": "set",
                 "p": "payload",
                 "pt": "msg",
-                "to": "$now() & \" RECREATE : \" & $string($count(container_queue)) & \" container\" & ($count(container_queue) = 1 ? \"\" : \"s\") & \" queued for \" & image & \":\" & oldversion & \" -> \" & version & \" [\" & $join($map(container_queue, function($c) { ( $c.host.display ? $c.host.display : $c.host.name ) & \"/\" & ( $c.display ? $c.display : $c.name ) }), \", \") & \"]<br>\" & logs",
+                "to": "$now() & \" RECREATE : \" & $string($count(container_queue)) & \" container\" & ($count(container_queue) = 1 ? \"\" : \"s\") & \" queued for \" & image & \":\" & (oldversion ? oldversion : oldimage.version) & \" -> \" & version & \" [\" & $join($map(container_queue, function($c) { ( $c.host.display ? $c.host.display : $c.host.name ) & \"/\" & ( $c.display ? $c.display : $c.name ) }), \", \") & \"]<br>\" & logs",
                 "tot": "jsonata"
             },
             {
@@ -4419,7 +4419,7 @@
                 "t": "set",
                 "p": "payload",
                 "pt": "msg",
-                "to": "$now() & \" RECREATE : no Docker hosts found with tag \" & tag & \" for \" & image & \":\" & oldversion & \" -> \" & version & \"<br>\" & logs",
+                "to": "$now() & \" RECREATE : no Docker hosts found with tag \" & tag & \" for \" & image & \":\" & (oldversion ? oldversion : \"all previous versions\") & \" -> \" & version & \"<br>\" & logs",
                 "tot": "jsonata"
             },
             {
@@ -4458,7 +4458,7 @@
                 "t": "set",
                 "p": "payload",
                 "pt": "msg",
-                "to": "$now() & \" RECREATE : no old images found for \" & image & \":\" & oldversion & (tag ? \" with tag \" & tag : \"\") & \"<br>\" & logs",
+                "to": "$now() & \" RECREATE : no old images found for \" & image & \":\" & (oldversion ? oldversion : \"all previous versions\") & (tag ? \" with tag \" & tag : \"\") & \"<br>\" & logs",
                 "tot": "jsonata"
             },
             {
@@ -4497,7 +4497,7 @@
                 "t": "set",
                 "p": "payload",
                 "pt": "msg",
-                "to": "$now() & \" RECREATE : no containers found on \" & host_name & \" using old image \" & image & \":\" & oldversion & \" (image id \" & $string(oldimageid) & \")<br>\" & logs",
+                "to": "$now() & \" RECREATE : no containers found on \" & host_name & \" using old image \" & image & \":\" & (oldversion ? oldversion : oldimage.version) & \" (image id \" & $string(oldimageid) & \")<br>\" & logs",
                 "tot": "jsonata"
             },
             {
@@ -4608,7 +4608,7 @@
                 "t": "set",
                 "p": "payload",
                 "pt": "msg",
-                "to": "$now() & \" RECREATE : finished \" & image & \":\" & oldversion & \" -> \" & version & \"<br>\" & logs",
+                "to": "$now() & \" RECREATE : finished \" & image & \":\" & (oldversion ? oldversion : \"all previous versions\") & \" -> \" & version & \"<br>\" & logs",
                 "tot": "jsonata"
             },
             {
@@ -7351,7 +7351,7 @@
         "once": false,
         "onceDelay": 0.1,
         "topic": "",
-        "payload": "{\"callback_url\":\"https://registry.hub.docker.com/u/saashup/curio.city/hook/e516e7b77b86461aa659013befa31d39/\",\"push_data\":{\"pusher\":\"saashup\",\"pushed_at\":1773402989,\"tag\":\"v0.34.0\",\"images\":[],\"media_type\":\"application/vnd.docker.container.image.v1+json\"},\"repository\":{\"status\":\"Active\",\"namespace\":\"saashup\",\"name\":\"curio.city\",\"repo_name\":\"saashup/curio.city\",\"repo_url\":\"https://hub.docker.com/r/saashup/curio.city\",\"description\":\"\",\"full_description\":\"# Curio.city — Guide\\n\\nInstance for every guide \\\\o/\\n\\n## Development\\nTo start the development server run:\\n```bash\\nbun run dev\\n```\\n\\nOpen http://localhost:3000/ with your browser to see the result.\\n\\n## E2E Tests\\n\\nWe use [Playwright](https://playwright.dev/) as E2E tests runner.\\n\\nRun the tests:\\n\\n1. Be sure your have project dependencies installed with `bun install`\\n2. Install headless browsers packages `bunx playwright install`\\n3. Start the Guide instance `bun run dev`\\n4. Exec the tests `bunx --bun playwright test tests/dom/`\\n\\n\",\"star_count\":0,\"is_private\":true,\"is_trusted\":false,\"is_official\":false,\"owner\":\"saashup\",\"date_created\":1723641910}}",
+        "payload": "{\"callback_url\":\"https://registry.hub.docker.com/u/saashup/curio.city/hook/e516e7b77b86461aa659013befa31d39/\",\"push_data\":{\"pusher\":\"saashup\",\"pushed_at\":1773402989,\"tag\":\"v0.49.0\",\"images\":[],\"media_type\":\"application/vnd.docker.container.image.v1+json\"},\"repository\":{\"status\":\"Active\",\"namespace\":\"saashup\",\"name\":\"curio.city\",\"repo_name\":\"saashup/curio.city\",\"repo_url\":\"https://hub.docker.com/r/saashup/curio.city\",\"description\":\"\",\"full_description\":\"# Curio.city — Guide\\n\\nInstance for every guide \\\\o/\\n\\n## Development\\nTo start the development server run:\\n```bash\\nbun run dev\\n```\\n\\nOpen http://localhost:3000/ with your browser to see the result.\\n\\n## E2E Tests\\n\\nWe use [Playwright](https://playwright.dev/) as E2E tests runner.\\n\\nRun the tests:\\n\\n1. Be sure your have project dependencies installed with `bun install`\\n2. Install headless browsers packages `bunx playwright install`\\n3. Start the Guide instance `bun run dev`\\n4. Exec the tests `bunx --bun playwright test tests/dom/`\\n\\n\",\"star_count\":0,\"is_private\":true,\"is_trusted\":false,\"is_official\":false,\"owner\":\"saashup\",\"date_created\":1723641910}}",
         "payloadType": "json",
         "x": 160,
         "y": 300,
@@ -7390,7 +7390,7 @@
         "id": "ee993f5a5dfd35f2",
         "type": "change",
         "z": "15790c4c601c21e4",
-        "name": "",
+        "name": "build recreate payload",
         "rules": [
             {
                 "t": "set",
@@ -7422,45 +7422,17 @@
             },
             {
                 "t": "set",
-                "p": "image",
+                "p": "tag",
                 "pt": "msg",
-                "to": "payload.repository.repo_name",
-                "tot": "msg"
-            },
-            {
-                "t": "set",
-                "p": "version",
-                "pt": "msg",
-                "to": "payload.push_data.tag",
-                "tot": "msg"
-            },
-            {
-                "t": "set",
-                "p": "url",
-                "pt": "msg",
-                "to": "msg.netbox & \"/api/plugins/docker/images/?name=\" & msg.image",
+                "to": "req.query.tag ? req.query.tag : (config.tag ? config.tag : $globalContext(\"config\").tag)",
                 "tot": "jsonata"
             },
             {
                 "t": "set",
-                "p": "rejectUnauthorized",
+                "p": "payload",
                 "pt": "msg",
-                "to": "false",
-                "tot": "bool"
-            },
-            {
-                "t": "set",
-                "p": "headers",
-                "pt": "msg",
-                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
+                "to": "{\t   \"netbox\": netbox,\t   \"token\": token,\t   \"proxy\": proxy,\t   \"tag\": tag,\t   \"image\": webhook.repository.repo_name,\t   \"version\": webhook.push_data.tag,\t   \"clean_name\": false\t}",
                 "tot": "jsonata"
-            },
-            {
-                "t": "set",
-                "p": "method",
-                "pt": "msg",
-                "to": "GET",
-                "tot": "str"
             }
         ],
         "action": "",
@@ -7470,157 +7442,6 @@
         "reg": false,
         "x": 630,
         "y": 240,
-        "wires": [
-            [
-                "apply_proxy_e405f58e15b5b967"
-            ]
-        ]
-    },
-    {
-        "id": "fd1dbd967b25512f",
-        "type": "split",
-        "z": "15790c4c601c21e4",
-        "name": "",
-        "splt": "\\n",
-        "spltType": "str",
-        "arraySplt": 1,
-        "arraySpltType": "len",
-        "stream": false,
-        "addname": "",
-        "x": 1270,
-        "y": 80,
-        "wires": [
-            [
-                "cadad459bab9652f"
-            ]
-        ]
-    },
-    {
-        "id": "489a611a0c60859d",
-        "type": "change",
-        "z": "15790c4c601c21e4",
-        "name": "",
-        "rules": [
-            {
-                "t": "set",
-                "p": "results",
-                "pt": "msg",
-                "to": "payload.results",
-                "tot": "msg"
-            },
-            {
-                "t": "set",
-                "p": "url",
-                "pt": "msg",
-                "to": "msg.netbox & \"/api/plugins/docker/images/\"",
-                "tot": "jsonata"
-            },
-            {
-                "t": "set",
-                "p": "headers",
-                "pt": "msg",
-                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
-                "tot": "jsonata"
-            },
-            {
-                "t": "set",
-                "p": "payload",
-                "pt": "msg",
-                "to": "{\t   \"host\": msg.results.host.id,\t   \"name\": msg.image,\t   \"version\": msg.version,\t   \"registry\": msg.results.registry.id\t}",
-                "tot": "jsonata"
-            },
-            {
-                "t": "set",
-                "p": "method",
-                "pt": "msg",
-                "to": "GET",
-                "tot": "str"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 940,
-        "y": 160,
-        "wires": [
-            [
-                "apply_proxy_f822d0b4fedbe21b"
-            ]
-        ]
-    },
-    {
-        "id": "83480b6c8438ab03",
-        "type": "delay",
-        "z": "15790c4c601c21e4",
-        "name": "",
-        "pauseType": "delay",
-        "timeout": "15",
-        "timeoutUnits": "seconds",
-        "rate": "1",
-        "nbRateUnits": "1",
-        "rateUnits": "second",
-        "randomFirst": "1",
-        "randomLast": "5",
-        "randomUnits": "seconds",
-        "drop": false,
-        "allowrate": false,
-        "outputs": 1,
-        "x": 1700,
-        "y": 160,
-        "wires": [
-            [
-                "4ab14ce3500f887e"
-            ]
-        ]
-    },
-    {
-        "id": "5a73e730b3f35a75",
-        "type": "switch",
-        "z": "15790c4c601c21e4",
-        "name": "",
-        "property": "statusCode",
-        "propertyType": "msg",
-        "rules": [
-            {
-                "t": "eq",
-                "v": "201",
-                "vt": "num"
-            }
-        ],
-        "checkall": "true",
-        "repair": false,
-        "outputs": 1,
-        "x": 1510,
-        "y": 160,
-        "wires": [
-            [
-                "83480b6c8438ab03"
-            ]
-        ]
-    },
-    {
-        "id": "4ab14ce3500f887e",
-        "type": "change",
-        "z": "15790c4c601c21e4",
-        "name": "",
-        "rules": [
-            {
-                "t": "set",
-                "p": "payload",
-                "pt": "msg",
-                "to": "{\t   \"netbox\":msg.netbox,\t   \"token\":msg.token,\t   \"hostname\":msg.results.host.display,\t   \"image\":msg.image,\t   \"oldversion\":msg.results.version,\t   \"version\":msg.version\t}",
-                "tot": "jsonata"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 1880,
-        "y": 160,
         "wires": [
             [
                 "0fa3ca525b84162f"
@@ -7636,130 +7457,9 @@
         "links": [
             "79748666b38039f8"
         ],
-        "x": 1905,
-        "y": 100,
+        "x": 865,
+        "y": 240,
         "wires": []
-    },
-    {
-        "id": "cadad459bab9652f",
-        "type": "switch",
-        "z": "15790c4c601c21e4",
-        "name": "",
-        "property": "payload.results.containers",
-        "propertyType": "msg",
-        "rules": [
-            {
-                "t": "nempty"
-            },
-            {
-                "t": "empty"
-            }
-        ],
-        "checkall": "true",
-        "repair": false,
-        "outputs": 2,
-        "x": 1600,
-        "y": 80,
-        "wires": [
-            [
-                "489a611a0c60859d"
-            ],
-            [
-                "5e4e11a79f99617c"
-            ]
-        ]
-    },
-    {
-        "id": "5e4e11a79f99617c",
-        "type": "change",
-        "z": "15790c4c601c21e4",
-        "name": "",
-        "rules": [
-            {
-                "t": "set",
-                "p": "results",
-                "pt": "msg",
-                "to": "payload.results",
-                "tot": "msg"
-            },
-            {
-                "t": "set",
-                "p": "url",
-                "pt": "msg",
-                "to": "msg.netbox & \"/api/plugins/docker/images/\"",
-                "tot": "jsonata"
-            },
-            {
-                "t": "set",
-                "p": "headers",
-                "pt": "msg",
-                "to": "{\t   \"Authorization\": \"Token \" & msg.token,\t   \"Content-Type\": \"application/json\"\t}\t",
-                "tot": "jsonata"
-            },
-            {
-                "t": "set",
-                "p": "payload",
-                "pt": "msg",
-                "to": "[{\t   \"id\": msg.results.id, \"host\": msg.results.host.id,\t   \"name\": msg.image,\t   \"version\": msg.version,\t   \"registry\": msg.results.registry.id\t}]",
-                "tot": "jsonata"
-            },
-            {
-                "t": "set",
-                "p": "method",
-                "pt": "msg",
-                "to": "GET",
-                "tot": "str"
-            }
-        ],
-        "action": "",
-        "property": "",
-        "from": "",
-        "to": "",
-        "reg": false,
-        "x": 920,
-        "y": 240,
-        "wires": [
-            [
-                "apply_proxy_6d490b545ad0dc4c"
-            ]
-        ]
-    },
-    {
-        "id": "apply_proxy_e405f58e15b5b967",
-        "type": "subflow:subflow_apply_proxy",
-        "z": "15790c4c601c21e4",
-        "name": "request",
-        "x": 880,
-        "y": 80,
-        "wires": [
-            [
-                "fd1dbd967b25512f"
-            ]
-        ]
-    },
-    {
-        "id": "apply_proxy_f822d0b4fedbe21b",
-        "type": "subflow:subflow_apply_proxy",
-        "z": "15790c4c601c21e4",
-        "name": "request",
-        "x": 1150,
-        "y": 160,
-        "wires": [
-            [
-                "5a73e730b3f35a75"
-            ]
-        ]
-    },
-    {
-        "id": "apply_proxy_6d490b545ad0dc4c",
-        "type": "subflow:subflow_apply_proxy",
-        "z": "15790c4c601c21e4",
-        "name": "request",
-        "x": 1160,
-        "y": 240,
-        "wires": [
-            []
-        ]
     },
     {
         "id": "b2c2d2e0f0060001",

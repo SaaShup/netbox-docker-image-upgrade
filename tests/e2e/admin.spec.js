@@ -148,10 +148,114 @@ test("config tab starts without a forced default profile", async ({ page }) => {
   await expect(page.locator("#token")).toHaveValue("");
   await expect(page.locator("#domain")).toHaveValue("");
   await expect(page.locator("#tag")).toHaveValue("");
+  await expect(page.locator("#max_instances")).toHaveValue("1");
   await expect(page.locator("#deleteConfigBtn")).toBeVisible();
   await expect(page.locator("#clearBtn")).toBeHidden();
   await expect(page.locator("#dockerRunBtn")).toBeHidden();
   await expect(page.locator("#saveTemplateBtn")).toBeHidden();
+});
+
+test("config page exports config profiles and templates", async ({ page }) => {
+  const exportPayload = {
+    type: "saashup-config-export",
+    version: 1,
+    config: {
+      profile: "production",
+      profiles: {
+        production: {
+          netbox: "https://netbox.example.com",
+          token: "secret",
+          max_instances: 2,
+        },
+      },
+    },
+    templates: {
+      Guide: {
+        image: "saashup/guide",
+      },
+    },
+    order_counts: {},
+  };
+
+  await page.route("**/portable-config", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(exportPayload),
+    });
+  });
+
+  await openAdmin(page, {});
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.locator("#exportConfigBtn").click();
+  const download = await downloadPromise;
+
+  expect(download.suggestedFilename()).toMatch(/^saashup-config-\d{4}-\d{2}-\d{2}\.json$/);
+  const exported = JSON.parse(fs.readFileSync(await download.path(), "utf8"));
+  expect(exported).toMatchObject(exportPayload);
+  await expect(page.locator("#notif")).toContainText("Config export ready");
+});
+
+test("config page imports config profiles and templates", async ({ page }) => {
+  let importedPayload;
+  await page.route("**/portable-config", async (route) => {
+    importedPayload = JSON.parse(route.request().postData() || "{}");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ status: "imported" }),
+    });
+  });
+
+  await openAdmin(page, {});
+  page.on("dialog", (dialog) => dialog.accept());
+
+  const importPayload = {
+    type: "saashup-config-export",
+    version: 1,
+    config: {
+      profile: "production",
+      profiles: {
+        production: {
+          netbox: "https://netbox.example.com",
+          token: "secret",
+          proxy: "",
+          domain: "apps.example.com",
+          tag: "production",
+          max_instances: 3,
+        },
+      },
+    },
+    templates: {
+      Guide: {
+        image: "saashup/guide",
+        version: "v1.0.0",
+      },
+    },
+    order_counts: {
+      "ada@example.com": {
+        production: 1,
+      },
+    },
+  };
+
+  await page.locator("#importConfigFile").setInputFiles({
+    name: "saashup-config.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(importPayload)),
+  });
+
+  await expect.poll(() => importedPayload).toMatchObject(importPayload);
+  await expect(page.locator("#notif")).toContainText("Config import complete");
+  await expect(page.locator("#config_profile")).toHaveValue("production");
+  await expect(page.locator("#netbox")).toHaveValue("https://netbox.example.com");
+  await expect(page.locator("#max_instances")).toHaveValue("3");
+
+  const localProfiles = await page.evaluate(() => JSON.parse(localStorage.getItem("config_profiles")));
+  const localTemplates = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")));
+  expect(localProfiles.production.tag).toBe("production");
+  expect(localTemplates.Guide.image).toBe("saashup/guide");
 });
 
 test("admin header shows oauth user and logs out through oauth2 proxy", async ({ page }) => {
@@ -1008,9 +1112,75 @@ test("order page creates an instance from the requested template", async ({ page
   expect(createBody).toContain("var_env_key=APP_ENV");
   expect(createBody).toContain("var_env_value=production");
   expect(createBody).toContain("port_value=3000");
+  expect(createBody).toContain("max_instances=1");
+  expect(createBody).toContain("order_request=true");
   expect(createBody).toContain(`volume_name=${generatedName}-data`);
   expect(createBody).not.toContain("curiootiles-data");
   expect(logsRequests).toBe(0);
+});
+
+test("order page informs the user when the max instance limit is reached", async ({ page }) => {
+  let createCalled = false;
+
+  await page.route("**/images?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        { name: "saashup/demo", version: "v1.0.0" },
+      ]),
+    });
+  });
+
+  await page.route("**/order/limit?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        max: 1,
+        profile: "demo",
+        remaining: 0,
+        reached: true,
+        used: 1,
+      }),
+    });
+  });
+
+  await page.route("**/create", async (route) => {
+    createCalled = true;
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "demo",
+    profiles: JSON.stringify({
+      demo: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "daily.paashup.cloud",
+        tag: "DEMO",
+        max_instances: 1,
+      },
+    }),
+  }, {
+    demo: {
+      config_profile: "demo",
+      network: "traefik-public",
+      image: "saashup/demo",
+      ports: [{ value: "3000" }],
+    },
+  }, [], undefined, "/order?template=demo");
+
+  await expect(page.locator("#orderLoading")).toBeHidden();
+  await expect(page.locator("#orderActions")).toBeHidden();
+  await expect(page.locator("#orderStatus")).toHaveClass(/error/);
+  await expect(page.locator("#orderStatus")).toHaveText("You have reached your maximum of 1 instance for this config.");
+  expect(createCalled).toBe(false);
 });
 
 test("order page shows oauth user and logs out through oauth2 proxy", async ({ page }) => {
@@ -1811,6 +1981,82 @@ test("create flow does not synthesize default volumes or mounts", async () => {
     key: "traefik.http.services.guide.loadbalancer.server.port",
     value: "8080",
   });
+});
+
+test("dockerhub webhook hands off directly to recreate without splitting images", async () => {
+  const payload = await evaluateJsonata("ee993f5a5dfd35f2", "payload", {
+    netbox: "https://netbox.example.com",
+    token: "secret",
+    proxy: "http://proxy.example.com:8080",
+    tag: "TILE",
+    webhook: {
+      push_data: { tag: "v2.0.0" },
+      repository: { repo_name: "saashup/tiles" },
+    },
+  });
+
+  expect(payload).toEqual({
+    netbox: "https://netbox.example.com",
+    token: "secret",
+    proxy: "http://proxy.example.com:8080",
+    tag: "TILE",
+    image: "saashup/tiles",
+    version: "v2.0.0",
+    clean_name: false,
+  });
+  expect(flowNode("ee993f5a5dfd35f2").wires[0]).toEqual(["0fa3ca525b84162f"]);
+  expect(readFlows().find((item) => item.id === "fd1dbd967b25512f")).toBeFalsy();
+});
+
+test("recreate can fan out all previous versions when oldversion is omitted", async () => {
+  const oldImageUrl = await evaluateJsonata("d837a0475dee45dc", "url", {
+    netbox: "https://netbox.example.com",
+    image: "saashup/tiles",
+    version: "v2.0.0",
+    oldversion: "",
+    host_ids_qs: "",
+  });
+
+  const oldImages = await evaluateJsonata("45e0558750363197", "payload", {
+    version: "v2.0.0",
+    oldversion: "",
+    payload: {
+      results: [
+        { id: 1, version: "v1.0.0", host: { display: "host-a" } },
+        { id: 2, version: "v2.0.0", host: { display: "host-a" } },
+        { id: 3, version: "v1.5.0", host: { display: "host-b" } },
+      ],
+    },
+  });
+
+  expect(oldImageUrl).toBe("https://netbox.example.com/api/plugins/docker/images/?name=saashup/tiles&limit=200");
+  expect(oldImages.map((image) => image.version)).toEqual(["v1.0.0", "v1.5.0"]);
+});
+
+test("recreate keeps oldversion filtering when an explicit oldversion is provided", async () => {
+  const oldImageUrl = await evaluateJsonata("d837a0475dee45dc", "url", {
+    netbox: "https://netbox.example.com",
+    image: "saashup/tiles",
+    version: "v2.0.0",
+    oldversion: "v1.0.0",
+    host_ids_qs: "&host_id__in=1,2",
+  });
+
+  const oldImages = await evaluateJsonata("45e0558750363197", "payload", {
+    version: "v2.0.0",
+    oldversion: "v1.0.0",
+    payload: {
+      results: [
+        { id: 1, version: "v1.0.0", host: { display: "host-a" } },
+        { id: 2, version: "v1.5.0", host: { display: "host-b" } },
+      ],
+    },
+  });
+
+  expect(oldImageUrl).toBe(
+    "https://netbox.example.com/api/plugins/docker/images/?name=saashup/tiles&version=v1.0.0&limit=200&host_id__in=1,2",
+  );
+  expect(oldImages.map((image) => image.version)).toEqual(["v1.0.0"]);
 });
 
 test("create cloudflare dns record uses post and logs the result", async () => {

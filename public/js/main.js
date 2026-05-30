@@ -8,6 +8,9 @@ const submitBtn = document.getElementById("submitBtn");
 const restartInstanceBtn = document.getElementById("restartInstanceBtn");
 const testBtn = document.getElementById("testBtn");
 const deleteConfigBtn = document.getElementById("deleteConfigBtn");
+const exportConfigBtn = document.getElementById("exportConfigBtn");
+const importConfigBtn = document.getElementById("importConfigBtn");
+const importConfigFile = document.getElementById("importConfigFile");
 const clearBtn = document.getElementById("clearBtn");
 const dockerRunBtn = document.getElementById("dockerRunBtn");
 const templateSelect = document.getElementById("templateSelect");
@@ -61,7 +64,7 @@ let lastLogsHtml = "";
 let createTemplates = {};
 let generatedCreateInstanceName = "";
 
-const configFields = ["config_profile", "config_name", "netbox", "token", "proxy", "domain", "tag"];
+const configFields = ["config_profile", "config_name", "netbox", "token", "proxy", "domain", "tag", "max_instances"];
 
 const actions = {
   config: {
@@ -72,7 +75,7 @@ const actions = {
     description: "Save the NetBox URL, token, optional proxy, domain and host tag used by the automation.",
     submitLabel: "Save config",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "config_name", "netbox", "token", "proxy", "domain", "tag"],
+    fields: ["config_profile", "config_name", "netbox", "token", "proxy", "domain", "tag", "max_instances"],
   },
   create: {
     endpoint: "/create",
@@ -133,6 +136,7 @@ const allFieldNames = [
   "proxy",
   "domain",
   "tag",
+  "max_instances",
   "config_profile",
   "config_name",
   "network",
@@ -381,14 +385,18 @@ function profileLabel(name) {
 function parseProfiles(value) {
   if (!value) return {};
 
-  if (typeof value === "object") return value;
+  if (typeof value === "object" && !Array.isArray(value)) return value;
 
   try {
     const parsed = JSON.parse(value);
-    return parsed && typeof parsed === "object" ? parsed : {};
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
   } catch {
     return {};
   }
+}
+
+function plainObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
 function storedProfiles() {
@@ -438,6 +446,86 @@ function persistCreateTemplates() {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return response.json().catch(() => createTemplates);
   });
+}
+
+function downloadJson(filename, data) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function exportPortableConfig() {
+  try {
+    const response = await fetch("/portable-config", {
+      headers: { Accept: "application/json" },
+    });
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const data = await response.json();
+    const date = new Date().toISOString().slice(0, 10);
+    downloadJson(`saashup-config-${date}.json`, data);
+    setNotice("Config export ready", "success");
+  } catch {
+    setNotice("Config export failed", "error");
+  }
+}
+
+function importPortableConfigFile() {
+  importConfigFile?.click();
+}
+
+async function importPortableConfig(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+
+    if (!confirm("Import config, profiles and templates from this file? Current values will be replaced.")) {
+      return;
+    }
+
+    const response = await fetch("/portable-config", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const importedConfig = plainObject(data.config);
+    const importedProfiles = parseProfiles(data.profiles || importedConfig.profiles);
+    const importedTemplates = plainObject(data.templates);
+
+    configProfiles = importedProfiles;
+    createTemplates = importedTemplates;
+    savedConfig = { ...importedConfig, profiles: importedProfiles };
+    currentConfigProfile = importedConfig.profile || importedConfig.config_profile || Object.keys(configProfiles).sort((a, b) => a.localeCompare(b))[0] || "";
+
+    localStorage.removeItem("deleted_config_profiles");
+    persistProfiles();
+    localStorage.setItem("create_templates", JSON.stringify(createTemplates));
+    updateProfileOptions();
+    updateTemplateOptions();
+    applyProfileToFields(currentConfigProfile);
+    setNotice("Config import complete", "success");
+  } catch {
+    setNotice("Config import failed", "error");
+  } finally {
+    if (importConfigFile) importConfigFile.value = "";
+  }
 }
 
 function updateTemplateOptions(selected = "") {
@@ -500,7 +588,25 @@ function profileCredentials(name = currentConfigProfile) {
     proxy: profile.proxy || "",
     domain: profile.domain || "",
     tag: profile.tag || "",
+    max_instances: normalizeMaxInstances(profile.max_instances),
   };
+}
+
+function normalizeMaxInstances(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 1;
+
+  return Math.min(10, Math.max(0, Math.floor(number)));
+}
+
+async function orderLimitForProfile(profile) {
+  const query = new URLSearchParams({ profile: profile || "" });
+  const response = await fetch(`/order/limit?${query.toString()}`, {
+    headers: { Accept: "application/json" },
+  });
+
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.json();
 }
 
 function selectedProfileCredentials() {
@@ -543,6 +649,7 @@ function applyProfileToFields(name = currentConfigProfile) {
   setFieldValue("proxy", credentials.proxy);
   setFieldValue("domain", credentials.domain);
   setFieldValue("tag", credentials.tag);
+  setFieldValue("max_instances", credentials.max_instances);
   persistProfiles();
   syncCreateNetwork();
 }
@@ -850,6 +957,8 @@ function setAction(actionName) {
   submitBtn.value = actionName === "restart" ? "image" : "";
 
   deleteConfigBtn?.classList.toggle("hidden", actionName !== "config");
+  exportConfigBtn?.classList.toggle("hidden", actionName !== "config");
+  importConfigBtn?.classList.toggle("hidden", actionName !== "config");
   clearBtn?.classList.toggle("hidden", actionName === "config");
   dockerRunBtn?.classList.toggle("hidden", actionName !== "create");
   templateSelect?.classList.toggle("hidden", actionName !== "create");
@@ -1265,6 +1374,17 @@ async function applyOrderTemplate({ reveal = true } = {}) {
     syncCreateNetwork();
   }
 
+  try {
+    const limit = await orderLimitForProfile(selectedProfileCredentials().profile);
+    if (limit.reached) {
+      hideOrderActions();
+      setOrderStatus(`You have reached your maximum of ${limit.max} instance${limit.max === 1 ? "" : "s"} for this config.`, "error");
+      return false;
+    }
+  } catch {
+    // The create endpoint enforces the limit; keep the order page usable if this check fails.
+  }
+
   return true;
 }
 
@@ -1320,6 +1440,7 @@ function loadSavedConfig() {
             proxy: data.proxy || "",
             domain: data.domain || "",
             tag: data.tag || "",
+            max_instances: normalizeMaxInstances(data.max_instances),
           };
           currentConfigProfile = localStorage.getItem("current_config_profile") || profile;
         }
@@ -1402,6 +1523,7 @@ async function saveConfig() {
   const proxy = fieldValue("proxy");
   const domain = normalizeDomain(fieldValue("domain"));
   const tag = fieldValue("tag");
+  const max_instances = normalizeMaxInstances(fieldValue("max_instances"));
 
   if (!profile) {
     setNotice("Profile name is required", "error");
@@ -1414,7 +1536,8 @@ async function saveConfig() {
   }
 
   forgetDeletedProfile(profile);
-  configProfiles[profile] = { netbox, token, proxy, domain, tag };
+  setFieldValue("max_instances", max_instances);
+  configProfiles[profile] = { netbox, token, proxy, domain, tag, max_instances };
   currentConfigProfile = profile;
   updateProfileOptions();
   persistProfiles();
@@ -1425,6 +1548,7 @@ async function saveConfig() {
     proxy,
     domain,
     tag,
+    max_instances: String(max_instances),
     profile,
     config_profile: profile,
     profiles: JSON.stringify(configProfiles),
@@ -1438,7 +1562,7 @@ async function saveConfig() {
 
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-    savedConfig = { netbox, token, proxy, domain, tag, profile, profiles: configProfiles };
+    savedConfig = { netbox, token, proxy, domain, tag, max_instances, profile, profiles: configProfiles };
     applyProfileToFields(profile);
     setNotice(`Config "${profileLabel(profile)}" saved (${response.status})`, "success");
   } catch {
@@ -1474,6 +1598,7 @@ async function deleteConfig() {
       setFieldValue("proxy", "");
       setFieldValue("domain", "");
       setFieldValue("tag", "");
+      setFieldValue("max_instances", "1");
 
       const params = new URLSearchParams({
         netbox: "",
@@ -1481,6 +1606,7 @@ async function deleteConfig() {
         proxy: "",
         domain: "",
         tag: "",
+        max_instances: "1",
         profile: "",
         config_profile: "",
         profiles: "{}",
@@ -1509,6 +1635,7 @@ async function deleteConfig() {
       proxy: credentials.proxy,
       domain: credentials.domain,
       tag: credentials.tag,
+      max_instances: String(credentials.max_instances),
       profile: currentConfigProfile,
       config_profile: currentConfigProfile,
       profiles: JSON.stringify(configProfiles),
@@ -1547,7 +1674,9 @@ async function submitAction(config, submitter) {
   body.set("proxy", credentials.proxy);
   body.set("domain", credentials.domain);
   body.set("tag", credentials.tag);
+  body.set("max_instances", String(credentials.max_instances));
   body.set("profile", credentials.profile);
+  if (isOrderPage) body.set("order_request", "true");
 
   if (currentAction === "create") {
     const fqdn = instanceFqdn(body.get("instance"), credentials.domain);
@@ -1583,8 +1712,18 @@ async function submitAction(config, submitter) {
       hideOrderActions();
       setOrderStatus(`Thank you, your instance installation has been requested for ${createdInstanceFqdn}.`, "success");
     } else {
+      const text = await response.text();
+      let detail = "";
+
+      try {
+        const data = text ? JSON.parse(text) : {};
+        detail = data.detail || data.error || data.message || "";
+      } catch {
+        detail = text;
+      }
+
       submitBtn.disabled = false;
-      setOrderStatus(`Installation request failed (${response.status})`, "error");
+      setOrderStatus(detail || `Installation request failed (${response.status})`, "error");
     }
     return;
   }
@@ -1993,6 +2132,9 @@ form.addEventListener("submit", async (event) => {
 
 testBtn?.addEventListener("click", test);
 deleteConfigBtn?.addEventListener("click", deleteConfig);
+exportConfigBtn?.addEventListener("click", exportPortableConfig);
+importConfigBtn?.addEventListener("click", importPortableConfigFile);
+importConfigFile?.addEventListener("change", importPortableConfig);
 clearBtn?.addEventListener("click", clearActionFields);
 dockerRunBtn?.addEventListener("click", openDockerRunModal);
 saveTemplateBtn?.addEventListener("click", saveCreateTemplate);

@@ -1,4 +1,4 @@
-FROM nodered/node-red:4.0.9-debian
+FROM nodered/node-red:4.1.10-minimal
 USER node-red
 WORKDIR /usr/src/node-red
 
@@ -9,7 +9,7 @@ RUN npm install --omit=dev
 
 COPY public /usr/src/node-red/public
 COPY flows.json /usr/src/node-red/flows.json
-COPY settings.js /data
+COPY settings.js /usr/src/node-red/settings.js
 
 ENV FLOWS=/usr/src/node-red/flows.json
 ENV DATAPATH=/data

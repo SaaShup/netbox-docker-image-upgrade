@@ -6,6 +6,8 @@ const adminAllowedEmails = String(process.env.ADMIN_ALLOWED_EMAILS || "")
     .split(",")
     .map((email) => email.trim().toLowerCase())
     .filter(Boolean);
+const dataPath = path.resolve(process.env.DATAPATH || "/data");
+const globalContextFile = path.join(dataPath, "context", "global", "global.json");
 const forbiddenPage = fs.readFileSync(path.join(__dirname, "public", "forbidden.html"), "utf8");
 const startedAt = Date.now();
 const metrics = {
@@ -112,6 +114,278 @@ function trackOperationMetric(req, res) {
         const bucket = statusClass(res.statusCode);
         metrics.operationRequests[operation][bucket] = (metrics.operationRequests[operation][bucket] || 0) + 1;
     });
+}
+
+function readJsonFile(filePath, fallback = {}) {
+    try {
+        return JSON.parse(fs.readFileSync(filePath, "utf8"));
+    } catch {
+        return fallback;
+    }
+}
+
+function writeJsonFile(filePath, data) {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+}
+
+function maxInstancesValue(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return 1;
+
+    return Math.min(10, Math.max(0, Math.floor(number)));
+}
+
+function userOrderKey(req) {
+    const { email, user } = authUserFromRequest(req);
+    return String(email || user || req.ip || "anonymous").trim().toLowerCase();
+}
+
+function formBodyFromParams(params) {
+    const body = {};
+
+    for (const [key, value] of params.entries()) {
+        if (Object.prototype.hasOwnProperty.call(body, key)) {
+            body[key] = Array.isArray(body[key]) ? [...body[key], value] : [body[key], value];
+        } else {
+            body[key] = value;
+        }
+    }
+
+    return body;
+}
+
+function readRequestBody(req) {
+    return new Promise((resolve, reject) => {
+        const chunks = [];
+        let size = 0;
+
+        req.on("data", (chunk) => {
+            size += chunk.length;
+            if (size > 1024 * 1024) {
+                reject(new Error("Request body too large"));
+                req.destroy();
+                return;
+            }
+
+            chunks.push(chunk);
+        });
+        req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+        req.on("error", reject);
+    });
+}
+
+function parseProfilesValue(value) {
+    if (!value) return {};
+    if (typeof value === "object" && !Array.isArray(value)) return value;
+
+    try {
+        const parsed = JSON.parse(value);
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+function savedConfig() {
+    const context = readJsonFile(globalContextFile, {});
+    return context && typeof context.config === "object" && context.config ? context.config : {};
+}
+
+function savedGlobalContext() {
+    const context = readJsonFile(globalContextFile, {});
+    return context && typeof context === "object" && !Array.isArray(context) ? context : {};
+}
+
+function orderCounts() {
+    const counts = savedGlobalContext().order_counts;
+    return counts && typeof counts === "object" && !Array.isArray(counts) ? counts : {};
+}
+
+function writeOrderCounts(counts) {
+    const context = savedGlobalContext();
+    context.order_counts = counts && typeof counts === "object" && !Array.isArray(counts) ? counts : {};
+    writeJsonFile(globalContextFile, context);
+}
+
+function plainObject(value) {
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function portableConfigPayload() {
+    const context = savedGlobalContext();
+    const config = plainObject(context.config);
+    const profiles = parseProfilesValue(config.profiles);
+
+    return {
+        type: "saashup-config-export",
+        version: 1,
+        app_version: data.version,
+        exported_at: new Date().toISOString(),
+        config: {
+            ...config,
+            profiles,
+        },
+        templates: plainObject(context.templates),
+        order_counts: plainObject(context.order_counts),
+    };
+}
+
+function normalizeImportedConfig(input) {
+    const config = { ...plainObject(input.config) };
+    const profiles = parseProfilesValue(input.profiles || config.profiles);
+    const profileNames = Object.keys(profiles).sort((a, b) => a.localeCompare(b));
+
+    if (profileNames.length) {
+        config.profiles = JSON.stringify(profiles);
+
+        if (!config.profile || !profiles[config.profile]) {
+            config.profile = profileNames[0];
+        }
+
+        if (!config.config_profile || !profiles[config.config_profile]) {
+            config.config_profile = config.profile;
+        }
+
+        const selectedProfile = profiles[config.profile] || {};
+        ["netbox", "token", "proxy", "domain", "tag", "max_instances"].forEach((key) => {
+            if (config[key] === undefined && selectedProfile[key] !== undefined) {
+                config[key] = selectedProfile[key];
+            }
+        });
+    }
+
+    return config;
+}
+
+function handlePortableConfigExport(res) {
+    const payload = portableConfigPayload();
+    const date = new Date().toISOString().slice(0, 10);
+
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Content-Disposition", `attachment; filename="saashup-config-${date}.json"`);
+    res.end(JSON.stringify(payload, null, 2));
+}
+
+function handlePortableConfigImport(req, res) {
+    readRequestBody(req)
+        .then((rawBody) => {
+            const payload = JSON.parse(rawBody || "{}");
+            const context = savedGlobalContext();
+
+            context.config = normalizeImportedConfig(payload);
+            context.templates = plainObject(payload.templates);
+            context.order_counts = plainObject(payload.order_counts);
+
+            writeJsonFile(globalContextFile, context);
+
+            sendJson(res, 200, {
+                status: "imported",
+                profiles: Object.keys(parseProfilesValue(context.config.profiles)).length,
+                templates: Object.keys(context.templates).length,
+            });
+        })
+        .catch(() => {
+            sendJson(res, 400, {
+                code: "invalid_config_import",
+                detail: "Unable to import config export.",
+            });
+        });
+}
+
+function maxInstancesForProfile(profile) {
+    const profileName = String(profile || "").trim();
+    const config = savedConfig();
+    const profiles = parseProfilesValue(config.profiles);
+
+    if (profileName && Object.prototype.hasOwnProperty.call(profiles, profileName)) {
+        return maxInstancesValue(profiles[profileName]?.max_instances);
+    }
+
+    if (!profileName || profileName === config.profile || profileName === config.config_profile) {
+        return maxInstancesValue(config.max_instances);
+    }
+
+    return 1;
+}
+
+function orderUsage(req, profile) {
+    const profileName = String(profile || "").trim();
+    const counts = orderCounts();
+    const userKey = userOrderKey(req);
+    const used = Number(counts[userKey]?.[profileName] || 0);
+    const max = maxInstancesForProfile(profileName);
+
+    return {
+        max,
+        profile: profileName,
+        remaining: Math.max(0, max - used),
+        reached: used >= max,
+        used,
+    };
+}
+
+function incrementOrderUsage(req, profile) {
+    const profileName = String(profile || "").trim();
+    const userKey = userOrderKey(req);
+    const counts = orderCounts();
+
+    if (!counts[userKey]) counts[userKey] = {};
+    counts[userKey][profileName] = Number(counts[userKey][profileName] || 0) + 1;
+    writeOrderCounts(counts);
+}
+
+function sendJson(res, statusCode, body) {
+    res.statusCode = statusCode;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify(body));
+}
+
+function handleOrderLimitStatus(req, res) {
+    const url = new URL(req.originalUrl || req.url || "", "http://localhost");
+    sendJson(res, 200, orderUsage(req, url.searchParams.get("profile")));
+}
+
+function handleCreateOrderLimit(req, res, next) {
+    readRequestBody(req)
+        .then((rawBody) => {
+            const params = new URLSearchParams(rawBody);
+            req.body = formBodyFromParams(params);
+            req._body = true;
+
+            if (params.get("order_request") !== "true") {
+                next();
+                return;
+            }
+
+            const profile = params.get("profile") || params.get("config_profile") || "";
+            const usage = orderUsage(req, profile);
+
+            if (usage.reached) {
+                sendJson(res, 429, {
+                    code: "max_instances_reached",
+                    detail: `You have reached your maximum of ${usage.max} instance${usage.max === 1 ? "" : "s"} for this config.`,
+                    max_instances: usage.max,
+                    used_instances: usage.used,
+                });
+                return;
+            }
+
+            res.once("finish", () => {
+                if (res.statusCode === 202) {
+                    incrementOrderUsage(req, profile);
+                }
+            });
+
+            next();
+        })
+        .catch(() => {
+            sendJson(res, 400, {
+                code: "invalid_order_request",
+                detail: "Unable to read order request.",
+            });
+        });
 }
 
 function metricsPayload() {
@@ -222,6 +496,7 @@ function denyAdmin(res) {
 
 function authUserMiddleware(req, res, next) {
     const requestPath = String(req.url || "").split("?")[0];
+    const method = String(req.method || "").toUpperCase();
     incrementRequestMetric(req);
     trackOperationMetric(req, res);
 
@@ -246,9 +521,40 @@ function authUserMiddleware(req, res, next) {
         return;
     }
 
+    if (requestPath === "/order/limit") {
+        handleOrderLimitStatus(req, res);
+        return;
+    }
+
+    if (requestPath === "/portable-config") {
+        if (!isAdminAllowed(req)) {
+            metrics.adminForbidden += 1;
+            denyAdmin(res);
+            return;
+        }
+
+        if (method === "GET") {
+            handlePortableConfigExport(res);
+            return;
+        }
+
+        if (method === "POST") {
+            handlePortableConfigImport(req, res);
+            return;
+        }
+
+        sendJson(res, 405, { code: "method_not_allowed" });
+        return;
+    }
+
     if (isAdminRequest(req) && !isAdminAllowed(req)) {
         metrics.adminForbidden += 1;
         denyAdmin(res);
+        return;
+    }
+
+    if (requestPath === "/create" && method === "POST") {
+        handleCreateOrderLimit(req, res, next);
         return;
     }
 

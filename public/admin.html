@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Saashup Instance Manager</title>
   <link rel="icon" href="saashup_logo.svg">
+  <script src="js/theme.js"></script>
   <link rel="stylesheet" href="css/style.css">
 </head>
 
@@ -36,13 +37,16 @@
           <h2>Manage Docker instances</h2>
           <p class="subtitle">Configure access once, then create, upgrade, refresh, restart or delete instances.</p>
         </div>
-        <div class="auth-user hidden" id="authUser">
-          <div class="auth-avatar" id="authAvatar" aria-hidden="true">?</div>
-          <div class="auth-copy">
-            <span id="authName">Signed in</span>
-            <small id="authEmail"></small>
+        <div class="header-tools">
+          <button type="button" class="theme-toggle" data-theme-toggle aria-label="Toggle theme" title="Toggle theme">☾</button>
+          <div class="auth-user hidden" id="authUser">
+            <div class="auth-avatar" id="authAvatar" aria-hidden="true">?</div>
+            <div class="auth-copy">
+              <span id="authName">Signed in</span>
+              <small id="authEmail"></small>
+            </div>
+            <button type="button" class="btn btn-secondary auth-logout" id="logoutBtn">Logout</button>
           </div>
-          <button type="button" class="btn btn-secondary auth-logout" id="logoutBtn">Logout</button>
         </div>
       </header>
 
@@ -51,6 +55,9 @@
       <section class="toolbar">
         <button type="button" class="btn btn-primary" id="testBtn">Test connection</button>
         <button type="button" class="btn btn-danger hidden" id="deleteConfigBtn">Delete config</button>
+        <button type="button" class="btn btn-secondary hidden" id="exportConfigBtn">Export</button>
+        <button type="button" class="btn btn-secondary hidden" id="importConfigBtn">Import</button>
+        <input type="file" class="hidden" id="importConfigFile" accept="application/json,.json">
         <button type="button" class="btn btn-danger" id="clearBtn">Clear form</button>
         <button type="button" class="btn btn-secondary hidden" id="dockerRunBtn">Docker run</button>
         <select class="toolbar-select hidden" id="templateSelect" aria-label="Create template"></select>
@@ -102,6 +109,11 @@
               <label class="field" data-field="tag">
                 <span>Tag</span>
                 <input type="text" id="tag" name="tag" placeholder="production">
+              </label>
+
+              <label class="field" data-field="max_instances">
+                <span>Max instances</span>
+                <input type="number" id="max_instances" name="max_instances" min="0" max="10" value="1">
               </label>
 
               <label class="field" data-field="network">
