@@ -198,6 +198,9 @@ h1 {
 }
 
 .hero-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   color: var(--text);
   background: var(--panel);
   border: 1px solid var(--border);
@@ -205,6 +208,12 @@ h1 {
   padding: 8px 12px;
   font-size: 0.88rem;
   font-weight: 800;
+}
+
+.hero-meta img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
 }
 
 .hero-card {
@@ -284,12 +293,44 @@ h2 {
   gap: 16px;
 }
 
-.card {
+.service-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.card,
+.service-card {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 24px;
   padding: 24px;
   box-shadow: 0 14px 42px rgba(16, 32, 51, 0.08);
+}
+
+.service-card {
+  min-height: 250px;
+  display: flex;
+  flex-direction: column;
+}
+
+.service-logo {
+  width: 92px;
+  height: 58px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  background: var(--button-soft);
+  border: 1px solid var(--border);
+  margin-bottom: 18px;
+}
+
+.service-logo img {
+  width: auto;
+  height: auto;
+  max-width: 74px;
+  max-height: 38px;
+  object-fit: contain;
 }
 
 .icon {
@@ -305,12 +346,14 @@ h2 {
   margin-bottom: 18px;
 }
 
-.card h3 {
+.card h3,
+.service-card h3 {
   margin: 0 0 10px;
   font-size: 1.25rem;
 }
 
 .card p,
+.service-card p,
 .split p,
 .security-card p {
   margin: 0;
@@ -388,6 +431,10 @@ h2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .service-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .nav a:not(.nav-cta) {
     display: none;
   }
@@ -403,6 +450,10 @@ h2 {
   }
 
   .cards {
+    grid-template-columns: 1fr;
+  }
+
+  .service-grid {
     grid-template-columns: 1fr;
   }
 

@@ -1616,6 +1616,22 @@ test("logs panel can go fullscreen and clear logs", async ({ page }) => {
   await expect(page.locator("#notif")).toContainText("Logs cleared");
 });
 
+test("logs polling network errors turn the notice danger", async ({ page }) => {
+  await openAdmin(page, {}, {}, [
+    { instance: "guide-app", networks: ["bridge", "traefik-net"] },
+  ], async (route) => {
+    if (route.request().method() === "GET") {
+      await route.abort("failed");
+      return;
+    }
+
+    await route.fulfill({ status: 204, body: "" });
+  });
+
+  await expect(page.locator("#notif")).toHaveText("Activity logs unavailable: network error");
+  await expect(page.locator("#notif")).toHaveCSS("color", "rgb(153, 27, 27)");
+});
+
 test("submitting an action clears logs before starting the job", async ({ page }) => {
   const events = [];
 

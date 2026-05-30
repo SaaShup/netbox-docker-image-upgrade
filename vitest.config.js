@@ -9,7 +9,7 @@ module.exports = defineConfig({
       provider: "v8",
       reporter: ["text", "html", "lcov", "json"],
       reportsDirectory: "coverage",
-      include: ["server.js"],
+      include: ["server.js", "lib/**/*.js"],
       exclude: ["tests/**"],
     },
   },

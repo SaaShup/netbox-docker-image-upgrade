@@ -1,5 +1,13 @@
-# netbox-docker-image-upgrade
+# SaaShup
 App to deploy new image to all containers
+
+![Version](https://img.shields.io/github/package-json/v/SaaShup/netbox-docker-image-upgrade)
+![Node](https://img.shields.io/badge/node-24--alpine-green)
+![License](https://img.shields.io/github/license/SaaShup/netbox-docker-image-upgrade)
+![Last Commit](https://img.shields.io/github/last-commit/SaaShup/netbox-docker-image-upgrade)
+![Repo Size](https://img.shields.io/github/repo-size/SaaShup/netbox-docker-image-upgrade)
+![Top Language](https://img.shields.io/github/languages/top/SaaShup/netbox-docker-image-upgrade)
+![CI](https://github.com/SaaShup/netbox-docker-image-upgrade/actions/workflows/tests.yml/badge.svg)
 
 # Run
 

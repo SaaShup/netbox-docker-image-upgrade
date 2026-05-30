@@ -1,393 +1,63 @@
-const fs = require("fs");
 const path = require("path");
 const express = require("express");
-const { ProxyAgent, fetch } = require("undici");
 const packageJson = require("./package.json");
+const { authUserFromRequest, createAuthHelpers, maxInstancesValue } = require("./lib/auth");
+const {
+  asArray,
+  containerConfigPayloadFromForm,
+  containerCreatePayloadFromForm,
+  containerNetworkNames,
+  formData,
+  hostMatchesTag,
+  hostName,
+  imageNameFromRef,
+  instanceShort,
+  instanceZone,
+  isContainerRunning,
+  isContainerStopped,
+  isOperationDone,
+  isReadyContainer,
+  valueText,
+  volumePayloadsFromForm,
+} = require("./lib/docker");
+const { createMetrics, metricLabel, metricLine, operationLabel: operationLabelForMetrics, routeLabel: routeLabelForMetrics, statusClass } = require("./lib/metrics");
+const { NetBoxClient, dockerHosts, hostIdQuery, setNetBoxFetchForTests } = require("./lib/netbox");
+const { createOperationHelpers, delay } = require("./lib/operations");
+const { createStateStore, parseProfiles, plainObject } = require("./lib/state");
 
 const app = express();
-const dataPath = path.resolve(process.env.DATAPATH || "/data");
+const dataPath = path.resolve(process.env.DATAPATH || path.join(__dirname, "data"));
 const appPath = path.resolve(process.env.APPPATH || __dirname);
-const stateFile = path.join(dataPath, "app-state.json");
-const legacyContextFile = path.join(dataPath, "context", "global", "global.json");
 const publicPath = path.join(appPath, "public");
 const startedAt = Date.now();
 const operationTimeoutSeconds = Number(process.env.OPERATION_TIMEOUT_SECONDS || 30);
+const operationPollMs = Number(process.env.OPERATION_POLL_MS || 3000);
+const createConfigureDelayMs = Number(process.env.CREATE_CONFIGURE_DELAY_MS || 5000);
+const createRecreateDelayMs = Number(process.env.CREATE_RECREATE_DELAY_MS || 5000);
 const adminAllowedEmails = String(process.env.ADMIN_ALLOWED_EMAILS || "")
   .split(",")
   .map((email) => email.trim().toLowerCase())
   .filter(Boolean);
-let netboxFetch = fetch;
 
-const metrics = {
-  adminForbidden: 0,
-  httpRequests: Object.fromEntries(["/", "/admin", "/config", "/create", "/delete", "/dockerhub", "/images", "/instances", "/logs", "/metrics", "/order", "/portable-config", "/recreate", "/refresh-hosts", "/restart", "/session/user", "/templates", "/test", "/version", "/webhook", "other"].map((route) => [route, 0])),
-  operationRequests: Object.fromEntries(["config", "create", "delete", "refresh", "restart", "upgrade"].map((name) => [name, { "1xx": 0, "2xx": 0, "3xx": 0, "4xx": 0, "5xx": 0, other: 0 }])),
-};
-
-function readJson(file, fallback = {}) {
-  try {
-    return JSON.parse(fs.readFileSync(file, "utf8"));
-  } catch {
-    return fallback;
-  }
-}
-
-function writeJson(file, data) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(data, null, 2));
-}
-
-function parseProfiles(value) {
-  if (!value) return {};
-  if (typeof value === "object" && !Array.isArray(value)) return value;
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function plainObject(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-}
-
-function defaultState() {
-  return {
-    config: {},
-    templates: {},
-    order_counts: {},
-    logs: "",
-  };
-}
-
-function migrateLegacyState() {
-  const legacy = readJson(legacyContextFile, {});
-  if (!legacy || typeof legacy !== "object" || Array.isArray(legacy)) return defaultState();
-  return {
-    config: plainObject(legacy.config),
-    templates: plainObject(legacy.templates),
-    order_counts: plainObject(legacy.order_counts),
-    logs: typeof legacy.logs === "string" ? legacy.logs : "",
-  };
-}
-
-function readState() {
-  const state = fs.existsSync(stateFile) ? readJson(stateFile, defaultState()) : migrateLegacyState();
-  return { ...defaultState(), ...plainObject(state) };
-}
-
-function writeState(mutator) {
-  const state = readState();
-  const next = typeof mutator === "function" ? mutator(state) || state : mutator;
-  writeJson(stateFile, { ...defaultState(), ...plainObject(next) });
-  return next;
-}
-
-function logLine(message) {
-  writeState((state) => {
-    state.logs = `${new Date().toISOString()} ${message}<br>${state.logs || ""}`;
-    return state;
-  });
-}
-
-function valueText(value) {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "object") return value.display || value.name || value.label || value.value || "";
-  return String(value);
-}
-
-function normalizedStatus(item, key) {
-  return String(valueText(item?.[key])).toLowerCase();
-}
-
-function isReadyContainer(item) {
-  const status = normalizedStatus(item, "status");
-  const operation = normalizedStatus(item, "operation");
-  return status.startsWith("running") && (!operation || operation === "none" || operation === "null");
-}
-
-function isOperationDone(item) {
-  const operation = normalizedStatus(item, "operation");
-  return !operation || operation === "none" || operation === "null";
-}
-
-function maxInstancesValue(value) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return 1;
-  return Math.min(10, Math.max(0, Math.floor(number)));
-}
+const metrics = createMetrics();
+const { readState, writeState, logLine } = createStateStore(dataPath);
+const { isAdminAllowed, selectedProfileConfig, userOrderKey } = createAuthHelpers({ adminAllowedEmails, readState });
+const {
+  createDnsRecord,
+  deleteDnsRecord,
+  ensureImageOnHost,
+  requestContainerOperation,
+  waitForContainerConfigured,
+  waitForContainerStopped,
+  waitForHostReady,
+} = createOperationHelpers({ logLine, operationPollMs, operationTimeoutSeconds });
 
 function routeLabel(req) {
-  const requestPath = String(req.originalUrl || req.url || "").split("?")[0].replace(/\/+$/, "") || "/";
-  if (requestPath === "/admin.html") return "/admin";
-  if (requestPath === "/order.html") return "/order";
-  if (metrics.httpRequests[requestPath] !== undefined) return requestPath;
-  return "other";
+  return routeLabelForMetrics(req, metrics);
 }
 
 function operationLabel(req) {
-  return {
-    "/config": "config",
-    "/webhook": "config",
-    "/create": "create",
-    "/delete": "delete",
-    "/refresh-hosts": "refresh",
-    "/restart": "restart",
-    "/recreate": "upgrade",
-    "/dockerhub": "upgrade",
-  }[routeLabel(req)] || "";
-}
-
-function statusClass(statusCode) {
-  const code = Number(statusCode);
-  if (code >= 100 && code < 600) return `${Math.floor(code / 100)}xx`;
-  return "other";
-}
-
-function metricLabel(value) {
-  return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n");
-}
-
-function metricLine(name, value, labels = {}) {
-  const entries = Object.entries(labels);
-  const labelText = entries.length ? `{${entries.map(([key, val]) => `${key}="${metricLabel(val)}"`).join(",")}}` : "";
-  return `${name}${labelText} ${value}`;
-}
-
-function firstHeader(req, names) {
-  for (const name of names) {
-    const value = req.headers[name];
-    if (Array.isArray(value) && value[0]) return value[0];
-    if (value) return value;
-  }
-  return "";
-}
-
-function authUserFromRequest(req) {
-  const email = firstHeader(req, ["x-auth-request-email", "x-forwarded-email", "x-auth-request-user-email"]);
-  const user = firstHeader(req, ["x-auth-request-user", "x-forwarded-user", "x-auth-request-preferred-username", "x-forwarded-preferred-username"]);
-  const name = firstHeader(req, ["x-auth-request-preferred-username", "x-forwarded-preferred-username", "x-auth-request-user", "x-forwarded-user", "x-auth-request-email", "x-forwarded-email"]);
-  if (name || user || email || !("ENABLE_EDITOR" in process.env)) return { user, email, name };
-  const devUser = process.env.USER || process.env.LOGNAME || "Local dev";
-  return { user: devUser, email: "", name: devUser };
-}
-
-function isAdminAllowed(req) {
-  if (!adminAllowedEmails.length) return true;
-  const { email } = authUserFromRequest(req);
-  return Boolean(email && adminAllowedEmails.includes(String(email).toLowerCase()));
-}
-
-function userOrderKey(req) {
-  const { email, user } = authUserFromRequest(req);
-  return String(email || user || req.ip || "anonymous").trim().toLowerCase();
-}
-
-function selectedProfileConfig(source) {
-  const state = readState();
-  const config = { ...state.config, ...plainObject(source) };
-  const profiles = parseProfiles(config.profiles);
-  const profile = config.profile || config.config_profile || source?.profile || source?.config_profile || "";
-  const profileConfig = profile && profiles[profile] ? profiles[profile] : {};
-  return {
-    ...config,
-    ...profileConfig,
-    ...plainObject(source),
-    profile,
-    config_profile: profile,
-  };
-}
-
-function hostMatchesTag(host, tag) {
-  if (!tag) return true;
-  const expected = String(tag).toLowerCase();
-  const tags = Array.isArray(host.tags) ? host.tags : [];
-  return tags.some((item) => [item?.name, item?.slug, item?.display, item].some((value) => String(value || "").toLowerCase() === expected))
-    || [host.tag, host.role, host.custom_fields?.role, host.cf?.role].some((value) => String(value || "").toLowerCase() === expected);
-}
-
-function imageNameFromRef(ref) {
-  const text = String(ref || "");
-  if (!text) return "";
-  const slash = text.lastIndexOf("/");
-  const colon = text.lastIndexOf(":");
-  return colon > slash ? text.slice(0, colon) : text;
-}
-
-function hostName(item) {
-  return valueText(item?.host) || valueText(item);
-}
-
-function instanceShort(name) {
-  return String(name || "").split(".")[0];
-}
-
-function formData(req) {
-  return req.method === "GET" ? req.query : req.body;
-}
-
-function asArray(value) {
-  if (Array.isArray(value)) return value;
-  if (value === undefined || value === null || value === "") return [];
-  return [value];
-}
-
-class NetBoxClient {
-  constructor(config) {
-    this.base = String(config.netbox || "").replace(/\/+$/, "");
-    this.token = config.token || "";
-    this.proxy = config.proxy || "";
-  }
-
-  async request(method, apiPath, { query = {}, body, expected = [200, 201, 202, 204] } = {}) {
-    if (!this.base || !this.token) {
-      const error = new Error("NetBox URL and token are required");
-      error.statusCode = 400;
-      throw error;
-    }
-
-    const url = new URL(apiPath, this.base);
-    Object.entries(query).forEach(([key, value]) => {
-      for (const item of asArray(value)) {
-        if (item !== undefined && item !== null && item !== "") url.searchParams.append(key, item);
-      }
-    });
-    const options = {
-      method,
-      headers: {
-        Accept: "application/json",
-        Authorization: `Token ${this.token}`,
-      },
-    };
-    if (body !== undefined) {
-      options.headers["Content-Type"] = "application/json";
-      options.body = JSON.stringify(body);
-    }
-    if (this.proxy) options.dispatcher = new ProxyAgent(this.proxy);
-
-    const response = await netboxFetch(url, options);
-    const text = await response.text();
-    let payload = {};
-    try {
-      payload = text ? JSON.parse(text) : {};
-    } catch {
-      payload = text;
-    }
-    if (!expected.includes(response.status)) {
-      const error = new Error(`NetBox request failed ${response.status}`);
-      error.statusCode = response.status;
-      error.payload = payload;
-      throw error;
-    }
-    return { statusCode: response.status, payload };
-  }
-
-  async list(apiPath, query = {}) {
-    const { payload } = await this.request("GET", apiPath, { query });
-    if (Array.isArray(payload)) return payload;
-    if (Array.isArray(payload.results)) return payload.results;
-    return [];
-  }
-}
-
-async function dockerHosts(client, tag = "") {
-  const hosts = await client.list("/api/plugins/docker/hosts/", { limit: 1000 });
-  return hosts.filter((host) => hostMatchesTag(host, tag));
-}
-
-async function hostIdQuery(client, tag = "") {
-  if (!tag) return {};
-  const hosts = await dockerHosts(client, tag);
-  return hosts.length ? { host_id: hosts.map((host) => host.id) } : { host_id: "__none__" };
-}
-
-function containerNetworkNames(container) {
-  return (Array.isArray(container.network_settings) ? container.network_settings : [])
-    .map((setting) => valueText(setting.network))
-    .filter(Boolean);
-}
-
-function containerPayloadFromForm(data, imageId) {
-  const envKeys = asArray(data.var_env_key);
-  const envValues = asArray(data.var_env_value);
-  const labelKeys = asArray(data.label_key);
-  const labelValues = asArray(data.label_value);
-  const volumeSources = asArray(data.volume_source);
-  const volumeNames = asArray(data.volume_name);
-  const port = asArray(data.port_value).find(Boolean);
-  const name = instanceShort(data.instance);
-  const labels = labelKeys.map((key, index) => ({ key, value: labelValues[index] || "" })).filter((item) => item.key);
-  if (port) labels.push({ key: `traefik.http.services.${name}.loadbalancer.server.port`, value: String(port) });
-
-  return {
-    name,
-    host: data.host_id,
-    image: imageId,
-    restart_policy: "unless-stopped",
-    environment_variables: envKeys.map((key, index) => ({ key, value: envValues[index] || "" })).filter((item) => item.key),
-    labels,
-    mounts: volumeSources.map((source, index) => ({
-      source,
-      volume: { name: volumeNames[index] || `${name}-data-${index + 1}` },
-      read_only: false,
-    })).filter((item) => item.source),
-  };
-}
-
-async function waitForContainerReady(client, id, displayName, operation) {
-  const deadline = Date.now() + operationTimeoutSeconds * 1000;
-  while (Date.now() < deadline) {
-    const { payload } = await client.request("GET", `/api/plugins/docker/containers/${id}/`);
-    if (isReadyContainer(payload)) {
-      logLine(`${operation} : ${displayName} ready status=${normalizedStatus(payload, "status")} operation=${normalizedStatus(payload, "operation")}`);
-      return true;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-  }
-  logLine(`${operation} : ${displayName} timeout after ${operationTimeoutSeconds}s, moving to next item`);
-  return false;
-}
-
-async function waitForHostReady(client, id, displayName) {
-  const deadline = Date.now() + operationTimeoutSeconds * 1000;
-  while (Date.now() < deadline) {
-    const { payload } = await client.request("GET", `/api/plugins/docker/hosts/${id}/`);
-    if (isOperationDone(payload)) {
-      logLine(`REFRESH_HOST : ${displayName} refresh complete operation=${normalizedStatus(payload, "operation")} state=${normalizedStatus(payload, "state")}`);
-      return true;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-  }
-  logLine(`REFRESH_HOST : ${displayName} timeout after ${operationTimeoutSeconds}s, moving to next host`);
-  return false;
-}
-
-async function requestContainerOperation(client, container, operation, prefix) {
-  const display = `${hostName(container)}/${valueText(container.display || container.name)}`;
-  await client.request("PATCH", "/api/plugins/docker/containers/", { body: [{ id: container.id, operation }] });
-  logLine(`${prefix} : ${display} ${operation} requested`);
-  await waitForContainerReady(client, container.id, display, prefix);
-}
-
-async function ensureImageOnHost(client, oldImage, image, version) {
-  const hostId = oldImage.host?.id || oldImage.host;
-  const matches = await client.list("/api/plugins/docker/images/", { name: image, version, host_id: hostId });
-  if (matches[0]) return matches[0];
-
-  const { payload } = await client.request("POST", "/api/plugins/docker/images/", {
-    body: {
-      host: hostId,
-      name: image,
-      version,
-      registry: oldImage.registry?.id || oldImage.registry,
-    },
-    expected: [200, 201, 202],
-  });
-  const created = Array.isArray(payload) ? payload[0] : payload;
-  logLine(`RECREATE : created image ${image}:${version} on ${hostName(oldImage)} status=201`);
-  await new Promise((resolve) => setTimeout(resolve, 5000));
-  return created;
+  return operationLabelForMetrics(req, metrics);
 }
 
 function sendAccepted(res, body = { status: "requested" }) {
@@ -411,10 +81,6 @@ function currentUsage(req, profile) {
   return { profile, used, max, remaining: Math.max(0, max - used), reached: used >= max };
 }
 
-function setNetBoxFetchForTests(fetchImpl) {
-  netboxFetch = fetchImpl || fetch;
-}
-
 function incrementUsage(req, profile) {
   writeState((state) => {
     const userKey = userOrderKey(req);
@@ -423,6 +89,12 @@ function incrementUsage(req, profile) {
     state.order_counts[userKey][profile] = Number(state.order_counts[userKey][profile] || 0) + 1;
     return state;
   });
+}
+
+function requireAdmin(req, res, next) {
+  if (isAdminAllowed(req)) return next();
+  metrics.adminForbidden += 1;
+  res.status(403).sendFile(path.join(publicPath, "forbidden.html"));
 }
 
 app.disable("x-powered-by");
@@ -440,12 +112,6 @@ app.use((req, res, next) => {
   }
   next();
 });
-
-function requireAdmin(req, res, next) {
-  if (isAdminAllowed(req)) return next();
-  metrics.adminForbidden += 1;
-  res.status(403).sendFile(path.join(publicPath, "forbidden.html"));
-}
 
 app.get("/session/user", (req, res) => res.json(authUserFromRequest(req)));
 app.get("/version", (req, res) => res.json({ name: packageJson.name, version: packageJson.version }));
@@ -568,15 +234,18 @@ app.delete("/logs", requireAdmin, (req, res) => {
   res.json({ status: "cleared" });
 });
 
-app.get("/test", requireAdmin, async (req, res) => {
+async function testConnection(req, res) {
   try {
-    const client = new NetBoxClient(selectedProfileConfig(req.query));
+    const client = new NetBoxClient(selectedProfileConfig(formData(req)));
     const { payload } = await client.request("GET", "/api/status/", { expected: [200] });
     res.json(payload);
   } catch (error) {
     res.status(error.statusCode || 502).json({ detail: error.message, payload: error.payload });
   }
-});
+}
+
+app.get("/test", requireAdmin, testConnection);
+app.post("/test", requireAdmin, testConnection);
 
 app.get("/instances", async (req, res) => {
   try {
@@ -636,11 +305,22 @@ app.post("/create", async (req, res) => {
     data.host_id = selectedHost.id;
     const images = await client.list("/api/plugins/docker/images/", { name: data.image, version: data.version, host_id: data.host_id });
     if (!images[0]) return logLine(`CREATE : image ${data.image}:${data.version} not found on ${hostName(selectedHost)}`);
-    const containerPayload = containerPayloadFromForm(data, images[0].id);
+    await createDnsRecord(client, data, selectedHost);
+    const volumes = volumePayloadsFromForm(data);
+    if (volumes.length) {
+      await client.request("POST", "/api/plugins/docker/volumes/", { body: volumes.length === 1 ? volumes[0] : volumes, expected: [200, 201, 202] });
+      logLine(`CREATE : ${volumes.length} volume${volumes.length === 1 ? "" : "s"} prepared on ${hostName(selectedHost)}`);
+    }
+    const containerPayload = containerCreatePayloadFromForm(data, images[0].id);
     const { payload } = await client.request("POST", "/api/plugins/docker/containers/", { body: containerPayload, expected: [200, 201, 202] });
     const container = Array.isArray(payload) ? payload[0] : payload;
     logLine(`CREATE : container ${containerPayload.name} created on ${hostName(selectedHost)}`);
-    await client.request("PATCH", "/api/plugins/docker/containers/", { body: [containerPayload] }).catch(() => {});
+    if (createConfigureDelayMs > 0) await delay(createConfigureDelayMs);
+    const containerConfig = containerConfigPayloadFromForm(data, container.id);
+    await client.request("PATCH", "/api/plugins/docker/containers/", { body: [containerConfig] });
+    logLine(`CREATE : container ${containerPayload.name} configured on ${hostName(selectedHost)} env=${containerConfig.env.length} labels=${containerConfig.labels.length} mounts=${containerConfig.mounts.length}`);
+    if (createRecreateDelayMs > 0) await delay(createRecreateDelayMs);
+    await waitForContainerConfigured(client, container.id, `${hostName(container)}/${valueText(container.display || container.name)}`);
     await requestContainerOperation(client, container, "recreate", "CREATE");
     if (req.body.order_request === "true") incrementUsage(req, data.profile || data.config_profile || "");
   });
@@ -698,9 +378,14 @@ app.post("/delete", (req, res) => {
     const matches = await client.list("/api/plugins/docker/containers/", { name: instanceShort(data.instance), ...hostFilter });
     if (matches.length !== 1) return logLine(`DELETE : cannot delete ${instanceShort(data.instance)}, expected 1 container got ${matches.length}`);
     const container = matches[0];
-    await client.request("PATCH", "/api/plugins/docker/containers/", { body: [{ id: container.id, operation: "stop" }] });
+    if (isContainerRunning(container)) {
+      await client.request("PATCH", "/api/plugins/docker/containers/", { body: [{ id: container.id, operation: "stop" }] });
+      logLine(`DELETE : container ${instanceShort(data.instance)} stop requested id=${container.id}`);
+      await waitForContainerStopped(client, container.id, `${hostName(container)}/${valueText(container.display || container.name)}`);
+    }
     await client.request("DELETE", `/api/plugins/docker/containers/${container.id}/`, { expected: [200, 202, 204] });
     logLine(`DELETE : container ${instanceShort(data.instance)} deleted id=${container.id}`);
+    await deleteDnsRecord(client, data);
   });
 });
 
@@ -742,10 +427,14 @@ module.exports = {
   app,
   asArray,
   authUserFromRequest,
-  containerPayloadFromForm,
+  containerConfigPayloadFromForm,
+  containerCreatePayloadFromForm,
   hostMatchesTag,
   imageNameFromRef,
   instanceShort,
+  instanceZone,
+  isContainerRunning,
+  isContainerStopped,
   isOperationDone,
   isReadyContainer,
   maxInstancesValue,
@@ -758,4 +447,5 @@ module.exports = {
   setNetBoxFetchForTests,
   statusClass,
   valueText,
+  volumePayloadsFromForm,
 };

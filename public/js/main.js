@@ -61,8 +61,10 @@ let imageRecords = [];
 let containerCountRequestId = 0;
 let createNetworkRequestId = 0;
 let lastLogsHtml = "";
+let logsPollFailed = false;
 let createTemplates = {};
 let generatedCreateInstanceName = "";
+const logsPollFailureNotice = "Activity logs unavailable: network error";
 
 const configFields = ["config_profile", "config_name", "netbox", "token", "proxy", "domain", "tag", "max_instances"];
 
@@ -1981,12 +1983,21 @@ async function getLogs() {
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
     const logs = await response.text();
+    if (logsPollFailed) {
+      logsPollFailed = false;
+      const notif = document.getElementById("notif");
+      if (notif?.textContent === logsPollFailureNotice) setNotice("Welcome !", "info", false);
+    }
     if (logs !== lastLogsHtml) {
       lastLogsHtml = logs;
       document.getElementById("logs").innerHTML = formatLogs(logs);
     }
   } catch (err) {
     console.error("Error fetching logs:", err);
+    if (!logsPollFailed) {
+      logsPollFailed = true;
+      setNotice(logsPollFailureNotice, "error", false);
+    }
   }
 }
 
