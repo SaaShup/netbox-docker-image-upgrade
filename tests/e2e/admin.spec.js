@@ -280,6 +280,70 @@ test("version endpoint exposes package version", async ({ request }) => {
   });
 });
 
+test("report menu shows image usage for all configs", async ({ page }) => {
+  const config = {
+    profile: "production",
+    config_profile: "production",
+    profiles: JSON.stringify({
+      production: { netbox: "https://netbox.example.com", token: "secret", tag: "prod" },
+      staging: { netbox: "https://netbox.example.com", token: "secret", tag: "stage" },
+    }),
+  };
+  const reportRequests = [];
+  let releaseFirstReport;
+
+  await openAdmin(page, config);
+  await expect(page.locator(".sidebar .nav-item")).toHaveText([
+    "Config",
+    "Create",
+    "Upgrade",
+    "Operate",
+    "Delete",
+    "Refresh",
+    "Report",
+  ]);
+  await page.route("**/report/images?**", async (route) => {
+    const url = new URL(route.request().url());
+    reportRequests.push(url.searchParams.get("profile"));
+    if (releaseFirstReport === undefined) {
+      await new Promise((resolve) => {
+        releaseFirstReport = resolve;
+      });
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        profile: url.searchParams.get("profile"),
+        total_hosts: 3,
+        total_images: 2,
+        total_containers: 5,
+        rows: [
+          { profile: "production", image: "saashup/api", version: "v2.0.1", containers: 3 },
+          { profile: "staging", image: "saashup/api", version: "v2.0.0", containers: 2 },
+        ],
+      }),
+    });
+  });
+
+  await page.locator("#menu_report").click();
+  await expect(page.locator("#reportCard")).toBeVisible();
+  await expect(page.locator(".form-card")).toBeHidden();
+  await expect(page.locator("#reportTableBody")).toContainText("Loading image report...");
+  releaseFirstReport();
+  await expect(page.locator("#reportProfileSelect option")).toHaveText(["All configs", "production", "staging"]);
+
+  await page.locator("#reportProfileSelect").selectOption("all");
+  await expect(page.locator('[data-report-stat="hosts"] strong')).toHaveText("3");
+  await expect(page.locator('[data-report-stat="hosts"] small')).toHaveText("Hosts");
+  await expect(page.locator('[data-report-stat="images"] strong')).toHaveText("2");
+  await expect(page.locator('[data-report-stat="containers"] strong')).toHaveText("5");
+  await expect(page.locator("#reportTableBody tr")).toHaveCount(2);
+  await expect(page.locator("#reportTableBody")).toContainText("saashup/api");
+  await expect(page.locator("#reportTableBody")).toContainText("v2.0.1");
+  expect(reportRequests).toContain("all");
+});
+
 test("delete config removes the profile and keeps it gone after reload", async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("config_profiles", JSON.stringify({
@@ -888,7 +952,9 @@ test("create form can save and load templates", async ({ page }) => {
   await expect(page.locator("#saveTemplateBtn")).toBeVisible();
   await expect(page.locator("#saveTemplateBtn")).toHaveText("Save template");
   await expect(page.locator("#orderTemplateBtn")).toBeVisible();
-  await expect(page.locator("#orderTemplateBtn")).toBeDisabled();
+  await expect(page.locator("#orderTemplateBtn")).toBeEnabled();
+  await expect(page.locator("#orderTemplateBtn")).toHaveText("Select template to order");
+  await expect(page.locator("#orderTemplateBtn")).toHaveClass(/btn-danger-outline/);
   await expect(page.locator("#deleteTemplateBtn")).toBeVisible();
 
   await page.locator("#refreshImagesBtn").click();
@@ -926,6 +992,8 @@ test("create form can save and load templates", async ({ page }) => {
   await page.locator("#templateSelect").selectOption("Guide");
   await expect(page.locator("#notif")).toContainText('Template "Guide" loaded');
   await expect(page.locator("#orderTemplateBtn")).toBeEnabled();
+  await expect(page.locator("#orderTemplateBtn")).toHaveText("Order template");
+  await expect(page.locator("#orderTemplateBtn")).toHaveClass(/btn-primary/);
   expect(imageRequestCount).toBeGreaterThanOrEqual(imageRequestsBeforeLoad);
   await expect(page.locator("#network")).toHaveValue("traefik-net");
   await expect(page.locator("#instance")).toHaveValue(/^production-[a-z0-9]{16}$/);
@@ -972,11 +1040,15 @@ test("create template order button opens the selected order page", async ({ page
   });
 
   await page.getByRole("link", { name: "Create" }).click();
-  await expect(page.locator("#orderTemplateBtn")).toBeDisabled();
-  await expect(page.locator("#orderTemplateBtn")).toHaveClass(/btn-primary/);
+  await expect(page.locator("#orderTemplateBtn")).toBeEnabled();
+  await expect(page.locator("#orderTemplateBtn")).toHaveText("Select template to order");
+  await expect(page.locator("#orderTemplateBtn")).toHaveClass(/btn-danger-outline/);
+  await page.locator("#orderTemplateBtn").click();
+  await expect(page.locator("#notif")).toHaveText("Select a template first");
 
   await page.locator("#templateSelect").selectOption("Guide App");
   await expect(page.locator("#orderTemplateBtn")).toBeEnabled();
+  await expect(page.locator("#orderTemplateBtn")).toHaveText("Order template");
   await page.locator("#orderTemplateBtn").click();
 
   await expect(page).toHaveURL(/\/order\?template=Guide%20App$/);
@@ -1528,7 +1600,10 @@ test("restart instance refresh clears the instance input before showing choices"
     { instance: "guide.example.com", networks: ["traefik-public"] },
   ]);
 
-  await page.getByRole("link", { name: "Restart" }).click();
+  await page.getByRole("link", { name: "Operate" }).click();
+  await expect(page.locator("#operate_action option")).toHaveText(["Start", "Stop", "Restart", "Kill"]);
+  await expect(page.locator("#operate_action")).toHaveValue("restart");
+  await expect(page.locator("#restartInstanceBtn")).toHaveText("Operate instance");
   await page.locator("#instance").fill("old-filter");
   await page.locator("#refreshInstancesBtn").click();
 
@@ -1562,11 +1637,21 @@ test("refresh hosts requires saved NetBox credentials", async ({ page }) => {
 });
 
 test("restart image validates image and version before submit", async ({ page }) => {
+  let restartBody = "";
+
   await page.route("**/containers-count?**", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ count: 1 }),
+    });
+  });
+  await page.route("**/restart", async (route) => {
+    restartBody = route.request().postData() || "";
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: "{}",
     });
   });
 
@@ -1580,7 +1665,10 @@ test("restart image validates image and version before submit", async ({ page })
     }),
   });
 
-  await page.getByRole("link", { name: "Restart" }).click();
+  await page.getByRole("link", { name: "Operate" }).click();
+  await page.locator("#operate_action").selectOption("stop");
+  await expect(page.locator("#restartInstanceBtn")).toHaveText("Operate instance");
+  await expect(page.locator("#submitBtn")).toHaveText("Operate image");
   await page.locator("#submitBtn").click();
   await expect(page.locator("#notif")).toHaveText("Image name is required");
 
@@ -1590,6 +1678,9 @@ test("restart image validates image and version before submit", async ({ page })
 
   await page.locator("#restart_version").fill("v1.0.0");
   await expect(page.locator("#notif")).toHaveText("1 container uses saashup/app:v1.0.0");
+  await page.locator("#submitBtn").click();
+  await expect.poll(() => restartBody).toContain("operate_action=stop");
+  expect(restartBody).toContain("restart_mode=image");
 });
 
 test("logs panel can go fullscreen and clear logs", async ({ page }) => {

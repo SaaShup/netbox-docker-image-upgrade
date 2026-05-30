@@ -54,6 +54,8 @@ function setupNetBoxFetch(fetchMock, {
   deleteContainerRunning = false,
   emptyContainersForName = "",
   emptyImagesForName = "",
+  invalidReportImages = false,
+  multipleReportImages = false,
   omitContainerDisplay = false,
   omitContainerName = false,
   recreateContainerName = "tiles",
@@ -94,6 +96,25 @@ function setupNetBoxFetch(fetchMock, {
 
     if (pathname === "/api/plugins/docker/images/" && method === "GET") {
       if (parsed.searchParams.get("name") === emptyImagesForName) return jsonResponse({ results: [] });
+      if (invalidReportImages && parsed.searchParams.get("limit") === "1000") {
+        return jsonResponse({
+          results: [
+            { id: 0, name: "", version: "" },
+            { id: 10, name: "saashup/tile", version: "v1.0.0", host: { id: 1, display: "host-a" } },
+          ],
+        });
+      }
+      if (multipleReportImages && parsed.searchParams.get("limit") === "1000") {
+        const hostId = Number(parsed.searchParams.getAll("host_id")[0] || 1);
+        return jsonResponse({
+          results: [
+            { id: 10, name: "saashup/tile", version: "v1.0.0", host: { id: hostId, display: "host-a" } },
+            { id: 14, name: "saashup/tile", version: "v1.0.0", host: { id: hostId, display: "host-a" } },
+            { id: 13, name: "saashup/tile", version: "v10.0.0", host: { id: hostId, display: "host-a" } },
+            { id: 12, name: "saashup/zeta", version: "v2.0.0", host: { id: hostId, display: "host-a" } },
+          ],
+        });
+      }
       const version = parsed.searchParams.get("version");
       const hostId = parsed.searchParams.get("host_id");
       if (version === "v2.0.0") return jsonResponse({ results: [{ id: 20, name: "saashup/tile", version, host: { id: Number(hostId || 1) } }] });
@@ -166,6 +187,18 @@ function setupNetBoxFetch(fetchMock, {
     if (pathname === "/api/plugins/docker/hosts/1/" && method === "GET") return jsonResponse({ id: 1, operation: "none", state: "active" });
 
     return jsonResponse({ detail: `${method} ${pathname}` }, 404);
+  });
+}
+
+function rejectNextMatchingNetBoxFetch(fetchMock, predicate, error) {
+  const previousImplementation = fetchMock.getMockImplementation();
+  let rejected = false;
+  fetchMock.mockImplementation(async (url, options = {}) => {
+    if (!rejected && predicate(new URL(String(url)), options)) {
+      rejected = true;
+      throw error;
+    }
+    return previousImplementation(url, options);
   });
 }
 
@@ -311,6 +344,94 @@ describe("server routes", () => {
     await request.get("/containers-count").query({ image: "saashup/missing", version: "v2.0.0" }).expect(200).expect((res) => {
       expect(res.body.count).toBe(0);
     });
+    await request.get("/report/images").query({ profile: "all" }).expect(200).expect((res) => {
+      expect(res.body.rows).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          image: "saashup/tile",
+          version: "v1.0.0",
+          containers: 1,
+        }),
+      ]));
+      expect(res.body.total_hosts).toBe(1);
+      expect(res.body.total_containers).toBeGreaterThanOrEqual(1);
+    });
+
+    writeState(dataPath, {
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        tag: "tile",
+        profile: "prod",
+        config_profile: "prod",
+        profiles: {
+          dev: { tag: "guide" },
+          prod: { tag: "tile" },
+        },
+      },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+    setupNetBoxFetch(fetchMock, { multipleReportImages: true });
+    await request.get("/report/images").query({ profile: "prod" }).expect(200).expect((res) => {
+      expect(res.body.profile).toBe("prod");
+      expect(res.body.total_hosts).toBe(1);
+    });
+    await request.get("/report/images").query({ profile: "all" }).expect(200).expect((res) => {
+      expect(res.body.profile).toBe("all");
+      expect(res.body.total_hosts).toBe(2);
+      expect(res.body.rows.map((row) => `${row.profile}:${row.image}`)).toEqual([
+        "dev:saashup/tile",
+        "dev:saashup/tile",
+        "dev:saashup/zeta",
+        "prod:saashup/tile",
+        "prod:saashup/tile",
+        "prod:saashup/zeta",
+      ]);
+      expect(res.body.rows.map((row) => row.version)).toEqual([
+        "v1.0.0",
+        "v10.0.0",
+        "v2.0.0",
+        "v1.0.0",
+        "v10.0.0",
+        "v2.0.0",
+      ]);
+    });
+    await request.get("/report/images").expect(200).expect((res) => {
+      expect(res.body.rows[0].profile).toBe("prod");
+    });
+
+    writeState(dataPath, {
+      config: {},
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+    await request.get("/report/images").expect(200).expect((res) => {
+      expect(res.body).toMatchObject({ rows: [], total_hosts: 0, total_images: 0, total_containers: 0 });
+    });
+
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "absent" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+    await request.get("/report/images").expect(200).expect((res) => {
+      expect(res.body).toMatchObject({ rows: [], total_hosts: 0 });
+    });
+
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+    setupNetBoxFetch(fetchMock, { invalidReportImages: true });
+    await request.get("/report/images").expect(200).expect((res) => {
+      expect(res.body.rows).toHaveLength(1);
+      expect(res.body.rows[0].image).toBe("saashup/tile");
+    });
   });
 
   test("returns NetBox read errors and empty-list fallbacks", async () => {
@@ -361,6 +482,12 @@ describe("server routes", () => {
     fetchMock.mockRejectedValueOnce(new Error("count failed"));
     await request.get("/containers-count").query({ tag: "" }).expect(502).expect((res) => {
       expect(res.body.detail).toBe("count failed");
+    });
+
+    fetchMock.mockRejectedValueOnce(Object.assign(new Error("report failed"), { statusCode: 503, payload: { detail: "down" } }));
+    await request.get("/report/images").query({ tag: "" }).expect(503).expect((res) => {
+      expect(res.body.detail).toBe("report failed");
+      expect(res.body.payload.detail).toBe("down");
     });
 
     fetchMock.mockRejectedValueOnce(new Error("test failed"));
@@ -490,12 +617,17 @@ describe("server routes", () => {
     await request.post("/restart").send({ restart_mode: "instance", instance: "tiles.example.com" }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("RESTART : finished"));
 
+    await request.post("/restart").send({ restart_mode: "instance", operate_action: "stop", instance: "tiles.example.com" }).expect(202);
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("STOP : finished stop loop"));
+
     await request.post("/restart").send({ restart_mode: "image", image: "saashup/tile", restart_version: "v1.0.0" }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("RESTART : finished restart loop"));
 
+    const stopPatchCountBeforeDelete = fetchMock.mock.calls.filter(([url, options]) => String(url).endsWith("/api/plugins/docker/containers/") && options?.method === "PATCH" && JSON.parse(options.body).some((item) => item.operation === "stop")).length;
     await request.post("/delete").send({ instance: "tiles.example.com" }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : container tiles deleted"));
-    expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/docker/containers/") && options?.method === "PATCH" && JSON.parse(options.body).some((item) => item.operation === "stop"))).toBe(false);
+    const stopPatchCountAfterDelete = fetchMock.mock.calls.filter(([url, options]) => String(url).endsWith("/api/plugins/docker/containers/") && options?.method === "PATCH" && JSON.parse(options.body).some((item) => item.operation === "stop")).length;
+    expect(stopPatchCountAfterDelete).toBe(stopPatchCountBeforeDelete);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : Cloudflare DNS record delete requested for tiles.example.com"));
     expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/cloudflare/dns/records/61/") && options?.method === "DELETE")).toBe(true);
 
@@ -518,20 +650,32 @@ describe("server routes", () => {
     });
 
     await request.post("/restart").send({ restart_mode: "instance", instance: "tiles.example.com" }).expect(202);
-    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("timeout after 0s"));
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("RESTART : finished restart loop"));
 
     await request.post("/refresh-hosts").send({}).expect(202);
-    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("moving to next host"));
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("REFRESH_HOST : finished host refresh loop"));
 
-    fetchMock.mockRejectedValueOnce(Object.assign(new Error("network down"), { payload: { reason: "offline" } }));
+    rejectNextMatchingNetBoxFetch(
+      fetchMock,
+      (url, options) => url.pathname === "/api/plugins/docker/containers/" && (options.method || "GET") === "GET" && url.searchParams.get("name") === "tiles",
+      Object.assign(new Error("network down"), { payload: { reason: "offline" } }),
+    );
     await request.post("/restart").send({ restart_mode: "instance", instance: "tiles.example.com", tag: "" }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("ERROR : network down"));
 
-    fetchMock.mockRejectedValueOnce(new Error("dockerhub exploded"));
+    rejectNextMatchingNetBoxFetch(
+      fetchMock,
+      (url, options) => url.pathname === "/api/plugins/docker/images/" && (options.method || "GET") === "GET" && url.searchParams.get("version") === "v9.0.0",
+      new Error("dockerhub exploded"),
+    );
     await request.post("/dockerhub").send({ push_data: { tag: "v9.0.0" }, repository: { repo_name: "saashup/tile" } }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DOCKERHUB : failed"));
 
-    fetchMock.mockRejectedValueOnce({ payload: { reason: "empty message" } });
+    rejectNextMatchingNetBoxFetch(
+      fetchMock,
+      (url, options) => url.pathname === "/api/plugins/docker/containers/" && (options.method || "GET") === "GET" && url.searchParams.get("name") === "tiles",
+      { payload: { reason: "empty message" } },
+    );
     await request.post("/restart").send({ restart_mode: "instance", instance: "tiles.example.com", tag: "" }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("ERROR : operation failed"));
   });

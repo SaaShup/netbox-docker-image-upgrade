@@ -4,6 +4,7 @@ const isOrderPage = document.body?.classList.contains("order-page");
 const orderTemplateName = urlParams.get("template") || "";
 
 const form = document.getElementById("instanceForm");
+const formCard = document.querySelector(".form-card");
 const submitBtn = document.getElementById("submitBtn");
 const restartInstanceBtn = document.getElementById("restartInstanceBtn");
 const testBtn = document.getElementById("testBtn");
@@ -51,6 +52,11 @@ const authAvatar = document.getElementById("authAvatar");
 const authName = document.getElementById("authName");
 const authEmail = document.getElementById("authEmail");
 const logoutBtn = document.getElementById("logoutBtn");
+const reportCard = document.getElementById("reportCard");
+const reportProfileSelect = document.getElementById("reportProfileSelect");
+const refreshReportBtn = document.getElementById("refreshReportBtn");
+const reportSummary = document.getElementById("reportSummary");
+const reportTableBody = document.getElementById("reportTableBody");
 
 let currentAction = isOrderPage ? "create" : (localStorage.getItem("current_action") || "config");
 let currentConfigProfile = localStorage.getItem("current_config_profile") || "";
@@ -103,11 +109,21 @@ const actions = {
     endpoint: "/restart",
     method: "post",
     menu: "menu_restart",
-    title: "Restart containers",
-    description: "Restart one container or containers matching an image and version.",
-    submitLabel: "Restart image",
+    title: "Operate containers",
+    description: "Start, stop, restart or kill one container or containers matching an image and version.",
+    submitLabel: "Operate image",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "instance", "image", "restart_version"],
+    fields: ["config_profile", "operate_action", "instance", "operate_instance_action", "image", "restart_version"],
+  },
+  report: {
+    endpoint: "/report/images",
+    method: "get",
+    menu: "menu_report",
+    title: "Image report",
+    description: "Review image usage by container count for one config or all configs.",
+    submitLabel: "Refresh report",
+    buttonClass: "btn btn-primary",
+    fields: [],
   },
   refresh_hosts: {
     endpoint: "/refresh-hosts",
@@ -140,6 +156,7 @@ const allFieldNames = [
   "tag",
   "max_instances",
   "config_profile",
+  "operate_action",
   "config_name",
   "network",
   "instance",
@@ -156,6 +173,13 @@ const allFieldNames = [
   "volume_source",
   "volume_name",
 ];
+
+const operateActionLabels = {
+  start: "Start",
+  stop: "Stop",
+  restart: "Restart",
+  kill: "Kill",
+};
 
 function field(name) {
   return document.getElementById(name);
@@ -541,9 +565,21 @@ function updateTemplateOptions(selected = "") {
   });
 
   templateSelect.value = names.includes(selected) ? selected : "";
-  if (loadTemplateBtn) loadTemplateBtn.disabled = !templateSelect.value;
-  if (orderTemplateBtn) orderTemplateBtn.disabled = !templateSelect.value;
-  if (deleteTemplateBtn) deleteTemplateBtn.disabled = !templateSelect.value;
+  syncTemplateActions();
+}
+
+function syncTemplateActions() {
+  const hasTemplate = Boolean(templateSelect?.value);
+
+  if (loadTemplateBtn) loadTemplateBtn.disabled = !hasTemplate;
+  if (deleteTemplateBtn) deleteTemplateBtn.disabled = !hasTemplate;
+  if (!orderTemplateBtn) return;
+
+  orderTemplateBtn.disabled = false;
+  orderTemplateBtn.textContent = hasTemplate ? "Order template" : "Select template to order";
+  orderTemplateBtn.title = hasTemplate ? "Open the order page for this template" : "Select a template before ordering";
+  orderTemplateBtn.classList.toggle("btn-primary", hasTemplate);
+  orderTemplateBtn.classList.toggle("btn-danger-outline", !hasTemplate);
 }
 
 function deletedProfiles() {
@@ -638,6 +674,25 @@ function updateProfileOptions() {
   }));
 
   configProfileSelect.value = currentConfigProfile;
+  updateReportProfileOptions();
+}
+
+function updateReportProfileOptions() {
+  if (!reportProfileSelect) return;
+
+  const profileNames = Object.keys(configProfiles)
+    .filter((name) => !deletedProfiles().includes(name))
+    .sort((a, b) => a.localeCompare(b));
+  const currentValue = reportProfileSelect.value || currentConfigProfile || "all";
+
+  reportProfileSelect.replaceChildren(new Option("All configs", "all"));
+  profileNames.forEach((name) => {
+    reportProfileSelect.appendChild(new Option(profileLabel(name), name));
+  });
+
+  reportProfileSelect.value = currentValue === "all" || profileNames.includes(currentValue)
+    ? currentValue
+    : "all";
 }
 
 function applyProfileToFields(name = currentConfigProfile) {
@@ -693,6 +748,110 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function reportStatIcon(kind) {
+  const icons = {
+    hosts: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v6H5z"></path><path d="M5 14h14v6H5z"></path><path d="M8 7h.01M8 17h.01M12 10v4"></path></svg>',
+    images: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 7l8 4 8-4z"></path><path d="m4 12 8 4 8-4"></path><path d="m4 17 8 4 8-4"></path></svg>',
+    containers: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h18v10H3z"></path><path d="M7 7v10M12 7v10M17 7v10"></path></svg>',
+  };
+
+  return icons[kind] || "";
+}
+
+function reportStat(kind, value, label) {
+  return `
+    <span class="report-stat" data-report-stat="${kind}">
+      <span class="report-stat-icon">${reportStatIcon(kind)}</span>
+      <span class="report-stat-copy">
+        <strong>${Number(value || 0)}</strong>
+        <small>${escapeHtml(label)}</small>
+      </span>
+    </span>
+  `;
+}
+
+function renderReportStats(totalHosts = 0, totalImages = 0, totalContainers = 0) {
+  if (!reportSummary) return;
+
+  reportSummary.innerHTML = [
+    reportStat("hosts", totalHosts, totalHosts === 1 ? "Host" : "Hosts"),
+    reportStat("images", totalImages, totalImages === 1 ? "Image" : "Images"),
+    reportStat("containers", totalContainers, totalContainers === 1 ? "Container" : "Containers"),
+  ].join("");
+}
+
+function reportSummaryHasStats() {
+  return Boolean(reportSummary?.querySelector("[data-report-stat]"));
+}
+
+function renderReportLoadingRow() {
+  if (!reportTableBody) return;
+
+  reportTableBody.innerHTML = `
+    <tr>
+      <td colspan="4" class="report-loading-cell">
+        <span class="report-loader" aria-hidden="true"></span>
+        <span>Loading image report...</span>
+      </td>
+    </tr>
+  `;
+}
+
+function renderImageReport(data) {
+  const rows = Array.isArray(data?.rows) ? data.rows : [];
+  const totalHosts = Number(data?.total_hosts || 0);
+  const totalImages = Number(data?.total_images ?? rows.length);
+  const totalContainers = Number(data?.total_containers ?? rows.reduce((total, row) => total + Number(row.containers || 0), 0));
+
+  renderReportStats(totalHosts, totalImages, totalContainers);
+
+  if (!reportTableBody) return;
+
+  if (!rows.length) {
+    reportTableBody.innerHTML = '<tr><td colspan="4">No images found for this selection.</td></tr>';
+    return;
+  }
+
+  reportTableBody.innerHTML = rows.map((row) => `
+    <tr>
+      <td>${escapeHtml(row.profile || "Default")}</td>
+      <td>${escapeHtml(row.image)}</td>
+      <td>${escapeHtml(row.version)}</td>
+      <td>${Number(row.containers || 0)}</td>
+    </tr>
+  `).join("");
+}
+
+async function refreshImageReport() {
+  if (!reportProfileSelect || !refreshReportBtn) return;
+
+  updateReportProfileOptions();
+  const profile = reportProfileSelect.value || "all";
+  const query = new URLSearchParams({ profile });
+
+  refreshReportBtn.disabled = true;
+  if (!reportSummaryHasStats()) renderReportStats();
+  reportSummary?.classList.remove("is-error");
+  renderReportLoadingRow();
+
+  try {
+    const response = await fetch(`/report/images?${query.toString()}`, {
+      headers: { Accept: "application/json" },
+    });
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    renderImageReport(await response.json());
+    setNotice("Image report loaded", "success");
+  } catch {
+    reportSummary?.classList.add("is-error");
+    if (reportTableBody) reportTableBody.innerHTML = '<tr><td colspan="4">Report failed. Check the selected config and NetBox connection.</td></tr>';
+    setNotice("Image report failed", "error");
+  } finally {
+    refreshReportBtn.disabled = false;
+  }
 }
 
 function formatLogLine(line) {
@@ -950,6 +1109,7 @@ function setAction(actionName) {
 
   form.action = config.endpoint;
   form.method = config.method;
+  form.classList.toggle("operate-form", actionName === "restart");
 
   if (formTitle) formTitle.textContent = config.title;
   if (formDescription) formDescription.textContent = config.description;
@@ -961,7 +1121,7 @@ function setAction(actionName) {
   deleteConfigBtn?.classList.toggle("hidden", actionName !== "config");
   exportConfigBtn?.classList.toggle("hidden", actionName !== "config");
   importConfigBtn?.classList.toggle("hidden", actionName !== "config");
-  clearBtn?.classList.toggle("hidden", actionName === "config");
+  clearBtn?.classList.toggle("hidden", actionName === "config" || actionName === "report");
   dockerRunBtn?.classList.toggle("hidden", actionName !== "create");
   templateSelect?.classList.toggle("hidden", actionName !== "create");
   loadTemplateBtn?.classList.toggle("hidden", actionName !== "create");
@@ -972,6 +1132,8 @@ function setAction(actionName) {
   if (restartInstanceBtn) restartInstanceBtn.disabled = actionName !== "restart";
   refreshInstancesBtn?.classList.toggle("hidden", actionName === "create");
   if (refreshInstancesBtn && actionName === "create") refreshInstancesBtn.disabled = true;
+  formCard?.classList.toggle("hidden", actionName === "report");
+  reportCard?.classList.toggle("hidden", actionName !== "report");
 
   const visibleFields = new Set(config.fields);
 
@@ -995,11 +1157,16 @@ function setAction(actionName) {
   if (actionName === "create" && imageRecords.length === 0) {
     refreshImages({ notify: false });
   }
+  if (actionName === "report") {
+    updateReportProfileOptions();
+    refreshImageReport();
+  }
   updateEnvRemoveButtons();
   updateLabelRemoveButtons();
   updatePortRemoveButtons();
   updateVolumeRemoveButtons();
   updateRestartButtons();
+  updateOperateControls();
 }
 
 function updateRestartButtons() {
@@ -1011,6 +1178,19 @@ function updateRestartButtons() {
 
   submitBtn.disabled = false;
   if (restartInstanceBtn) restartInstanceBtn.disabled = false;
+}
+
+function selectedOperateAction() {
+  const value = fieldValue("operate_action");
+  return operateActionLabels[value] ? value : "restart";
+}
+
+function updateOperateControls() {
+  if (currentAction !== "restart") return;
+  if (!fieldValue("operate_action")) setFieldValue("operate_action", "restart");
+
+  if (restartInstanceBtn) restartInstanceBtn.textContent = "Operate instance";
+  submitBtn.textContent = "Operate image";
 }
 
 function clearActionFields() {
@@ -1028,7 +1208,9 @@ function clearActionFields() {
   syncCreateNetwork();
   syncCreateVersion();
   ensureRandomCreateInstanceName();
+  if (currentAction === "restart") setFieldValue("operate_action", "restart");
   updateRestartButtons();
+  updateOperateControls();
   setNotice("Form cleared", "success");
 }
 
@@ -2153,10 +2335,10 @@ deleteTemplateBtn?.addEventListener("click", deleteSelectedTemplate);
 loadTemplateBtn?.addEventListener("click", loadSelectedTemplate);
 orderTemplateBtn?.addEventListener("click", openSelectedTemplateOrder);
 logoutBtn?.addEventListener("click", logoutFromProxy);
+refreshReportBtn?.addEventListener("click", refreshImageReport);
+reportProfileSelect?.addEventListener("change", refreshImageReport);
 templateSelect?.addEventListener("change", () => {
-  if (loadTemplateBtn) loadTemplateBtn.disabled = !templateSelect.value;
-  if (orderTemplateBtn) orderTemplateBtn.disabled = !templateSelect.value;
-  if (deleteTemplateBtn) deleteTemplateBtn.disabled = !templateSelect.value;
+  syncTemplateActions();
   if (templateSelect.value) loadSelectedTemplate();
 });
 dockerRunApplyBtn?.addEventListener("click", applyDockerRunCommand);
@@ -2190,6 +2372,7 @@ field("image")?.addEventListener("change", () => {
 field("oldversion")?.addEventListener("input", updateSelectedVersionContainerNotice);
 field("restart_version")?.addEventListener("input", updateRestartButtons);
 field("restart_version")?.addEventListener("input", updateSelectedVersionContainerNotice);
+field("operate_action")?.addEventListener("change", updateOperateControls);
 field("instance")?.addEventListener("input", () => {
   updateRestartButtons();
   syncVolumeNames();
@@ -2217,6 +2400,7 @@ async function initializePage() {
   updateTemplateOptions();
   setAction(currentAction);
   await loadSavedConfig();
+  if (!isOrderPage && currentAction === "report") refreshImageReport();
 
   if (isOrderPage) {
     hideOrderActions();
