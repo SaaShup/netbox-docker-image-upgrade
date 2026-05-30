@@ -534,7 +534,7 @@ describe("server routes", () => {
     });
 
     await request.post("/restart").send({ restart_mode: "instance", instance: "tiles.example.com" }).expect(202);
-    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("timeout after 0s"));
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("RESTART : finished restart loop"));
 
     await request.post("/refresh-hosts").send({}).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("REFRESH_HOST : finished host refresh loop"));
