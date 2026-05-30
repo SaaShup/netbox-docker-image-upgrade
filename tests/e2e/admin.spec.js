@@ -337,6 +337,7 @@ test("report menu shows image usage for all configs", async ({ page }) => {
         total_hosts: 3,
         total_images: 2,
         total_containers: 5,
+        total_users: 4,
         rows: [
           { profile: "production", image: "saashup/api", version: "v2.0.1", containers: 3 },
           { profile: "staging", image: "saashup/api", version: "v2.0.0", containers: 2 },
@@ -357,6 +358,8 @@ test("report menu shows image usage for all configs", async ({ page }) => {
   await expect(page.locator('[data-report-stat="hosts"] small')).toHaveText("Hosts");
   await expect(page.locator('[data-report-stat="images"] strong')).toHaveText("2");
   await expect(page.locator('[data-report-stat="containers"] strong')).toHaveText("5");
+  await expect(page.locator('[data-report-stat="users"] strong')).toHaveText("4");
+  await expect(page.locator('[data-report-stat="users"] small')).toHaveText("Users");
   await expect(page.locator("#reportTableBody tr")).toHaveCount(2);
   await expect(page.locator("#reportTableBody")).toContainText("saashup/api");
   await expect(page.locator("#reportTableBody")).toContainText("v2.0.1");
@@ -1167,6 +1170,7 @@ test("order page creates an instance from the requested template", async ({ page
   expect(createBody).toContain("port_value=3000");
   expect(createBody).toContain("max_instances=1");
   expect(createBody).toContain("order_request=true");
+  expect(createBody).toContain("order_template=curiootiles");
   expect(createBody).toContain(`volume_name=${generatedName}-data`);
   expect(createBody).not.toContain("curiootiles-data");
   expect(logsRequests).toBe(0);
@@ -1190,6 +1194,9 @@ test("order page informs the user when the max instance limit is reached", async
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
+        instances: [
+          { instance: "demo-1.daily.paashup.cloud", template: "demo" },
+        ],
         max: 1,
         profile: "demo",
         remaining: 0,
@@ -1231,6 +1238,11 @@ test("order page informs the user when the max instance limit is reached", async
 
   await expect(page.locator("#orderLoading")).toBeHidden();
   await expect(page.locator("#orderActions")).toBeHidden();
+  await expect(page.locator("#orderInstances")).toBeVisible();
+  await expect(page.locator("#orderInstances")).toContainText("1 / 1");
+  await expect(page.locator("#orderInstances")).toContainText("demo-1.daily.paashup.cloud");
+  await expect(page.locator(".order-instance-card").first().locator(".order-instance-link")).toHaveAttribute("href", "https://demo-1.daily.paashup.cloud");
+  await expect(page.locator(".order-instance-card").first().locator(".order-instance-delete")).toBeVisible();
   await expect(page.locator("#orderStatus")).toHaveClass(/error/);
   await expect(page.locator("#orderStatus")).toHaveText("You have reached your maximum of 1 instance for this config.");
   expect(createCalled).toBe(false);

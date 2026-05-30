@@ -322,11 +322,12 @@ describe("server routes", () => {
     });
 
     await request.get("/webhook").expect(200).expect((res) => {
-      expect(res.body).toMatchObject({ netbox: "", token: "", domain: "", tag: "", profile: "", config_profile: "" });
+      expect(res.body).toMatchObject({ customer_name: "", netbox: "", token: "", domain: "", tag: "", profile: "", config_profile: "" });
     });
 
     await request.get("/webhook")
       .query({
+        customer_name: "CuriooCity",
         netbox: "https://netbox.example.com",
         token: "secret",
         proxy: "",
@@ -343,6 +344,7 @@ describe("server routes", () => {
 
     await request.get("/config").expect(200).expect((res) => {
       expect(res.body.profile).toBe("prod");
+      expect(res.body.customer_name).toBe("CuriooCity");
     });
     await request.post("/templates").send({ tile: { image: "saashup/tile" } }).expect(200);
     await request.get("/templates").expect(200).expect((res) => {
@@ -431,6 +433,7 @@ describe("server routes", () => {
       ]));
       expect(res.body.total_hosts).toBe(1);
       expect(res.body.total_containers).toBeGreaterThanOrEqual(1);
+      expect(res.body.total_users).toBe(0);
     });
 
     writeState(dataPath, {
@@ -446,17 +449,24 @@ describe("server routes", () => {
         },
       },
       templates: {},
-      order_counts: {},
+      order_counts: {
+        "dev-user@example.com": { dev: 2 },
+        "prod-user@example.com": { prod: 1 },
+        "both-user@example.com": { dev: 1, prod: 1 },
+        "zero-user@example.com": { prod: 0 },
+      },
       logs: "",
     });
     setupNetBoxFetch(fetchMock, { multipleReportImages: true });
     await request.get("/report/images").query({ profile: "prod" }).expect(200).expect((res) => {
       expect(res.body.profile).toBe("prod");
       expect(res.body.total_hosts).toBe(1);
+      expect(res.body.total_users).toBe(2);
     });
     await request.get("/report/images").query({ profile: "all" }).expect(200).expect((res) => {
       expect(res.body.profile).toBe("all");
       expect(res.body.total_hosts).toBe(2);
+      expect(res.body.total_users).toBe(3);
       expect(res.body.rows.map((row) => `${row.profile}:${row.image}`)).toEqual([
         "dev:saashup/tile",
         "dev:saashup/tile",
@@ -579,11 +589,13 @@ describe("server routes", () => {
       config: { max_instances: 1, profile: "prod", config_profile: "prod" },
       templates: {},
       order_counts: { "buyer@example.com": { prod: 1 } },
+      order_instances: { "buyer@example.com": { prod: [{ instance: "tiles.example.com", template: "Tiles" }] } },
       logs: "",
     });
 
     await request.get("/order/limit").set("x-auth-request-email", "buyer@example.com").query({ profile: "prod" }).expect(200).expect((res) => {
       expect(res.body.reached).toBe(true);
+      expect(res.body.instances).toEqual([expect.objectContaining({ instance: "tiles.example.com" })]);
     });
     await request.get("/order/limit").expect(200).expect((res) => {
       expect(res.body.profile).toBe("");
@@ -621,7 +633,7 @@ describe("server routes", () => {
       logs: "",
     });
 
-    await request.post("/create").send({
+    await request.post("/create").set("x-auth-request-email", "admin@example.com").send({
       instance: "tiles.example.com",
       image: "saashup/tile",
       version: "v2.0.0",
@@ -640,8 +652,12 @@ describe("server routes", () => {
     await vi.waitFor(() => expect(Object.values(readState(dataPath).order_counts).some((counts) => counts.prod === 1)).toBe(true));
     expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/cloudflare/dns/records/") && options?.method === "POST" && JSON.parse(options.body).content === "host-a.example.com")).toBe(true);
     expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/docker/volumes/") && options?.method === "POST" && JSON.parse(options.body).length === 2)).toBe(true);
+    expect(fetchMock.mock.calls.some(([url, options]) => {
+      if (!String(url).endsWith("/api/plugins/docker/containers/") || options?.method !== "PATCH") return false;
+      return JSON.parse(options.body).some((item) => item.env?.some((env) => env.var_name === "SAASHUP_OWNER" && env.value === "admin@example.com"));
+    })).toBe(true);
 
-    await request.post("/create").send({
+    await request.post("/create").set("x-auth-request-email", "buyer@example.com").send({
       instance: "tiles-second.example.com",
       image: "saashup/tile",
       version: "v2.0.0",
@@ -651,10 +667,19 @@ describe("server routes", () => {
       label_key: ["custom.label"],
       label_value: ["custom-value"],
       order_request: "true",
+      order_template: "Tiles",
       profile: "",
       config_profile: "prod",
     }).expect(202);
-    await vi.waitFor(() => expect(Object.values(readState(dataPath).order_counts).some((counts) => counts.prod === 2)).toBe(true));
+    await vi.waitFor(() => expect(readState(dataPath).order_counts["buyer@example.com"]?.prod).toBe(1));
+    await vi.waitFor(() => expect(readState(dataPath).order_instances["buyer@example.com"]?.prod).toEqual([
+      expect.objectContaining({ instance: "tiles-second.example.com", template: "Tiles", image: "saashup/tile", version: "v2.0.0" }),
+    ]));
+    expect(readState(dataPath).order_instances.buyer).toBeUndefined();
+    expect(fetchMock.mock.calls.some(([url, options]) => {
+      if (!String(url).endsWith("/api/plugins/docker/containers/") || options?.method !== "PATCH") return false;
+      return JSON.parse(options.body).some((item) => item.env?.some((env) => env.var_name === "SAASHUP_OWNER" && env.value === "buyer@example.com"));
+    })).toBe(true);
 
     await request.post("/create").send({
       instance: "tiles-empty-profile.example.com",
@@ -707,6 +732,20 @@ describe("server routes", () => {
     expect(stopPatchCountAfterDelete).toBe(stopPatchCountBeforeDelete);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : Cloudflare DNS record delete requested for tiles.example.com"));
     expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/cloudflare/dns/records/61/") && options?.method === "DELETE")).toBe(true);
+
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 3 },
+      templates: {},
+      order_counts: { "buyer@example.com": { prod: 1 } },
+      order_instances: { "buyer@example.com": { prod: [{ instance: "tiles-second.example.com", template: "Tiles" }] } },
+      logs: "",
+    });
+    await request.post("/delete")
+      .set("x-auth-request-email", "buyer@example.com")
+      .send({ instance: "tiles-second.example.com", order_request: "true", profile: "prod" })
+      .expect(202);
+    await vi.waitFor(() => expect(readState(dataPath).order_instances["buyer@example.com"].prod).toEqual([]));
+    await vi.waitFor(() => expect(readState(dataPath).order_counts["buyer@example.com"].prod).toBe(0));
 
     await request.post("/refresh-hosts").send({}).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("REFRESH_HOST : finished"));

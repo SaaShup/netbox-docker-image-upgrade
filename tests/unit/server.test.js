@@ -172,6 +172,17 @@ describe("server helpers", () => {
       labels: expect.arrayContaining([{ key: "empty.value", value: "" }]),
       mounts: [{ source: "/cache", volume: { name: "api-data-1" }, read_only: false }],
     });
+
+    expect(containerConfigPayloadFromForm({
+      instance: "owned.example.com",
+      host_id: 7,
+      var_env_key: ["SAASHUP_OWNER", "APP_ENV"],
+      var_env_value: ["spoofed@example.com", "production"],
+      saashup_owner: "owner@example.com",
+    }, 10).env).toEqual([
+      { var_name: "APP_ENV", value: "production" },
+      { var_name: "SAASHUP_OWNER", value: "owner@example.com" },
+    ]);
   });
 
   test("derives route, operation, and status metric labels", () => {

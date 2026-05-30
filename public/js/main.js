@@ -49,6 +49,7 @@ const configProfileSelect = document.getElementById("config_profile");
 const orderActions = document.getElementById("orderActions");
 const orderLoading = document.getElementById("orderLoading");
 const orderStatus = document.getElementById("orderStatus");
+const orderInstances = document.getElementById("orderInstances");
 const authUser = document.getElementById("authUser");
 const authAvatar = document.getElementById("authAvatar");
 const authName = document.getElementById("authName");
@@ -72,10 +73,12 @@ let lastLogsHtml = "";
 let logsPollFailed = false;
 let createTemplates = {};
 let generatedCreateInstanceName = "";
+let orderInstanceCards = [];
+let orderInstanceLimit = { max: 0, used: 0 };
 const logsPollFailureNotice = "Activity logs unavailable: network error";
 const sidebarCollapsedStorageKey = "sidebar_collapsed";
 
-const configFields = ["config_profile", "config_name", "netbox", "token", "proxy", "domain", "tag", "max_instances"];
+const configFields = ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_instances"];
 
 const actions = {
   config: {
@@ -86,7 +89,7 @@ const actions = {
     description: "Save the NetBox URL, token, optional proxy, domain and host tag used by the automation.",
     submitLabel: "Save config",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "config_name", "netbox", "token", "proxy", "domain", "tag", "max_instances"],
+    fields: ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_instances"],
   },
   create: {
     endpoint: "/create",
@@ -719,6 +722,7 @@ function applyProfileToFields(name = currentConfigProfile) {
 
   setFieldValue("config_profile", currentConfigProfile);
   setFieldValue("config_name", currentConfigProfile);
+  setFieldValue("customer_name", savedConfig.customer_name || "");
   setFieldValue("netbox", credentials.netbox);
   setFieldValue("token", credentials.token);
   setFieldValue("proxy", credentials.proxy);
@@ -773,6 +777,7 @@ function reportStatIcon(kind) {
     hosts: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v6H5z"></path><path d="M5 14h14v6H5z"></path><path d="M8 7h.01M8 17h.01M12 10v4"></path></svg>',
     images: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 7l8 4 8-4z"></path><path d="m4 12 8 4 8-4"></path><path d="m4 17 8 4 8-4"></path></svg>',
     containers: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h18v10H3z"></path><path d="M7 7v10M12 7v10M17 7v10"></path></svg>',
+    users: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>',
   };
 
   return icons[kind] || "";
@@ -790,13 +795,14 @@ function reportStat(kind, value, label) {
   `;
 }
 
-function renderReportStats(totalHosts = 0, totalImages = 0, totalContainers = 0) {
+function renderReportStats(totalHosts = 0, totalImages = 0, totalContainers = 0, totalUsers = 0) {
   if (!reportSummary) return;
 
   reportSummary.innerHTML = [
     reportStat("hosts", totalHosts, totalHosts === 1 ? "Host" : "Hosts"),
     reportStat("images", totalImages, totalImages === 1 ? "Image" : "Images"),
     reportStat("containers", totalContainers, totalContainers === 1 ? "Container" : "Containers"),
+    reportStat("users", totalUsers, totalUsers === 1 ? "User" : "Users"),
   ].join("");
 }
 
@@ -822,8 +828,9 @@ function renderImageReport(data) {
   const totalHosts = Number(data?.total_hosts || 0);
   const totalImages = Number(data?.total_images ?? rows.length);
   const totalContainers = Number(data?.total_containers ?? rows.reduce((total, row) => total + Number(row.containers || 0), 0));
+  const totalUsers = Number(data?.total_users || 0);
 
-  renderReportStats(totalHosts, totalImages, totalContainers);
+  renderReportStats(totalHosts, totalImages, totalContainers, totalUsers);
 
   if (!reportTableBody) return;
 
@@ -1086,6 +1093,119 @@ function setOrderStatus(message, type = "success") {
 
   orderStatus.textContent = message;
   orderStatus.className = `order-status ${type}`;
+}
+
+function renderOrderInstances(instances = orderInstanceCards, limit = orderInstanceLimit) {
+  if (!orderInstances) return;
+
+  orderInstanceCards = Array.isArray(instances) ? instances : [];
+  orderInstanceLimit = {
+    max: Number(limit?.max || 0),
+    used: Number(limit?.used ?? orderInstanceCards.length),
+  };
+
+  if (!orderInstanceCards.length) {
+    orderInstances.classList.add("hidden");
+    orderInstances.replaceChildren();
+    return;
+  }
+
+  const maxText = orderInstanceLimit.max > 0 ? ` / ${orderInstanceLimit.max}` : "";
+  orderInstances.classList.remove("hidden");
+  orderInstances.innerHTML = `
+    <div class="order-instances-header">
+      <div>
+        <p class="eyebrow">Your instances</p>
+        <h2>${orderInstanceLimit.used || orderInstanceCards.length}${maxText}</h2>
+      </div>
+    </div>
+    <div class="order-instance-grid">
+      ${orderInstanceCards.map((item, index) => `
+        <article class="order-instance-card" data-order-instance-card="${index}">
+          <span class="order-instance-icon" aria-hidden="true">${reportStatIcon("containers")}</span>
+          <span class="order-instance-copy">
+            ${orderInstanceNameLink(item.instance)}
+            <small>${escapeHtml(item.template || item.image || "SaaShup instance")}</small>
+          </span>
+          <button type="button" class="icon-btn icon-btn-danger order-instance-delete" data-order-instance-delete="${index}" title="Delete ${escapeHtml(item.instance || "instance")}" aria-label="Delete ${escapeHtml(item.instance || "instance")}">×</button>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function orderInstanceNameLink(instance) {
+  const name = String(instance || "").trim();
+
+  if (!name) {
+    return "<strong>Instance requested</strong>";
+  }
+
+  const host = name.replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
+  const href = `https://${host}`;
+
+  return `<a class="order-instance-link" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(name)}</a>`;
+}
+
+function addOrderInstanceCard(instance) {
+  const next = [
+    ...orderInstanceCards,
+    {
+      instance,
+      template: orderTemplateName,
+      image: fieldValue("image"),
+      version: fieldValue("version"),
+    },
+  ];
+  renderOrderInstances(next, {
+    ...orderInstanceLimit,
+    used: Math.max(Number(orderInstanceLimit.used || 0) + 1, next.length),
+  });
+}
+
+async function deleteOrderInstance(index) {
+  const item = orderInstanceCards[index];
+  if (!item?.instance) return;
+  if (!confirm(`Delete instance "${item.instance}"?`)) return;
+
+  const credentials = selectedProfileCredentials();
+  if (!credentials.netbox || !credentials.token) {
+    setOrderStatus("Delete failed: missing NetBox config", "error");
+    return;
+  }
+
+  const body = new URLSearchParams({
+    instance: item.instance,
+    netbox: credentials.netbox,
+    token: credentials.token,
+    proxy: credentials.proxy,
+    domain: credentials.domain,
+    tag: credentials.tag,
+    profile: credentials.profile,
+    config_profile: credentials.profile,
+    order_request: "true",
+  });
+
+  const response = await fetch("/delete", {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: body.toString(),
+  });
+
+  if (!response.ok && response.status !== 202) {
+    setOrderStatus(`Delete request failed (${response.status})`, "error");
+    return;
+  }
+
+  const next = orderInstanceCards.filter((_, itemIndex) => itemIndex !== index);
+  renderOrderInstances(next, {
+    ...orderInstanceLimit,
+    used: Math.max(0, Number(orderInstanceLimit.used || 0) - 1),
+  });
+  setOrderStatus(`Delete requested for ${item.instance}.`, "success");
 }
 
 function hideOrderActions() {
@@ -1578,6 +1698,7 @@ async function applyOrderTemplate({ reveal = true } = {}) {
 
   try {
     const limit = await orderLimitForProfile(selectedProfileCredentials().profile);
+    renderOrderInstances(limit.instances, limit);
     if (limit.reached) {
       hideOrderActions();
       setOrderStatus(`You have reached your maximum of ${limit.max} instance${limit.max === 1 ? "" : "s"} for this config.`, "error");
@@ -1720,6 +1841,7 @@ async function test() {
 
 async function saveConfig() {
   const profile = (fieldValue("config_name") || fieldValue("config_profile") || "").trim();
+  const customer_name = fieldValue("customer_name").trim();
   const netbox = fieldValue("netbox");
   const token = fieldValue("token");
   const proxy = fieldValue("proxy");
@@ -1748,6 +1870,7 @@ async function saveConfig() {
     netbox,
     token,
     proxy,
+    customer_name,
     domain,
     tag,
     max_instances: String(max_instances),
@@ -1764,7 +1887,7 @@ async function saveConfig() {
 
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-    savedConfig = { netbox, token, proxy, domain, tag, max_instances, profile, profiles: configProfiles };
+    savedConfig = { customer_name, netbox, token, proxy, domain, tag, max_instances, profile, profiles: configProfiles };
     applyProfileToFields(profile);
     setNotice(`Config "${profileLabel(profile)}" saved (${response.status})`, "success");
   } catch {
@@ -1784,6 +1907,7 @@ async function deleteConfig() {
     return;
   }
 
+  const customer_name = fieldValue("customer_name").trim() || savedConfig.customer_name || "";
   delete configProfiles[profile];
   rememberDeletedProfile(profile);
   const remainingProfiles = Object.keys(configProfiles).sort((a, b) => a.localeCompare(b));
@@ -1791,10 +1915,11 @@ async function deleteConfig() {
   try {
     if (remainingProfiles.length === 0) {
       currentConfigProfile = "";
-      savedConfig = {};
+      savedConfig = { customer_name };
       persistProfiles();
       updateProfileOptions();
       setFieldValue("config_name", "");
+      setFieldValue("customer_name", customer_name);
       setFieldValue("netbox", "");
       setFieldValue("token", "");
       setFieldValue("proxy", "");
@@ -1806,6 +1931,7 @@ async function deleteConfig() {
         netbox: "",
         token: "",
         proxy: "",
+        customer_name,
         domain: "",
         tag: "",
         max_instances: "1",
@@ -1835,6 +1961,7 @@ async function deleteConfig() {
       netbox: credentials.netbox,
       token: credentials.token,
       proxy: credentials.proxy,
+      customer_name,
       domain: credentials.domain,
       tag: credentials.tag,
       max_instances: String(credentials.max_instances),
@@ -1850,7 +1977,7 @@ async function deleteConfig() {
 
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-    savedConfig = { ...credentials, profiles: configProfiles };
+    savedConfig = { ...credentials, customer_name, profiles: configProfiles };
     updateProfileOptions();
     applyProfileToFields(currentConfigProfile);
     setNotice(`Config "${profileLabel(profile)}" deleted (${response.status})`, "success");
@@ -1878,7 +2005,10 @@ async function submitAction(config, submitter) {
   body.set("tag", credentials.tag);
   body.set("max_instances", String(credentials.max_instances));
   body.set("profile", credentials.profile);
-  if (isOrderPage) body.set("order_request", "true");
+  if (isOrderPage) {
+    body.set("order_request", "true");
+    body.set("order_template", orderTemplateName);
+  }
 
   if (currentAction === "create") {
     const fqdn = instanceFqdn(body.get("instance"), credentials.domain);
@@ -1912,6 +2042,7 @@ async function submitAction(config, submitter) {
   if (isOrderPage) {
     if (response.status === 202) {
       hideOrderActions();
+      addOrderInstanceCard(createdInstanceFqdn);
       setOrderStatus(`Thank you, your instance installation has been requested for ${createdInstanceFqdn}.`, "success");
     } else {
       const text = await response.text();
@@ -2404,6 +2535,13 @@ logsFullscreenBtn?.addEventListener("click", () => {
 clearLogsBtn?.addEventListener("click", clearLogs);
 orderCancelBtn?.addEventListener("click", () => {
   window.location.href = "/";
+});
+orderInstances?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-order-instance-delete]");
+  if (!button) return;
+  deleteOrderInstance(Number(button.dataset.orderInstanceDelete)).catch(() => {
+    setOrderStatus("Delete request failed", "error");
+  });
 });
 
 document.addEventListener("keydown", (event) => {
