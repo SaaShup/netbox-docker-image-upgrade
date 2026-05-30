@@ -5,11 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Order Saashup Instance</title>
   <link rel="icon" href="saashup_logo.svg">
+  <script src="js/theme.js"></script>
   <link rel="stylesheet" href="css/style.css">
 </head>
 
 <body class="order-page">
   <main class="main">
+    <button type="button" class="theme-toggle order-theme" data-theme-toggle aria-label="Toggle theme" title="Toggle theme">☾</button>
     <div class="auth-user order-auth hidden" id="authUser">
       <div class="auth-avatar" id="authAvatar" aria-hidden="true">?</div>
       <div class="auth-copy">
@@ -90,6 +92,7 @@
         <input type="url" id="proxy" name="proxy">
         <input type="text" id="domain" name="domain">
         <input type="text" id="tag" name="tag">
+        <input type="number" id="max_instances" name="max_instances" min="0" max="10" value="1">
         <input type="text" id="oldversion" name="oldversion" list="oldVersionOptions">
         <datalist id="oldVersionOptions"></datalist>
         <input type="text" id="restart_version" name="restart_version" list="restartVersionOptions">
