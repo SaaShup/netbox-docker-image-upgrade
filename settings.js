@@ -1,5 +1,12 @@
+const fs = require("fs");
+const path = require("path");
 const data = require("./package.json")
 const proxyEnv = {};
+const adminAllowedEmails = String(process.env.ADMIN_ALLOWED_EMAILS || "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+const forbiddenPage = fs.readFileSync(path.join(__dirname, "public", "forbidden.html"), "utf8");
 
 function firstHeader(req, names) {
     for (const name of names) {
@@ -40,12 +47,36 @@ function authUserFromRequest(req) {
     return { user: devUser, email: "", name: devUser };
 }
 
+function isAdminRequest(req) {
+    const requestPath = String(req.originalUrl || req.url || "").split("?")[0].replace(/\/+$/, "") || "/";
+
+    return requestPath === "/admin" || requestPath === "/admin.html" || requestPath.startsWith("/nodered");
+}
+
+function isAdminAllowed(req) {
+    if (!adminAllowedEmails.length) return true;
+
+    const { email } = authUserFromRequest(req);
+    return Boolean(email && adminAllowedEmails.includes(String(email).toLowerCase()));
+}
+
+function denyAdmin(res) {
+    res.statusCode = 403;
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.end(forbiddenPage);
+}
+
 function authUserMiddleware(req, res, next) {
     const requestPath = String(req.url || "").split("?")[0];
 
     if (requestPath === "/auth/user") {
         res.setHeader("Content-Type", "application/json");
         res.end(JSON.stringify(authUserFromRequest(req)));
+        return;
+    }
+
+    if (isAdminRequest(req) && !isAdminAllowed(req)) {
+        denyAdmin(res);
         return;
     }
 
@@ -70,6 +101,7 @@ module.exports = {
         { path: 'public', root: '/', middleware: authUserMiddleware },
     ],
     httpAdminRoot: '/nodered',
+    httpAdminMiddleware: authUserMiddleware,
     httpNodeRoot: "/",
     httpNodeMiddleware: authUserMiddleware,
     diagnostics: {
