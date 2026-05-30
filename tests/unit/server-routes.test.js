@@ -2,6 +2,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const supertest = require("supertest");
+const packageJson = require("../../package.json");
 
 function jsonResponse(payload, status = 200) {
   return {
@@ -185,7 +186,7 @@ describe("server routes", () => {
     const { request } = await loadServer({ adminEmails: "allowed@example.com" });
 
     await request.get("/version").expect(200).expect((res) => {
-      expect(res.body).toMatchObject({ name: "netbox-docker-image-upgrade", version: "1.0.0" });
+      expect(res.body).toMatchObject({ name: packageJson.name, version: packageJson.version });
     });
     await request.get("/session/user").set("x-auth-request-email", "allowed@example.com").expect(200).expect((res) => {
       expect(res.body.email).toBe("allowed@example.com");
