@@ -14,6 +14,7 @@ function jsonResponse(payload, status = 200) {
 async function loadServer({
   adminEmails = "",
   configureDelayMs = "0",
+  dockerhubSecret = "",
   oidc = false,
   operationTimeoutSeconds = "1",
   recreateDelayMs = "0",
@@ -26,6 +27,8 @@ async function loadServer({
   process.env.OPERATION_POLL_MS = "10";
   process.env.CREATE_CONFIGURE_DELAY_MS = configureDelayMs;
   process.env.CREATE_RECREATE_DELAY_MS = recreateDelayMs;
+  if (dockerhubSecret) process.env.DOCKERHUB_WEBHOOK_SECRET = dockerhubSecret;
+  else delete process.env.DOCKERHUB_WEBHOOK_SECRET;
   if (adminEmails) process.env.ADMIN_ALLOWED_EMAILS = adminEmails;
   else delete process.env.ADMIN_ALLOWED_EMAILS;
   if (oidc) {
@@ -231,6 +234,7 @@ describe("server routes", () => {
     delete process.env.OPERATION_POLL_MS;
     delete process.env.CREATE_CONFIGURE_DELAY_MS;
     delete process.env.CREATE_RECREATE_DELAY_MS;
+    delete process.env.DOCKERHUB_WEBHOOK_SECRET;
     delete process.env.LOCAL_DEV_EMAIL;
     delete process.env.OIDC_ISSUER_URL;
     delete process.env.OIDC_CLIENT_ID;
@@ -714,6 +718,88 @@ describe("server routes", () => {
       });
   });
 
+  test("dockerhub webhook requires and uses the profile path", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock);
+    writeState(dataPath, {
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        profile: "curioocity-tile",
+        profiles: {
+          "curioocity-guide": { tag: "guide" },
+          "curioocity-tile": { tag: "tile" },
+        },
+      },
+      templates: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.post("/dockerhub").send({ push_data: { tag: "v2.0.0" }, repository: { repo_name: "saashup/tile" } }).expect(404);
+    await request.post("/dockerhub/curioocity-guide").send({ push_data: { tag: "v2.0.0" }, repository: { repo_name: "saashup/tile" } }).expect(202);
+
+    await vi.waitFor(() => {
+      const imageCalls = fetchMock.mock.calls
+        .map(([url]) => new URL(String(url)))
+        .filter((url) => url.pathname === "/api/plugins/docker/images/" && url.searchParams.get("version") === "v2.0.0");
+      expect(imageCalls.some((url) => url.searchParams.get("host_id") === "2")).toBe(true);
+    });
+  });
+
+  test("dockerhub webhook stays public when OIDC is enabled", async () => {
+    const { dataPath, fetchMock, request } = await loadServer({ oidc: true });
+    setupNetBoxFetch(fetchMock);
+    writeState(dataPath, {
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        profiles: {
+          prod: { tag: "tile" },
+        },
+      },
+      templates: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.get("/admin").expect(302).expect((res) => {
+      expect(res.headers.location).toContain("/login?rd=%2Fadmin");
+    });
+    await request.post("/dockerhub/prod")
+      .send({ push_data: { tag: "v2.0.0" }, repository: { repo_name: "saashup/tile" } })
+      .expect(202)
+      .expect((res) => {
+        expect(res.body.status).toBe("accepted");
+      });
+  });
+
+  test("dockerhub webhook can require a shared secret", async () => {
+    const { dataPath, request } = await loadServer({ dockerhubSecret: "hook-secret" });
+    writeState(dataPath, {
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        profiles: {
+          prod: { tag: "tile" },
+        },
+      },
+      templates: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    const body = { push_data: { tag: "latest" }, repository: { repo_name: "saashup/tile" } };
+    await request.post("/dockerhub/prod").send(body).expect(403);
+    await request.post("/dockerhub/prod/bad-secret").send(body).expect(403);
+    await request.post("/dockerhub/prod/hook-secret").send(body).expect(202);
+    await request.post("/dockerhub/prod").query({ secret: "hook-secret" }).send(body).expect(202);
+    await request.post("/dockerhub/prod").set("x-saashup-webhook-secret", "hook-secret").send(body).expect(202);
+  });
+
   test("accepts write operations and records logs", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock);
@@ -856,8 +942,9 @@ describe("server routes", () => {
     await request.post("/refresh-hosts").send({}).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("REFRESH_HOST : finished"));
 
-    await request.post("/dockerhub").send({ push_data: { tag: "latest" }, repository: { repo_name: "saashup/tile" } }).expect(202);
-    await request.post("/dockerhub").send({ push_data: { tag: "v2.0.0" }, repository: { repo_name: "saashup/tile" } }).expect(202);
+    await request.post("/dockerhub").send({ push_data: { tag: "v2.0.0" }, repository: { repo_name: "saashup/tile" } }).expect(404);
+    await request.post("/dockerhub/prod").send({ push_data: { tag: "latest" }, repository: { repo_name: "saashup/tile" } }).expect(202);
+    await request.post("/dockerhub/prod").send({ push_data: { tag: "v2.0.0" }, repository: { repo_name: "saashup/tile" } }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("v2.0.0"));
   });
 
@@ -890,7 +977,7 @@ describe("server routes", () => {
       (url, options) => url.pathname === "/api/plugins/docker/images/" && (options.method || "GET") === "GET" && url.searchParams.get("version") === "v9.0.0",
       new Error("dockerhub exploded"),
     );
-    await request.post("/dockerhub").send({ push_data: { tag: "v9.0.0" }, repository: { repo_name: "saashup/tile" } }).expect(202);
+    await request.post("/dockerhub/prod").send({ push_data: { tag: "v9.0.0" }, repository: { repo_name: "saashup/tile" } }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DOCKERHUB : failed"));
 
     rejectNextMatchingNetBoxFetch(

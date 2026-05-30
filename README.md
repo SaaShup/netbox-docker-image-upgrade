@@ -44,6 +44,23 @@ Each config also has a `Max instances` value from 0 to 10, defaulting to 1. Orde
 
 Use the Config page export/import buttons to move saved config profiles, create templates and order counters from one container to another. Export downloads a JSON file, and import replaces those persisted values in the target container.
 
+# Docker Hub webhooks
+
+Docker Hub webhooks must target a config profile explicitly:
+
+```
+https://your-domain.example/dockerhub/<config-profile>
+```
+
+For example, `/dockerhub/curioocity-guide` uses the `curioocity-guide` config profile and only processes Docker hosts matching that profile's host tag. The profile-less `/dockerhub` endpoint is not enabled.
+
+Set `DOCKERHUB_WEBHOOK_SECRET` to require a shared secret. Docker Hub can include it in the webhook URL:
+
+```
+https://your-domain.example/dockerhub/<config-profile>/<secret>
+https://your-domain.example/dockerhub/<config-profile>?secret=<secret>
+```
+
 # Refresh hosts
 
 The Refresh hosts menu entry uses the selected config, lists Docker hosts from NetBox, and requests a refresh operation for each host one by one. Each host is polled until its operation is back to `none`; `OPERATION_TIMEOUT_SECONDS` controls the timeout and defaults to 30 seconds.
