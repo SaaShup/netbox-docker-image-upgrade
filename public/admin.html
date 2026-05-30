@@ -21,12 +21,34 @@
       </a>
 
       <nav class="nav">
-        <a href="#" class="menu nav-item active" data-action="config" id="menu_config">Config</a>
-        <a href="#" class="menu nav-item" data-action="create" id="menu_create">Create</a>
-        <a href="#" class="menu nav-item" data-action="recreate" id="menu_recreate">Upgrade</a>
-        <a href="#" class="menu nav-item" data-action="restart" id="menu_restart">Restart</a>
-        <a href="#" class="menu nav-item danger" data-action="delete" id="menu_delete">Delete</a>
-        <a href="#" class="menu nav-item danger" data-action="refresh_hosts" id="menu_refresh_hosts">Refresh</a>
+        <a href="#" class="menu nav-item active" data-action="config" id="menu_config">
+          <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M4.6 7.5l2.6 1.5M16.8 15l2.6 1.5M4.6 16.5 7.2 15M16.8 9l2.6-1.5"></path><circle cx="12" cy="12" r="4"></circle></svg></span>
+          <span>Config</span>
+        </a>
+        <a href="#" class="menu nav-item" data-action="create" id="menu_create">
+          <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg></span>
+          <span>Create</span>
+        </a>
+        <a href="#" class="menu nav-item" data-action="recreate" id="menu_recreate">
+          <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6v5h-5"></path><path d="M4 18v-5h5"></path><path d="M19 11a7 7 0 0 0-11.7-5.1"></path><path d="M5 13a7 7 0 0 0 11.7 5.1"></path></svg></span>
+          <span>Upgrade</span>
+        </a>
+        <a href="#" class="menu nav-item" data-action="restart" id="menu_restart">
+          <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path></svg></span>
+          <span>Operate</span>
+        </a>
+        <a href="#" class="menu nav-item danger" data-action="delete" id="menu_delete">
+          <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h16"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M6 7l1 14h10l1-14"></path><path d="M9 7V4h6v3"></path></svg></span>
+          <span>Delete</span>
+        </a>
+        <a href="#" class="menu nav-item danger" data-action="refresh_hosts" id="menu_refresh_hosts">
+          <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.9-3"></path><path d="M4 5v5h5"></path><path d="M4 13a8 8 0 0 0 14.9 3"></path><path d="M20 19v-5h-5"></path></svg></span>
+          <span>Refresh</span>
+        </a>
+        <a href="#" class="menu nav-item" data-action="report" id="menu_report">
+          <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19V5"></path><path d="M4 19h16"></path><path d="M8 16v-5"></path><path d="M12 16V8"></path><path d="M16 16v-3"></path></svg></span>
+          <span>Report</span>
+        </a>
       </nav>
     </aside>
 
@@ -81,6 +103,16 @@
                 <select id="config_profile" name="config_profile"></select>
               </label>
 
+              <label class="field" data-field="operate_action">
+                <span>Action</span>
+                <select id="operate_action" name="operate_action">
+                  <option value="start">Start</option>
+                  <option value="stop">Stop</option>
+                  <option value="restart" selected>Restart</option>
+                  <option value="kill">Kill</option>
+                </select>
+              </label>
+
               <label class="field" data-field="config_name">
                 <span>Profile name</span>
                 <input type="text" id="config_name" name="config_name" placeholder="production">
@@ -129,6 +161,11 @@
                 </div>
                 <datalist id="instanceOptions"></datalist>
               </label>
+
+              <div class="field operate-instance-action" data-field="operate_instance_action">
+                <span aria-hidden="true">&nbsp;</span>
+                <button type="submit" class="btn btn-primary hidden" id="restartInstanceBtn" name="restart_mode" value="instance">Operate instance</button>
+              </div>
 
               <label class="field" data-field="image">
                 <span>Image name</span>
@@ -209,10 +246,47 @@
             </div>
 
             <div class="form-actions">
-              <button type="submit" class="btn btn-primary hidden" id="restartInstanceBtn" name="restart_mode" value="instance">Restart instance</button>
               <button type="submit" class="btn btn-primary" id="submitBtn">Save config</button>
             </div>
           </form>
+        </div>
+
+        <div class="card report-card hidden" id="reportCard">
+          <div class="card-header">
+            <div class="card-title-row">
+              <div>
+                <h3>Image report</h3>
+                <p>Container usage by image for one config or all configs.</p>
+              </div>
+              <button type="button" class="btn btn-primary" id="refreshReportBtn">Refresh report</button>
+            </div>
+          </div>
+
+          <div class="report-toolbar">
+            <label class="field">
+              <span>Config</span>
+              <select id="reportProfileSelect" aria-label="Report config"></select>
+            </label>
+            <div class="report-summary" id="reportSummary">No report loaded</div>
+          </div>
+
+          <div class="report-table-wrap">
+            <table class="report-table">
+              <thead>
+                <tr>
+                  <th>Config</th>
+                  <th>Image</th>
+                  <th>Version</th>
+                  <th>Containers</th>
+                </tr>
+              </thead>
+              <tbody id="reportTableBody">
+                <tr>
+                  <td colspan="4">Select a config and refresh the report.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <aside class="card logs-card" id="logsCard">

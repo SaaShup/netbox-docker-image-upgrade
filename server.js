@@ -288,6 +288,100 @@ app.get("/containers-count", async (req, res) => {
   }
 });
 
+function reportProfiles(source) {
+  const state = readState();
+  const config = plainObject(state.config);
+  const profiles = parseProfiles(config.profiles);
+  const requested = source.profile || source.config_profile || "";
+  const profileConfig = (name) => ({
+    ...config,
+    ...plainObject(profiles[name]),
+    ...plainObject(source),
+    profile: name,
+    config_profile: name,
+  });
+
+  if (requested && requested !== "all") {
+    return [{ name: requested, config: profileConfig(requested) }];
+  }
+
+  const names = Object.keys(profiles).sort((a, b) => a.localeCompare(b));
+  if (requested === "all" && names.length) {
+    return names.map((name) => ({ name, config: profileConfig(name) }));
+  }
+
+  const selected = config.profile || config.config_profile || names[0] || "";
+  if (selected) {
+    return [{ name: selected, config: profileConfig(selected) }];
+  }
+
+  return [{ name: "", config: selectedProfileConfig(source) }];
+}
+
+async function imageReportForProfile(name, config) {
+  if (!config.netbox || !config.token) return { hosts: 0, rows: [] };
+
+  const client = new NetBoxClient(config);
+  const hosts = await dockerHosts(client, config.tag);
+  if (!hosts.length) return { hosts: 0, rows: [] };
+
+  const images = await client.list("/api/plugins/docker/images/", { limit: 1000, host_id: hosts.map((host) => host.id) });
+  const groups = new Map();
+
+  for (const image of images) {
+    const imageName = imageNameFromRef(image.name || image.display || "");
+    const version = valueText(image.version || image.tag);
+    if (!imageName || !version || !image.id) continue;
+
+    const key = `${imageName}\u0000${version}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        profile: name,
+        image: imageName,
+        version,
+        image_ids: [],
+        containers: 0,
+      });
+    }
+    groups.get(key).image_ids.push(image.id);
+  }
+
+  for (const row of groups.values()) {
+    const containers = await client.list("/api/plugins/docker/containers/", { limit: 1000, image_id: row.image_ids });
+    row.containers = containers.length;
+  }
+
+  const rows = Array.from(groups.values())
+    .map(({ image_ids, ...row }) => row)
+    .sort((left, right) => left.profile.localeCompare(right.profile) || left.image.localeCompare(right.image) || left.version.localeCompare(right.version, undefined, { numeric: true, sensitivity: "base" }));
+
+  return { hosts: hosts.length, rows };
+}
+
+app.get("/report/images", requireAdmin, async (req, res) => {
+  try {
+    const profiles = reportProfiles(req.query);
+    const results = [];
+    let totalHosts = 0;
+
+    for (const item of profiles) {
+      const report = await imageReportForProfile(item.name, item.config);
+      totalHosts += report.hosts;
+      results.push(...report.rows);
+    }
+
+    res.json({
+      profile: req.query.profile || req.query.config_profile || "",
+      rows: results,
+      total_hosts: totalHosts,
+      total_images: results.length,
+      total_containers: results.reduce((total, row) => total + Number(row.containers || 0), 0),
+    });
+  } catch (error) {
+    res.status(error.statusCode || 502).json({ detail: error.message, payload: error.payload });
+  }
+});
+
 app.get("/order/limit", (req, res) => res.json(currentUsage(req, req.query.profile || "")));
 
 app.post("/create", async (req, res) => {
@@ -355,9 +449,11 @@ app.post("/recreate", (req, res) => {
 app.post("/restart", (req, res) => {
   const data = { ...selectedProfileConfig(req.body), ...req.body };
   asyncOperation(res, async () => {
+    const operation = ["start", "stop", "restart", "kill"].includes(data.operate_action) ? data.operate_action : "restart";
+    const logPrefix = operation.toUpperCase();
     const client = new NetBoxClient(data);
     const hostFilter = await hostIdQuery(client, data.tag);
-    if (hostFilter.host_id === "__none__") return logLine(`RESTART : no Docker hosts found with tag ${data.tag}`);
+    if (hostFilter.host_id === "__none__") return logLine(`${logPrefix} : no Docker hosts found with tag ${data.tag}`);
     let containers = [];
     if (data.restart_mode === "instance") {
       containers = await client.list("/api/plugins/docker/containers/", { name: instanceShort(data.instance), ...hostFilter });
@@ -365,8 +461,8 @@ app.post("/restart", (req, res) => {
       const images = await client.list("/api/plugins/docker/images/", { name: data.image, version: data.restart_version, limit: 200, ...hostFilter });
       for (const image of images) containers.push(...await client.list("/api/plugins/docker/containers/", { image_id: image.id, limit: 200 }));
     }
-    for (const container of containers) await requestContainerOperation(client, container, "restart", "RESTART");
-    logLine("RESTART : finished restart loop");
+    for (const container of containers) await requestContainerOperation(client, container, operation, logPrefix);
+    logLine(`${logPrefix} : finished ${operation} loop`);
   });
 });
 

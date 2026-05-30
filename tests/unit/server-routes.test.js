@@ -311,6 +311,17 @@ describe("server routes", () => {
     await request.get("/containers-count").query({ image: "saashup/missing", version: "v2.0.0" }).expect(200).expect((res) => {
       expect(res.body.count).toBe(0);
     });
+    await request.get("/report/images").query({ profile: "all" }).expect(200).expect((res) => {
+      expect(res.body.rows).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          image: "saashup/tile",
+          version: "v1.0.0",
+          containers: 1,
+        }),
+      ]));
+      expect(res.body.total_hosts).toBe(1);
+      expect(res.body.total_containers).toBeGreaterThanOrEqual(1);
+    });
   });
 
   test("returns NetBox read errors and empty-list fallbacks", async () => {
@@ -490,12 +501,17 @@ describe("server routes", () => {
     await request.post("/restart").send({ restart_mode: "instance", instance: "tiles.example.com" }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("RESTART : finished"));
 
+    await request.post("/restart").send({ restart_mode: "instance", operate_action: "stop", instance: "tiles.example.com" }).expect(202);
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("STOP : finished stop loop"));
+
     await request.post("/restart").send({ restart_mode: "image", image: "saashup/tile", restart_version: "v1.0.0" }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("RESTART : finished restart loop"));
 
+    const stopPatchCountBeforeDelete = fetchMock.mock.calls.filter(([url, options]) => String(url).endsWith("/api/plugins/docker/containers/") && options?.method === "PATCH" && JSON.parse(options.body).some((item) => item.operation === "stop")).length;
     await request.post("/delete").send({ instance: "tiles.example.com" }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : container tiles deleted"));
-    expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/docker/containers/") && options?.method === "PATCH" && JSON.parse(options.body).some((item) => item.operation === "stop"))).toBe(false);
+    const stopPatchCountAfterDelete = fetchMock.mock.calls.filter(([url, options]) => String(url).endsWith("/api/plugins/docker/containers/") && options?.method === "PATCH" && JSON.parse(options.body).some((item) => item.operation === "stop")).length;
+    expect(stopPatchCountAfterDelete).toBe(stopPatchCountBeforeDelete);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : Cloudflare DNS record delete requested for tiles.example.com"));
     expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/cloudflare/dns/records/61/") && options?.method === "DELETE")).toBe(true);
 
@@ -521,7 +537,7 @@ describe("server routes", () => {
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("timeout after 0s"));
 
     await request.post("/refresh-hosts").send({}).expect(202);
-    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("moving to next host"));
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("REFRESH_HOST : finished host refresh loop"));
 
     fetchMock.mockRejectedValueOnce(Object.assign(new Error("network down"), { payload: { reason: "offline" } }));
     await request.post("/restart").send({ restart_mode: "instance", instance: "tiles.example.com", tag: "" }).expect(202);
