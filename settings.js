@@ -12,7 +12,6 @@ const metrics = {
     httpRequests: {
         "/": 0,
         "/admin": 0,
-        "/auth/user": 0,
         "/config": 0,
         "/create": 0,
         "/delete": 0,
@@ -22,6 +21,7 @@ const metrics = {
         "/recreate": 0,
         "/refresh-hosts": 0,
         "/restart": 0,
+        "/session/user": 0,
         "/version": 0,
         "/webhook": 0,
         other: 0,
@@ -62,7 +62,6 @@ function routeLabel(req) {
 
     if (requestPath === "/") return "/";
     if (requestPath === "/admin" || requestPath === "/admin.html") return "/admin";
-    if (requestPath === "/auth/user") return "/auth/user";
     if (requestPath === "/config") return "/config";
     if (requestPath === "/create") return "/create";
     if (requestPath === "/delete") return "/delete";
@@ -72,6 +71,7 @@ function routeLabel(req) {
     if (requestPath === "/recreate") return "/recreate";
     if (requestPath === "/refresh-hosts") return "/refresh-hosts";
     if (requestPath === "/restart") return "/restart";
+    if (requestPath === "/session/user") return "/session/user";
     if (requestPath === "/version") return "/version";
     if (requestPath === "/webhook") return "/webhook";
 
@@ -240,7 +240,7 @@ function authUserMiddleware(req, res, next) {
         return;
     }
 
-    if (requestPath === "/auth/user") {
+    if (requestPath === "/session/user") {
         res.setHeader("Content-Type", "application/json");
         res.end(JSON.stringify(authUserFromRequest(req)));
         return;

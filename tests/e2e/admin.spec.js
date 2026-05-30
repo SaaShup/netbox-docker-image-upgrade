@@ -155,7 +155,7 @@ test("config tab starts without a forced default profile", async ({ page }) => {
 });
 
 test("admin header shows oauth user and logs out through oauth2 proxy", async ({ page }) => {
-  await page.route("**/auth/user", async (route) => {
+  await page.route("**/session/user", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -1019,7 +1019,7 @@ test("order page shows oauth user and logs out through oauth2 proxy", async ({ p
     resolveAuth = resolve;
   });
 
-  await page.route("**/auth/user", async (route) => {
+  await page.route("**/session/user", async (route) => {
     await authReady;
     await route.fulfill({
       status: 200,
