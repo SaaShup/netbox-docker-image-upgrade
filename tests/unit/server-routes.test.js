@@ -169,6 +169,18 @@ function setupNetBoxFetch(fetchMock, {
   });
 }
 
+function rejectNextMatchingNetBoxFetch(fetchMock, predicate, error) {
+  const previousImplementation = fetchMock.getMockImplementation();
+  let rejected = false;
+  fetchMock.mockImplementation(async (url, options = {}) => {
+    if (!rejected && predicate(new URL(String(url)), options)) {
+      rejected = true;
+      throw error;
+    }
+    return previousImplementation(url, options);
+  });
+}
+
 describe("server routes", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -539,15 +551,27 @@ describe("server routes", () => {
     await request.post("/refresh-hosts").send({}).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("REFRESH_HOST : finished host refresh loop"));
 
-    fetchMock.mockRejectedValueOnce(Object.assign(new Error("network down"), { payload: { reason: "offline" } }));
+    rejectNextMatchingNetBoxFetch(
+      fetchMock,
+      (url, options) => url.pathname === "/api/plugins/docker/containers/" && (options.method || "GET") === "GET" && url.searchParams.get("name") === "tiles",
+      Object.assign(new Error("network down"), { payload: { reason: "offline" } }),
+    );
     await request.post("/restart").send({ restart_mode: "instance", instance: "tiles.example.com", tag: "" }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("ERROR : network down"));
 
-    fetchMock.mockRejectedValueOnce(new Error("dockerhub exploded"));
+    rejectNextMatchingNetBoxFetch(
+      fetchMock,
+      (url, options) => url.pathname === "/api/plugins/docker/images/" && (options.method || "GET") === "GET" && url.searchParams.get("version") === "v9.0.0",
+      new Error("dockerhub exploded"),
+    );
     await request.post("/dockerhub").send({ push_data: { tag: "v9.0.0" }, repository: { repo_name: "saashup/tile" } }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DOCKERHUB : failed"));
 
-    fetchMock.mockRejectedValueOnce({ payload: { reason: "empty message" } });
+    rejectNextMatchingNetBoxFetch(
+      fetchMock,
+      (url, options) => url.pathname === "/api/plugins/docker/containers/" && (options.method || "GET") === "GET" && url.searchParams.get("name") === "tiles",
+      { payload: { reason: "empty message" } },
+    );
     await request.post("/restart").send({ restart_mode: "instance", instance: "tiles.example.com", tag: "" }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("ERROR : operation failed"));
   });
