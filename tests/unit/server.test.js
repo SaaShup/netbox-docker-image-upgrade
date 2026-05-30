@@ -346,11 +346,13 @@ describe("server helpers", () => {
     const stopped = helpers.waitForContainerStopped(timeoutClient, 9, "host/pending");
     const hostReady = helpers.waitForHostReady(timeoutClient, 9, "host");
     const operationReady = helpers.requestContainerOperation(timeoutClient, { id: 9, host: { name: "host" }, name: "pending" }, "restart", "RESTART");
+    const stopOperation = helpers.requestContainerOperation(timeoutClient, { id: 9, host: { name: "host" }, name: "pending" }, "stop", "STOP");
     await vi.advanceTimersByTimeAsync(20);
     await expect(configured).resolves.toBe(false);
     await expect(stopped).resolves.toBe(false);
     await expect(hostReady).resolves.toBe(false);
     await expect(operationReady).resolves.toBeUndefined();
+    await expect(stopOperation).resolves.toBeUndefined();
 
     const createImageClient = {
       list: vi.fn(async () => []),
@@ -372,6 +374,7 @@ describe("server helpers", () => {
     expect(logs.join("\n")).toContain("ready status=running");
     expect(logs.join("\n")).toContain("still has state=none");
     expect(logs.join("\n")).toContain("stop timeout");
+    expect(logs.join("\n")).toContain("STOP : host/pending timeout");
     expect(logs.join("\n")).toContain("Cloudflare DNS record failed");
     expect(logs.join("\n")).toContain("Cloudflare DNS record delete failed");
     vi.useRealTimers();

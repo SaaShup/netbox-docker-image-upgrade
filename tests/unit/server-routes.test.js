@@ -54,6 +54,8 @@ function setupNetBoxFetch(fetchMock, {
   deleteContainerRunning = false,
   emptyContainersForName = "",
   emptyImagesForName = "",
+  invalidReportImages = false,
+  multipleReportImages = false,
   omitContainerDisplay = false,
   omitContainerName = false,
   recreateContainerName = "tiles",
@@ -94,6 +96,25 @@ function setupNetBoxFetch(fetchMock, {
 
     if (pathname === "/api/plugins/docker/images/" && method === "GET") {
       if (parsed.searchParams.get("name") === emptyImagesForName) return jsonResponse({ results: [] });
+      if (invalidReportImages && parsed.searchParams.get("limit") === "1000") {
+        return jsonResponse({
+          results: [
+            { id: 0, name: "", version: "" },
+            { id: 10, name: "saashup/tile", version: "v1.0.0", host: { id: 1, display: "host-a" } },
+          ],
+        });
+      }
+      if (multipleReportImages && parsed.searchParams.get("limit") === "1000") {
+        const hostId = Number(parsed.searchParams.getAll("host_id")[0] || 1);
+        return jsonResponse({
+          results: [
+            { id: 10, name: "saashup/tile", version: "v1.0.0", host: { id: hostId, display: "host-a" } },
+            { id: 14, name: "saashup/tile", version: "v1.0.0", host: { id: hostId, display: "host-a" } },
+            { id: 13, name: "saashup/tile", version: "v10.0.0", host: { id: hostId, display: "host-a" } },
+            { id: 12, name: "saashup/zeta", version: "v2.0.0", host: { id: hostId, display: "host-a" } },
+          ],
+        });
+      }
       const version = parsed.searchParams.get("version");
       const hostId = parsed.searchParams.get("host_id");
       if (version === "v2.0.0") return jsonResponse({ results: [{ id: 20, name: "saashup/tile", version, host: { id: Number(hostId || 1) } }] });
@@ -334,6 +355,83 @@ describe("server routes", () => {
       expect(res.body.total_hosts).toBe(1);
       expect(res.body.total_containers).toBeGreaterThanOrEqual(1);
     });
+
+    writeState(dataPath, {
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        tag: "tile",
+        profile: "prod",
+        config_profile: "prod",
+        profiles: {
+          dev: { tag: "guide" },
+          prod: { tag: "tile" },
+        },
+      },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+    setupNetBoxFetch(fetchMock, { multipleReportImages: true });
+    await request.get("/report/images").query({ profile: "prod" }).expect(200).expect((res) => {
+      expect(res.body.profile).toBe("prod");
+      expect(res.body.total_hosts).toBe(1);
+    });
+    await request.get("/report/images").query({ profile: "all" }).expect(200).expect((res) => {
+      expect(res.body.profile).toBe("all");
+      expect(res.body.total_hosts).toBe(2);
+      expect(res.body.rows.map((row) => `${row.profile}:${row.image}`)).toEqual([
+        "dev:saashup/tile",
+        "dev:saashup/tile",
+        "dev:saashup/zeta",
+        "prod:saashup/tile",
+        "prod:saashup/tile",
+        "prod:saashup/zeta",
+      ]);
+      expect(res.body.rows.map((row) => row.version)).toEqual([
+        "v1.0.0",
+        "v10.0.0",
+        "v2.0.0",
+        "v1.0.0",
+        "v10.0.0",
+        "v2.0.0",
+      ]);
+    });
+    await request.get("/report/images").expect(200).expect((res) => {
+      expect(res.body.rows[0].profile).toBe("prod");
+    });
+
+    writeState(dataPath, {
+      config: {},
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+    await request.get("/report/images").expect(200).expect((res) => {
+      expect(res.body).toMatchObject({ rows: [], total_hosts: 0, total_images: 0, total_containers: 0 });
+    });
+
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "absent" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+    await request.get("/report/images").expect(200).expect((res) => {
+      expect(res.body).toMatchObject({ rows: [], total_hosts: 0 });
+    });
+
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+    setupNetBoxFetch(fetchMock, { invalidReportImages: true });
+    await request.get("/report/images").expect(200).expect((res) => {
+      expect(res.body.rows).toHaveLength(1);
+      expect(res.body.rows[0].image).toBe("saashup/tile");
+    });
   });
 
   test("returns NetBox read errors and empty-list fallbacks", async () => {
@@ -384,6 +482,12 @@ describe("server routes", () => {
     fetchMock.mockRejectedValueOnce(new Error("count failed"));
     await request.get("/containers-count").query({ tag: "" }).expect(502).expect((res) => {
       expect(res.body.detail).toBe("count failed");
+    });
+
+    fetchMock.mockRejectedValueOnce(Object.assign(new Error("report failed"), { statusCode: 503, payload: { detail: "down" } }));
+    await request.get("/report/images").query({ tag: "" }).expect(503).expect((res) => {
+      expect(res.body.detail).toBe("report failed");
+      expect(res.body.payload.detail).toBe("down");
     });
 
     fetchMock.mockRejectedValueOnce(new Error("test failed"));
