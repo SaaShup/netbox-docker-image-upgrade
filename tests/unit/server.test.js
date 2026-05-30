@@ -34,10 +34,52 @@ const {
 } = require("../../lib/docker");
 const { createMetrics } = require("../../lib/metrics");
 const { NetBoxClient, dockerHosts, hostIdQuery, setNetBoxFetchForTests } = require("../../lib/netbox");
+const { cookie, createOidcAuth, parseCookies, setOidcFetchForTests, userFromClaims } = require("../../lib/oidc");
 const { createOperationHelpers } = require("../../lib/operations");
 const { createStateStore, defaultState, readJson, writeJson } = require("../../lib/state");
 
+function jsonResponse(payload, status = 200) {
+  return {
+    status,
+    text: async () => JSON.stringify(payload),
+  };
+}
+
 describe("server helpers", () => {
+  function mockResponse() {
+    const headers = {};
+    return {
+      body: undefined,
+      headers,
+      redirectUrl: "",
+      statusCode: 200,
+      getHeader: (name) => headers[name.toLowerCase()],
+      setHeader: (name, value) => {
+        headers[name.toLowerCase()] = value;
+      },
+      json(payload) {
+        this.body = payload;
+        return this;
+      },
+      redirect(url) {
+        this.redirectUrl = url;
+        return this;
+      },
+      send(payload) {
+        this.body = payload;
+        return this;
+      },
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+    };
+  }
+
+  function headerValues(value) {
+    return Array.isArray(value) ? value : [value];
+  }
+
   test("normalizes profile JSON safely", () => {
     expect(parseProfiles("")).toEqual({});
     expect(parseProfiles('{"prod":{"tag":"PROD"}}')).toEqual({ prod: { tag: "PROD" } });
@@ -176,7 +218,7 @@ describe("server helpers", () => {
     expect(isOperationDone({ operation: "null" })).toBe(true);
   });
 
-  test("reads oauth2-proxy auth headers with local development fallback", () => {
+  test("reads auth headers with local development fallback", () => {
     expect(authUserFromRequest({
       headers: {
         "x-auth-request-email": "user@example.com",
@@ -196,6 +238,226 @@ describe("server helpers", () => {
     if (oldLogname === undefined) delete process.env.LOGNAME;
     else process.env.LOGNAME = oldLogname;
     delete process.env.ENABLE_EDITOR;
+  });
+
+  test("oidc helper handles disabled, json, id-token, and error branches", async () => {
+    vi.useFakeTimers();
+    const disabled = createOidcAuth({ enabled: false });
+    const disabledRes = mockResponse();
+    await disabled.login({ query: { rd: "https://evil.example.com/path" } }, disabledRes);
+    expect(disabledRes.redirectUrl).toBe("/");
+    const disabledDefaultRes = mockResponse();
+    await disabled.login({ query: {} }, disabledDefaultRes);
+    expect(disabledDefaultRes.redirectUrl).toBe("/");
+
+    const auth = createOidcAuth({
+      clientId: "saashup",
+      clientSecret: "secret",
+      enabled: true,
+      issuerUrl: "https://id.example.com/realms/paashup/",
+      redirectUri: "http://app.example.com/oidc/callback",
+      secureCookies: false,
+      sessionSecret: "session-secret",
+    });
+
+    const jsonRes = mockResponse();
+    auth.loginRequired({ accepts: () => false, headers: {}, originalUrl: "/config" }, jsonRes, () => {});
+    expect(jsonRes.statusCode).toBe(401);
+    expect(jsonRes.body.login_url).toBe("/login?rd=%2Fconfig");
+    const jsonDefaultRes = mockResponse();
+    auth.loginRequired({ accepts: () => false, headers: {}, originalUrl: "" }, jsonDefaultRes, () => {});
+    expect(jsonDefaultRes.body.login_url).toBe("/login?rd=%2F");
+    const htmlRes = mockResponse();
+    auth.loginRequired({ accepts: () => true, headers: {}, originalUrl: "" }, htmlRes, () => {});
+    expect(htmlRes.redirectUrl).toBe("/login?rd=%2F");
+
+    const claims = { email: "id@example.com", preferred_username: "iduser" };
+    const idToken = `header.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.signature`;
+    setOidcFetchForTests(vi.fn(async (url, options = {}) => {
+      const pathname = new URL(String(url)).pathname;
+      if (pathname.endsWith("/.well-known/openid-configuration")) {
+        return jsonResponse({
+          authorization_endpoint: "https://id.example.com/auth",
+          token_endpoint: "https://id.example.com/token",
+        });
+      }
+      if (pathname === "/token") {
+        expect(options.method).toBe("POST");
+        return jsonResponse({ id_token: idToken });
+      }
+      return jsonResponse({}, 404);
+    }));
+
+    const loginRes = mockResponse();
+    await auth.login({ query: { rd: "/order" } }, loginRes);
+    const state = new URL(loginRes.redirectUrl).searchParams.get("state");
+    const stateCookie = headerValues(loginRes.headers["set-cookie"]).find((value) => value.startsWith("saashup_oidc_state=")).split(";")[0];
+    const callbackRes = mockResponse();
+    await auth.callback({ headers: { cookie: stateCookie }, query: { code: "abc", state } }, callbackRes, (error) => {
+      throw error;
+    });
+    expect(callbackRes.redirectUrl).toBe("/order");
+    const sessionCookie = headerValues(callbackRes.headers["set-cookie"]).find((value) => value.startsWith("saashup_session=")).split(";")[0];
+    expect(auth.sessionUser({ headers: { cookie: sessionCookie } })).toEqual({ email: "id@example.com", user: "iduser", name: "iduser" });
+    const logoutRes = mockResponse();
+    auth.logout({ headers: { cookie: sessionCookie }, query: { rd: "/signed-out" } }, logoutRes);
+    expect(logoutRes.redirectUrl).toBe("/signed-out");
+    expect(auth.sessionUser({ headers: { cookie: sessionCookie } })).toBeNull();
+    const logoutNoSessionRes = mockResponse();
+    logoutNoSessionRes.headers["set-cookie"] = ["existing=1"];
+    auth.logout({ headers: { cookie: "" }, query: { rd: "//evil.example.com" } }, logoutNoSessionRes);
+    expect(logoutNoSessionRes.redirectUrl).toBe("/");
+    expect(logoutNoSessionRes.headers["set-cookie"][0]).toBe("existing=1");
+
+    const loginAgainRes = mockResponse();
+    await auth.login({ query: { rd: "/order" } }, loginAgainRes);
+    const stateAgain = new URL(loginAgainRes.redirectUrl).searchParams.get("state");
+    const stateAgainCookie = headerValues(loginAgainRes.headers["set-cookie"]).find((value) => value.startsWith("saashup_oidc_state=")).split(";")[0];
+    const callbackAgainRes = mockResponse();
+    await auth.callback({ headers: { cookie: stateAgainCookie }, query: { code: "abc", state: stateAgain } }, callbackAgainRes, (error) => {
+      throw error;
+    });
+    const expiringSessionCookie = headerValues(callbackAgainRes.headers["set-cookie"]).find((value) => value.startsWith("saashup_session=")).split(";")[0];
+    vi.advanceTimersByTime(13 * 60 * 60 * 1000);
+    expect(auth.sessionUser({ headers: { cookie: expiringSessionCookie } })).toBeNull();
+
+    const next = vi.fn();
+    await auth.callback({ headers: { cookie: stateCookie }, query: { code: "abc", state } }, mockResponse(), next);
+    expect(next).not.toHaveBeenCalled();
+
+    const invalidRes = mockResponse();
+    await auth.callback({ headers: { cookie: "" }, query: {} }, invalidRes, () => {});
+    expect(invalidRes.statusCode).toBe(400);
+
+    expect(cookie("plain", "value", { httpOnly: false })).toBe("plain=value; Path=/; SameSite=Lax");
+    expect(cookie("secure", "value", { maxAge: 3, secure: true })).toContain("Secure");
+    expect(parseCookies("a=1; invalid; b=two")).toEqual({ a: "1", b: "two" });
+    expect(userFromClaims({ email: "email@example.com" })).toEqual({ email: "email@example.com", user: "email@example.com", name: "email@example.com" });
+    expect(userFromClaims({ username: "legacy" })).toEqual({ email: "", user: "legacy", name: "legacy" });
+    expect(userFromClaims({ name: "Full Name", email: "named@example.com" })).toEqual({ email: "named@example.com", user: "named@example.com", name: "Full Name" });
+    expect(userFromClaims({ sub: "subject" })).toEqual({ email: "", user: "subject", name: "subject" });
+    setOidcFetchForTests();
+    vi.useRealTimers();
+  });
+
+  test("oidc helper forwards token exchange and callback errors", async () => {
+    const auth = createOidcAuth({
+      clientId: "saashup",
+      clientSecret: "secret",
+      enabled: true,
+      issuerUrl: "https://id.example.com/realms/paashup",
+      redirectUri: "http://app.example.com/oidc/callback",
+      secureCookies: false,
+      sessionSecret: "session-secret",
+    });
+
+    setOidcFetchForTests(vi.fn(async (url) => {
+      const pathname = new URL(String(url)).pathname;
+      if (pathname.endsWith("/.well-known/openid-configuration")) {
+        return jsonResponse({
+          authorization_endpoint: "https://id.example.com/auth",
+          token_endpoint: "https://id.example.com/token",
+        });
+      }
+      if (pathname === "/token") return jsonResponse({ error_description: "bad code" }, 400);
+      return jsonResponse({}, 404);
+    }));
+
+    const loginRes = mockResponse();
+    await auth.login({ query: { rd: "/admin" } }, loginRes);
+    const state = new URL(loginRes.redirectUrl).searchParams.get("state");
+    const stateCookie = headerValues(loginRes.headers["set-cookie"]).find((value) => value.startsWith("saashup_oidc_state=")).split(";")[0];
+    const next = vi.fn();
+    await auth.callback({ headers: { cookie: stateCookie }, query: { code: "bad", state } }, mockResponse(), next);
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ message: "bad code", statusCode: 400 }));
+
+    const errorFallbackAuth = createOidcAuth({
+      clientId: "saashup",
+      clientSecret: "secret",
+      enabled: true,
+      issuerUrl: "https://id2.example.com/realms/paashup",
+      redirectUri: "http://app.example.com/oidc/callback",
+      secureCookies: false,
+      sessionSecret: "session-secret",
+    });
+    setOidcFetchForTests(vi.fn(async (url) => {
+      const pathname = new URL(String(url)).pathname;
+      if (pathname.endsWith("/.well-known/openid-configuration")) return jsonResponse({ authorization_endpoint: "https://id2.example.com/auth", token_endpoint: "https://id2.example.com/token" });
+      if (pathname === "/token") return jsonResponse({ error: "invalid_grant" }, 400);
+      return jsonResponse({}, 404);
+    }));
+    const fallbackLogin = mockResponse();
+    await errorFallbackAuth.login({ query: { rd: "/admin" } }, fallbackLogin);
+    const fallbackState = new URL(fallbackLogin.redirectUrl).searchParams.get("state");
+    const fallbackCookie = headerValues(fallbackLogin.headers["set-cookie"]).find((value) => value.startsWith("saashup_oidc_state=")).split(";")[0];
+    const fallbackNext = vi.fn();
+    await errorFallbackAuth.callback({ headers: { cookie: fallbackCookie }, query: { code: "bad", state: fallbackState } }, mockResponse(), fallbackNext);
+    expect(fallbackNext).toHaveBeenCalledWith(expect.objectContaining({ message: "invalid_grant", statusCode: 400 }));
+
+    const genericErrorAuth = createOidcAuth({
+      clientId: "saashup",
+      clientSecret: "secret",
+      enabled: true,
+      issuerUrl: "https://id3.example.com/realms/paashup",
+      redirectUri: "http://app.example.com/oidc/callback",
+      secureCookies: false,
+      sessionSecret: "session-secret",
+    });
+    setOidcFetchForTests(vi.fn(async (url) => {
+      const pathname = new URL(String(url)).pathname;
+      if (pathname.endsWith("/.well-known/openid-configuration")) return jsonResponse({ authorization_endpoint: "https://id3.example.com/auth", token_endpoint: "https://id3.example.com/token" });
+      if (pathname === "/token") return jsonResponse({}, 500);
+      return jsonResponse({}, 404);
+    }));
+    const genericLogin = mockResponse();
+    await genericErrorAuth.login({ query: { rd: "/admin" } }, genericLogin);
+    const genericState = new URL(genericLogin.redirectUrl).searchParams.get("state");
+    const genericCookie = headerValues(genericLogin.headers["set-cookie"]).find((value) => value.startsWith("saashup_oidc_state=")).split(";")[0];
+    const genericNext = vi.fn();
+    await genericErrorAuth.callback({ headers: { cookie: genericCookie }, query: { code: "bad", state: genericState } }, mockResponse(), genericNext);
+    expect(genericNext).toHaveBeenCalledWith(expect.objectContaining({ message: "OIDC token exchange failed", statusCode: 500 }));
+
+    const emptyClaimsAuth = createOidcAuth({
+      clientId: "saashup",
+      clientSecret: "secret",
+      enabled: true,
+      issuerUrl: "https://id4.example.com/realms/paashup",
+      redirectUri: "http://app.example.com/oidc/callback",
+      secureCookies: false,
+      sessionSecret: "session-secret",
+    });
+    setOidcFetchForTests(vi.fn(async (url) => {
+      const pathname = new URL(String(url)).pathname;
+      if (pathname.endsWith("/.well-known/openid-configuration")) return jsonResponse({ authorization_endpoint: "https://id4.example.com/auth", token_endpoint: "https://id4.example.com/token" });
+      if (pathname === "/token") return jsonResponse({});
+      return jsonResponse({}, 404);
+    }));
+    const emptyLogin = mockResponse();
+    await emptyClaimsAuth.login({ query: { rd: "/admin" } }, emptyLogin);
+    const emptyState = new URL(emptyLogin.redirectUrl).searchParams.get("state");
+    const emptyCookie = headerValues(emptyLogin.headers["set-cookie"]).find((value) => value.startsWith("saashup_oidc_state=")).split(";")[0];
+    const emptyCallback = mockResponse();
+    await emptyClaimsAuth.callback({ headers: { cookie: emptyCookie }, query: { code: "ok", state: emptyState } }, emptyCallback, (error) => {
+      throw error;
+    });
+    const emptySession = headerValues(emptyCallback.headers["set-cookie"]).find((value) => value.startsWith("saashup_session=")).split(";")[0];
+    expect(emptyClaimsAuth.sessionUser({ headers: { cookie: emptySession } })).toEqual({ email: "", user: "", name: "" });
+
+    const brokenAuth = createOidcAuth({
+      clientId: "saashup",
+      clientSecret: "secret",
+      enabled: true,
+      issuerUrl: "https://broken.example.com/realms/paashup",
+      redirectUri: "http://app.example.com/oidc/callback",
+      secureCookies: false,
+      sessionSecret: "session-secret",
+    });
+    setOidcFetchForTests(vi.fn(async () => {
+      throw new Error("discovery down");
+    }));
+    const brokenLogin = mockResponse();
+    await expect(brokenAuth.login({ query: { rd: "/admin" } }, brokenLogin)).rejects.toThrow("discovery down");
+    setOidcFetchForTests();
   });
 
   test("small value helpers keep request parsing predictable", () => {

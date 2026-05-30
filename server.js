@@ -22,6 +22,7 @@ const {
 } = require("./lib/docker");
 const { createMetrics, metricLabel, metricLine, operationLabel: operationLabelForMetrics, routeLabel: routeLabelForMetrics, statusClass } = require("./lib/metrics");
 const { NetBoxClient, dockerHosts, hostIdQuery, setNetBoxFetchForTests } = require("./lib/netbox");
+const { createOidcAuth, setOidcFetchForTests } = require("./lib/oidc");
 const { createOperationHelpers, delay } = require("./lib/operations");
 const { createStateStore, parseProfiles, plainObject } = require("./lib/state");
 
@@ -38,6 +39,14 @@ const adminAllowedEmails = String(process.env.ADMIN_ALLOWED_EMAILS || "")
   .split(",")
   .map((email) => email.trim().toLowerCase())
   .filter(Boolean);
+const oidcAuth = createOidcAuth({
+  clientId: process.env.OIDC_CLIENT_ID || process.env.SAASHUP_OIDC_CLIENT_ID,
+  clientSecret: process.env.OIDC_CLIENT_SECRET || process.env.SAASHUP_OIDC_CLIENT_SECRET,
+  enabled: process.env.OIDC_ENABLED !== "false",
+  issuerUrl: process.env.OIDC_ISSUER_URL || process.env.KEYCLOAK_ISSUER_URL,
+  redirectUri: process.env.OIDC_REDIRECT_URI,
+  sessionSecret: process.env.SESSION_SECRET || process.env.SAASHUP_SESSION_SECRET,
+});
 
 const metrics = createMetrics();
 const { readState, writeState, logLine } = createStateStore(dataPath);
@@ -92,6 +101,8 @@ function incrementUsage(req, profile) {
 }
 
 function requireAdmin(req, res, next) {
+  const user = authUserFromRequest(req);
+  if (oidcAuth.enabled && !user.email && !user.user && !user.name) return oidcAuth.loginRequired(req, res, next);
   if (isAdminAllowed(req)) return next();
   metrics.adminForbidden += 1;
   res.status(403).sendFile(path.join(publicPath, "forbidden.html"));
@@ -112,8 +123,12 @@ app.use((req, res, next) => {
   }
   next();
 });
+app.use(oidcAuth.attachUser);
 
 app.get("/session/user", (req, res) => res.json(authUserFromRequest(req)));
+app.get("/login", (req, res, next) => Promise.resolve(oidcAuth.login(req, res)).catch(next));
+app.get("/oidc/callback", oidcAuth.callback);
+app.get("/logout", oidcAuth.logout);
 app.get("/version", (req, res) => res.json({ name: packageJson.name, version: packageJson.version }));
 app.get("/metrics", (req, res) => {
   const memory = process.memoryUsage();
@@ -149,9 +164,9 @@ app.get("/metrics", (req, res) => {
   res.type("text/plain; version=0.0.4").send(lines.join("\n"));
 });
 
-app.get("/admin", requireAdmin, (req, res) => res.sendFile(path.join(publicPath, "admin.html")));
-app.get("/admin.html", requireAdmin, (req, res) => res.sendFile(path.join(publicPath, "admin.html")));
-app.get("/order", (req, res) => res.sendFile(path.join(publicPath, "order.html")));
+app.get("/admin", oidcAuth.loginRequired, requireAdmin, (req, res) => res.sendFile(path.join(publicPath, "admin.html")));
+app.get("/admin.html", oidcAuth.loginRequired, requireAdmin, (req, res) => res.sendFile(path.join(publicPath, "admin.html")));
+app.get("/order", oidcAuth.loginRequired, (req, res) => res.sendFile(path.join(publicPath, "order.html")));
 app.use(express.static(publicPath));
 
 app.get("/config", (req, res) => res.json(readState().config || {}));
@@ -541,6 +556,7 @@ module.exports = {
   plainObject,
   routeLabel,
   setNetBoxFetchForTests,
+  setOidcFetchForTests,
   statusClass,
   valueText,
   volumePayloadsFromForm,

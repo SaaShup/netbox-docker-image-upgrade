@@ -229,9 +229,9 @@ async function loadAuthUser() {
   }
 }
 
-function logoutFromProxy() {
+function logout() {
   const returnUrl = window.location.origin + "/";
-  window.location.href = `/oauth2/sign_out?rd=${encodeURIComponent(returnUrl)}`;
+  window.location.href = `/logout?rd=${encodeURIComponent(returnUrl)}`;
 }
 
 function isFqdn(value) {
@@ -2334,7 +2334,7 @@ saveTemplateBtn?.addEventListener("click", saveCreateTemplate);
 deleteTemplateBtn?.addEventListener("click", deleteSelectedTemplate);
 loadTemplateBtn?.addEventListener("click", loadSelectedTemplate);
 orderTemplateBtn?.addEventListener("click", openSelectedTemplateOrder);
-logoutBtn?.addEventListener("click", logoutFromProxy);
+logoutBtn?.addEventListener("click", logout);
 refreshReportBtn?.addEventListener("click", refreshImageReport);
 reportProfileSelect?.addEventListener("change", refreshImageReport);
 templateSelect?.addEventListener("change", () => {
