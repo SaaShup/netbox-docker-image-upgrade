@@ -1216,6 +1216,8 @@ test("create import can save docker compose services as templates", async ({ pag
     "      FEATURE_FLAG: \"true\"",
     "    labels:",
     "      traefik.enable: \"true\"",
+    "      saashup_traefik: \"true\"",
+    "      saashup_dns: \"web.staging.example.com/dashboard\"",
     "    volumes:",
     "      - web-data:/app/data",
     "      - /var/run/docker.sock:/var/run/docker.sock:ro",
@@ -1223,6 +1225,9 @@ test("create import can save docker compose services as templates", async ({ pag
     "    image: saashup/worker:latest",
     "    environment:",
     "      - QUEUE=default",
+    "    labels:",
+    "      - saashup_traefik=false",
+    "      - saashup_dns=worker.staging.example.com",
   ].join("\n"));
   await page.locator("#dockerRunApplyBtn").click();
 
@@ -1240,6 +1245,7 @@ test("create import can save docker compose services as templates", async ({ pag
   expect(templates.web).toMatchObject({
     config_profile: "staging",
     instance: "web-container",
+    dns_name: "web.staging.example.com/dashboard",
     traefik: true,
     network: "proxy",
     image: "registry.example.com:5000/saashup/web",
@@ -1254,9 +1260,12 @@ test("create import can save docker compose services as templates", async ({ pag
     binds: [{ host_path: "/var/run/docker.sock", container_path: "/var/run/docker.sock", read_only: true }],
   });
   expect(templates.worker).toMatchObject({
+    dns_name: "worker.staging.example.com",
+    traefik: false,
     image: "saashup/worker",
     version: "latest",
     env: [{ key: "QUEUE", value: "default" }],
+    labels: [],
   });
 
   await page.getByRole("link", { name: "Workflow" }).click();
@@ -1270,12 +1279,16 @@ test("create import can save docker compose services as templates", async ({ pag
   await expect.poll(() => createBodies.length).toBe(2);
   expect(createBodies[0]).toContain("instance=web-container");
   expect(createBodies[0]).toContain("image=registry.example.com%3A5000%2Fsaashup%2Fweb");
+  expect(createBodies[0]).toContain("dns_name=web.staging.example.com%2Fdashboard");
+  expect(createBodies[0]).toContain("traefik=true");
   expect(createBodies[0]).toContain("wait=true");
   expect(createBodies[0]).toContain("bind_host_path=%2Fvar%2Frun%2Fdocker.sock");
   expect(createBodies[0]).toContain("bind_container_path=%2Fvar%2Frun%2Fdocker.sock");
   expect(createBodies[0]).toContain("bind_read_only=true");
   expect(createBodies[1]).toContain("instance=worker");
   expect(createBodies[1]).toContain("image=saashup%2Fworker");
+  expect(createBodies[1]).toContain("traefik=false");
+  expect(createBodies[1]).toContain("dns_name=");
   expect(createBodies[1]).toContain("wait=true");
   await expect(page.locator(".workflow-step-status-done")).toHaveCount(2);
   await expect(page.locator("#notif")).toContainText('Workflow "staging / stack" requested');
@@ -1318,6 +1331,7 @@ test("create import can save docker compose services as templates", async ({ pag
   await page.locator("#templateSelect").selectOption("web");
   await expect(page.locator("#config_profile")).toHaveValue("staging");
   await expect(page.locator("#network")).toHaveValue("proxy");
+  await expect(page.locator("#dns_name")).toHaveValue("web.staging.example.com/dashboard");
   await page.waitForTimeout(50);
   await expect(page.locator("#network")).toHaveValue("proxy");
   await page.locator("#refreshImagesBtn").click();
@@ -1325,6 +1339,101 @@ test("create import can save docker compose services as templates", async ({ pag
   await page.locator("#image").fill("saashup/guide");
   await page.locator("#image").dispatchEvent("input");
   await expect(page.locator("#version")).toHaveValue("v2.0.0");
+});
+
+test("compose import reads SaaShup labels from map labels", async ({ page }) => {
+  await openAdmin(page, {
+    profile: "production",
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        tag: "production",
+      },
+    }),
+  });
+
+  await page.getByRole("link", { name: "Create" }).click();
+  await page.locator("#dockerRunBtn").click();
+  await page.locator("#dockerRunInput").fill([
+    "name: paashup",
+    "services:",
+    "  traefik:",
+    "    image: saashup/traefik:v3.7.1",
+    "    container_name: traefik",
+    "    labels:",
+    "      saashup_traefik: false",
+    "  saashup:",
+    "    image: saashup/netbox-docker-image-upgrade:v2.4.2",
+    "    container_name: saashup",
+    "    labels:",
+    "      saashup_traefik: true",
+    "      saashup_dns: https://daily.paashup.cloud",
+    "      prometheus_address: saashup:1880",
+    "  netbox:",
+    "    image: saashup/netbox-docker:v4.6.1.2",
+    "    container_name: netbox",
+    "    labels:",
+    "      saashup_traefik: true",
+    "      saashup_dns: https://daily.paashup.cloud/cmdb",
+  ].join("\n"));
+  await page.locator("#dockerRunApplyBtn").click();
+
+  const templates = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")));
+  expect(templates.traefik).toMatchObject({ traefik: false });
+  expect(templates.traefik.labels).toEqual([]);
+  expect(templates.saashup).toMatchObject({
+    traefik: true,
+    dns_name: "https://daily.paashup.cloud",
+    labels: [{ key: "prometheus_address", value: "saashup:1880" }],
+  });
+  expect(templates.netbox).toMatchObject({
+    traefik: true,
+    dns_name: "https://daily.paashup.cloud/cmdb",
+  });
+
+  await page.locator("#templateSelect").selectOption("traefik");
+  await expect(page.locator("#traefik")).not.toBeChecked();
+  await page.locator("#templateSelect").selectOption("netbox");
+  await expect(page.locator("#traefik")).toBeChecked();
+  await expect(page.locator("#dns_name")).toHaveValue("https://daily.paashup.cloud/cmdb");
+});
+
+test("saved templates are normalized from SaaShup labels", async ({ page }) => {
+  await openAdmin(page, {
+    profile: "production",
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        tag: "production",
+      },
+    }),
+  }, {
+    legacy: {
+      image: "saashup/traefik",
+      version: "v3.7.1",
+      traefik: true,
+      labels: [
+        { key: "saashup_traefik", value: "false" },
+        { key: "saashup_dns", value: "https://daily.paashup.cloud" },
+      ],
+    },
+  });
+
+  await page.getByRole("link", { name: "Create" }).click();
+  await page.locator("#templateSelect").selectOption("legacy");
+  await expect(page.locator("#traefik")).not.toBeChecked();
+  await expect(page.locator("#dns_name")).toHaveValue("https://daily.paashup.cloud");
+
+  const templates = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")));
+  expect(templates.legacy).toMatchObject({
+    traefik: false,
+    dns_name: "https://daily.paashup.cloud",
+    labels: [],
+  });
 });
 
 test("import profile selector includes server profiles beyond local cache", async ({ page }) => {

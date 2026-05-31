@@ -233,7 +233,7 @@ const actions = {
     description: "Create a container, volume, optional DNS record and optional Traefik labels.",
     submitLabel: "Create instance",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "network", "traefik", "instance", "dns_name", "image", "version", "env_vars", "labels", "ports", "volumes", "binds"],
+    fields: ["config_profile", "network", "traefik", "all_hosts", "instance", "dns_name", "image", "version", "env_vars", "labels", "ports", "volumes", "binds"],
   },
   workflow: {
     endpoint: "",
@@ -312,6 +312,7 @@ const allFieldNames = [
   "config_name",
   "network",
   "traefik",
+  "all_hosts",
   "instance",
   "dns_name",
   "image",
@@ -796,8 +797,8 @@ function parseStoredObject(key) {
 }
 
 function loadCreateTemplates() {
-  createTemplates = parseStoredObject("create_templates");
-  createWorkflows = parseStoredObject("create_workflows");
+  createTemplates = normalizeCreateTemplates(parseStoredObject("create_templates"));
+  createWorkflows = normalizeCreateWorkflows(parseStoredObject("create_workflows"));
 
   return fetch("/templates", {
     headers: { Accept: "application/json" },
@@ -807,7 +808,7 @@ function loadCreateTemplates() {
       return response.json();
     })
     .then((templates) => {
-      createTemplates = templates && typeof templates === "object" && !Array.isArray(templates) ? templates : {};
+      createTemplates = normalizeCreateTemplates(templates && typeof templates === "object" && !Array.isArray(templates) ? templates : {});
       localStorage.setItem("create_templates", JSON.stringify(createTemplates));
       updateTemplateOptions();
       updateWorkflowOptions();
@@ -907,8 +908,8 @@ async function importPortableConfig(event) {
 
     const importedConfig = plainObject(data.config);
     const importedProfiles = parseProfiles(data.profiles || importedConfig.profiles);
-    const importedTemplates = plainObject(data.templates);
-    const importedWorkflows = plainObject(data.workflows);
+    const importedTemplates = normalizeCreateTemplates(plainObject(data.templates));
+    const importedWorkflows = normalizeCreateWorkflows(plainObject(data.workflows));
 
     configProfiles = importedProfiles;
     serverConfigProfiles = importedProfiles;
@@ -2028,6 +2029,7 @@ function clearActionFields() {
     setFieldValue(name, "");
   }
   setFieldValue("traefik", true);
+  setFieldValue("all_hosts", false);
 
   clearEnvRows();
   clearLabelRows();
@@ -2251,6 +2253,7 @@ function parseDockerRun(command) {
     i += 1;
   }
 
+  applySaashupTemplateLabels(parsed);
   return parsed;
 }
 
@@ -2339,6 +2342,68 @@ function parseComposePairs(inlineValue, blockLines) {
     if (pair) pairs.push(pair);
   });
   return pairs;
+}
+
+function labelBoolean(value, defaultValue = false) {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (!text) return defaultValue;
+  if (["1", "true", "yes", "on", "enabled"].includes(text)) return true;
+  if (["0", "false", "no", "off", "disabled"].includes(text)) return false;
+  return defaultValue;
+}
+
+function applySaashupTemplateLabels(template) {
+  const runtimeLabels = [];
+
+  (template.labels || []).forEach((label) => {
+    const key = String(label.key || "").trim();
+    const value = String(label.value ?? "").trim();
+    const normalized = key.toLowerCase();
+
+    if (normalized === "saashup_traefik") {
+      template.traefik = labelBoolean(value, true);
+      return;
+    }
+
+    if (normalized === "saashup_dns") {
+      template.dns_name = value;
+      return;
+    }
+
+    runtimeLabels.push(label);
+  });
+
+  template.labels = runtimeLabels;
+  return template;
+}
+
+function normalizeCreateTemplate(template) {
+  const normalized = { ...plainObject(template) };
+  normalized.labels = Array.isArray(normalized.labels) ? normalized.labels.map((label) => ({ ...plainObject(label) })) : [];
+  return applySaashupTemplateLabels(normalized);
+}
+
+function normalizeCreateTemplates(templates) {
+  return Object.fromEntries(
+    Object.entries(plainObject(templates))
+      .map(([name, template]) => [name, normalizeCreateTemplate(template)]),
+  );
+}
+
+function normalizeCreateWorkflows(workflows) {
+  return Object.fromEntries(
+    Object.entries(plainObject(workflows)).map(([key, workflow]) => {
+      const normalized = { ...plainObject(workflow) };
+      normalized.steps = Array.isArray(normalized.steps)
+        ? normalized.steps.map((step) => {
+          const normalizedStep = { ...plainObject(step) };
+          if (normalizedStep.template_data) normalizedStep.template_data = normalizeCreateTemplate(normalizedStep.template_data);
+          return normalizedStep;
+        })
+        : [];
+      return [key, normalized];
+    }),
+  );
 }
 
 function parseComposeList(inlineValue, blockLines) {
@@ -2444,6 +2509,7 @@ function parseComposeService(lines, serviceIndent, profileName = selectedProfile
     }
   }
 
+  applySaashupTemplateLabels(template);
   return template.image ? template : null;
 }
 
@@ -2577,6 +2643,7 @@ function currentCreateTemplate() {
     instance: fieldValue("instance"),
     dns_name: fieldValue("dns_name"),
     traefik: fieldChecked("traefik", true),
+    all_hosts: fieldChecked("all_hosts", false),
     network: fieldValue("network"),
     image: fieldValue("image"),
     version: fieldValue("version"),
@@ -2590,6 +2657,7 @@ function currentCreateTemplate() {
 
 function applyCreateTemplate(template) {
   if (!template) return;
+  template = normalizeCreateTemplate(template);
 
   setAction("create");
 
@@ -2604,6 +2672,7 @@ function applyCreateTemplate(template) {
 
   setFieldValue("network", template.network || fieldValue("network"));
   setFieldValue("traefik", template.traefik ?? true);
+  setFieldValue("all_hosts", template.all_hosts ?? false);
   templateNetworkOverride = template.network || "";
   templateVersionOverride = template.version || "";
   generatedCreateInstanceName = "";
@@ -2838,8 +2907,13 @@ async function applyDockerRunCommand() {
   templateVersionOverride = parsed.version || "";
   generatedCreateDnsName = "";
   setFieldValue("network", currentNetwork);
+  if (parsed.traefik !== undefined) setFieldValue("traefik", parsed.traefik);
   if (parsed.instance) setFieldValue("instance", parsed.instance);
   syncCreateDnsName({ force: true });
+  if (parsed.dns_name) {
+    setFieldValue("dns_name", parsed.dns_name);
+    generatedCreateDnsName = parsed.dns_name;
+  }
   setFieldValue("image", parsed.image);
   syncCreateVersion();
   if (parsed.version) setFieldValue("version", parsed.version);
@@ -3194,6 +3268,7 @@ function appendWorkflowPairs(body, items, keyField, valueField, keyNames = ["key
 }
 
 function workflowCreateBody(template, templateName) {
+  template = normalizeCreateTemplate(template);
   const profileName = template.config_profile || template.profile || currentConfigProfile || "";
   const credentials = profileCredentials(profileName);
   if (!credentials.netbox || !credentials.token) throw new Error(`Config "${profileLabel(profileName)}" is missing NetBox URL or token`);
@@ -3212,6 +3287,7 @@ function workflowCreateBody(template, templateName) {
     profile: credentials.profile,
     network: template.network || "",
     traefik: hasTraefik ? "true" : "false",
+    all_hosts: template.all_hosts ? "true" : "false",
     instance: instanceName,
     dns_name: hasTraefik ? dnsNameFqdn(template.dns_name || instanceName, credentials.domain) : "",
     image: template.image || "",

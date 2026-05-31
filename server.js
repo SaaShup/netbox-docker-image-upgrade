@@ -17,6 +17,7 @@ const {
   imageNameFromRef,
   instanceShort,
   instanceZone,
+  normalizedSaashupLabelConfig,
   ownerEnvVarName,
   isContainerRunning,
   isContainerStopped,
@@ -99,6 +100,19 @@ function asyncOperation(res, fn) {
 
 function waitForRequest(data) {
   return data.wait === true || data.wait === "true" || data.wait === "on";
+}
+
+function allHostsEnabled(data) {
+  return data.all_hosts === true || data.all_hosts === "true" || data.all_hosts === "on";
+}
+
+function leastLoadedHost(hosts, containers) {
+  return hosts
+    .map((host) => ({
+      host,
+      count: containers.filter((container) => (container.host?.id || container.host) === host.id).length,
+    }))
+    .sort((left, right) => left.count - right.count)[0]?.host;
 }
 
 function currentUsage(req, profile) {
@@ -810,6 +824,7 @@ app.get("/report/images", requireAdmin, async (req, res) => {
 app.get("/order/limit", (req, res) => res.json(currentUsage(req, req.query.profile || "")));
 
 async function createInstance(req, data, { isOrderRequest, orderProfile, authUser }) {
+  data = normalizedSaashupLabelConfig(data);
   const client = new NetBoxClient(data);
   const hosts = await dockerHosts(client, data.tag);
   if (!hosts.length) {
@@ -817,33 +832,40 @@ async function createInstance(req, data, { isOrderRequest, orderProfile, authUse
     if (isOrderRequest) updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
     return false;
   }
-  const containers = await client.list("/api/plugins/docker/containers/", { limit: 1000, host_id: hosts.map((host) => host.id) });
-  const selectedHost = hosts.map((host) => ({ host, count: containers.filter((c) => (c.host?.id || c.host) === host.id).length })).sort((a, b) => a.count - b.count)[0].host;
-  data.host_id = selectedHost.id;
-  const images = await client.list("/api/plugins/docker/images/", { name: data.image, version: data.version, host_id: data.host_id });
-  if (!images[0]) {
-    logLine(`CREATE : image ${data.image}:${data.version} not found on ${hostName(selectedHost)}`);
-    if (isOrderRequest) updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
-    return false;
+  const targetHosts = allHostsEnabled(data)
+    ? hosts
+    : [leastLoadedHost(hosts, await client.list("/api/plugins/docker/containers/", { limit: 1000, host_id: hosts.map((host) => host.id) }))].filter(Boolean);
+  let readyCount = 0;
+
+  for (const [index, selectedHost] of targetHosts.entries()) {
+    data.host_id = selectedHost.id;
+    const images = await client.list("/api/plugins/docker/images/", { name: data.image, version: data.version, host_id: data.host_id });
+    if (!images[0]) {
+      logLine(`CREATE : image ${data.image}:${data.version} not found on ${hostName(selectedHost)}`);
+      continue;
+    }
+    if (traefikEnabled(data) && index === 0) await createDnsRecord(client, data, selectedHost);
+    const volumes = volumePayloadsFromForm(data);
+    if (volumes.length) {
+      await client.request("POST", "/api/plugins/docker/volumes/", { body: volumes.length === 1 ? volumes[0] : volumes, expected: [200, 201, 202] });
+      logLine(`CREATE : ${volumes.length} volume${volumes.length === 1 ? "" : "s"} prepared on ${hostName(selectedHost)}`);
+    }
+    const containerPayload = containerCreatePayloadFromForm(data, images[0].id);
+    const { payload } = await client.request("POST", "/api/plugins/docker/containers/", { body: containerPayload, expected: [200, 201, 202] });
+    const container = Array.isArray(payload) ? payload[0] : payload;
+    logLine(`CREATE : container ${containerPayload.name} created on ${hostName(selectedHost)}`);
+    if (createConfigureDelayMs > 0) await delay(createConfigureDelayMs);
+    const containerConfig = containerConfigPayloadFromForm(data, container.id);
+    await client.request("PATCH", "/api/plugins/docker/containers/", { body: [containerConfig] });
+    logLine(`CREATE : container ${containerPayload.name} configured on ${hostName(selectedHost)} env=${containerConfig.env.length} labels=${containerConfig.labels.length} mounts=${containerConfig.mounts.length}`);
+    if (createRecreateDelayMs > 0) await delay(createRecreateDelayMs);
+    await waitForContainerConfigured(client, container.id, `${hostName(container)}/${valueText(container.display || container.name)}`);
+    const ready = await requestContainerOperation(client, container, "recreate", "CREATE");
+    if (ready) readyCount += 1;
   }
-  if (traefikEnabled(data)) await createDnsRecord(client, data, selectedHost);
-  const volumes = volumePayloadsFromForm(data);
-  if (volumes.length) {
-    await client.request("POST", "/api/plugins/docker/volumes/", { body: volumes.length === 1 ? volumes[0] : volumes, expected: [200, 201, 202] });
-    logLine(`CREATE : ${volumes.length} volume${volumes.length === 1 ? "" : "s"} prepared on ${hostName(selectedHost)}`);
-  }
-  const containerPayload = containerCreatePayloadFromForm(data, images[0].id);
-  const { payload } = await client.request("POST", "/api/plugins/docker/containers/", { body: containerPayload, expected: [200, 201, 202] });
-  const container = Array.isArray(payload) ? payload[0] : payload;
-  logLine(`CREATE : container ${containerPayload.name} created on ${hostName(selectedHost)}`);
-  if (createConfigureDelayMs > 0) await delay(createConfigureDelayMs);
-  const containerConfig = containerConfigPayloadFromForm(data, container.id);
-  await client.request("PATCH", "/api/plugins/docker/containers/", { body: [containerConfig] });
-  logLine(`CREATE : container ${containerPayload.name} configured on ${hostName(selectedHost)} env=${containerConfig.env.length} labels=${containerConfig.labels.length} mounts=${containerConfig.mounts.length}`);
-  if (createRecreateDelayMs > 0) await delay(createRecreateDelayMs);
-  await waitForContainerConfigured(client, container.id, `${hostName(container)}/${valueText(container.display || container.name)}`);
-  const ready = await requestContainerOperation(client, container, "recreate", "CREATE");
-  if (isOrderRequest && ready) {
+
+  const allReady = readyCount === targetHosts.length;
+  if (isOrderRequest && allReady) {
     try {
       await sendOrderReadyEmail(data, authUser.email || "");
     } catch (error) {
@@ -853,7 +875,8 @@ async function createInstance(req, data, { isOrderRequest, orderProfile, authUse
   } else if (isOrderRequest) {
     updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
   }
-  return ready;
+  if (allHostsEnabled(data)) logLine(`CREATE : finished all hosts ready=${readyCount}/${targetHosts.length}`);
+  return allReady;
 }
 
 app.post("/create", async (req, res) => {

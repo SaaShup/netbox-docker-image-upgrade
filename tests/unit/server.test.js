@@ -339,6 +339,8 @@ describe("server helpers", () => {
     expect(dnsNameFromData({ instance: "tiles", dns_name: "tiles.example.com" })).toBe("tiles.example.com");
     expect(dnsNameFromData({ instance: "tiles.example.com" })).toBe("tiles.example.com");
     expect(dnsPartsFromName("tiles.example.com/dashboard")).toEqual({ host: "tiles.example.com", path: "/dashboard" });
+    expect(dnsPartsFromName("[")).toEqual({ host: "[", path: "" });
+    expect(dnsPartsFromName("http://[bad]/dashboard")).toEqual({ host: "http:", path: "//[bad]/dashboard" });
     expect(dnsHostNameFromData({ instance: "tiles", dns_name: "tiles.example.com/dashboard" })).toBe("tiles.example.com");
     expect(traefikRuleFromData({ instance: "tiles", dns_name: "tiles.example.com/dashboard" })).toBe("Host(`tiles.example.com`) && PathPrefix(`/dashboard`)");
     expect(containerConfigPayloadFromForm({
@@ -349,6 +351,28 @@ describe("server helpers", () => {
     }, 35).labels).toEqual(expect.arrayContaining([
       { key: "traefik.http.routers.tiles.rule", value: "Host(`tiles.example.com`) && PathPrefix(`/dashboard`)" },
     ]));
+    expect(dnsNameFromData({
+      instance: "saashup",
+      label_key: ["saashup_dns"],
+      label_value: ["https://daily.paashup.cloud"],
+    })).toBe("https://daily.paashup.cloud");
+    expect(containerConfigPayloadFromForm({
+      instance: "saashup",
+      host_id: 42,
+      port_value: ["1880"],
+      label_key: ["saashup_traefik", "saashup_dns", "prometheus_scrape"],
+      label_value: ["true", "https://daily.paashup.cloud", "true"],
+    }, 36).labels).toEqual(expect.arrayContaining([
+      { key: "traefik.http.routers.saashup.rule", value: "Host(`daily.paashup.cloud`)" },
+      { key: "prometheus_scrape", value: "true" },
+    ]));
+    expect(containerConfigPayloadFromForm({
+      instance: "traefik",
+      host_id: 42,
+      port_value: ["8080"],
+      label_key: ["saashup_traefik", "traefik.enable", "custom.label"],
+      label_value: ["false", "true", "custom-value"],
+    }, 37).labels).toEqual([{ key: "custom.label", value: "custom-value" }]);
     expect(containerConfigPayloadFromForm({
       instance: "open.example.com",
       port_value: ["8080"],

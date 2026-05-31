@@ -79,6 +79,7 @@ function setupNetBoxFetch(fetchMock, {
   containerHostAsId = false,
   deleteContainerRunning = false,
   dockerVolumeMount = false,
+  volumeIdOnlyMount = false,
   omitContainerHost = false,
   emptyContainersForName = "",
   emptyImagesForName = "",
@@ -285,7 +286,9 @@ function setupNetBoxFetch(fetchMock, {
             state: deleteContainerRunning ? "running" : "created",
             status: deleteContainerRunning ? "running" : "created",
             network_settings: [{ network: { name: "bridge" } }, { network: { name: "traefik-public" } }],
-            mounts: dockerVolumeMount
+            mounts: volumeIdOnlyMount
+              ? [{ volume_id: 40, source: "/app/data" }]
+              : dockerVolumeMount
               ? [{ docker_volume: { id: 40, name: "tiles-data" }, source: "/app/data" }]
               : [
                 { volume: { id: 40, name: "tiles-data" }, source: "/app/data" },
@@ -1217,6 +1220,36 @@ describe("server routes", () => {
     })).toBe(false);
   });
 
+  test("create can install on all matching Docker hosts", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, { expectTraefikConfig: false });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/create").send({
+      instance: "all-hosts",
+      image: "saashup/tile",
+      version: "v2.0.0",
+      port_value: "8080",
+      traefik: "false",
+      all_hosts: "true",
+      wait: "true",
+    }).expect(200).expect((res) => {
+      expect(res.body).toEqual({ status: "finished" });
+    });
+
+    expect(readState(dataPath).logs).toContain("CREATE : finished all hosts ready=2/2");
+    const containerCreates = fetchMock.mock.calls
+      .filter(([url, options]) => String(url).endsWith("/api/plugins/docker/containers/") && options?.method === "POST")
+      .map(([, options]) => JSON.parse(options.body).host);
+    expect(containerCreates).toEqual([1, 2]);
+    expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/cloudflare/dns/records/") && options?.method === "POST")).toBe(false);
+  });
+
   test("accepts write operations and records logs", async () => {
     const { dataPath, fetchMock, request, setSmtpSenderForTests } = await loadServer({ ownerEmail: "owner@example.com" });
     setupNetBoxFetch(fetchMock);
@@ -1841,6 +1874,21 @@ describe("server routes", () => {
     expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/docker/volumes/40/") && options?.method === "DELETE")).toBe(true);
   });
 
+  test("deletes mounted volume_id references when requested", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, { volumeIdOnlyMount: true });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/delete").send({ instance: "tiles.example.com", delete_volumes: "true" }).expect(202);
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : volume 40 deleted"));
+    expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/docker/volumes/40/") && options?.method === "DELETE")).toBe(true);
+  });
+
   test("create wait mode blocks until recreate finishes", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock);
@@ -1865,6 +1913,39 @@ describe("server routes", () => {
 
     expect(response.body).toEqual({ status: "finished" });
     expect(readState(dataPath).logs).toContain("CREATE : host-a/workflow-step ready status=running operation=none");
+  });
+
+  test("create wait mode reports failures and marks order failed", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock);
+    rejectNextMatchingNetBoxFetch(
+      fetchMock,
+      (url, options) => url.pathname === "/api/plugins/docker/hosts/" && (options.method || "GET") === "GET",
+      Object.assign(new Error("netbox unavailable"), { statusCode: 503, payload: { detail: "down" } }),
+    );
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 3 },
+      templates: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    const response = await request.post("/create").set("x-auth-request-email", "workflow@example.com").send({
+      instance: "broken.example.com",
+      image: "saashup/tile",
+      version: "v2.0.0",
+      port_value: "8080",
+      order_request: "true",
+      profile: "prod",
+      wait: "true",
+    }).expect(503);
+
+    expect(response.body).toMatchObject({ detail: "netbox unavailable", payload: { detail: "down" } });
+    expect(readState(dataPath).logs).toContain("ERROR : netbox unavailable");
+    expect(readState(dataPath).order_instances["workflow@example.com"]?.prod?.[0]).toEqual(
+      expect.objectContaining({ instance: "broken.example.com", status: "failed" }),
+    );
   });
 
   test("deletes named volumes without a container host fallback", async () => {
