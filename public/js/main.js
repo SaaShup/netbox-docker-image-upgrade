@@ -117,7 +117,7 @@ const profileFieldHelp = {
   },
   token: {
     title: "NetBox Token",
-    body: "The API token used to read and update NetBox data for this profile. It needs permission for the Docker and Cloudflare plugin endpoints used by the app.",
+    body: "The API token used to read and update NetBox data for this profile. v1 tokens and v2 nbt_ tokens are both supported.",
   },
   proxy: {
     title: "Proxy URL",

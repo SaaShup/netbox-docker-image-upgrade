@@ -41,7 +41,7 @@ const {
   ownerEnvVarName,
 } = require("../../lib/docker");
 const { createMetrics } = require("../../lib/metrics");
-const { NetBoxClient, dockerHosts, hostIdQuery, setNetBoxFetchForTests } = require("../../lib/netbox");
+const { NetBoxClient, dockerHosts, hostIdQuery, netboxAuthHeader, setNetBoxFetchForTests } = require("../../lib/netbox");
 const { cookie, createOidcAuth, parseCookies, setOidcFetchForTests, userFromClaims } = require("../../lib/oidc");
 const { createOperationHelpers } = require("../../lib/operations");
 const { createStateStore, defaultState, readJson, writeJson } = require("../../lib/state");
@@ -118,10 +118,14 @@ describe("server helpers", () => {
     expect(parseSmtpConfig(":587")).toBeNull();
     expect(parseSmtpConfig("smtp.example.com:not-a-port")).toBeNull();
     expect(parseSmtpConfig("smtp.example.com:70000")).toBeNull();
+    expect(parseSmtpConfig("mailer@smtp.example.com:25")).toMatchObject({ user: "mailer", password: "", host: "smtp.example.com", port: 25 });
+    expect(parseSmtpConfig(":secret@smtp.example.com:25")).toMatchObject({ user: "", password: "secret", host: "smtp.example.com", port: 25 });
     expect(smtpSenderAddress({ user: "mailer@example.com", host: "smtp.example.com" })).toBe("mailer@example.com");
     expect(smtpSenderAddress({ user: "mailer", host: "smtp.example.com" }, "owner@example.com")).toBe("owner@example.com");
     expect(smtpSenderAddress({ user: "mailer", host: "smtp.example.com" })).toBe("no-reply@example.com");
     expect(smtpSenderAddress({})).toBe("no-reply@localhost");
+    expect(smtpSenderAddress({ host: "" })).toBe("no-reply@localhost");
+    expect(smtpSenderAddress({ host: "smtp." })).toBe("no-reply@localhost");
     expect(smtpTransportOptions(config, 1234)).toMatchObject({
       host: "smtp.example.com",
       port: 587,
@@ -131,6 +135,8 @@ describe("server helpers", () => {
       connectionTimeout: 1234,
     });
     expect(smtpTransportOptions(parseSmtpConfig("smtp.example.com:25"), 1234)).not.toHaveProperty("auth");
+    expect(smtpTransportOptions(parseSmtpConfig("mailer@smtp.example.com:25"), 1234)).toMatchObject({ auth: { user: "mailer", pass: "" } });
+    expect(smtpTransportOptions(parseSmtpConfig(":secret@smtp.example.com:25"), 1234)).toMatchObject({ auth: { user: "", pass: "secret" } });
     expect(smtpMessage({
       from: "from@example.com",
       to: "to@example.com",
@@ -153,6 +159,7 @@ describe("server helpers", () => {
       filename: "image",
       contentType: "application/octet-stream",
     });
+    expect(smtpMessage({ inlineImages: null }).attachments).toEqual([]);
   });
 
   test("sends smtp mail through nodemailer transport", async () => {
@@ -279,6 +286,7 @@ describe("server helpers", () => {
 
     expect(ownerEnvVarName({})).toBe("SAASHUP_OWNER");
     expect(ownerEnvVarName({ owner_env_var: "OWNER" })).toBe("OWNER");
+    expect(ownerEnvVarName({ owner_env_var: "   " })).toBe("SAASHUP_OWNER");
     expect(containerConfigPayloadFromForm({
       instance: "custom-owned.example.com",
       host_id: 7,
@@ -675,8 +683,15 @@ describe("server helpers", () => {
     await expect(client.list("/api/items/", { id: [1, "", null, 2] })).resolves.toEqual([{ id: 2 }]);
     expect(calls.at(-1).url).toContain("id=1");
     expect(calls.at(-1).url).toContain("id=2");
+    expect(calls.at(-1).options.headers.Authorization).toBe("Token secret");
     await expect(client.request("POST", "/api/empty", { body: { ok: true }, expected: [200] })).resolves.toMatchObject({ payload: {} });
     expect(calls.at(-1).options.headers["Content-Type"]).toBe("application/json");
+    expect(netboxAuthHeader()).toBe("Token ");
+    expect(netboxAuthHeader(" nbt_key ")).toBe("Token nbt_key");
+    expect(netboxAuthHeader(" nbt_key.plaintext ")).toBe("Bearer nbt_key.plaintext");
+    const v2Client = new NetBoxClient({ netbox: "https://netbox.example.com/", token: " nbt_key.plaintext " });
+    await expect(v2Client.request("GET", "/api/items/")).resolves.toMatchObject({ statusCode: 200 });
+    expect(calls.at(-1).options.headers.Authorization).toBe("Bearer nbt_key.plaintext");
     await expect(client.request("GET", "/api/text")).resolves.toMatchObject({ payload: "plain text" });
     await expect(client.request("GET", "/api/bad")).rejects.toMatchObject({ statusCode: 500, payload: { detail: "bad" } });
     await expect(client.list("/api/array")).resolves.toEqual([{ id: 1 }]);
