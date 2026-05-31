@@ -14,6 +14,7 @@ const {
   imageNameFromRef,
   instanceShort,
   instanceZone,
+  ownerEnvVarName,
   isContainerRunning,
   isContainerStopped,
   isOperationDone,
@@ -235,6 +236,7 @@ app.get("/order", oidcAuth.loginRequired, (req, res) => res.sendFile(path.join(p
 app.use(express.static(publicPath));
 
 app.get("/config", (req, res) => res.json(readState().config || {}));
+app.get("/dockerhub-webhook-secret", requireAdmin, (req, res) => res.json({ secret: dockerhubWebhookSecret }));
 app.delete("/config", requireAdmin, (req, res) => {
   writeState((state) => {
     state.config = {};
@@ -252,6 +254,8 @@ app.get("/webhook", requireAdmin, (req, res) => {
     domain: req.query.domain || "",
     tag: req.query.tag || "",
     max_instances: maxInstancesValue(req.query.max_instances),
+    owner_env_var: String(req.query.owner_env_var || "SAASHUP_OWNER").trim() || "SAASHUP_OWNER",
+    cloudflare_filter: req.query.cloudflare_filter !== "false",
     profile: req.query.profile || req.query.config_profile || "",
     config_profile: req.query.config_profile || req.query.profile || "",
     profiles: JSON.stringify(profiles),
@@ -412,15 +416,42 @@ function reportUserCount(profile, profiles) {
   }).length;
 }
 
+function containerEnvValue(container, name) {
+  const entries = [
+    ...(Array.isArray(container?.env) ? container.env : []),
+    ...(Array.isArray(container?.env_vars) ? container.env_vars : []),
+    ...(Array.isArray(container?.environment) ? container.environment : []),
+  ];
+
+  for (const entry of entries) {
+    if (!entry || typeof entry !== "object") continue;
+    const key = valueText(entry.var_name || entry.name || entry.key);
+    if (key === name) return valueText(entry.value);
+  }
+
+  return "";
+}
+
 async function imageReportForProfile(name, config) {
-  if (!config.netbox || !config.token) return { hosts: 0, rows: [] };
+  const label = name || "default";
+  if (!config.netbox || !config.token) {
+    logLine(`REPORT_IMAGE : ${label} skipped missing NetBox config`);
+    return { hosts: 0, rows: [] };
+  }
 
   const client = new NetBoxClient(config);
   const hosts = await dockerHosts(client, config.tag);
-  if (!hosts.length) return { hosts: 0, rows: [] };
+  if (!hosts.length) {
+    logLine(`REPORT_IMAGE : ${label} no Docker hosts found${config.tag ? ` with tag ${config.tag}` : ""}`);
+    return { hosts: 0, rows: [] };
+  }
 
+  logLine(`REPORT_IMAGE : ${label} scanning ${hosts.length} host${hosts.length === 1 ? "" : "s"}${config.tag ? ` tag=${config.tag}` : ""}`);
   const images = await client.list("/api/plugins/docker/images/", { limit: 1000, host_id: hosts.map((host) => host.id) });
+  logLine(`REPORT_IMAGE : ${label} found ${images.length} image record${images.length === 1 ? "" : "s"}`);
   const groups = new Map();
+  const ownerEnvName = ownerEnvVarName(config);
+  const owners = new Set();
 
   for (const image of images) {
     const imageName = imageNameFromRef(image.name || image.display || "");
@@ -443,37 +474,49 @@ async function imageReportForProfile(name, config) {
   for (const row of groups.values()) {
     const containers = await client.list("/api/plugins/docker/containers/", { limit: 1000, image_id: row.image_ids });
     row.containers = containers.length;
+    containers
+      .map((container) => containerEnvValue(container, ownerEnvName))
+      .filter(Boolean)
+      .forEach((owner) => owners.add(owner));
+    logLine(`REPORT_IMAGE : ${label} ${row.image}:${row.version} containers=${row.containers}`);
   }
 
   const rows = Array.from(groups.values())
     .map(({ image_ids, ...row }) => row)
     .sort((left, right) => left.profile.localeCompare(right.profile) || left.image.localeCompare(right.image) || left.version.localeCompare(right.version, undefined, { numeric: true, sensitivity: "base" }));
 
-  return { hosts: hosts.length, rows };
+  logLine(`REPORT_IMAGE : ${label} found ${owners.size} owner${owners.size === 1 ? "" : "s"} from ${ownerEnvName}`);
+  return { hosts: hosts.length, rows, owners: [...owners] };
 }
 
 app.get("/report/images", requireAdmin, async (req, res) => {
   try {
     const profiles = reportProfiles(req.query);
     const requestedProfile = req.query.profile || req.query.config_profile || "";
+    logLine(`REPORT_IMAGE : starting profile=${requestedProfile || "selected"} profiles=${profiles.map((item) => item.name || "default").join(",") || "default"}`);
     const results = [];
+    const owners = new Set();
     let totalHosts = 0;
 
     for (const item of profiles) {
       const report = await imageReportForProfile(item.name, item.config);
       totalHosts += report.hosts;
       results.push(...report.rows);
+      (report.owners || []).forEach((owner) => owners.add(owner));
     }
 
-    res.json({
+    const payload = {
       profile: requestedProfile,
       rows: results,
       total_hosts: totalHosts,
       total_images: results.length,
       total_containers: results.reduce((total, row) => total + Number(row.containers || 0), 0),
-      total_users: reportUserCount(requestedProfile, profiles),
-    });
+      total_users: owners.size || reportUserCount(requestedProfile, profiles),
+    };
+    logLine(`REPORT_IMAGE : finished profile=${requestedProfile || "selected"} hosts=${payload.total_hosts} images=${payload.total_images} containers=${payload.total_containers} users=${payload.total_users}`);
+    res.json(payload);
   } catch (error) {
+    logLine(`REPORT_IMAGE : failed ${error.message || "report error"}`);
     res.status(error.statusCode || 502).json({ detail: error.message, payload: error.payload });
   }
 });

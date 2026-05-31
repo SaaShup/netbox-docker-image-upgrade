@@ -80,6 +80,7 @@ function setupNetBoxFetch(fetchMock, {
   omitContainerDisplay = false,
   omitContainerName = false,
   recreateContainerName = "tiles",
+  reportContainerOwners = false,
 } = {}) {
   let deleteContainerGetCount = 0;
   let stopRequested = false;
@@ -166,6 +167,7 @@ function setupNetBoxFetch(fetchMock, {
             state: deleteContainerRunning ? "running" : "created",
             status: deleteContainerRunning ? "running" : "created",
             network_settings: [{ network: { name: "bridge" } }, { network: { name: "traefik-public" } }],
+            ...(reportContainerOwners ? { env: [{ var_name: "SAASHUP_OWNER", value: "owner@example.com" }] } : {}),
           },
         ],
       });
@@ -440,6 +442,8 @@ describe("server routes", () => {
       expect(res.body.total_containers).toBeGreaterThanOrEqual(1);
       expect(res.body.total_users).toBe(0);
     });
+    expect(readState(dataPath).logs).toContain("REPORT_IMAGE : starting profile=all");
+    expect(readState(dataPath).logs).toContain("REPORT_IMAGE : finished profile=all");
 
     writeState(dataPath, {
       config: {
@@ -524,6 +528,18 @@ describe("server routes", () => {
       expect(res.body.rows).toHaveLength(1);
       expect(res.body.rows[0].image).toBe("saashup/tile");
     });
+
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+    setupNetBoxFetch(fetchMock, { reportContainerOwners: true });
+    await request.get("/report/images").expect(200).expect((res) => {
+      expect(res.body.total_users).toBe(1);
+    });
+    expect(readState(dataPath).logs).toContain("found 1 owner from SAASHUP_OWNER");
   });
 
   test("returns NetBox read errors and empty-list fallbacks", async () => {
@@ -804,7 +820,7 @@ describe("server routes", () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock);
     writeState(dataPath, {
-      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 3 },
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 3, owner_env_var: "OWNER" },
       templates: {},
       order_counts: {},
       logs: "",
@@ -831,7 +847,7 @@ describe("server routes", () => {
     expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/docker/volumes/") && options?.method === "POST" && JSON.parse(options.body).length === 2)).toBe(true);
     expect(fetchMock.mock.calls.some(([url, options]) => {
       if (!String(url).endsWith("/api/plugins/docker/containers/") || options?.method !== "PATCH") return false;
-      return JSON.parse(options.body).some((item) => item.env?.some((env) => env.var_name === "SAASHUP_OWNER" && env.value === "admin@example.com"));
+      return JSON.parse(options.body).some((item) => item.env?.some((env) => env.var_name === "OWNER" && env.value === "admin@example.com"));
     })).toBe(true);
 
     await request.post("/create").set("x-auth-request-email", "buyer@example.com").send({
@@ -855,7 +871,7 @@ describe("server routes", () => {
     expect(readState(dataPath).order_instances.buyer).toBeUndefined();
     expect(fetchMock.mock.calls.some(([url, options]) => {
       if (!String(url).endsWith("/api/plugins/docker/containers/") || options?.method !== "PATCH") return false;
-      return JSON.parse(options.body).some((item) => item.env?.some((env) => env.var_name === "SAASHUP_OWNER" && env.value === "buyer@example.com"));
+      return JSON.parse(options.body).some((item) => item.env?.some((env) => env.var_name === "OWNER" && env.value === "buyer@example.com"));
     })).toBe(true);
 
     await request.post("/create").send({

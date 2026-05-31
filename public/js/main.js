@@ -27,8 +27,17 @@ const dockerRunInput = document.getElementById("dockerRunInput");
 const dockerRunApplyBtn = document.getElementById("dockerRunApplyBtn");
 const dockerRunCancelBtn = document.getElementById("dockerRunCancelBtn");
 const dockerRunCloseBtn = document.getElementById("dockerRunCloseBtn");
+const profileHelpModal = document.getElementById("profileHelpModal");
+const profileHelpTitle = document.getElementById("profileHelpTitle");
+const profileHelpBody = document.getElementById("profileHelpBody");
+const profileHelpCloseBtn = document.getElementById("profileHelpCloseBtn");
+const profileHelpOkBtn = document.getElementById("profileHelpOkBtn");
 const formTitle = document.getElementById("form-title");
 const formDescription = document.getElementById("form-description");
+const tokenToggle = document.getElementById("tokenToggle");
+const dockerhubSecretWrap = document.getElementById("dockerhubSecretWrap");
+const dockerhubSecret = document.getElementById("dockerhubSecret");
+const dockerhubSecretToggle = document.getElementById("dockerhubSecretToggle");
 const envList = document.getElementById("envList");
 const addEnvBtn = document.getElementById("addEnvBtn");
 const labelList = document.getElementById("labelList");
@@ -46,6 +55,7 @@ const logsCard = document.getElementById("logsCard");
 const logsFullscreenBtn = document.getElementById("logsFullscreenBtn");
 const clearLogsBtn = document.getElementById("clearLogsBtn");
 const configProfileSelect = document.getElementById("config_profile");
+const profileSyncWarning = document.getElementById("profileSyncWarning");
 const orderActions = document.getElementById("orderActions");
 const orderLoading = document.getElementById("orderLoading");
 const orderStatus = document.getElementById("orderStatus");
@@ -66,6 +76,7 @@ let currentConfigProfile = localStorage.getItem("current_config_profile") || "";
 let noticeTimeout = null;
 let savedConfig = {};
 let configProfiles = {};
+let serverConfigProfiles = {};
 let imageRecords = [];
 let containerCountRequestId = 0;
 let createNetworkRequestId = 0;
@@ -75,10 +86,58 @@ let createTemplates = {};
 let generatedCreateInstanceName = "";
 let orderInstanceCards = [];
 let orderInstanceLimit = { max: 0, used: 0 };
+let dockerhubSecretLoaded = false;
 const logsPollFailureNotice = "Activity logs unavailable: network error";
 const sidebarCollapsedStorageKey = "sidebar_collapsed";
 
-const configFields = ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_instances"];
+const profileFieldHelp = {
+  config_profile: {
+    title: "Config profile",
+    body: "Selects which saved NetBox connection and deployment defaults are used by create, upgrade, refresh, operate and delete actions.",
+  },
+  config_name: {
+    title: "Profile name",
+    body: "Names the profile you are saving. Use a stable name such as production, staging or a customer identifier.",
+  },
+  customer_name: {
+    title: "Customer name",
+    body: "Stores the customer or organization name shown in exported configuration and shared profile data.",
+  },
+  netbox: {
+    title: "NetBox URL",
+    body: "The base URL of the NetBox instance that stores Docker hosts, images, containers, volumes and Cloudflare DNS records.",
+  },
+  token: {
+    title: "NetBox Token",
+    body: "The API token used to read and update NetBox data for this profile. It needs permission for the Docker and Cloudflare plugin endpoints used by the app.",
+  },
+  proxy: {
+    title: "Proxy URL",
+    body: "Optional HTTP proxy used by the server when it connects to NetBox. Leave it empty when direct access is available.",
+  },
+  domain: {
+    title: "Domain",
+    body: "The default domain appended to short instance names during creation. For example, tiles becomes tiles.example.com.",
+  },
+  tag: {
+    title: "Tag",
+    body: "Filters Docker hosts and image lookups to the matching NetBox tag, so each profile can target a specific environment or host group.",
+  },
+  max_instances: {
+    title: "Max instances",
+    body: "Limits how many order-page instances a user can request for this profile. Set it to 0 to block new orders for the profile.",
+  },
+  owner_env_var: {
+    title: "Owner env var",
+    body: "The environment variable name used to store the requester email on newly created containers. The default is SAASHUP_OWNER.",
+  },
+  cloudflare_filter: {
+    title: "Cloudflare IP restriction",
+    body: "When enabled, created containers receive the Traefik IP allow-list label for Cloudflare source ranges. Disable it to create routes without that allow-list label.",
+  },
+};
+
+const configFields = ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_instances", "owner_env_var", "cloudflare_filter"];
 
 const actions = {
   config: {
@@ -89,7 +148,7 @@ const actions = {
     description: "Save the NetBox URL, token, optional proxy, domain and host tag used by the automation.",
     submitLabel: "Save config",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_instances"],
+    fields: ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_instances", "owner_env_var", "cloudflare_filter"],
   },
   create: {
     endpoint: "/create",
@@ -161,6 +220,7 @@ const allFieldNames = [
   "domain",
   "tag",
   "max_instances",
+  "owner_env_var",
   "config_profile",
   "operate_action",
   "config_name",
@@ -171,6 +231,7 @@ const allFieldNames = [
   "restart_version",
   "version",
   "clean_name",
+  "cloudflare_filter",
   "var_env_key",
   "var_env_value",
   "label_key",
@@ -194,6 +255,21 @@ function field(name) {
 function fieldValue(name, fallback = "") {
   const el = field(name);
   return el ? el.value : fallback;
+}
+
+function fieldChecked(name, fallback = false) {
+  const el = field(name);
+  return el ? Boolean(el.checked) : fallback;
+}
+
+function checkboxValue(value, defaultValue = false) {
+  if (value === undefined || value === null || value === "") return defaultValue;
+  if (typeof value === "boolean") return value;
+  return !["false", "0", "off", "no"].includes(String(value).toLowerCase());
+}
+
+function ownerEnvVarValue(value) {
+  return String(value || "SAASHUP_OWNER").trim() || "SAASHUP_OWNER";
 }
 
 function userInitials(value) {
@@ -353,7 +429,7 @@ function setFieldValue(name, value = "") {
   if (!el) return;
 
   if (el.type === "checkbox") {
-    el.checked = Boolean(value);
+    el.checked = checkboxValue(value);
     return;
   }
 
@@ -448,6 +524,72 @@ function plainObject(value) {
 
 function storedProfiles() {
   return parseProfiles(localStorage.getItem("config_profiles"));
+}
+
+function normalizedProfileForSync(profile = {}) {
+  return {
+    netbox: profile.netbox || "",
+    token: profile.token || "",
+    proxy: profile.proxy || "",
+    domain: normalizeDomain(profile.domain || ""),
+    tag: profile.tag || "",
+    max_instances: normalizeMaxInstances(profile.max_instances),
+    owner_env_var: ownerEnvVarValue(profile.owner_env_var),
+    cloudflare_filter: checkboxValue(profile.cloudflare_filter, true),
+  };
+}
+
+function currentProfileFieldValues() {
+  return {
+    netbox: fieldValue("netbox"),
+    token: fieldValue("token"),
+    proxy: fieldValue("proxy"),
+    domain: fieldValue("domain"),
+    tag: fieldValue("tag"),
+    max_instances: fieldValue("max_instances"),
+    owner_env_var: fieldValue("owner_env_var"),
+    cloudflare_filter: fieldChecked("cloudflare_filter", true),
+  };
+}
+
+function profileSyncState(name = currentConfigProfile) {
+  if (!name || !configProfiles[name]) return { status: "none", message: "" };
+  const localSource = currentAction === "config" && name === currentConfigProfile
+    ? currentProfileFieldValues()
+    : configProfiles[name];
+
+  if (!serverConfigProfiles[name]) {
+    return {
+      status: "warning",
+      message: "This profile exists only in this browser. Save config to sync it to the server.",
+    };
+  }
+
+  const localProfile = JSON.stringify(normalizedProfileForSync(localSource));
+  const serverProfile = JSON.stringify(normalizedProfileForSync(serverConfigProfiles[name]));
+  if (localProfile === serverProfile) {
+    return {
+      status: "ok",
+      message: "Profile synced with server.",
+    };
+  }
+
+  return {
+    status: "warning",
+    message: "This profile differs from the server copy. Save config to align it.",
+  };
+}
+
+function updateProfileSyncWarning() {
+  if (!profileSyncWarning) return;
+
+  const { status, message } = profileSyncState();
+  profileSyncWarning.textContent = "";
+  profileSyncWarning.title = message;
+  profileSyncWarning.setAttribute("aria-label", message);
+  profileSyncWarning.classList.toggle("hidden", status === "none");
+  profileSyncWarning.classList.toggle("is-ok", status === "ok");
+  profileSyncWarning.classList.toggle("is-warning", status === "warning");
 }
 
 function parseStoredObject(key) {
@@ -557,6 +699,7 @@ async function importPortableConfig(event) {
     const importedTemplates = plainObject(data.templates);
 
     configProfiles = importedProfiles;
+    serverConfigProfiles = importedProfiles;
     createTemplates = importedTemplates;
     savedConfig = { ...importedConfig, profiles: importedProfiles };
     currentConfigProfile = importedConfig.profile || importedConfig.config_profile || Object.keys(configProfiles).sort((a, b) => a.localeCompare(b))[0] || "";
@@ -648,6 +791,8 @@ function profileCredentials(name = currentConfigProfile) {
     domain: profile.domain || "",
     tag: profile.tag || "",
     max_instances: normalizeMaxInstances(profile.max_instances),
+    owner_env_var: ownerEnvVarValue(profile.owner_env_var),
+    cloudflare_filter: checkboxValue(profile.cloudflare_filter, true),
   };
 }
 
@@ -729,8 +874,11 @@ function applyProfileToFields(name = currentConfigProfile) {
   setFieldValue("domain", credentials.domain);
   setFieldValue("tag", credentials.tag);
   setFieldValue("max_instances", credentials.max_instances);
+  setFieldValue("owner_env_var", credentials.owner_env_var);
+  setFieldValue("cloudflare_filter", credentials.cloudflare_filter);
   persistProfiles();
   syncCreateNetwork();
+  updateProfileSyncWarning();
 }
 
 function credentialsQuery({ includeTag = false } = {}) {
@@ -855,6 +1003,16 @@ async function refreshImageReport() {
   updateReportProfileOptions();
   const profile = reportProfileSelect.value || "all";
   const query = new URLSearchParams({ profile });
+  query.set("profiles", JSON.stringify(configProfiles));
+
+  if (profile !== "all") {
+    const credentials = profileCredentials(profile);
+    query.set("netbox", credentials.netbox);
+    query.set("token", credentials.token);
+    query.set("proxy", credentials.proxy);
+    query.set("tag", credentials.tag);
+    query.set("config_profile", credentials.profile);
+  }
 
   refreshReportBtn.disabled = true;
   if (!reportSummaryHasStats()) renderReportStats();
@@ -1259,6 +1417,7 @@ function setAction(actionName) {
   deleteConfigBtn?.classList.toggle("hidden", actionName !== "config");
   exportConfigBtn?.classList.toggle("hidden", actionName !== "config");
   importConfigBtn?.classList.toggle("hidden", actionName !== "config");
+  dockerhubSecretWrap?.classList.toggle("hidden", actionName !== "config");
   clearBtn?.classList.toggle("hidden", actionName === "config" || actionName === "report");
   dockerRunBtn?.classList.toggle("hidden", actionName !== "create");
   templateSelect?.classList.toggle("hidden", actionName !== "create");
@@ -1294,6 +1453,9 @@ function setAction(actionName) {
   ensureRandomCreateInstanceName();
   if (actionName === "create" && imageRecords.length === 0) {
     refreshImages({ notify: false });
+  }
+  if (actionName === "config") {
+    loadDockerhubSecret();
   }
   if (actionName === "report") {
     updateReportProfileOptions();
@@ -1363,6 +1525,46 @@ function openDockerRunModal() {
 
 function closeDockerRunModal() {
   dockerRunModal?.classList.add("hidden");
+}
+
+function openProfileHelp(key) {
+  const help = profileFieldHelp[key];
+  if (!help || !profileHelpModal || !profileHelpTitle || !profileHelpBody) return;
+
+  profileHelpTitle.textContent = help.title;
+  profileHelpBody.textContent = help.body;
+  profileHelpModal.classList.remove("hidden");
+  profileHelpOkBtn?.focus();
+}
+
+function closeProfileHelp() {
+  profileHelpModal?.classList.add("hidden");
+}
+
+function togglePasswordVisibility(input, button, label) {
+  if (!input || !button) return;
+
+  const visible = input.type === "text";
+  input.type = visible ? "password" : "text";
+  button.setAttribute("aria-pressed", visible ? "false" : "true");
+  button.setAttribute("aria-label", `${visible ? "Show" : "Hide"} ${label}`);
+  button.title = `${visible ? "Show" : "Hide"} ${label}`;
+}
+
+async function loadDockerhubSecret() {
+  if (!dockerhubSecret || dockerhubSecretLoaded) return;
+  dockerhubSecretLoaded = true;
+
+  try {
+    const response = await fetch("/dockerhub-webhook-secret", {
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    dockerhubSecret.value = data.secret || "";
+  } catch {
+    dockerhubSecret.value = "";
+  }
 }
 
 function tokenizeDockerRun(command) {
@@ -1744,6 +1946,7 @@ function loadSavedConfig() {
     .then((data) => {
       const localProfiles = applyDeletedProfileFilter(storedProfiles());
       if (!data) {
+        serverConfigProfiles = {};
         configProfiles = localProfiles;
         updateProfileOptions();
         applyProfileToFields(currentConfigProfile);
@@ -1752,19 +1955,24 @@ function loadSavedConfig() {
 
       savedConfig = data;
       const serverProfiles = applyDeletedProfileFilter(parseProfiles(data.profiles));
+      serverConfigProfiles = { ...serverProfiles };
       configProfiles = { ...serverProfiles, ...localProfiles };
 
       if (data.netbox && data.token) {
         const profile = data.profile || data.config_profile || currentConfigProfile || "";
         if (!deletedProfiles().includes(profile)) {
-          configProfiles[profile] = {
+          const serverProfile = {
             netbox: data.netbox,
             token: data.token,
             proxy: data.proxy || "",
             domain: data.domain || "",
             tag: data.tag || "",
             max_instances: normalizeMaxInstances(data.max_instances),
+            owner_env_var: ownerEnvVarValue(data.owner_env_var),
+            cloudflare_filter: checkboxValue(data.cloudflare_filter, true),
           };
+          serverConfigProfiles[profile] = serverProfile;
+          configProfiles[profile] = localProfiles[profile] || serverProfile;
           currentConfigProfile = localStorage.getItem("current_config_profile") || profile;
         }
       }
@@ -1775,6 +1983,7 @@ function loadSavedConfig() {
       return data;
     })
     .catch(() => {
+      serverConfigProfiles = {};
       configProfiles = applyDeletedProfileFilter(storedProfiles());
       updateProfileOptions();
       applyProfileToFields(currentConfigProfile);
@@ -1848,6 +2057,8 @@ async function saveConfig() {
   const domain = normalizeDomain(fieldValue("domain"));
   const tag = fieldValue("tag");
   const max_instances = normalizeMaxInstances(fieldValue("max_instances"));
+  const owner_env_var = ownerEnvVarValue(fieldValue("owner_env_var"));
+  const cloudflare_filter = fieldChecked("cloudflare_filter", true);
 
   if (!profile) {
     setNotice("Profile name is required", "error");
@@ -1861,7 +2072,8 @@ async function saveConfig() {
 
   forgetDeletedProfile(profile);
   setFieldValue("max_instances", max_instances);
-  configProfiles[profile] = { netbox, token, proxy, domain, tag, max_instances };
+  setFieldValue("owner_env_var", owner_env_var);
+  configProfiles[profile] = { netbox, token, proxy, domain, tag, max_instances, owner_env_var, cloudflare_filter };
   currentConfigProfile = profile;
   updateProfileOptions();
   persistProfiles();
@@ -1874,6 +2086,8 @@ async function saveConfig() {
     domain,
     tag,
     max_instances: String(max_instances),
+    owner_env_var,
+    cloudflare_filter: cloudflare_filter ? "true" : "false",
     profile,
     config_profile: profile,
     profiles: JSON.stringify(configProfiles),
@@ -1887,7 +2101,8 @@ async function saveConfig() {
 
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-    savedConfig = { customer_name, netbox, token, proxy, domain, tag, max_instances, profile, profiles: configProfiles };
+    savedConfig = { customer_name, netbox, token, proxy, domain, tag, max_instances, owner_env_var, cloudflare_filter, profile, profiles: configProfiles };
+    serverConfigProfiles = { ...configProfiles };
     applyProfileToFields(profile);
     setNotice(`Config "${profileLabel(profile)}" saved (${response.status})`, "success");
   } catch {
@@ -1926,6 +2141,8 @@ async function deleteConfig() {
       setFieldValue("domain", "");
       setFieldValue("tag", "");
       setFieldValue("max_instances", "1");
+      setFieldValue("owner_env_var", "SAASHUP_OWNER");
+      setFieldValue("cloudflare_filter", true);
 
       const params = new URLSearchParams({
         netbox: "",
@@ -1935,6 +2152,8 @@ async function deleteConfig() {
         domain: "",
         tag: "",
         max_instances: "1",
+        owner_env_var: "SAASHUP_OWNER",
+        cloudflare_filter: "true",
         profile: "",
         config_profile: "",
         profiles: "{}",
@@ -1947,6 +2166,7 @@ async function deleteConfig() {
 
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
+      serverConfigProfiles = {};
       setNotice(`Config "${profileLabel(profile)}" deleted (${response.status})`, "success");
       return;
     }
@@ -1965,6 +2185,8 @@ async function deleteConfig() {
       domain: credentials.domain,
       tag: credentials.tag,
       max_instances: String(credentials.max_instances),
+      owner_env_var: credentials.owner_env_var,
+      cloudflare_filter: credentials.cloudflare_filter ? "true" : "false",
       profile: currentConfigProfile,
       config_profile: currentConfigProfile,
       profiles: JSON.stringify(configProfiles),
@@ -1978,6 +2200,7 @@ async function deleteConfig() {
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
     savedConfig = { ...credentials, customer_name, profiles: configProfiles };
+    serverConfigProfiles = { ...configProfiles };
     updateProfileOptions();
     applyProfileToFields(currentConfigProfile);
     setNotice(`Config "${profileLabel(profile)}" deleted (${response.status})`, "success");
@@ -2004,6 +2227,7 @@ async function submitAction(config, submitter) {
   body.set("domain", credentials.domain);
   body.set("tag", credentials.tag);
   body.set("max_instances", String(credentials.max_instances));
+  body.set("owner_env_var", credentials.owner_env_var);
   body.set("profile", credentials.profile);
   if (isOrderPage) {
     body.set("order_request", "true");
@@ -2013,6 +2237,7 @@ async function submitAction(config, submitter) {
   if (currentAction === "create") {
     const fqdn = instanceFqdn(body.get("instance"), credentials.domain);
     body.set("instance", fqdn);
+    body.set("cloudflare_filter", credentials.cloudflare_filter ? "true" : "false");
     setFieldValue("instance", fqdn);
     createdInstanceFqdn = fqdn;
   }
@@ -2479,6 +2704,26 @@ importConfigBtn?.addEventListener("click", importPortableConfigFile);
 importConfigFile?.addEventListener("change", importPortableConfig);
 clearBtn?.addEventListener("click", clearActionFields);
 dockerRunBtn?.addEventListener("click", openDockerRunModal);
+tokenToggle?.addEventListener("click", () => togglePasswordVisibility(field("token"), tokenToggle, "NetBox token"));
+dockerhubSecretToggle?.addEventListener("click", () => togglePasswordVisibility(dockerhubSecret, dockerhubSecretToggle, "Docker Hub webhook password"));
+form?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-profile-help]");
+  if (!button) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  openProfileHelp(button.dataset.profileHelp);
+});
+form?.addEventListener("keydown", (event) => {
+  const button = event.target.closest("[data-profile-help]");
+  if (!button || (event.key !== "Enter" && event.key !== " ")) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  openProfileHelp(button.dataset.profileHelp);
+});
+profileHelpCloseBtn?.addEventListener("click", closeProfileHelp);
+profileHelpOkBtn?.addEventListener("click", closeProfileHelp);
 saveTemplateBtn?.addEventListener("click", saveCreateTemplate);
 deleteTemplateBtn?.addEventListener("click", deleteSelectedTemplate);
 loadTemplateBtn?.addEventListener("click", loadSelectedTemplate);
@@ -2499,8 +2744,16 @@ dockerRunCloseBtn?.addEventListener("click", closeDockerRunModal);
 dockerRunModal?.addEventListener("click", (event) => {
   if (event.target === dockerRunModal) closeDockerRunModal();
 });
+profileHelpModal?.addEventListener("click", (event) => {
+  if (event.target === profileHelpModal) closeProfileHelp();
+});
 refreshInstancesBtn?.addEventListener("click", refreshInstances);
 refreshImagesBtn?.addEventListener("click", refreshImages);
+configFields.forEach((name) => {
+  const control = field(name);
+  control?.addEventListener("input", updateProfileSyncWarning);
+  control?.addEventListener("change", updateProfileSyncWarning);
+});
 configProfileSelect?.addEventListener("change", () => {
   applyProfileToFields(configProfileSelect.value);
   ensureRandomCreateInstanceName();
@@ -2547,6 +2800,9 @@ orderInstances?.addEventListener("click", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !dockerRunModal?.classList.contains("hidden")) {
     closeDockerRunModal();
+  }
+  if (event.key === "Escape" && !profileHelpModal?.classList.contains("hidden")) {
+    closeProfileHelp();
   }
 });
 

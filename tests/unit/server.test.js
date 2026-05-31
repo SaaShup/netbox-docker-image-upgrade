@@ -27,10 +27,12 @@ const os = require("os");
 const path = require("path");
 const { createAuthHelpers, firstHeader } = require("../../lib/auth");
 const {
+  cloudflareFilterEnabled,
   containerNetworkNames,
   formData,
   hostName,
   normalizedStatus,
+  ownerEnvVarName,
 } = require("../../lib/docker");
 const { createMetrics } = require("../../lib/metrics");
 const { NetBoxClient, dockerHosts, hostIdQuery, setNetBoxFetchForTests } = require("../../lib/netbox");
@@ -185,6 +187,29 @@ describe("server helpers", () => {
       { var_name: "APP_ENV", value: "production" },
       { var_name: "SAASHUP_OWNER", value: "owner@example.com" },
     ]);
+
+    expect(ownerEnvVarName({})).toBe("SAASHUP_OWNER");
+    expect(ownerEnvVarName({ owner_env_var: "OWNER" })).toBe("OWNER");
+    expect(containerConfigPayloadFromForm({
+      instance: "custom-owned.example.com",
+      host_id: 7,
+      var_env_key: ["OWNER", "SAASHUP_OWNER"],
+      var_env_value: ["spoofed@example.com", "manual@example.com"],
+      owner_env_var: "OWNER",
+      saashup_owner: "owner@example.com",
+    }, 11).env).toEqual([
+      { var_name: "SAASHUP_OWNER", value: "manual@example.com" },
+      { var_name: "OWNER", value: "owner@example.com" },
+    ]);
+
+    expect(cloudflareFilterEnabled({})).toBe(true);
+    expect(cloudflareFilterEnabled({ cloudflare_filter: "false" })).toBe(false);
+    expect(cloudflareFilterEnabled({ cloudflare_filter: ["true", "false"] })).toBe(false);
+    expect(containerConfigPayloadFromForm({
+      instance: "open.example.com",
+      port_value: ["8080"],
+      cloudflare_filter: "false",
+    }, 32).labels.some((label) => label.key.endsWith(".ipallowlist.sourcerange"))).toBe(false);
   });
 
   test("derives route, operation, and status metric labels", () => {

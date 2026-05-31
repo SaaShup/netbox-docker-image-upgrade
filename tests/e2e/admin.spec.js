@@ -54,6 +54,14 @@ async function openAdmin(page, config = {}, templates = {}, instances = [
     });
   });
 
+  await page.route("**/dockerhub-webhook-secret", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ secret: "hook-secret" }),
+    });
+  });
+
   await page.route("**/instances?**", async (route) => {
     const body = typeof instances === "function" ? instances(route) : instances;
 
@@ -105,16 +113,87 @@ test("config tab starts without a forced default profile", async ({ page }) => {
   await expect(page.locator("#form-title")).toHaveText("Config");
   await expect(page.locator("#config_profile")).toHaveValue("");
   await expect(page.locator("#config_profile option")).toHaveText("No config saved");
+  await expect(page.locator("#profileSyncWarning")).toBeHidden();
   await expect(page.locator("#config_name")).toHaveValue("");
   await expect(page.locator("#netbox")).toHaveValue("");
   await expect(page.locator("#token")).toHaveValue("");
+  await expect(page.locator("#token")).toHaveAttribute("type", "password");
+  await page.locator("#tokenToggle").click();
+  await expect(page.locator("#token")).toHaveAttribute("type", "text");
+  await expect(page.locator("#tokenToggle")).toHaveAttribute("aria-label", "Hide NetBox token");
+  await page.locator("#tokenToggle").click();
+  await expect(page.locator("#token")).toHaveAttribute("type", "password");
+  await expect(page.locator("#dockerhubSecretWrap")).toBeVisible();
+  await expect(page.locator("#dockerhubSecret")).toHaveValue("hook-secret");
+  await expect(page.locator("#dockerhubSecret")).toHaveAttribute("type", "password");
+  await page.locator("#dockerhubSecretToggle").click();
+  await expect(page.locator("#dockerhubSecret")).toHaveAttribute("type", "text");
+  await expect(page.locator("#dockerhubSecretToggle")).toHaveAttribute("aria-label", "Hide Docker Hub webhook password");
+  await page.getByRole("link", { name: "Create" }).click();
+  await expect(page.locator("#dockerhubSecretWrap")).toBeHidden();
+  await page.getByRole("link", { name: "Config" }).click();
+  await expect(page.locator("#dockerhubSecretWrap")).toBeVisible();
   await expect(page.locator("#domain")).toHaveValue("");
   await expect(page.locator("#tag")).toHaveValue("");
   await expect(page.locator("#max_instances")).toHaveValue("1");
+  await expect(page.locator("#owner_env_var")).toHaveValue("SAASHUP_OWNER");
+  await expect(page.locator("#cloudflare_filter")).toBeChecked();
+  await page.locator('[data-field="netbox"] .field-label').click({ position: { x: 4, y: 8 } });
+  await expect(page.locator("#profileHelpModal")).toBeHidden();
+  await page.locator('[data-profile-help="netbox"]').click();
+  await expect(page.locator("#profileHelpTitle")).toHaveText("NetBox URL");
+  await expect(page.locator("#profileHelpBody")).toContainText("base URL of the NetBox instance");
+  await page.locator("#profileHelpOkBtn").click();
+  await expect(page.locator("#profileHelpModal")).toBeHidden();
   await expect(page.locator("#deleteConfigBtn")).toBeVisible();
   await expect(page.locator("#clearBtn")).toBeHidden();
   await expect(page.locator("#dockerRunBtn")).toBeHidden();
   await expect(page.locator("#saveTemplateBtn")).toBeHidden();
+});
+
+test("config profile warns when local profile is not synced to server", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("config_profiles", JSON.stringify({
+      local: {
+        netbox: "https://netbox.local.test",
+        token: "local-secret",
+        proxy: "",
+        domain: "local.test",
+        tag: "LOCAL",
+        max_instances: 1,
+      },
+    }));
+    localStorage.setItem("current_config_profile", "local");
+  });
+
+  await openAdmin(page, {});
+
+  await expect(page.locator("#config_profile")).toHaveValue("local");
+  await expect(page.locator("#profileSyncWarning")).toBeVisible();
+  await expect(page.locator("#profileSyncWarning")).toHaveAttribute("aria-label", /exists only in this browser/);
+  await expect(page.locator("#profileSyncWarning")).toHaveAttribute("title", /Save config/);
+});
+
+test("config profile shows green status when synced to server", async ({ page }) => {
+  await openAdmin(page, {
+    profile: "production",
+    config_profile: "production",
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "apps.example.com",
+        tag: "production",
+        max_instances: 1,
+      },
+    }),
+  });
+
+  await expect(page.locator("#config_profile")).toHaveValue("production");
+  await expect(page.locator("#profileSyncWarning")).toBeVisible();
+  await expect(page.locator("#profileSyncWarning")).toHaveClass(/is-ok/);
+  await expect(page.locator("#profileSyncWarning")).toHaveAttribute("aria-label", "Profile synced with server.");
 });
 
 test("config page exports config profiles and templates", async ({ page }) => {
@@ -186,6 +265,8 @@ test("config page imports config profiles and templates", async ({ page }) => {
           domain: "apps.example.com",
           tag: "production",
           max_instances: 3,
+          owner_env_var: "OWNER",
+          cloudflare_filter: false,
         },
       },
     },
@@ -213,10 +294,14 @@ test("config page imports config profiles and templates", async ({ page }) => {
   await expect(page.locator("#config_profile")).toHaveValue("production");
   await expect(page.locator("#netbox")).toHaveValue("https://netbox.example.com");
   await expect(page.locator("#max_instances")).toHaveValue("3");
+  await expect(page.locator("#owner_env_var")).toHaveValue("OWNER");
+  await expect(page.locator("#cloudflare_filter")).not.toBeChecked();
 
   const localProfiles = await page.evaluate(() => JSON.parse(localStorage.getItem("config_profiles")));
   const localTemplates = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")));
   expect(localProfiles.production.tag).toBe("production");
+  expect(localProfiles.production.owner_env_var).toBe("OWNER");
+  expect(localProfiles.production.cloudflare_filter).toBe(false);
   expect(localTemplates.Guide.image).toBe("saashup/guide");
 });
 
@@ -323,7 +408,10 @@ test("report menu shows image usage for all configs", async ({ page }) => {
   ]);
   await page.route("**/report/images?**", async (route) => {
     const url = new URL(route.request().url());
-    reportRequests.push(url.searchParams.get("profile"));
+    reportRequests.push({
+      profile: url.searchParams.get("profile"),
+      profiles: JSON.parse(url.searchParams.get("profiles") || "{}"),
+    });
     if (releaseFirstReport === undefined) {
       await new Promise((resolve) => {
         releaseFirstReport = resolve;
@@ -363,7 +451,8 @@ test("report menu shows image usage for all configs", async ({ page }) => {
   await expect(page.locator("#reportTableBody tr")).toHaveCount(2);
   await expect(page.locator("#reportTableBody")).toContainText("saashup/api");
   await expect(page.locator("#reportTableBody")).toContainText("v2.0.1");
-  expect(reportRequests).toContain("all");
+  expect(reportRequests.some((request) => request.profile === "all")).toBe(true);
+  expect(reportRequests.at(-1).profiles.production.token).toBe("secret");
 });
 
 test("delete config removes the profile and keeps it gone after reload", async ({ page }) => {
@@ -862,6 +951,8 @@ test("create form appends the configured domain to short instance names", async 
         proxy: "",
         domain: "daily.paashup.cloud",
         tag: "TILE",
+        owner_env_var: "OWNER",
+        cloudflare_filter: false,
       },
     }),
   });
@@ -874,6 +965,8 @@ test("create form appends the configured domain to short instance names", async 
 
   await expect.poll(() => createBody).toContain("instance=tiles.daily.paashup.cloud");
   expect(createBody).toContain("domain=daily.paashup.cloud");
+  expect(createBody).toContain("owner_env_var=OWNER");
+  expect(createBody).toContain("cloudflare_filter=false");
   expect(createBody).toContain("port_value=3000");
   await expect(page.locator("#instance")).toHaveValue("tiles.daily.paashup.cloud");
 });
@@ -1732,6 +1825,13 @@ test("logs panel can go fullscreen and clear logs", async ({ page }) => {
   await page.getByRole("link", { name: "Create" }).click();
   await expect(page.locator("#logsCard")).not.toHaveClass(/fullscreen/);
   await expect(page.locator("#logsFullscreenBtn")).toHaveAttribute("aria-pressed", "false");
+
+  await page.getByRole("link", { name: "Report" }).click();
+  await page.locator("#logsFullscreenBtn").click();
+  await expect(page.locator("#logsCard")).toHaveClass(/fullscreen/);
+  await expect(page.locator("#reportCard")).toBeHidden();
+  await page.locator("#logsFullscreenBtn").click();
+  await expect(page.locator("#reportCard")).toBeVisible();
 
   await page.on("dialog", (dialog) => dialog.accept());
   await page.locator("#clearLogsBtn").click();

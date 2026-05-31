@@ -92,6 +92,15 @@
         <button type="button" class="btn btn-secondary hidden" id="saveTemplateBtn">Save template</button>
         <button type="button" class="btn btn-danger hidden" id="deleteTemplateBtn">Delete template</button>
         <button type="button" class="btn btn-primary hidden" id="orderTemplateBtn">Order template</button>
+        <label class="toolbar-secret hidden" id="dockerhubSecretWrap">
+          <span>Docker Hub webhook password</span>
+          <div class="password-field">
+            <input type="password" id="dockerhubSecret" readonly aria-label="Docker Hub webhook password">
+            <button type="button" class="password-toggle" id="dockerhubSecretToggle" aria-label="Show Docker Hub webhook password" title="Show Docker Hub webhook password" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            </button>
+          </div>
+        </label>
       </section>
 
       <section class="content-grid">
@@ -104,7 +113,7 @@
           <form id="instanceForm" action="/webhook" method="get">
             <div class="form-grid">
               <label class="field" data-field="config_profile">
-                <span>Config profile</span>
+                <span class="field-label">Config profile <span class="profile-help-btn" data-profile-help="config_profile" role="button" tabindex="0" aria-label="Explain Config profile">?</span><span class="profile-sync-indicator hidden" id="profileSyncWarning" role="status" aria-label=""></span></span>
                 <select id="config_profile" name="config_profile"></select>
               </label>
 
@@ -119,43 +128,58 @@
               </label>
 
               <label class="field" data-field="config_name">
-                <span>Profile name</span>
+                <span class="field-label">Profile name <span class="profile-help-btn" data-profile-help="config_name" role="button" tabindex="0" aria-label="Explain Profile name">?</span></span>
                 <input type="text" id="config_name" name="config_name" placeholder="production">
               </label>
 
               <label class="field" data-field="customer_name">
-                <span>Customer name</span>
+                <span class="field-label">Customer name <span class="profile-help-btn" data-profile-help="customer_name" role="button" tabindex="0" aria-label="Explain Customer name">?</span></span>
                 <input type="text" id="customer_name" name="customer_name" placeholder="SaasHup">
               </label>
 
               <label class="field" data-field="netbox">
-                <span>NetBox URL</span>
+                <span class="field-label">NetBox URL <span class="profile-help-btn" data-profile-help="netbox" role="button" tabindex="0" aria-label="Explain NetBox URL">?</span></span>
                 <input type="url" id="netbox" name="netbox" placeholder="https://cmdb.saashup.com">
               </label>
 
               <label class="field" data-field="token">
-                <span>NetBox Token</span>
-                <input type="password" id="token" name="token" autocomplete="off" placeholder="Token">
+                <span class="field-label">NetBox Token <span class="profile-help-btn" data-profile-help="token" role="button" tabindex="0" aria-label="Explain NetBox Token">?</span></span>
+                <div class="password-field">
+                  <input type="password" id="token" name="token" autocomplete="off" placeholder="Token">
+                  <button type="button" class="password-toggle" id="tokenToggle" aria-label="Show NetBox token" title="Show NetBox token" aria-pressed="false">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                  </button>
+                </div>
               </label>
 
               <label class="field" data-field="proxy">
-                <span>Proxy URL</span>
+                <span class="field-label">Proxy URL <span class="profile-help-btn" data-profile-help="proxy" role="button" tabindex="0" aria-label="Explain Proxy URL">?</span></span>
                 <input type="url" id="proxy" name="proxy" placeholder="http://proxy.example.com:8080">
               </label>
 
               <label class="field" data-field="domain">
-                <span>Domain</span>
+                <span class="field-label">Domain <span class="profile-help-btn" data-profile-help="domain" role="button" tabindex="0" aria-label="Explain Domain">?</span></span>
                 <input type="text" id="domain" name="domain" placeholder="paashup.cloud">
               </label>
 
               <label class="field" data-field="tag">
-                <span>Tag</span>
+                <span class="field-label">Tag <span class="profile-help-btn" data-profile-help="tag" role="button" tabindex="0" aria-label="Explain Tag">?</span></span>
                 <input type="text" id="tag" name="tag" placeholder="production">
               </label>
 
               <label class="field" data-field="max_instances">
-                <span>Max instances</span>
+                <span class="field-label">Max instances <span class="profile-help-btn" data-profile-help="max_instances" role="button" tabindex="0" aria-label="Explain Max instances">?</span></span>
                 <input type="number" id="max_instances" name="max_instances" min="0" max="10" value="1">
+              </label>
+
+              <label class="field" data-field="owner_env_var">
+                <span class="field-label">Owner env var <span class="profile-help-btn" data-profile-help="owner_env_var" role="button" tabindex="0" aria-label="Explain Owner env var">?</span></span>
+                <input type="text" id="owner_env_var" name="owner_env_var" placeholder="SAASHUP_OWNER" value="SAASHUP_OWNER">
+              </label>
+
+              <label class="field checkbox-field" data-field="cloudflare_filter">
+                <input type="checkbox" id="cloudflare_filter" name="cloudflare_filter" value="true" checked>
+                <span class="field-label">Restrict Traefik access to Cloudflare IPs <span class="profile-help-btn" data-profile-help="cloudflare_filter" role="button" tabindex="0" aria-label="Explain Cloudflare IP restriction">?</span></span>
               </label>
 
               <label class="field" data-field="network">
@@ -320,6 +344,19 @@
         <span data-app-version></span>
       </footer>
     </main>
+  </div>
+
+  <div class="modal-backdrop hidden" id="profileHelpModal" role="dialog" aria-modal="true" aria-labelledby="profileHelpTitle">
+    <div class="modal help-modal">
+      <div class="modal-header">
+        <h3 id="profileHelpTitle">Field help</h3>
+        <button type="button" class="icon-btn" id="profileHelpCloseBtn" aria-label="Close field help">&times;</button>
+      </div>
+      <p class="help-modal-body" id="profileHelpBody"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-primary" id="profileHelpOkBtn">OK</button>
+      </div>
+    </div>
   </div>
 
   <div class="modal-backdrop hidden" id="dockerRunModal" role="dialog" aria-modal="true" aria-labelledby="dockerRunTitle">
