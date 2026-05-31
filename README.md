@@ -32,15 +32,16 @@ OIDC_CLIENT_SECRET=...
 OIDC_REDIRECT_URI=https://your-domain.example/oidc/callback
 SAASHUP_SESSION_SECRET=...
 ADMIN_ALLOWED_EMAILS=admin@example.com
+SAASHUP_OWNER_EMAIL=owner@example.com
 ```
 
 `/admin` and `/order` redirect unauthenticated users to Keycloak. `ADMIN_ALLOWED_EMAILS` still controls who can access admin-only actions.
 
 # Config profiles
 
-The admin UI supports multiple named NetBox configs. In the Config menu, choose or enter a profile name, fill the NetBox URL, token, optional proxy URL, optional domain and optional host tag slug, then save. Create, Upgrade, Operate, Delete, host refresh, instance refresh and image refresh all use the selected profile. When a domain is set, Create turns a short instance name into an FQDN by appending that domain. When a tag is set, Create, Upgrade, Operate and refresh lists first load hosts with that tag. Create selects the matching host with the fewest containers.
+The admin UI supports multiple named NetBox configs. In the Config menu, choose or enter a profile name, fill the NetBox URL, token, optional proxy URL, optional domain, optional host tag slug, optional Docker Hub webhook password and optional SMTP config in `user:pwd@host:port` format, then save. Create, Upgrade, Operate, Delete, host refresh, instance refresh and image refresh all use the selected profile. When a domain is set, Create turns a short instance name into an FQDN by appending that domain. When a tag is set, Create, Upgrade, Operate and refresh lists first load hosts with that tag. Create selects the matching host with the fewest containers.
 
-Each config also has a `Max instances` value from 0 to 10, defaulting to 1. Orders are limited per signed-in user and config profile. The limit and usage counters are persisted in `app-state.json` under `DATAPATH` (`/data` in the Docker image).
+Each config also has a `Max instances` value from 0 to 10, defaulting to 1. Orders are limited per signed-in user and config profile. The limit and usage counters are persisted in `app-state.json` under `DATAPATH` (`/data` in the Docker image). When a profile has SMTP config and `SAASHUP_OWNER_EMAIL` is set, ready emails are sent to the requester with the owner address copied. `APP_OWNER_EMAIL` is also accepted as an alias.
 
 Use the Config page export/import buttons to move saved config profiles, create templates and order counters from one container to another. Export downloads a JSON file, and import replaces those persisted values in the target container.
 
@@ -54,7 +55,7 @@ https://your-domain.example/dockerhub/<config-profile>
 
 For example, `/dockerhub/curioocity-guide` uses the `curioocity-guide` config profile and only processes Docker hosts matching that profile's host tag. The profile-less `/dockerhub` endpoint is not enabled.
 
-Set `DOCKERHUB_WEBHOOK_SECRET` to require a shared secret. Docker Hub can include it in the webhook URL:
+Set `DOCKERHUB_WEBHOOK_SECRET` to require a shared secret by default. A config profile can override this with its own Docker Hub webhook password. Docker Hub can include it in the webhook URL:
 
 ```
 https://your-domain.example/dockerhub/<config-profile>/<secret>

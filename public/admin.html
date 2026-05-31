@@ -81,6 +81,7 @@
 
       <section class="toolbar">
         <button type="button" class="btn btn-primary" id="testBtn">Test connection</button>
+        <button type="button" class="btn btn-primary hidden" id="testEmailBtn">Test email</button>
         <button type="button" class="btn btn-danger hidden" id="deleteConfigBtn">Delete config</button>
         <button type="button" class="btn btn-secondary hidden" id="exportConfigBtn">Export</button>
         <button type="button" class="btn btn-secondary hidden" id="importConfigBtn">Import</button>
@@ -92,15 +93,6 @@
         <button type="button" class="btn btn-secondary hidden" id="saveTemplateBtn">Save template</button>
         <button type="button" class="btn btn-danger hidden" id="deleteTemplateBtn">Delete template</button>
         <button type="button" class="btn btn-primary hidden" id="orderTemplateBtn">Order template</button>
-        <label class="toolbar-secret hidden" id="dockerhubSecretWrap">
-          <span>Docker Hub webhook password</span>
-          <div class="password-field">
-            <input type="password" id="dockerhubSecret" readonly aria-label="Docker Hub webhook password">
-            <button type="button" class="password-toggle" id="dockerhubSecretToggle" aria-label="Show Docker Hub webhook password" title="Show Docker Hub webhook password" aria-pressed="false">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-            </button>
-          </div>
-        </label>
       </section>
 
       <section class="content-grid">
@@ -175,6 +167,26 @@
               <label class="field" data-field="owner_env_var">
                 <span class="field-label">Owner env var <span class="profile-help-btn" data-profile-help="owner_env_var" role="button" tabindex="0" aria-label="Explain Owner env var">?</span></span>
                 <input type="text" id="owner_env_var" name="owner_env_var" placeholder="SAASHUP_OWNER" value="SAASHUP_OWNER">
+              </label>
+
+              <label class="field" data-field="dockerhub_webhook_secret">
+                <span class="field-label">Docker Hub webhook password <span class="profile-help-btn" data-profile-help="dockerhub_webhook_secret" role="button" tabindex="0" aria-label="Explain Docker Hub webhook password">?</span></span>
+                <div class="password-field">
+                  <input type="password" id="dockerhub_webhook_secret" name="dockerhub_webhook_secret" autocomplete="off" placeholder="Empty uses env default">
+                  <button type="button" class="password-toggle" id="profileDockerhubSecretToggle" aria-label="Show Docker Hub webhook password" title="Show Docker Hub webhook password" aria-pressed="false">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                  </button>
+                </div>
+              </label>
+
+              <label class="field" data-field="smtp_config">
+                <span class="field-label">SMTP config <span class="profile-help-btn" data-profile-help="smtp_config" role="button" tabindex="0" aria-label="Explain SMTP config">?</span></span>
+                <div class="password-field">
+                  <input type="password" id="smtp_config" name="smtp_config" autocomplete="off" placeholder="user@example.com:pwd@smtp.example.com:587">
+                  <button type="button" class="password-toggle" id="smtpConfigToggle" aria-label="Show SMTP config" title="Show SMTP config" aria-pressed="false">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                  </button>
+                </div>
               </label>
 
               <label class="field checkbox-field" data-field="cloudflare_filter">

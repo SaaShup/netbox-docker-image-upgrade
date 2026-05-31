@@ -1,5 +1,6 @@
 const path = require("path");
 const crypto = require("crypto");
+const fs = require("fs");
 const express = require("express");
 const packageJson = require("./package.json");
 const { authUserFromRequest, createAuthHelpers, maxInstancesValue } = require("./lib/auth");
@@ -26,18 +27,27 @@ const { createMetrics, metricLabel, metricLine, operationLabel: operationLabelFo
 const { NetBoxClient, dockerHosts, hostIdQuery, setNetBoxFetchForTests } = require("./lib/netbox");
 const { createOidcAuth, setOidcFetchForTests } = require("./lib/oidc");
 const { createOperationHelpers, delay } = require("./lib/operations");
+const { parseSmtpConfig, sendSmtpMail, smtpMessage, smtpSenderAddress, smtpTransportOptions } = require("./lib/smtp");
 const { createStateStore, parseProfiles, plainObject } = require("./lib/state");
 
 const app = express();
 const dataPath = path.resolve(process.env.DATAPATH || path.join(__dirname, "data"));
 const appPath = path.resolve(process.env.APPPATH || __dirname);
 const publicPath = path.join(appPath, "public");
+const saashupEmailLogo = (() => {
+  try {
+    return fs.readFileSync(path.join(publicPath, "assets/email/saashup-logo.png")).toString("base64");
+  } catch {
+    return "";
+  }
+})();
 const startedAt = Date.now();
 const operationTimeoutSeconds = Number(process.env.OPERATION_TIMEOUT_SECONDS || 30);
 const operationPollMs = Number(process.env.OPERATION_POLL_MS || 3000);
 const createConfigureDelayMs = Number(process.env.CREATE_CONFIGURE_DELAY_MS || 5000);
 const createRecreateDelayMs = Number(process.env.CREATE_RECREATE_DELAY_MS || 5000);
 const dockerhubWebhookSecret = String(process.env.DOCKERHUB_WEBHOOK_SECRET || "");
+const appOwnerEmail = String(process.env.SAASHUP_OWNER_EMAIL || process.env.APP_OWNER_EMAIL || "").trim();
 const adminAllowedEmails = String(process.env.ADMIN_ALLOWED_EMAILS || "")
   .split(",")
   .map((email) => email.trim().toLowerCase())
@@ -54,6 +64,7 @@ const oidcAuth = createOidcAuth({
 const metrics = createMetrics();
 const { readState, writeState, logLine } = createStateStore(dataPath);
 const { isAdminAllowed, selectedProfileConfig, userOrderKey } = createAuthHelpers({ adminAllowedEmails, readState });
+let smtpSender = sendSmtpMail;
 const {
   createDnsRecord,
   deleteDnsRecord,
@@ -157,6 +168,126 @@ function removeOrderInstance(req, profile, instance) {
   });
 }
 
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function orderReadyEmail(data, recipient, smtpConfig, { ccOwner = true } = {}) {
+  const instance = data.instance || "your instance";
+  const image = data.image || "";
+  const cc = ccOwner && appOwnerEmail && appOwnerEmail.toLowerCase() !== String(recipient || "").toLowerCase() ? [appOwnerEmail] : [];
+  const actionUrl = /^https?:\/\//i.test(instance) ? instance : `https://${instance}`;
+  const text = [
+    "Hello,",
+    "",
+    `Your instance is now running: ${instance}`,
+    image ? `Image: ${image}` : "",
+    "",
+    "You can start using it now.",
+  ].filter((line) => line !== "").join("\n");
+  const html = `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f6f7fb;font-family:Arial,Helvetica,sans-serif;color:#172033;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f6f7fb;padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#ffffff;border:1px solid #e4e7ef;border-radius:8px;overflow:hidden;">
+            <tr>
+              <td style="padding:24px 28px;background:#111827;color:#ffffff;">
+                <div style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#ffffff;">
+                  ${saashupEmailLogo ? `<img src="cid:saashup-logo" width="28" height="26" alt="SaaShup" style="display:inline-block;vertical-align:middle;margin-right:8px;background:#ffffff;border-radius:4px;padding:2px;">` : ""}
+                  <span style="vertical-align:middle;color:#ffffff;">SaaShup</span>
+                </div>
+                <h1 style="margin:8px 0 0;font-size:24px;line-height:1.25;">Your instance is ready</h1>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:28px;">
+                <p style="margin:0 0 16px;font-size:16px;line-height:1.5;">Hello,</p>
+                <p style="margin:0 0 20px;font-size:16px;line-height:1.5;">Your instance is now running and ready to use.</p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 24px;border-collapse:collapse;">
+                  <tr>
+                    <td style="padding:10px 0;color:#667085;font-size:13px;border-bottom:1px solid #eef0f5;">Instance</td>
+                    <td style="padding:10px 0;text-align:right;font-size:14px;border-bottom:1px solid #eef0f5;"><strong>${escapeHtml(instance)}</strong></td>
+                  </tr>
+                  ${image ? `<tr>
+                    <td style="padding:10px 0;color:#667085;font-size:13px;border-bottom:1px solid #eef0f5;">Image</td>
+                    <td style="padding:10px 0;text-align:right;font-size:14px;border-bottom:1px solid #eef0f5;">${escapeHtml(image)}</td>
+                  </tr>` : ""}
+                </table>
+                <a href="${escapeHtml(actionUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-weight:bold;padding:12px 18px;border-radius:6px;">Open instance</a>
+                <p style="margin:24px 0 0;color:#667085;font-size:13px;line-height:1.5;">If the button does not work, open this URL: ${escapeHtml(actionUrl)}</p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+  return {
+    from: smtpSenderAddress(smtpConfig, appOwnerEmail),
+    to: recipient,
+    cc,
+    subject: `${instance} is ready`,
+    text,
+    html,
+    inlineImages: saashupEmailLogo ? [{
+      cid: "saashup-logo",
+      filename: "saashup-logo.png",
+      contentType: "image/png",
+      content: saashupEmailLogo,
+    }] : [],
+  };
+}
+
+async function sendOrderReadyEmail(data, recipient) {
+  const smtpConfig = parseSmtpConfig(data.smtp_config);
+  if (!smtpConfig || !recipient) return;
+
+  const info = await smtpSender(smtpConfig, orderReadyEmail(data, recipient, smtpConfig));
+  logLine(`EMAIL : ready notification sent to ${recipient} for ${data.instance || ""} ${smtpInfoText(info)}`);
+}
+
+function smtpInfoText(info) {
+  if (!info || typeof info !== "object") return "";
+  const accepted = Array.isArray(info.accepted) ? info.accepted.join(",") : "";
+  const rejected = Array.isArray(info.rejected) ? info.rejected.join(",") : "";
+  return [
+    info.messageId ? `messageId=${info.messageId}` : "",
+    accepted ? `accepted=${accepted}` : "",
+    rejected ? `rejected=${rejected}` : "",
+    info.response ? `response=${String(info.response).slice(0, 120)}` : "",
+  ].filter(Boolean).join(" ");
+}
+
+async function sendTestEmail(data) {
+  const smtpConfig = parseSmtpConfig(data.smtp_config);
+  if (!appOwnerEmail) {
+    const error = new Error("owner email is not configured");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!smtpConfig) {
+    const error = new Error("smtp config is not configured");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const info = await smtpSender(smtpConfig, orderReadyEmail({
+    ...data,
+    instance: data.instance || "test-instance.example.com",
+    image: data.image || "saashup/example",
+    version: data.version || "test",
+  }, appOwnerEmail, smtpConfig, { ccOwner: false }));
+  logLine(`EMAIL : test notification sent to owner for ${data.profile || data.config_profile || "default"} ${smtpInfoText(info)}`);
+  return info;
+}
+
 function requireAdmin(req, res, next) {
   const user = authUserFromRequest(req);
   if (oidcAuth.enabled && !user.email && !user.user && !user.name) return oidcAuth.loginRequired(req, res, next);
@@ -171,10 +302,16 @@ function timingSafeStringEqual(left, right) {
   return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
 }
 
+function dockerhubSecretForProfile(profile) {
+  const config = selectedProfileConfig({ profile, config_profile: profile });
+  return String(config.dockerhub_webhook_secret || dockerhubWebhookSecret || "");
+}
+
 function dockerhubWebhookAllowed(req) {
-  if (!dockerhubWebhookSecret) return true;
+  const secret = dockerhubSecretForProfile(req.params.profile);
+  if (!secret) return true;
   const provided = req.params.secret || req.query.secret || req.get("x-saashup-webhook-secret") || "";
-  return timingSafeStringEqual(provided, dockerhubWebhookSecret);
+  return timingSafeStringEqual(provided, secret);
 }
 
 app.disable("x-powered-by");
@@ -253,7 +390,26 @@ app.get("/order", oidcAuth.loginRequired, (req, res) => res.sendFile(path.join(p
 app.use(express.static(publicPath));
 
 app.get("/config", (req, res) => res.json(readState().config || {}));
-app.get("/dockerhub-webhook-secret", requireAdmin, (req, res) => res.json({ secret: dockerhubWebhookSecret }));
+app.get("/mail-settings", requireAdmin, (req, res) => res.json({ owner_email_configured: Boolean(appOwnerEmail) }));
+app.get("/dockerhub-webhook-secret", requireAdmin, (req, res) => {
+  const profile = req.query.profile || req.query.config_profile || "";
+  res.json({ secret: profile ? dockerhubSecretForProfile(profile) : dockerhubWebhookSecret, default_secret: dockerhubWebhookSecret });
+});
+app.post("/test-email", requireAdmin, async (req, res) => {
+  try {
+    const data = { ...selectedProfileConfig(req.body), ...req.body };
+    const info = await sendTestEmail(data);
+    res.json({
+      status: "sent",
+      message_id: info?.messageId || "",
+      accepted: Array.isArray(info?.accepted) ? info.accepted : [],
+      rejected: Array.isArray(info?.rejected) ? info.rejected : [],
+      response: info?.response || "",
+    });
+  } catch (error) {
+    res.status(error.statusCode || 502).json({ detail: error.message || "email test failed" });
+  }
+});
 app.delete("/config", requireAdmin, (req, res) => {
   writeState((state) => {
     state.config = {};
@@ -273,6 +429,8 @@ app.get("/webhook", requireAdmin, (req, res) => {
     max_instances: maxInstancesValue(req.query.max_instances),
     owner_env_var: String(req.query.owner_env_var || "SAASHUP_OWNER").trim() || "SAASHUP_OWNER",
     cloudflare_filter: req.query.cloudflare_filter !== "false",
+    dockerhub_webhook_secret: req.query.dockerhub_webhook_secret || "",
+    smtp_config: req.query.smtp_config || "",
     profile: req.query.profile || req.query.config_profile || "",
     config_profile: req.query.config_profile || req.query.profile || "",
     profiles: JSON.stringify(profiles),
@@ -630,7 +788,8 @@ app.get("/order/limit", (req, res) => res.json(currentUsage(req, req.query.profi
 
 app.post("/create", async (req, res) => {
   const data = { ...selectedProfileConfig(req.body), ...req.body };
-  data.saashup_owner = authUserFromRequest(req).email || "";
+  const authUser = authUserFromRequest(req);
+  data.saashup_owner = authUser.email || "";
   const orderProfile = data.profile || data.config_profile || "";
   const usage = currentUsage(req, orderProfile);
   const isOrderRequest = req.body.order_request === "true";
@@ -672,8 +831,17 @@ app.post("/create", async (req, res) => {
       logLine(`CREATE : container ${containerPayload.name} configured on ${hostName(selectedHost)} env=${containerConfig.env.length} labels=${containerConfig.labels.length} mounts=${containerConfig.mounts.length}`);
       if (createRecreateDelayMs > 0) await delay(createRecreateDelayMs);
       await waitForContainerConfigured(client, container.id, `${hostName(container)}/${valueText(container.display || container.name)}`);
-      await requestContainerOperation(client, container, "recreate", "CREATE");
-      if (isOrderRequest) updateOrderInstanceStatus(req, orderProfile, data.instance || "", "ready");
+      const ready = await requestContainerOperation(client, container, "recreate", "CREATE");
+      if (isOrderRequest && ready) {
+        try {
+          await sendOrderReadyEmail(data, authUser.email || "");
+        } catch (error) {
+          logLine(`EMAIL : ready notification failed for ${authUser.email || ""} ${error.message || "smtp error"}`);
+        }
+        updateOrderInstanceStatus(req, orderProfile, data.instance || "", "ready");
+      } else if (isOrderRequest) {
+        updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
+      }
     } catch (error) {
       if (isOrderRequest) updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
       throw error;
@@ -837,10 +1005,18 @@ module.exports = {
   metricLine,
   operationLabel,
   parseProfiles,
+  parseSmtpConfig,
   plainObject,
   routeLabel,
+  sendSmtpMail,
   setNetBoxFetchForTests,
   setOidcFetchForTests,
+  setSmtpSenderForTests: (sender) => {
+    smtpSender = sender || sendSmtpMail;
+  },
+  smtpMessage,
+  smtpSenderAddress,
+  smtpTransportOptions,
   statusClass,
   valueText,
   volumePayloadsFromForm,

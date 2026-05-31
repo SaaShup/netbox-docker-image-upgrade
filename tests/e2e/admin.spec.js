@@ -123,16 +123,24 @@ test("config tab starts without a forced default profile", async ({ page }) => {
   await expect(page.locator("#tokenToggle")).toHaveAttribute("aria-label", "Hide NetBox token");
   await page.locator("#tokenToggle").click();
   await expect(page.locator("#token")).toHaveAttribute("type", "password");
-  await expect(page.locator("#dockerhubSecretWrap")).toBeVisible();
-  await expect(page.locator("#dockerhubSecret")).toHaveValue("hook-secret");
-  await expect(page.locator("#dockerhubSecret")).toHaveAttribute("type", "password");
-  await page.locator("#dockerhubSecretToggle").click();
-  await expect(page.locator("#dockerhubSecret")).toHaveAttribute("type", "text");
-  await expect(page.locator("#dockerhubSecretToggle")).toHaveAttribute("aria-label", "Hide Docker Hub webhook password");
+  await expect(page.locator("#dockerhub_webhook_secret")).toHaveValue("hook-secret");
+  await expect(page.locator("#dockerhub_webhook_secret")).toHaveAttribute("type", "password");
+  await expect(page.locator("#dockerhub_webhook_secret")).toHaveAttribute("placeholder", "Empty uses env default");
+  await page.locator("#profileDockerhubSecretToggle").click();
+  await expect(page.locator("#dockerhub_webhook_secret")).toHaveAttribute("type", "text");
+  await expect(page.locator("#profileDockerhubSecretToggle")).toHaveAttribute("aria-label", "Hide Docker Hub webhook password");
+  await page.locator("#profileDockerhubSecretToggle").click();
+  await expect(page.locator("#dockerhub_webhook_secret")).toHaveAttribute("type", "password");
+  await expect(page.locator("#smtp_config")).toHaveAttribute("type", "password");
+  await page.locator("#smtpConfigToggle").click();
+  await expect(page.locator("#smtp_config")).toHaveAttribute("type", "text");
+  await expect(page.locator("#smtpConfigToggle")).toHaveAttribute("aria-label", "Hide SMTP config");
+  await page.locator("#smtpConfigToggle").click();
+  await expect(page.locator("#smtp_config")).toHaveAttribute("type", "password");
   await page.getByRole("link", { name: "Create" }).click();
-  await expect(page.locator("#dockerhubSecretWrap")).toBeHidden();
+  await expect(page.locator('[data-field="dockerhub_webhook_secret"]')).toBeHidden();
   await page.getByRole("link", { name: "Config" }).click();
-  await expect(page.locator("#dockerhubSecretWrap")).toBeVisible();
+  await expect(page.locator('[data-field="dockerhub_webhook_secret"]')).toBeVisible();
   await expect(page.locator("#domain")).toHaveValue("");
   await expect(page.locator("#tag")).toHaveValue("");
   await expect(page.locator("#max_instances")).toHaveValue("1");
@@ -205,6 +213,41 @@ test("config profile shows green status when synced to server", async ({ page })
   await expect(page.locator("#profileSyncWarning")).toBeVisible();
   await expect(page.locator("#profileSyncWarning")).toHaveClass(/is-ok/);
   await expect(page.locator("#profileSyncWarning")).toHaveAttribute("aria-label", "Profile synced with server.");
+});
+
+test("config page can send a test email when smtp and owner email are configured", async ({ page }) => {
+  let emailBody = "";
+  await page.route("**/mail-settings", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ owner_email_configured: true }),
+    });
+  });
+  await page.route("**/test-email", async (route) => {
+    emailBody = route.request().postData() || "";
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ status: "sent" }),
+    });
+  });
+  await openAdmin(page, {
+    profile: "prod",
+    config_profile: "prod",
+    profiles: JSON.stringify({
+      prod: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        smtp_config: "mailer:smtp-secret@smtp.example.com:587",
+      },
+    }),
+  });
+
+  await expect(page.locator("#testEmailBtn")).toBeVisible();
+  await page.locator("#testEmailBtn").click();
+  await expect(page.locator("#notif")).toContainText("Test email sent");
+  expect(emailBody).toContain('"smtp_config":"mailer:smtp-secret@smtp.example.com:587"');
 });
 
 test("config page exports config profiles and templates", async ({ page }) => {

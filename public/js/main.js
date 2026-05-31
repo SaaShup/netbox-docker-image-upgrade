@@ -10,6 +10,7 @@ const formCard = document.querySelector(".form-card");
 const submitBtn = document.getElementById("submitBtn");
 const restartInstanceBtn = document.getElementById("restartInstanceBtn");
 const testBtn = document.getElementById("testBtn");
+const testEmailBtn = document.getElementById("testEmailBtn");
 const deleteConfigBtn = document.getElementById("deleteConfigBtn");
 const exportConfigBtn = document.getElementById("exportConfigBtn");
 const importConfigBtn = document.getElementById("importConfigBtn");
@@ -35,9 +36,9 @@ const profileHelpOkBtn = document.getElementById("profileHelpOkBtn");
 const formTitle = document.getElementById("form-title");
 const formDescription = document.getElementById("form-description");
 const tokenToggle = document.getElementById("tokenToggle");
-const dockerhubSecretWrap = document.getElementById("dockerhubSecretWrap");
-const dockerhubSecret = document.getElementById("dockerhubSecret");
-const dockerhubSecretToggle = document.getElementById("dockerhubSecretToggle");
+const profileDockerhubSecret = document.getElementById("dockerhub_webhook_secret");
+const profileDockerhubSecretToggle = document.getElementById("profileDockerhubSecretToggle");
+const smtpConfigToggle = document.getElementById("smtpConfigToggle");
 const envList = document.getElementById("envList");
 const addEnvBtn = document.getElementById("addEnvBtn");
 const labelList = document.getElementById("labelList");
@@ -88,10 +89,12 @@ let createTemplates = {};
 let generatedCreateInstanceName = "";
 let orderInstanceCards = [];
 let orderInstanceLimit = { max: 0, used: 0 };
-let dockerhubSecretLoaded = false;
 let currentReportView = "images";
 let lastReportData = null;
 let orderStatusPollTimer = null;
+let mailSettings = { owner_email_configured: false };
+let dockerhubWebhookDefaultSecret = "";
+let dockerhubWebhookDefaultLoaded = false;
 const logsPollFailureNotice = "Activity logs unavailable: network error";
 const sidebarCollapsedStorageKey = "sidebar_collapsed";
 
@@ -140,6 +143,14 @@ const profileFieldHelp = {
     title: "Cloudflare IP restriction",
     body: "When enabled, created containers receive the Traefik IP allow-list label for Cloudflare source ranges. Disable it to create routes without that allow-list label.",
   },
+  dockerhub_webhook_secret: {
+    title: "Docker Hub webhook password",
+    body: "Optional profile-specific password for Docker Hub webhooks. Leave it empty to use the DOCKERHUB_WEBHOOK_SECRET environment default.",
+  },
+  smtp_config: {
+    title: "SMTP config",
+    body: "Optional SMTP connection string for this profile in the format user:pwd@host:port.",
+  },
   operate_action: {
     title: "Action",
     body: "Choose the container operation to request. Start, stop, restart and kill can be applied to one instance or to all containers using the selected image version.",
@@ -178,7 +189,7 @@ const profileFieldHelp = {
   },
 };
 
-const configFields = ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_instances", "owner_env_var", "cloudflare_filter"];
+const configFields = ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_instances", "owner_env_var", "cloudflare_filter", "dockerhub_webhook_secret", "smtp_config"];
 
 const actions = {
   config: {
@@ -189,7 +200,7 @@ const actions = {
     description: "Save the NetBox URL, token, optional proxy, domain and host tag used by the automation.",
     submitLabel: "Save config",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_instances", "owner_env_var", "cloudflare_filter"],
+    fields: ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_instances", "owner_env_var", "cloudflare_filter", "dockerhub_webhook_secret", "smtp_config"],
   },
   create: {
     endpoint: "/create",
@@ -275,6 +286,8 @@ const allFieldNames = [
   "clean_name",
   "remove_old_images",
   "cloudflare_filter",
+  "dockerhub_webhook_secret",
+  "smtp_config",
   "var_env_key",
   "var_env_value",
   "label_key",
@@ -569,6 +582,17 @@ function storedProfiles() {
   return parseProfiles(localStorage.getItem("config_profiles"));
 }
 
+function smtpConfigValue(profile = {}) {
+  if (profile.smtp_config) return profile.smtp_config;
+  if (!profile.smtp_host) return "";
+
+  const auth = profile.smtp_user || profile.smtp_password
+    ? `${profile.smtp_user || ""}:${profile.smtp_password || ""}@`
+    : "";
+  const port = profile.smtp_port ? `:${profile.smtp_port}` : "";
+  return `${auth}${profile.smtp_host}${port}`;
+}
+
 function normalizedProfileForSync(profile = {}) {
   return {
     netbox: profile.netbox || "",
@@ -579,6 +603,8 @@ function normalizedProfileForSync(profile = {}) {
     max_instances: normalizeMaxInstances(profile.max_instances),
     owner_env_var: ownerEnvVarValue(profile.owner_env_var),
     cloudflare_filter: checkboxValue(profile.cloudflare_filter, true),
+    dockerhub_webhook_secret: profile.dockerhub_webhook_secret || "",
+    smtp_config: smtpConfigValue(profile),
   };
 }
 
@@ -592,6 +618,8 @@ function currentProfileFieldValues() {
     max_instances: fieldValue("max_instances"),
     owner_env_var: fieldValue("owner_env_var"),
     cloudflare_filter: fieldChecked("cloudflare_filter", true),
+    dockerhub_webhook_secret: profileDockerhubSecretValue(),
+    smtp_config: fieldValue("smtp_config"),
   };
 }
 
@@ -678,6 +706,19 @@ function persistCreateTemplates() {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return response.json().catch(() => createTemplates);
   });
+}
+
+async function loadMailSettings() {
+  try {
+    const response = await fetch("/mail-settings", {
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    mailSettings = await response.json();
+  } catch {
+    mailSettings = { owner_email_configured: false };
+  }
+  updateTestEmailVisibility();
 }
 
 function downloadJson(filename, data) {
@@ -836,6 +877,8 @@ function profileCredentials(name = currentConfigProfile) {
     max_instances: normalizeMaxInstances(profile.max_instances),
     owner_env_var: ownerEnvVarValue(profile.owner_env_var),
     cloudflare_filter: checkboxValue(profile.cloudflare_filter, true),
+    dockerhub_webhook_secret: profile.dockerhub_webhook_secret || "",
+    smtp_config: smtpConfigValue(profile),
   };
 }
 
@@ -921,9 +964,54 @@ function applyProfileToFields(name = currentConfigProfile) {
   setFieldValue("max_instances", credentials.max_instances);
   setFieldValue("owner_env_var", credentials.owner_env_var);
   setFieldValue("cloudflare_filter", credentials.cloudflare_filter);
+  setFieldValue("dockerhub_webhook_secret", credentials.dockerhub_webhook_secret);
+  setFieldValue("smtp_config", credentials.smtp_config);
+  applyDockerhubDefaultSecret();
   persistProfiles();
   syncCreateNetwork();
   updateProfileSyncWarning();
+  updateTestEmailVisibility();
+}
+
+function currentSmtpConfigValue() {
+  if (currentAction === "config") return fieldValue("smtp_config");
+  return selectedProfileCredentials().smtp_config || "";
+}
+
+function updateTestEmailVisibility() {
+  if (!testEmailBtn) return;
+  const visible = currentAction === "config" && Boolean(currentSmtpConfigValue()) && Boolean(mailSettings.owner_email_configured);
+  testEmailBtn.classList.toggle("hidden", !visible);
+}
+
+async function loadDockerhubDefaultSecret() {
+  if (dockerhubWebhookDefaultLoaded) return;
+  dockerhubWebhookDefaultLoaded = true;
+
+  try {
+    const response = await fetch("/dockerhub-webhook-secret", {
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    dockerhubWebhookDefaultSecret = data.default_secret || data.secret || "";
+  } catch {
+    dockerhubWebhookDefaultSecret = "";
+  }
+
+  applyDockerhubDefaultSecret();
+}
+
+function applyDockerhubDefaultSecret() {
+  if (!profileDockerhubSecret || profileDockerhubSecret.value || !dockerhubWebhookDefaultSecret) return;
+  profileDockerhubSecret.value = dockerhubWebhookDefaultSecret;
+}
+
+function profileDockerhubSecretValue() {
+  const value = fieldValue("dockerhub_webhook_secret");
+  const stored = configProfiles[currentConfigProfile]?.dockerhub_webhook_secret || "";
+  if (!stored && value === dockerhubWebhookDefaultSecret) return "";
+  return value;
 }
 
 function credentialsQuery({ includeTag = false } = {}) {
@@ -1573,9 +1661,9 @@ function setAction(actionName) {
   submitBtn.value = actionName === "restart" ? "image" : "";
 
   deleteConfigBtn?.classList.toggle("hidden", actionName !== "config");
+  updateTestEmailVisibility();
   exportConfigBtn?.classList.toggle("hidden", actionName !== "config");
   importConfigBtn?.classList.toggle("hidden", actionName !== "config");
-  dockerhubSecretWrap?.classList.toggle("hidden", actionName !== "config");
   clearBtn?.classList.toggle("hidden", actionName === "config" || actionName === "report");
   dockerRunBtn?.classList.toggle("hidden", actionName !== "create");
   templateSelect?.classList.toggle("hidden", actionName !== "create");
@@ -1614,7 +1702,7 @@ function setAction(actionName) {
     refreshImages({ notify: false });
   }
   if (actionName === "config") {
-    loadDockerhubSecret();
+    loadDockerhubDefaultSecret();
   }
   if (actionName === "report") {
     updateReportProfileOptions();
@@ -1709,22 +1797,6 @@ function togglePasswordVisibility(input, button, label) {
   button.setAttribute("aria-pressed", visible ? "false" : "true");
   button.setAttribute("aria-label", `${visible ? "Show" : "Hide"} ${label}`);
   button.title = `${visible ? "Show" : "Hide"} ${label}`;
-}
-
-async function loadDockerhubSecret() {
-  if (!dockerhubSecret || dockerhubSecretLoaded) return;
-  dockerhubSecretLoaded = true;
-
-  try {
-    const response = await fetch("/dockerhub-webhook-secret", {
-      headers: { Accept: "application/json" },
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json();
-    dockerhubSecret.value = data.secret || "";
-  } catch {
-    dockerhubSecret.value = "";
-  }
 }
 
 function tokenizeDockerRun(command) {
@@ -2130,6 +2202,8 @@ function loadSavedConfig() {
             max_instances: normalizeMaxInstances(data.max_instances),
             owner_env_var: ownerEnvVarValue(data.owner_env_var),
             cloudflare_filter: checkboxValue(data.cloudflare_filter, true),
+            dockerhub_webhook_secret: data.dockerhub_webhook_secret || "",
+            smtp_config: smtpConfigValue(data),
           };
           serverConfigProfiles[profile] = serverProfile;
           configProfiles[profile] = localProfiles[profile] || serverProfile;
@@ -2208,6 +2282,47 @@ async function test() {
   }
 }
 
+async function testEmail() {
+  const credentials = selectedProfileCredentials();
+  const smtp_config = fieldValue("smtp_config") || credentials.smtp_config || "";
+
+  if (!smtp_config) {
+    setNotice("SMTP config is required", "error");
+    return;
+  }
+
+  testEmailBtn.disabled = true;
+  try {
+    const response = await fetch("/test-email", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        profile: credentials.profile,
+        config_profile: credentials.profile,
+        smtp_config,
+      }),
+    });
+
+    const text = await response.text();
+    let data = {};
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = { detail: text };
+    }
+
+    if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+    setNotice("Test email sent", "success");
+  } catch (error) {
+    setNotice(`Test email failed: ${String(error.message || "request error").slice(0, 160)}`, "error", false);
+  } finally {
+    testEmailBtn.disabled = false;
+  }
+}
+
 async function saveConfig() {
   const profile = (fieldValue("config_name") || fieldValue("config_profile") || "").trim();
   const customer_name = fieldValue("customer_name").trim();
@@ -2219,6 +2334,8 @@ async function saveConfig() {
   const max_instances = normalizeMaxInstances(fieldValue("max_instances"));
   const owner_env_var = ownerEnvVarValue(fieldValue("owner_env_var"));
   const cloudflare_filter = fieldChecked("cloudflare_filter", true);
+  const dockerhub_webhook_secret = profileDockerhubSecretValue();
+  const smtp_config = fieldValue("smtp_config");
 
   if (!profile) {
     setNotice("Profile name is required", "error");
@@ -2233,7 +2350,7 @@ async function saveConfig() {
   forgetDeletedProfile(profile);
   setFieldValue("max_instances", max_instances);
   setFieldValue("owner_env_var", owner_env_var);
-  configProfiles[profile] = { netbox, token, proxy, domain, tag, max_instances, owner_env_var, cloudflare_filter };
+  configProfiles[profile] = { netbox, token, proxy, domain, tag, max_instances, owner_env_var, cloudflare_filter, dockerhub_webhook_secret, smtp_config };
   currentConfigProfile = profile;
   updateProfileOptions();
   persistProfiles();
@@ -2248,6 +2365,8 @@ async function saveConfig() {
     max_instances: String(max_instances),
     owner_env_var,
     cloudflare_filter: cloudflare_filter ? "true" : "false",
+    dockerhub_webhook_secret,
+    smtp_config,
     profile,
     config_profile: profile,
     profiles: JSON.stringify(configProfiles),
@@ -2261,7 +2380,7 @@ async function saveConfig() {
 
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-    savedConfig = { customer_name, netbox, token, proxy, domain, tag, max_instances, owner_env_var, cloudflare_filter, profile, profiles: configProfiles };
+    savedConfig = { customer_name, netbox, token, proxy, domain, tag, max_instances, owner_env_var, cloudflare_filter, dockerhub_webhook_secret, smtp_config, profile, profiles: configProfiles };
     serverConfigProfiles = { ...configProfiles };
     applyProfileToFields(profile);
     setNotice(`Config "${profileLabel(profile)}" saved (${response.status})`, "success");
@@ -2303,6 +2422,8 @@ async function deleteConfig() {
       setFieldValue("max_instances", "1");
       setFieldValue("owner_env_var", "SAASHUP_OWNER");
       setFieldValue("cloudflare_filter", true);
+      setFieldValue("dockerhub_webhook_secret", "");
+      setFieldValue("smtp_config", "");
 
       const params = new URLSearchParams({
         netbox: "",
@@ -2314,6 +2435,8 @@ async function deleteConfig() {
         max_instances: "1",
         owner_env_var: "SAASHUP_OWNER",
         cloudflare_filter: "true",
+        dockerhub_webhook_secret: "",
+        smtp_config: "",
         profile: "",
         config_profile: "",
         profiles: "{}",
@@ -2347,6 +2470,8 @@ async function deleteConfig() {
       max_instances: String(credentials.max_instances),
       owner_env_var: credentials.owner_env_var,
       cloudflare_filter: credentials.cloudflare_filter ? "true" : "false",
+      dockerhub_webhook_secret: credentials.dockerhub_webhook_secret,
+      smtp_config: credentials.smtp_config,
       profile: currentConfigProfile,
       config_profile: currentConfigProfile,
       profiles: JSON.stringify(configProfiles),
@@ -2874,6 +2999,7 @@ form.addEventListener("submit", async (event) => {
 });
 
 testBtn?.addEventListener("click", test);
+testEmailBtn?.addEventListener("click", testEmail);
 deleteConfigBtn?.addEventListener("click", deleteConfig);
 exportConfigBtn?.addEventListener("click", exportPortableConfig);
 importConfigBtn?.addEventListener("click", importPortableConfigFile);
@@ -2881,7 +3007,8 @@ importConfigFile?.addEventListener("change", importPortableConfig);
 clearBtn?.addEventListener("click", clearActionFields);
 dockerRunBtn?.addEventListener("click", openDockerRunModal);
 tokenToggle?.addEventListener("click", () => togglePasswordVisibility(field("token"), tokenToggle, "NetBox token"));
-dockerhubSecretToggle?.addEventListener("click", () => togglePasswordVisibility(dockerhubSecret, dockerhubSecretToggle, "Docker Hub webhook password"));
+profileDockerhubSecretToggle?.addEventListener("click", () => togglePasswordVisibility(profileDockerhubSecret, profileDockerhubSecretToggle, "Docker Hub webhook password"));
+smtpConfigToggle?.addEventListener("click", () => togglePasswordVisibility(field("smtp_config"), smtpConfigToggle, "SMTP config"));
 form?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-profile-help]");
   if (!button) return;
@@ -2930,8 +3057,14 @@ refreshInstancesBtn?.addEventListener("click", refreshInstances);
 refreshImagesBtn?.addEventListener("click", refreshImages);
 configFields.forEach((name) => {
   const control = field(name);
-  control?.addEventListener("input", updateProfileSyncWarning);
-  control?.addEventListener("change", updateProfileSyncWarning);
+  control?.addEventListener("input", () => {
+    updateProfileSyncWarning();
+    if (name === "smtp_config") updateTestEmailVisibility();
+  });
+  control?.addEventListener("change", () => {
+    updateProfileSyncWarning();
+    if (name === "smtp_config") updateTestEmailVisibility();
+  });
 });
 configProfileSelect?.addEventListener("change", () => {
   applyProfileToFields(configProfileSelect.value);
@@ -2995,6 +3128,7 @@ window.instanceFqdn = instanceFqdn;
 
 async function initializePage() {
   initializeSidebar();
+  await loadMailSettings();
   await loadCreateTemplates();
   updateTemplateOptions();
   setAction(currentAction);
