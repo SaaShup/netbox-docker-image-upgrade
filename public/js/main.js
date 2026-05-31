@@ -10,6 +10,7 @@ const formCard = document.querySelector(".form-card");
 const submitBtn = document.getElementById("submitBtn");
 const restartInstanceBtn = document.getElementById("restartInstanceBtn");
 const testBtn = document.getElementById("testBtn");
+const testEmailBtn = document.getElementById("testEmailBtn");
 const deleteConfigBtn = document.getElementById("deleteConfigBtn");
 const exportConfigBtn = document.getElementById("exportConfigBtn");
 const importConfigBtn = document.getElementById("importConfigBtn");
@@ -27,8 +28,17 @@ const dockerRunInput = document.getElementById("dockerRunInput");
 const dockerRunApplyBtn = document.getElementById("dockerRunApplyBtn");
 const dockerRunCancelBtn = document.getElementById("dockerRunCancelBtn");
 const dockerRunCloseBtn = document.getElementById("dockerRunCloseBtn");
+const profileHelpModal = document.getElementById("profileHelpModal");
+const profileHelpTitle = document.getElementById("profileHelpTitle");
+const profileHelpBody = document.getElementById("profileHelpBody");
+const profileHelpCloseBtn = document.getElementById("profileHelpCloseBtn");
+const profileHelpOkBtn = document.getElementById("profileHelpOkBtn");
 const formTitle = document.getElementById("form-title");
 const formDescription = document.getElementById("form-description");
+const tokenToggle = document.getElementById("tokenToggle");
+const profileDockerhubSecret = document.getElementById("dockerhub_webhook_secret");
+const profileDockerhubSecretToggle = document.getElementById("profileDockerhubSecretToggle");
+const smtpConfigToggle = document.getElementById("smtpConfigToggle");
 const envList = document.getElementById("envList");
 const addEnvBtn = document.getElementById("addEnvBtn");
 const labelList = document.getElementById("labelList");
@@ -46,6 +56,7 @@ const logsCard = document.getElementById("logsCard");
 const logsFullscreenBtn = document.getElementById("logsFullscreenBtn");
 const clearLogsBtn = document.getElementById("clearLogsBtn");
 const configProfileSelect = document.getElementById("config_profile");
+const profileSyncWarning = document.getElementById("profileSyncWarning");
 const orderActions = document.getElementById("orderActions");
 const orderLoading = document.getElementById("orderLoading");
 const orderStatus = document.getElementById("orderStatus");
@@ -59,13 +70,16 @@ const reportCard = document.getElementById("reportCard");
 const reportProfileSelect = document.getElementById("reportProfileSelect");
 const refreshReportBtn = document.getElementById("refreshReportBtn");
 const reportSummary = document.getElementById("reportSummary");
+const reportTableHead = document.getElementById("reportTableHead");
 const reportTableBody = document.getElementById("reportTableBody");
+const reportViewButtons = Array.from(document.querySelectorAll("[data-report-view]"));
 
 let currentAction = isOrderPage ? "create" : (localStorage.getItem("current_action") || "config");
 let currentConfigProfile = localStorage.getItem("current_config_profile") || "";
 let noticeTimeout = null;
 let savedConfig = {};
 let configProfiles = {};
+let serverConfigProfiles = {};
 let imageRecords = [];
 let containerCountRequestId = 0;
 let createNetworkRequestId = 0;
@@ -75,10 +89,107 @@ let createTemplates = {};
 let generatedCreateInstanceName = "";
 let orderInstanceCards = [];
 let orderInstanceLimit = { max: 0, used: 0 };
+let currentReportView = "images";
+let lastReportData = null;
+let orderStatusPollTimer = null;
+let mailSettings = { owner_email_configured: false };
+let dockerhubWebhookDefaultSecret = "";
+let dockerhubWebhookDefaultLoaded = false;
 const logsPollFailureNotice = "Activity logs unavailable: network error";
 const sidebarCollapsedStorageKey = "sidebar_collapsed";
 
-const configFields = ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_instances"];
+const profileFieldHelp = {
+  config_profile: {
+    title: "Config profile",
+    body: "Selects which saved NetBox connection and deployment defaults are used by create, upgrade, refresh, operate and delete actions.",
+  },
+  config_name: {
+    title: "Profile name",
+    body: "Names the profile you are saving. Use a stable name such as production, staging or a customer identifier.",
+  },
+  customer_name: {
+    title: "Customer name",
+    body: "Stores the customer or organization name shown in exported configuration and shared profile data.",
+  },
+  netbox: {
+    title: "NetBox URL",
+    body: "The base URL of the NetBox instance that stores Docker hosts, images, containers, volumes and Cloudflare DNS records.",
+  },
+  token: {
+    title: "NetBox Token",
+    body: "The API token used to read and update NetBox data for this profile. It needs permission for the Docker and Cloudflare plugin endpoints used by the app.",
+  },
+  proxy: {
+    title: "Proxy URL",
+    body: "Optional HTTP proxy used by the server when it connects to NetBox. Leave it empty when direct access is available.",
+  },
+  domain: {
+    title: "Domain",
+    body: "The default domain appended to short instance names during creation. For example, tiles becomes tiles.example.com.",
+  },
+  tag: {
+    title: "Tag",
+    body: "Filters Docker hosts and image lookups to the matching NetBox tag, so each profile can target a specific environment or host group.",
+  },
+  max_instances: {
+    title: "Max instances",
+    body: "Limits how many order-page instances a user can request for this profile. Set it to 0 to block new orders for the profile.",
+  },
+  owner_env_var: {
+    title: "Owner env var",
+    body: "The environment variable name used to store the requester email on newly created containers. The default is SAASHUP_OWNER.",
+  },
+  cloudflare_filter: {
+    title: "Cloudflare IP restriction",
+    body: "When enabled, created containers receive the Traefik IP allow-list label for Cloudflare source ranges. Disable it to create routes without that allow-list label.",
+  },
+  dockerhub_webhook_secret: {
+    title: "Docker Hub webhook password",
+    body: "Optional profile-specific password for Docker Hub webhooks. Leave it empty to use the DOCKERHUB_WEBHOOK_SECRET environment default.",
+  },
+  smtp_config: {
+    title: "SMTP config",
+    body: "Optional SMTP connection string for this profile in the format user:pwd@host:port.",
+  },
+  operate_action: {
+    title: "Action",
+    body: "Choose the container operation to request. Start, stop, restart and kill can be applied to one instance or to all containers using the selected image version.",
+  },
+  instance: {
+    title: "Instance name",
+    body: "The container instance to operate on or delete. You can type it directly or refresh the list from NetBox for the selected config.",
+  },
+  delete_volumes: {
+    title: "Delete volumes",
+    body: "When enabled, deleting the instance also deletes the Docker volumes mounted on that container. Leave it off to keep data volumes.",
+  },
+  image: {
+    title: "Image name",
+    body: "The Docker image name used to find containers or available versions in NetBox, for example saashup/app.",
+  },
+  oldversion: {
+    title: "Old version",
+    body: "The currently deployed image version to replace during upgrade. Leave it empty to upgrade all previous versions except the target version.",
+  },
+  restart_version: {
+    title: "Version",
+    body: "The image version used to find containers for bulk operate actions.",
+  },
+  version: {
+    title: "Version",
+    body: "The target image version for creation or upgrade.",
+  },
+  clean_name: {
+    title: "Clean name before recreate",
+    body: "Removes generated timestamp suffixes from container names during upgrade before requesting the recreate operation.",
+  },
+  remove_old_images: {
+    title: "Remove old images",
+    body: "When enabled, each old image is deleted from its host only after all containers using that old image have recreated successfully.",
+  },
+};
+
+const configFields = ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_instances", "owner_env_var", "cloudflare_filter", "dockerhub_webhook_secret", "smtp_config"];
 
 const actions = {
   config: {
@@ -89,7 +200,7 @@ const actions = {
     description: "Save the NetBox URL, token, optional proxy, domain and host tag used by the automation.",
     submitLabel: "Save config",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_instances"],
+    fields: ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_instances", "owner_env_var", "cloudflare_filter", "dockerhub_webhook_secret", "smtp_config"],
   },
   create: {
     endpoint: "/create",
@@ -109,7 +220,7 @@ const actions = {
     description: "Replace containers matching an image and old version with a new version.",
     submitLabel: "Upgrade containers",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "image", "oldversion", "version", "clean_name"],
+    fields: ["config_profile", "image", "oldversion", "version", "clean_name", "remove_old_images"],
   },
   restart: {
     endpoint: "/restart",
@@ -126,7 +237,7 @@ const actions = {
     method: "get",
     menu: "menu_report",
     title: "Image report",
-    description: "Review image usage by container count for one config or all configs.",
+    description: "Review image usage by container count for one config.",
     submitLabel: "Refresh report",
     buttonClass: "btn btn-primary",
     fields: [],
@@ -149,7 +260,7 @@ const actions = {
     description: "Delete one instance. A confirmation will be requested before submitting.",
     submitLabel: "Delete instance",
     buttonClass: "btn btn-danger",
-    fields: ["config_profile", "instance"],
+    fields: ["config_profile", "instance", "delete_volumes"],
     confirm: "Delete this instance?",
   },
 };
@@ -161,8 +272,10 @@ const allFieldNames = [
   "domain",
   "tag",
   "max_instances",
+  "owner_env_var",
   "config_profile",
   "operate_action",
+  "delete_volumes",
   "config_name",
   "network",
   "instance",
@@ -171,6 +284,10 @@ const allFieldNames = [
   "restart_version",
   "version",
   "clean_name",
+  "remove_old_images",
+  "cloudflare_filter",
+  "dockerhub_webhook_secret",
+  "smtp_config",
   "var_env_key",
   "var_env_value",
   "label_key",
@@ -194,6 +311,21 @@ function field(name) {
 function fieldValue(name, fallback = "") {
   const el = field(name);
   return el ? el.value : fallback;
+}
+
+function fieldChecked(name, fallback = false) {
+  const el = field(name);
+  return el ? Boolean(el.checked) : fallback;
+}
+
+function checkboxValue(value, defaultValue = false) {
+  if (value === undefined || value === null || value === "") return defaultValue;
+  if (typeof value === "boolean") return value;
+  return !["false", "0", "off", "no"].includes(String(value).toLowerCase());
+}
+
+function ownerEnvVarValue(value) {
+  return String(value || "SAASHUP_OWNER").trim() || "SAASHUP_OWNER";
 }
 
 function userInitials(value) {
@@ -353,7 +485,7 @@ function setFieldValue(name, value = "") {
   if (!el) return;
 
   if (el.type === "checkbox") {
-    el.checked = Boolean(value);
+    el.checked = checkboxValue(value);
     return;
   }
 
@@ -450,6 +582,87 @@ function storedProfiles() {
   return parseProfiles(localStorage.getItem("config_profiles"));
 }
 
+function smtpConfigValue(profile = {}) {
+  if (profile.smtp_config) return profile.smtp_config;
+  if (!profile.smtp_host) return "";
+
+  const auth = profile.smtp_user || profile.smtp_password
+    ? `${profile.smtp_user || ""}:${profile.smtp_password || ""}@`
+    : "";
+  const port = profile.smtp_port ? `:${profile.smtp_port}` : "";
+  return `${auth}${profile.smtp_host}${port}`;
+}
+
+function normalizedProfileForSync(profile = {}) {
+  return {
+    netbox: profile.netbox || "",
+    token: profile.token || "",
+    proxy: profile.proxy || "",
+    domain: normalizeDomain(profile.domain || ""),
+    tag: profile.tag || "",
+    max_instances: normalizeMaxInstances(profile.max_instances),
+    owner_env_var: ownerEnvVarValue(profile.owner_env_var),
+    cloudflare_filter: checkboxValue(profile.cloudflare_filter, true),
+    dockerhub_webhook_secret: profile.dockerhub_webhook_secret || "",
+    smtp_config: smtpConfigValue(profile),
+  };
+}
+
+function currentProfileFieldValues() {
+  return {
+    netbox: fieldValue("netbox"),
+    token: fieldValue("token"),
+    proxy: fieldValue("proxy"),
+    domain: fieldValue("domain"),
+    tag: fieldValue("tag"),
+    max_instances: fieldValue("max_instances"),
+    owner_env_var: fieldValue("owner_env_var"),
+    cloudflare_filter: fieldChecked("cloudflare_filter", true),
+    dockerhub_webhook_secret: profileDockerhubSecretValue(),
+    smtp_config: fieldValue("smtp_config"),
+  };
+}
+
+function profileSyncState(name = currentConfigProfile) {
+  if (!name || !configProfiles[name]) return { status: "none", message: "" };
+  const localSource = currentAction === "config" && name === currentConfigProfile
+    ? currentProfileFieldValues()
+    : configProfiles[name];
+
+  if (!serverConfigProfiles[name]) {
+    return {
+      status: "warning",
+      message: "This profile exists only in this browser. Save config to sync it to the server.",
+    };
+  }
+
+  const localProfile = JSON.stringify(normalizedProfileForSync(localSource));
+  const serverProfile = JSON.stringify(normalizedProfileForSync(serverConfigProfiles[name]));
+  if (localProfile === serverProfile) {
+    return {
+      status: "ok",
+      message: "Profile synced with server.",
+    };
+  }
+
+  return {
+    status: "warning",
+    message: "This profile differs from the server copy. Save config to align it.",
+  };
+}
+
+function updateProfileSyncWarning() {
+  if (!profileSyncWarning) return;
+
+  const { status, message } = profileSyncState();
+  profileSyncWarning.textContent = "";
+  profileSyncWarning.title = message;
+  profileSyncWarning.setAttribute("aria-label", message);
+  profileSyncWarning.classList.toggle("hidden", status === "none");
+  profileSyncWarning.classList.toggle("is-ok", status === "ok");
+  profileSyncWarning.classList.toggle("is-warning", status === "warning");
+}
+
 function parseStoredObject(key) {
   try {
     const parsed = JSON.parse(localStorage.getItem(key) || "{}");
@@ -493,6 +706,19 @@ function persistCreateTemplates() {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return response.json().catch(() => createTemplates);
   });
+}
+
+async function loadMailSettings() {
+  try {
+    const response = await fetch("/mail-settings", {
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    mailSettings = await response.json();
+  } catch {
+    mailSettings = { owner_email_configured: false };
+  }
+  updateTestEmailVisibility();
 }
 
 function downloadJson(filename, data) {
@@ -557,6 +783,7 @@ async function importPortableConfig(event) {
     const importedTemplates = plainObject(data.templates);
 
     configProfiles = importedProfiles;
+    serverConfigProfiles = importedProfiles;
     createTemplates = importedTemplates;
     savedConfig = { ...importedConfig, profiles: importedProfiles };
     currentConfigProfile = importedConfig.profile || importedConfig.config_profile || Object.keys(configProfiles).sort((a, b) => a.localeCompare(b))[0] || "";
@@ -648,6 +875,10 @@ function profileCredentials(name = currentConfigProfile) {
     domain: profile.domain || "",
     tag: profile.tag || "",
     max_instances: normalizeMaxInstances(profile.max_instances),
+    owner_env_var: ownerEnvVarValue(profile.owner_env_var),
+    cloudflare_filter: checkboxValue(profile.cloudflare_filter, true),
+    dockerhub_webhook_secret: profile.dockerhub_webhook_secret || "",
+    smtp_config: smtpConfigValue(profile),
   };
 }
 
@@ -704,16 +935,18 @@ function updateReportProfileOptions() {
   const profileNames = Object.keys(configProfiles)
     .filter((name) => !deletedProfiles().includes(name))
     .sort((a, b) => a.localeCompare(b));
-  const currentValue = reportProfileSelect.value || currentConfigProfile || "all";
+  const fallbackProfile = currentConfigProfile || profileNames[0] || "";
+  const currentValue = reportProfileSelect.value || fallbackProfile;
+  const names = profileNames.length ? profileNames : [""];
 
-  reportProfileSelect.replaceChildren(new Option("All configs", "all"));
-  profileNames.forEach((name) => {
+  reportProfileSelect.replaceChildren();
+  names.forEach((name) => {
     reportProfileSelect.appendChild(new Option(profileLabel(name), name));
   });
 
-  reportProfileSelect.value = currentValue === "all" || profileNames.includes(currentValue)
+  reportProfileSelect.value = names.includes(currentValue)
     ? currentValue
-    : "all";
+    : names[0];
 }
 
 function applyProfileToFields(name = currentConfigProfile) {
@@ -729,8 +962,56 @@ function applyProfileToFields(name = currentConfigProfile) {
   setFieldValue("domain", credentials.domain);
   setFieldValue("tag", credentials.tag);
   setFieldValue("max_instances", credentials.max_instances);
+  setFieldValue("owner_env_var", credentials.owner_env_var);
+  setFieldValue("cloudflare_filter", credentials.cloudflare_filter);
+  setFieldValue("dockerhub_webhook_secret", credentials.dockerhub_webhook_secret);
+  setFieldValue("smtp_config", credentials.smtp_config);
+  applyDockerhubDefaultSecret();
   persistProfiles();
   syncCreateNetwork();
+  updateProfileSyncWarning();
+  updateTestEmailVisibility();
+}
+
+function currentSmtpConfigValue() {
+  if (currentAction === "config") return fieldValue("smtp_config");
+  return selectedProfileCredentials().smtp_config || "";
+}
+
+function updateTestEmailVisibility() {
+  if (!testEmailBtn) return;
+  const visible = currentAction === "config" && Boolean(currentSmtpConfigValue()) && Boolean(mailSettings.owner_email_configured);
+  testEmailBtn.classList.toggle("hidden", !visible);
+}
+
+async function loadDockerhubDefaultSecret() {
+  if (dockerhubWebhookDefaultLoaded) return;
+  dockerhubWebhookDefaultLoaded = true;
+
+  try {
+    const response = await fetch("/dockerhub-webhook-secret", {
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    dockerhubWebhookDefaultSecret = data.default_secret || data.secret || "";
+  } catch {
+    dockerhubWebhookDefaultSecret = "";
+  }
+
+  applyDockerhubDefaultSecret();
+}
+
+function applyDockerhubDefaultSecret() {
+  if (!profileDockerhubSecret || profileDockerhubSecret.value || !dockerhubWebhookDefaultSecret) return;
+  profileDockerhubSecret.value = dockerhubWebhookDefaultSecret;
+}
+
+function profileDockerhubSecretValue() {
+  const value = fieldValue("dockerhub_webhook_secret");
+  const stored = configProfiles[currentConfigProfile]?.dockerhub_webhook_secret || "";
+  if (!stored && value === dockerhubWebhookDefaultSecret) return "";
+  return value;
 }
 
 function credentialsQuery({ includeTag = false } = {}) {
@@ -823,15 +1104,19 @@ function renderReportLoadingRow() {
   `;
 }
 
-function renderImageReport(data) {
-  const rows = Array.isArray(data?.rows) ? data.rows : [];
-  const totalHosts = Number(data?.total_hosts || 0);
-  const totalImages = Number(data?.total_images ?? rows.length);
-  const totalContainers = Number(data?.total_containers ?? rows.reduce((total, row) => total + Number(row.containers || 0), 0));
-  const totalUsers = Number(data?.total_users || 0);
+function renderReportHeader(columns) {
+  if (!reportTableHead) return;
 
-  renderReportStats(totalHosts, totalImages, totalContainers, totalUsers);
+  reportTableHead.innerHTML = `
+    <tr>
+      ${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join("")}
+    </tr>
+  `;
+}
 
+function renderImageReportRows(rows) {
+  renderReportHeader(["Config", "Image", "Version", "Containers"]);
+  reportTableBody?.closest("table")?.classList.remove("report-users");
   if (!reportTableBody) return;
 
   if (!rows.length) {
@@ -849,12 +1134,82 @@ function renderImageReport(data) {
   `).join("");
 }
 
+function renderUserReportRows(users) {
+  renderReportHeader(["User", "Config", "Containers", "What they have"]);
+  reportTableBody?.closest("table")?.classList.add("report-users");
+  if (!reportTableBody) return;
+
+  if (!users.length) {
+    reportTableBody.innerHTML = '<tr><td colspan="4">No user ownership found for this selection.</td></tr>';
+    return;
+  }
+
+  reportTableBody.innerHTML = users.map((user) => `
+    <tr>
+      <td>${escapeHtml(user.user)}</td>
+      <td>${escapeHtml((user.profiles || []).join(", ") || "Default")}</td>
+      <td>${Number(user.containers || 0)}</td>
+      <td>
+        <div class="report-user-assets">
+          ${(user.items || []).length
+            ? user.items.map((item) => {
+              const image = [item.image, item.version].filter(Boolean).join(":");
+              return `<span>${escapeHtml(item.container || "container")}${image ? ` - ${escapeHtml(image)}` : ""}</span>`;
+            }).join("")
+            : '<span>No instance details available</span>'}
+        </div>
+      </td>
+    </tr>
+  `).join("");
+}
+
+function renderReportTable(data) {
+  const rows = Array.isArray(data?.rows) ? data.rows : [];
+  const users = Array.isArray(data?.users) ? data.users : [];
+  if (currentReportView === "users") {
+    renderUserReportRows(users);
+    return;
+  }
+
+  renderImageReportRows(rows);
+}
+
+function renderReport(data) {
+  const rows = Array.isArray(data?.rows) ? data.rows : [];
+  const totalHosts = Number(data?.total_hosts || 0);
+  const totalImages = Number(data?.total_images ?? rows.length);
+  const totalContainers = Number(data?.total_containers ?? rows.reduce((total, row) => total + Number(row.containers || 0), 0));
+  const totalUsers = Number(data?.total_users || 0);
+
+  lastReportData = data;
+  renderReportStats(totalHosts, totalImages, totalContainers, totalUsers);
+  renderReportTable(data);
+}
+
+function setReportView(view) {
+  currentReportView = view === "users" ? "users" : "images";
+  reportViewButtons.forEach((button) => {
+    const active = button.dataset.reportView === currentReportView;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  if (lastReportData) renderReportTable(lastReportData);
+}
+
 async function refreshImageReport() {
   if (!reportProfileSelect || !refreshReportBtn) return;
 
   updateReportProfileOptions();
-  const profile = reportProfileSelect.value || "all";
+  const profile = reportProfileSelect.value || "";
   const query = new URLSearchParams({ profile });
+  query.set("profiles", JSON.stringify(configProfiles));
+
+  const credentials = profileCredentials(profile);
+  query.set("netbox", credentials.netbox);
+  query.set("token", credentials.token);
+  query.set("proxy", credentials.proxy);
+  query.set("tag", credentials.tag);
+  query.set("config_profile", credentials.profile);
 
   refreshReportBtn.disabled = true;
   if (!reportSummaryHasStats()) renderReportStats();
@@ -868,7 +1223,7 @@ async function refreshImageReport() {
 
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-    renderImageReport(await response.json());
+    renderReport(await response.json());
     setNotice("Image report loaded", "success");
   } catch {
     reportSummary?.classList.add("is-error");
@@ -1095,6 +1450,52 @@ function setOrderStatus(message, type = "success") {
   orderStatus.className = `order-status ${type}`;
 }
 
+function normalizedOrderInstanceStatus(item) {
+  const status = String(item?.status || "ready").toLowerCase();
+  return ["creating", "failed", "ready"].includes(status) ? status : "ready";
+}
+
+function orderInstanceStatusControl(item, index) {
+  const status = normalizedOrderInstanceStatus(item);
+  const instance = escapeHtml(item.instance || "instance");
+
+  if (status === "creating") {
+    return '<span class="order-instance-status order-instance-status-creating" title="Instance is being created" aria-label="Instance is being created">↻</span>';
+  }
+
+  if (status === "failed") {
+    return '<span class="order-instance-status order-instance-status-failed" title="Instance creation failed" aria-label="Instance creation failed">!</span>';
+  }
+
+  return `<button type="button" class="icon-btn icon-btn-danger order-instance-delete" data-order-instance-delete="${index}" title="Delete ${instance}" aria-label="Delete ${instance}">×</button>`;
+}
+
+async function refreshOrderInstanceStatuses() {
+  if (!isOrderPage || !orderInstances) return;
+
+  try {
+    const limit = await orderLimitForProfile(selectedProfileCredentials().profile);
+    renderOrderInstances(limit.instances, limit);
+  } catch {
+    // Keep the current cards visible if a background refresh fails.
+  }
+}
+
+function syncOrderStatusPolling() {
+  if (!isOrderPage) return;
+  const hasCreating = orderInstanceCards.some((item) => normalizedOrderInstanceStatus(item) === "creating");
+
+  if (!hasCreating && orderStatusPollTimer) {
+    clearInterval(orderStatusPollTimer);
+    orderStatusPollTimer = null;
+    return;
+  }
+
+  if (hasCreating && !orderStatusPollTimer) {
+    orderStatusPollTimer = setInterval(refreshOrderInstanceStatuses, 3000);
+  }
+}
+
 function renderOrderInstances(instances = orderInstanceCards, limit = orderInstanceLimit) {
   if (!orderInstances) return;
 
@@ -1107,6 +1508,7 @@ function renderOrderInstances(instances = orderInstanceCards, limit = orderInsta
   if (!orderInstanceCards.length) {
     orderInstances.classList.add("hidden");
     orderInstances.replaceChildren();
+    syncOrderStatusPolling();
     return;
   }
 
@@ -1127,11 +1529,12 @@ function renderOrderInstances(instances = orderInstanceCards, limit = orderInsta
             ${orderInstanceNameLink(item.instance)}
             <small>${escapeHtml(item.template || item.image || "SaaShup instance")}</small>
           </span>
-          <button type="button" class="icon-btn icon-btn-danger order-instance-delete" data-order-instance-delete="${index}" title="Delete ${escapeHtml(item.instance || "instance")}" aria-label="Delete ${escapeHtml(item.instance || "instance")}">×</button>
+          ${orderInstanceStatusControl(item, index)}
         </article>
       `).join("")}
     </div>
   `;
+  syncOrderStatusPolling();
 }
 
 function orderInstanceNameLink(instance) {
@@ -1155,6 +1558,7 @@ function addOrderInstanceCard(instance) {
       template: orderTemplateName,
       image: fieldValue("image"),
       version: fieldValue("version"),
+      status: "creating",
     },
   ];
   renderOrderInstances(next, {
@@ -1257,6 +1661,7 @@ function setAction(actionName) {
   submitBtn.value = actionName === "restart" ? "image" : "";
 
   deleteConfigBtn?.classList.toggle("hidden", actionName !== "config");
+  updateTestEmailVisibility();
   exportConfigBtn?.classList.toggle("hidden", actionName !== "config");
   importConfigBtn?.classList.toggle("hidden", actionName !== "config");
   clearBtn?.classList.toggle("hidden", actionName === "config" || actionName === "report");
@@ -1291,9 +1696,13 @@ function setAction(actionName) {
 
   syncCreateNetwork();
   syncCreateVersion();
+  updateRemoveOldImagesState();
   ensureRandomCreateInstanceName();
   if (actionName === "create" && imageRecords.length === 0) {
     refreshImages({ notify: false });
+  }
+  if (actionName === "config") {
+    loadDockerhubDefaultSecret();
   }
   if (actionName === "report") {
     updateReportProfileOptions();
@@ -1304,6 +1713,7 @@ function setAction(actionName) {
   updatePortRemoveButtons();
   updateVolumeRemoveButtons();
   updateRestartButtons();
+  updateRemoveOldImagesState();
   updateOperateControls();
 }
 
@@ -1363,6 +1773,30 @@ function openDockerRunModal() {
 
 function closeDockerRunModal() {
   dockerRunModal?.classList.add("hidden");
+}
+
+function openProfileHelp(key) {
+  const help = profileFieldHelp[key];
+  if (!help || !profileHelpModal || !profileHelpTitle || !profileHelpBody) return;
+
+  profileHelpTitle.textContent = help.title;
+  profileHelpBody.textContent = help.body;
+  profileHelpModal.classList.remove("hidden");
+  profileHelpOkBtn?.focus();
+}
+
+function closeProfileHelp() {
+  profileHelpModal?.classList.add("hidden");
+}
+
+function togglePasswordVisibility(input, button, label) {
+  if (!input || !button) return;
+
+  const visible = input.type === "text";
+  input.type = visible ? "password" : "text";
+  button.setAttribute("aria-pressed", visible ? "false" : "true");
+  button.setAttribute("aria-label", `${visible ? "Show" : "Hide"} ${label}`);
+  button.title = `${visible ? "Show" : "Hide"} ${label}`;
 }
 
 function tokenizeDockerRun(command) {
@@ -1744,6 +2178,7 @@ function loadSavedConfig() {
     .then((data) => {
       const localProfiles = applyDeletedProfileFilter(storedProfiles());
       if (!data) {
+        serverConfigProfiles = {};
         configProfiles = localProfiles;
         updateProfileOptions();
         applyProfileToFields(currentConfigProfile);
@@ -1752,19 +2187,26 @@ function loadSavedConfig() {
 
       savedConfig = data;
       const serverProfiles = applyDeletedProfileFilter(parseProfiles(data.profiles));
+      serverConfigProfiles = { ...serverProfiles };
       configProfiles = { ...serverProfiles, ...localProfiles };
 
       if (data.netbox && data.token) {
         const profile = data.profile || data.config_profile || currentConfigProfile || "";
         if (!deletedProfiles().includes(profile)) {
-          configProfiles[profile] = {
+          const serverProfile = {
             netbox: data.netbox,
             token: data.token,
             proxy: data.proxy || "",
             domain: data.domain || "",
             tag: data.tag || "",
             max_instances: normalizeMaxInstances(data.max_instances),
+            owner_env_var: ownerEnvVarValue(data.owner_env_var),
+            cloudflare_filter: checkboxValue(data.cloudflare_filter, true),
+            dockerhub_webhook_secret: data.dockerhub_webhook_secret || "",
+            smtp_config: smtpConfigValue(data),
           };
+          serverConfigProfiles[profile] = serverProfile;
+          configProfiles[profile] = localProfiles[profile] || serverProfile;
           currentConfigProfile = localStorage.getItem("current_config_profile") || profile;
         }
       }
@@ -1775,6 +2217,7 @@ function loadSavedConfig() {
       return data;
     })
     .catch(() => {
+      serverConfigProfiles = {};
       configProfiles = applyDeletedProfileFilter(storedProfiles());
       updateProfileOptions();
       applyProfileToFields(currentConfigProfile);
@@ -1839,6 +2282,47 @@ async function test() {
   }
 }
 
+async function testEmail() {
+  const credentials = selectedProfileCredentials();
+  const smtp_config = fieldValue("smtp_config") || credentials.smtp_config || "";
+
+  if (!smtp_config) {
+    setNotice("SMTP config is required", "error");
+    return;
+  }
+
+  testEmailBtn.disabled = true;
+  try {
+    const response = await fetch("/test-email", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        profile: credentials.profile,
+        config_profile: credentials.profile,
+        smtp_config,
+      }),
+    });
+
+    const text = await response.text();
+    let data = {};
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = { detail: text };
+    }
+
+    if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+    setNotice("Test email sent", "success");
+  } catch (error) {
+    setNotice(`Test email failed: ${String(error.message || "request error").slice(0, 160)}`, "error", false);
+  } finally {
+    testEmailBtn.disabled = false;
+  }
+}
+
 async function saveConfig() {
   const profile = (fieldValue("config_name") || fieldValue("config_profile") || "").trim();
   const customer_name = fieldValue("customer_name").trim();
@@ -1848,6 +2332,10 @@ async function saveConfig() {
   const domain = normalizeDomain(fieldValue("domain"));
   const tag = fieldValue("tag");
   const max_instances = normalizeMaxInstances(fieldValue("max_instances"));
+  const owner_env_var = ownerEnvVarValue(fieldValue("owner_env_var"));
+  const cloudflare_filter = fieldChecked("cloudflare_filter", true);
+  const dockerhub_webhook_secret = profileDockerhubSecretValue();
+  const smtp_config = fieldValue("smtp_config");
 
   if (!profile) {
     setNotice("Profile name is required", "error");
@@ -1861,7 +2349,8 @@ async function saveConfig() {
 
   forgetDeletedProfile(profile);
   setFieldValue("max_instances", max_instances);
-  configProfiles[profile] = { netbox, token, proxy, domain, tag, max_instances };
+  setFieldValue("owner_env_var", owner_env_var);
+  configProfiles[profile] = { netbox, token, proxy, domain, tag, max_instances, owner_env_var, cloudflare_filter, dockerhub_webhook_secret, smtp_config };
   currentConfigProfile = profile;
   updateProfileOptions();
   persistProfiles();
@@ -1874,6 +2363,10 @@ async function saveConfig() {
     domain,
     tag,
     max_instances: String(max_instances),
+    owner_env_var,
+    cloudflare_filter: cloudflare_filter ? "true" : "false",
+    dockerhub_webhook_secret,
+    smtp_config,
     profile,
     config_profile: profile,
     profiles: JSON.stringify(configProfiles),
@@ -1887,7 +2380,8 @@ async function saveConfig() {
 
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-    savedConfig = { customer_name, netbox, token, proxy, domain, tag, max_instances, profile, profiles: configProfiles };
+    savedConfig = { customer_name, netbox, token, proxy, domain, tag, max_instances, owner_env_var, cloudflare_filter, dockerhub_webhook_secret, smtp_config, profile, profiles: configProfiles };
+    serverConfigProfiles = { ...configProfiles };
     applyProfileToFields(profile);
     setNotice(`Config "${profileLabel(profile)}" saved (${response.status})`, "success");
   } catch {
@@ -1926,6 +2420,10 @@ async function deleteConfig() {
       setFieldValue("domain", "");
       setFieldValue("tag", "");
       setFieldValue("max_instances", "1");
+      setFieldValue("owner_env_var", "SAASHUP_OWNER");
+      setFieldValue("cloudflare_filter", true);
+      setFieldValue("dockerhub_webhook_secret", "");
+      setFieldValue("smtp_config", "");
 
       const params = new URLSearchParams({
         netbox: "",
@@ -1935,6 +2433,10 @@ async function deleteConfig() {
         domain: "",
         tag: "",
         max_instances: "1",
+        owner_env_var: "SAASHUP_OWNER",
+        cloudflare_filter: "true",
+        dockerhub_webhook_secret: "",
+        smtp_config: "",
         profile: "",
         config_profile: "",
         profiles: "{}",
@@ -1947,6 +2449,7 @@ async function deleteConfig() {
 
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
+      serverConfigProfiles = {};
       setNotice(`Config "${profileLabel(profile)}" deleted (${response.status})`, "success");
       return;
     }
@@ -1965,6 +2468,10 @@ async function deleteConfig() {
       domain: credentials.domain,
       tag: credentials.tag,
       max_instances: String(credentials.max_instances),
+      owner_env_var: credentials.owner_env_var,
+      cloudflare_filter: credentials.cloudflare_filter ? "true" : "false",
+      dockerhub_webhook_secret: credentials.dockerhub_webhook_secret,
+      smtp_config: credentials.smtp_config,
       profile: currentConfigProfile,
       config_profile: currentConfigProfile,
       profiles: JSON.stringify(configProfiles),
@@ -1978,6 +2485,7 @@ async function deleteConfig() {
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
     savedConfig = { ...credentials, customer_name, profiles: configProfiles };
+    serverConfigProfiles = { ...configProfiles };
     updateProfileOptions();
     applyProfileToFields(currentConfigProfile);
     setNotice(`Config "${profileLabel(profile)}" deleted (${response.status})`, "success");
@@ -2004,6 +2512,7 @@ async function submitAction(config, submitter) {
   body.set("domain", credentials.domain);
   body.set("tag", credentials.tag);
   body.set("max_instances", String(credentials.max_instances));
+  body.set("owner_env_var", credentials.owner_env_var);
   body.set("profile", credentials.profile);
   if (isOrderPage) {
     body.set("order_request", "true");
@@ -2013,6 +2522,7 @@ async function submitAction(config, submitter) {
   if (currentAction === "create") {
     const fqdn = instanceFqdn(body.get("instance"), credentials.domain);
     body.set("instance", fqdn);
+    body.set("cloudflare_filter", credentials.cloudflare_filter ? "true" : "false");
     setFieldValue("instance", fqdn);
     createdInstanceFqdn = fqdn;
   }
@@ -2262,6 +2772,21 @@ async function updateSelectedVersionContainerNotice() {
   }
 }
 
+function updateRemoveOldImagesState() {
+  const checkbox = field("remove_old_images");
+  if (!checkbox) return;
+
+  const oldVersion = fieldValue("oldversion").trim();
+  const newVersion = fieldValue("version").trim();
+  const blocked = currentAction !== "recreate" || (oldVersion && newVersion && oldVersion === newVersion);
+
+  checkbox.disabled = blocked;
+  checkbox.title = blocked && currentAction === "recreate"
+    ? "Old images cannot be removed when old version is the same as the new version."
+    : "";
+  if (blocked) checkbox.checked = false;
+}
+
 async function refreshImages({ notify = true } = {}) {
   if (!imageOptions || !refreshImagesBtn) return;
   const query = credentialsQuery({ includeTag: shouldFilterRefreshByTag() });
@@ -2276,6 +2801,7 @@ async function refreshImages({ notify = true } = {}) {
     setFieldValue("oldversion", "");
     setFieldValue("restart_version", "");
     updateRestartButtons();
+    updateRemoveOldImagesState();
   }
 
   refreshImagesBtn.disabled = true;
@@ -2473,12 +2999,34 @@ form.addEventListener("submit", async (event) => {
 });
 
 testBtn?.addEventListener("click", test);
+testEmailBtn?.addEventListener("click", testEmail);
 deleteConfigBtn?.addEventListener("click", deleteConfig);
 exportConfigBtn?.addEventListener("click", exportPortableConfig);
 importConfigBtn?.addEventListener("click", importPortableConfigFile);
 importConfigFile?.addEventListener("change", importPortableConfig);
 clearBtn?.addEventListener("click", clearActionFields);
 dockerRunBtn?.addEventListener("click", openDockerRunModal);
+tokenToggle?.addEventListener("click", () => togglePasswordVisibility(field("token"), tokenToggle, "NetBox token"));
+profileDockerhubSecretToggle?.addEventListener("click", () => togglePasswordVisibility(profileDockerhubSecret, profileDockerhubSecretToggle, "Docker Hub webhook password"));
+smtpConfigToggle?.addEventListener("click", () => togglePasswordVisibility(field("smtp_config"), smtpConfigToggle, "SMTP config"));
+form?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-profile-help]");
+  if (!button) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  openProfileHelp(button.dataset.profileHelp);
+});
+form?.addEventListener("keydown", (event) => {
+  const button = event.target.closest("[data-profile-help]");
+  if (!button || (event.key !== "Enter" && event.key !== " ")) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  openProfileHelp(button.dataset.profileHelp);
+});
+profileHelpCloseBtn?.addEventListener("click", closeProfileHelp);
+profileHelpOkBtn?.addEventListener("click", closeProfileHelp);
 saveTemplateBtn?.addEventListener("click", saveCreateTemplate);
 deleteTemplateBtn?.addEventListener("click", deleteSelectedTemplate);
 loadTemplateBtn?.addEventListener("click", loadSelectedTemplate);
@@ -2489,6 +3037,9 @@ sidebarToggle?.addEventListener("click", () => {
 });
 refreshReportBtn?.addEventListener("click", refreshImageReport);
 reportProfileSelect?.addEventListener("change", refreshImageReport);
+reportViewButtons.forEach((button) => {
+  button.addEventListener("click", () => setReportView(button.dataset.reportView));
+});
 templateSelect?.addEventListener("change", () => {
   syncTemplateActions();
   if (templateSelect.value) loadSelectedTemplate();
@@ -2499,8 +3050,22 @@ dockerRunCloseBtn?.addEventListener("click", closeDockerRunModal);
 dockerRunModal?.addEventListener("click", (event) => {
   if (event.target === dockerRunModal) closeDockerRunModal();
 });
+profileHelpModal?.addEventListener("click", (event) => {
+  if (event.target === profileHelpModal) closeProfileHelp();
+});
 refreshInstancesBtn?.addEventListener("click", refreshInstances);
 refreshImagesBtn?.addEventListener("click", refreshImages);
+configFields.forEach((name) => {
+  const control = field(name);
+  control?.addEventListener("input", () => {
+    updateProfileSyncWarning();
+    if (name === "smtp_config") updateTestEmailVisibility();
+  });
+  control?.addEventListener("change", () => {
+    updateProfileSyncWarning();
+    if (name === "smtp_config") updateTestEmailVisibility();
+  });
+});
 configProfileSelect?.addEventListener("change", () => {
   applyProfileToFields(configProfileSelect.value);
   ensureRandomCreateInstanceName();
@@ -2521,7 +3086,11 @@ field("image")?.addEventListener("change", updateOldVersionOptions);
 field("image")?.addEventListener("change", () => {
   ensureCreateVersion();
 });
-field("oldversion")?.addEventListener("input", updateSelectedVersionContainerNotice);
+field("oldversion")?.addEventListener("input", () => {
+  updateSelectedVersionContainerNotice();
+  updateRemoveOldImagesState();
+});
+field("version")?.addEventListener("input", updateRemoveOldImagesState);
 field("restart_version")?.addEventListener("input", updateRestartButtons);
 field("restart_version")?.addEventListener("input", updateSelectedVersionContainerNotice);
 field("operate_action")?.addEventListener("change", updateOperateControls);
@@ -2548,6 +3117,9 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !dockerRunModal?.classList.contains("hidden")) {
     closeDockerRunModal();
   }
+  if (event.key === "Escape" && !profileHelpModal?.classList.contains("hidden")) {
+    closeProfileHelp();
+  }
 });
 
 window.parseDockerRun = parseDockerRun;
@@ -2556,6 +3128,7 @@ window.instanceFqdn = instanceFqdn;
 
 async function initializePage() {
   initializeSidebar();
+  await loadMailSettings();
   await loadCreateTemplates();
   updateTemplateOptions();
   setAction(currentAction);

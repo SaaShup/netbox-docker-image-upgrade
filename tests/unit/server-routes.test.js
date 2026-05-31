@@ -13,15 +13,17 @@ function jsonResponse(payload, status = 200) {
 
 async function loadServer({
   adminEmails = "",
+  appPath = path.resolve(__dirname, "../.."),
   configureDelayMs = "0",
   dockerhubSecret = "",
   oidc = false,
   operationTimeoutSeconds = "1",
+  ownerEmail = "",
   recreateDelayMs = "0",
 } = {}) {
   const dataPath = fs.mkdtempSync(path.join(os.tmpdir(), "saashup-test-"));
   process.env.DATAPATH = dataPath;
-  process.env.APPPATH = path.resolve(__dirname, "../..");
+  process.env.APPPATH = appPath;
   process.env.ENABLE_EDITOR = "1";
   process.env.OPERATION_TIMEOUT_SECONDS = operationTimeoutSeconds;
   process.env.OPERATION_POLL_MS = "10";
@@ -29,6 +31,9 @@ async function loadServer({
   process.env.CREATE_RECREATE_DELAY_MS = recreateDelayMs;
   if (dockerhubSecret) process.env.DOCKERHUB_WEBHOOK_SECRET = dockerhubSecret;
   else delete process.env.DOCKERHUB_WEBHOOK_SECRET;
+  if (ownerEmail) process.env.SAASHUP_OWNER_EMAIL = ownerEmail;
+  else delete process.env.SAASHUP_OWNER_EMAIL;
+  delete process.env.APP_OWNER_EMAIL;
   if (adminEmails) process.env.ADMIN_ALLOWED_EMAILS = adminEmails;
   else delete process.env.ADMIN_ALLOWED_EMAILS;
   if (oidc) {
@@ -73,6 +78,8 @@ function setupNetBoxFetch(fetchMock, {
   containerPostArray = false,
   containerHostAsId = false,
   deleteContainerRunning = false,
+  dockerVolumeMount = false,
+  omitContainerHost = false,
   emptyContainersForName = "",
   emptyImagesForName = "",
   invalidReportImages = false,
@@ -80,6 +87,7 @@ function setupNetBoxFetch(fetchMock, {
   omitContainerDisplay = false,
   omitContainerName = false,
   recreateContainerName = "tiles",
+  reportContainerOwners = false,
 } = {}) {
   let deleteContainerGetCount = 0;
   let stopRequested = false;
@@ -148,24 +156,107 @@ function setupNetBoxFetch(fetchMock, {
       return jsonResponse({ id: 20, ...body }, 201);
     }
 
+    if (pathname === "/api/plugins/docker/images/10/" && method === "DELETE") {
+      return jsonResponse({}, 204);
+    }
+
     if (pathname === "/api/plugins/docker/volumes/" && method === "POST") {
       return jsonResponse(JSON.parse(options.body), 201);
     }
 
+    if (pathname === "/api/plugins/docker/volumes/" && method === "GET") {
+      return jsonResponse({ results: [{ id: 41, name: parsed.searchParams.get("name") || "tiles-data" }] });
+    }
+
+    if (pathname === "/api/plugins/docker/volumes/40/" && method === "DELETE") return jsonResponse({}, 204);
+    if (pathname === "/api/plugins/docker/volumes/41/" && method === "DELETE") return jsonResponse({}, 204);
+
     if (pathname === "/api/plugins/docker/containers/" && method === "GET") {
       if (parsed.searchParams.get("limit") === "1") return jsonResponse({ results: [{ id: 30 }] });
       if (parsed.searchParams.get("name") === emptyContainersForName) return jsonResponse({ results: [] });
+      if (reportContainerOwners === "variants") {
+        return jsonResponse({
+          results: [
+            {
+              id: 30,
+              display: "env-vars",
+              host: { id: 1, display: "host-a" },
+              image: { id: 10 },
+              state: "created",
+              status: "created",
+              network_settings: [{ network: { name: "bridge" } }],
+              env: [null],
+              env_vars: [{ name: "SAASHUP_OWNER", value: "envvars@example.com" }],
+            },
+            {
+              id: 31,
+              host: { id: 1, display: "host-a" },
+              image: { id: 10 },
+              state: "created",
+              status: "created",
+              network_settings: [{ network: { name: "bridge" } }],
+              environment: [{ key: "SAASHUP_OWNER", value: "environment@example.com" }],
+            },
+          ],
+        });
+      }
+      if (reportContainerOwners === "multiple") {
+        return jsonResponse({
+          results: [
+            {
+              id: 30,
+              name: "zeta",
+              display: "zeta",
+              host: { id: 1, display: "host-a" },
+              image: { id: 10 },
+              state: "created",
+              status: "created",
+              network_settings: [{ network: { name: "bridge" } }],
+              env: [{ var_name: "SAASHUP_OWNER", value: "ada@example.com" }],
+            },
+            {
+              id: 31,
+              name: "alpha",
+              display: "alpha",
+              host: { id: 1, display: "host-a" },
+              image: { id: 10 },
+              state: "created",
+              status: "created",
+              network_settings: [{ network: { name: "bridge" } }],
+              env: [{ var_name: "SAASHUP_OWNER", value: "ada@example.com" }],
+            },
+            {
+              id: 32,
+              name: "omega",
+              display: "omega",
+              host: { id: 1, display: "host-a" },
+              image: { id: 10 },
+              state: "created",
+              status: "created",
+              network_settings: [{ network: { name: "bridge" } }],
+              env: [{ var_name: "SAASHUP_OWNER", value: "zara@example.com" }],
+            },
+          ],
+        });
+      }
       return jsonResponse({
         results: [
           {
             id: 30,
             ...(omitContainerName ? {} : { name: recreateContainerName }),
             ...(omitContainerDisplay ? {} : { display: recreateContainerName }),
-            host: containerHostAsId ? 1 : { id: 1, display: "host-a" },
+            ...(omitContainerHost ? {} : { host: containerHostAsId ? 1 : { id: 1, display: "host-a" } }),
             image: { id: 10 },
             state: deleteContainerRunning ? "running" : "created",
             status: deleteContainerRunning ? "running" : "created",
             network_settings: [{ network: { name: "bridge" } }, { network: { name: "traefik-public" } }],
+            mounts: dockerVolumeMount
+              ? [{ docker_volume: { id: 40, name: "tiles-data" }, source: "/app/data" }]
+              : [
+                { volume: { id: 40, name: "tiles-data" }, source: "/app/data" },
+                { volume: { name: "tiles-cache" }, source: "/app/cache" },
+              ],
+            ...(reportContainerOwners ? { env: [{ var_name: "SAASHUP_OWNER", value: "owner@example.com" }] } : {}),
           },
         ],
       });
@@ -235,6 +326,8 @@ describe("server routes", () => {
     delete process.env.CREATE_CONFIGURE_DELAY_MS;
     delete process.env.CREATE_RECREATE_DELAY_MS;
     delete process.env.DOCKERHUB_WEBHOOK_SECRET;
+    delete process.env.SAASHUP_OWNER_EMAIL;
+    delete process.env.APP_OWNER_EMAIL;
     delete process.env.LOCAL_DEV_EMAIL;
     delete process.env.OIDC_ISSUER_URL;
     delete process.env.OIDC_CLIENT_ID;
@@ -339,15 +432,37 @@ describe("server routes", () => {
         domain: "example.com",
         tag: "tile",
         max_instances: "3",
+        dockerhub_webhook_secret: "profile-hook",
+        smtp_config: "mailer:smtp-secret@smtp.example.com:587",
         profile: "prod",
         profiles: JSON.stringify({ prod: { tag: "tile" } }),
       })
       .expect(200)
       .expect((res) => {
         expect(res.body.max_instances).toBe(3);
+        expect(res.body.dockerhub_webhook_secret).toBe("profile-hook");
+        expect(res.body.smtp_config).toBe("mailer:smtp-secret@smtp.example.com:587");
+      });
+    await request.get("/webhook")
+      .query({
+        customer_name: "CuriooCity",
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "example.com",
+        tag: "tile",
+        max_instances: "3",
+        owner_env_var: "   ",
+        profile: "prod",
+        profiles: JSON.stringify({ prod: { tag: "tile" } }),
+      })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.owner_env_var).toBe("SAASHUP_OWNER");
       });
 
     await request.get("/config").expect(200).expect((res) => {
+      expect(res.body.owner_env_var).toBe("SAASHUP_OWNER");
       expect(res.body.profile).toBe("prod");
       expect(res.body.customer_name).toBe("CuriooCity");
     });
@@ -440,6 +555,8 @@ describe("server routes", () => {
       expect(res.body.total_containers).toBeGreaterThanOrEqual(1);
       expect(res.body.total_users).toBe(0);
     });
+    expect(readState(dataPath).logs).toContain("REPORT_IMAGE : starting profile=all");
+    expect(readState(dataPath).logs).toContain("REPORT_IMAGE : finished profile=all");
 
     writeState(dataPath, {
       config: {
@@ -516,13 +633,188 @@ describe("server routes", () => {
     writeState(dataPath, {
       config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
       templates: {},
-      order_counts: {},
+      order_counts: { "buyer@example.com": { prod: 1 } },
+      order_instances: { "buyer@example.com": { prod: [{ instance: "tiles.example.com" }] } },
       logs: "",
     });
     setupNetBoxFetch(fetchMock, { invalidReportImages: true });
     await request.get("/report/images").expect(200).expect((res) => {
       expect(res.body.rows).toHaveLength(1);
       expect(res.body.rows[0].image).toBe("saashup/tile");
+    });
+
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: { "buyer@example.com": { prod: 1 } },
+      order_instances: { "buyer@example.com": { prod: [{ instance: "tiles.example.com" }] } },
+      logs: "",
+    });
+    setupNetBoxFetch(fetchMock, { reportContainerOwners: true });
+    await request.get("/report/images").expect(200).expect((res) => {
+      expect(res.body.total_users).toBe(1);
+      expect(res.body.users).toEqual([
+        expect.objectContaining({
+          user: "owner@example.com",
+          containers: 1,
+          items: [
+            expect.objectContaining({
+              container: "tiles",
+              image: "saashup/tile",
+              version: "v1.0.0",
+            }),
+          ],
+        }),
+      ]);
+    });
+    expect(readState(dataPath).logs).toContain("found 1 owner from SAASHUP_OWNER");
+
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+    setupNetBoxFetch(fetchMock, { reportContainerOwners: "multiple" });
+    await request.get("/report/images").expect(200).expect((res) => {
+      expect(res.body.total_users).toBe(2);
+      expect(res.body.users.map((user) => user.user)).toEqual(["ada@example.com", "zara@example.com"]);
+      expect(res.body.users[0]).toMatchObject({
+        user: "ada@example.com",
+        containers: 2,
+        images: 1,
+        items: [
+          expect.objectContaining({ container: "alpha", image: "saashup/tile" }),
+          expect.objectContaining({ container: "zeta", image: "saashup/tile" }),
+        ],
+      });
+      expect(res.body.users[1]).toMatchObject({
+        user: "zara@example.com",
+        containers: 1,
+        items: [
+          expect.objectContaining({ container: "omega", image: "saashup/tile" }),
+        ],
+      });
+    });
+
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+    setupNetBoxFetch(fetchMock, { multipleReportImages: true, reportContainerOwners: "multiple" });
+    await request.get("/report/images").expect(200).expect((res) => {
+      expect(res.body.total_users).toBe(2);
+      expect(res.body.users[0].images).toBe(3);
+      expect(res.body.users[0].items.map((item) => item.image)).toEqual([
+        "saashup/tile",
+        "saashup/tile",
+        "saashup/zeta",
+        "saashup/tile",
+        "saashup/tile",
+        "saashup/zeta",
+      ]);
+    });
+
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+    setupNetBoxFetch(fetchMock, { reportContainerOwners: "variants" });
+    await request.get("/report/images").expect(200).expect((res) => {
+      expect(res.body.users.map((user) => user.user)).toEqual(["environment@example.com", "envvars@example.com"]);
+      expect(res.body.users[0].items[0].container).toBe("31");
+    });
+
+    writeState(dataPath, {
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        profile: "prod",
+        config_profile: "prod",
+        profiles: {
+          dev: { tag: "guide" },
+          prod: { tag: "tile" },
+        },
+      },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+    setupNetBoxFetch(fetchMock, { reportContainerOwners: true });
+    await request.get("/report/images").query({ profile: "all" }).expect(200).expect((res) => {
+      expect(res.body.total_users).toBe(1);
+      expect(res.body.users[0]).toMatchObject({
+        user: "owner@example.com",
+        profiles: ["dev", "prod"],
+        containers: 2,
+      });
+    });
+
+    writeState(dataPath, {
+      config: { profile: "prod", config_profile: "prod" },
+      templates: {},
+      order_counts: {
+        "buyer@example.com": { prod: 2 },
+        "zara@example.com": { prod: 1 },
+      },
+      order_instances: {
+        "buyer@example.com": {
+          prod: [
+            { instance: "beta.example.com", image: "saashup/beta", version: "v2" },
+            { instance: "alpha.example.com", image: "saashup/alpha", version: "v1" },
+          ],
+        },
+      },
+      logs: "",
+    });
+    await request.get("/report/images").query({ profile: "prod" }).expect(200).expect((res) => {
+      expect(res.body.total_users).toBe(2);
+      expect(res.body.users).toEqual([
+        expect.objectContaining({
+          user: "buyer@example.com",
+          containers: 2,
+          images: 2,
+          items: [
+            expect.objectContaining({ container: "alpha.example.com" }),
+            expect.objectContaining({ container: "beta.example.com" }),
+          ],
+        }),
+        expect.objectContaining({
+          user: "zara@example.com",
+          containers: 1,
+          items: [],
+        }),
+      ]);
+    });
+
+    writeState(dataPath, {
+      config: {},
+      templates: {},
+      order_counts: {
+        "buyer@example.com": { "": 1, prod: 1 },
+      },
+      order_instances: {
+        "buyer@example.com": {
+          "": [{ name: "default.example.com", template: "Template", version: "v1" }],
+          prod: [{ instance: "prod.example.com", image: "saashup/prod", version: "v2" }],
+        },
+      },
+      logs: "",
+    });
+    await request.get("/report/images").query({ profile: "all" }).expect(200).expect((res) => {
+      expect(res.body.users[0]).toMatchObject({
+        user: "buyer@example.com",
+        profiles: ["default", "prod"],
+        containers: 2,
+      });
+      expect(res.body.users[0].items).toEqual([
+        expect.objectContaining({ profile: "default", container: "default.example.com", image: "Template" }),
+        expect.objectContaining({ profile: "prod", container: "prod.example.com", image: "saashup/prod" }),
+      ]);
     });
   });
 
@@ -581,6 +873,15 @@ describe("server routes", () => {
       expect(res.body.detail).toBe("report failed");
       expect(res.body.payload.detail).toBe("down");
     });
+    fetchMock.mockRejectedValueOnce(new Error("report plain failed"));
+    await request.get("/report/images").query({ tag: "" }).expect(502).expect((res) => {
+      expect(res.body.detail).toBe("report plain failed");
+    });
+    fetchMock.mockRejectedValueOnce({});
+    await request.get("/report/images").query({ tag: "" }).expect(502).expect((res) => {
+      expect(res.body).toEqual({});
+    });
+    expect(readState(dataPath).logs).toContain("REPORT_IMAGE : failed report error");
 
     fetchMock.mockRejectedValueOnce(new Error("test failed"));
     await request.get("/test").expect(502).expect((res) => {
@@ -654,7 +955,7 @@ describe("server routes", () => {
 
     expect(readState(dataPath).order_counts["buyer@example.com"]?.prod).toBe(1);
     expect(readState(dataPath).order_instances["buyer@example.com"]?.prod).toEqual([
-      expect.objectContaining({ instance: "tiles.example.com", template: "Tiles" }),
+      expect.objectContaining({ instance: "tiles.example.com", template: "Tiles", status: expect.stringMatching(/^(creating|failed)$/) }),
     ]);
 
     await request.post("/create")
@@ -692,8 +993,23 @@ describe("server routes", () => {
 
     expect(readState(dataPath).order_counts["buyer@example.com"].prod).toBe(1);
     expect(readState(dataPath).order_instances["buyer@example.com"].prod).toEqual([
-      expect.objectContaining({ instance: "", template: "", image: "", version: "" }),
+      expect.objectContaining({ instance: "", template: "", image: "", version: "", status: expect.stringMatching(/^(creating|failed)$/) }),
     ]);
+    await vi.waitFor(() => expect(readState(dataPath).order_instances["buyer@example.com"].prod[0]).toEqual(
+      expect.objectContaining({ status: "failed" }),
+    ));
+    await request.get("/report/images").query({ profile: "prod" }).expect(200).expect((res) => {
+      expect(res.body.total_users).toBe(1);
+      expect(res.body.users).toEqual([
+        expect.objectContaining({
+          user: "buyer@example.com",
+          containers: 1,
+          items: [
+            expect.objectContaining({ profile: "prod", container: "" }),
+          ],
+        }),
+      ]);
+    });
   });
 
   test("reports users across all stored orders when no report profiles exist", async () => {
@@ -800,11 +1116,49 @@ describe("server routes", () => {
     await request.post("/dockerhub/prod").set("x-saashup-webhook-secret", "hook-secret").send(body).expect(202);
   });
 
-  test("accepts write operations and records logs", async () => {
-    const { dataPath, fetchMock, request } = await loadServer();
-    setupNetBoxFetch(fetchMock);
+  test("dockerhub webhook can use a profile-specific shared secret", async () => {
+    const { dataPath, request } = await loadServer({ dockerhubSecret: "env-secret" });
     writeState(dataPath, {
-      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 3 },
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        profiles: {
+          prod: { tag: "tile", dockerhub_webhook_secret: "profile-secret" },
+          dev: { tag: "dev" },
+        },
+      },
+      templates: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.get("/dockerhub-webhook-secret")
+      .query({ profile: "prod" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toEqual({ secret: "profile-secret", default_secret: "env-secret" });
+      });
+    await request.get("/dockerhub-webhook-secret")
+      .query({ config_profile: "dev" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toEqual({ secret: "env-secret", default_secret: "env-secret" });
+      });
+
+    const body = { push_data: { tag: "latest" }, repository: { repo_name: "saashup/tile" } };
+    await request.post("/dockerhub/prod/env-secret").send(body).expect(403);
+    await request.post("/dockerhub/prod/profile-secret").send(body).expect(202);
+    await request.post("/dockerhub/dev/env-secret").send(body).expect(202);
+  });
+
+  test("accepts write operations and records logs", async () => {
+    const { dataPath, fetchMock, request, setSmtpSenderForTests } = await loadServer({ ownerEmail: "owner@example.com" });
+    setupNetBoxFetch(fetchMock);
+    const smtpSender = vi.fn().mockResolvedValue({ messageId: "ready-message", accepted: ["admin@example.com"], response: "250 queued" });
+    setSmtpSenderForTests(smtpSender);
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 3, owner_env_var: "OWNER", smtp_config: "mailer:smtp-secret@smtp.example.com:587" },
       templates: {},
       order_counts: {},
       logs: "",
@@ -827,11 +1181,30 @@ describe("server routes", () => {
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("CREATE :"));
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("CREATE : 2 volumes prepared on host-a"));
     await vi.waitFor(() => expect(Object.values(readState(dataPath).order_counts).some((counts) => counts.prod === 1)).toBe(true));
+    await vi.waitFor(() => expect(readState(dataPath).order_instances["admin@example.com"]?.prod?.[0]).toEqual(
+      expect.objectContaining({ instance: "tiles.example.com", status: "ready" }),
+    ));
+    await vi.waitFor(() => expect(smtpSender).toHaveBeenCalledWith(
+      expect.objectContaining({ user: "mailer", password: "smtp-secret", host: "smtp.example.com", port: 587 }),
+      expect.objectContaining({
+        from: "owner@example.com",
+        to: "admin@example.com",
+        cc: ["owner@example.com"],
+        subject: "tiles.example.com is ready",
+        text: expect.stringContaining("Your instance is now running: tiles.example.com"),
+        html: expect.stringContaining("Your instance is ready"),
+      }),
+    ));
+    expect(smtpSender.mock.calls[0][1].html).toContain('src="cid:saashup-logo"');
+    expect(smtpSender.mock.calls[0][1].inlineImages).toEqual([
+      expect.objectContaining({ cid: "saashup-logo", contentType: "image/png" }),
+    ]);
+    expect(readState(dataPath).logs).toContain("EMAIL : ready notification sent to admin@example.com for tiles.example.com");
     expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/cloudflare/dns/records/") && options?.method === "POST" && JSON.parse(options.body).content === "host-a.example.com")).toBe(true);
     expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/docker/volumes/") && options?.method === "POST" && JSON.parse(options.body).length === 2)).toBe(true);
     expect(fetchMock.mock.calls.some(([url, options]) => {
       if (!String(url).endsWith("/api/plugins/docker/containers/") || options?.method !== "PATCH") return false;
-      return JSON.parse(options.body).some((item) => item.env?.some((env) => env.var_name === "SAASHUP_OWNER" && env.value === "admin@example.com"));
+      return JSON.parse(options.body).some((item) => item.env?.some((env) => env.var_name === "OWNER" && env.value === "admin@example.com"));
     })).toBe(true);
 
     await request.post("/create").set("x-auth-request-email", "buyer@example.com").send({
@@ -849,16 +1222,17 @@ describe("server routes", () => {
       config_profile: "prod",
     }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).order_counts["buyer@example.com"]?.prod).toBe(1));
+    await vi.waitFor(() => expect(smtpSender).toHaveBeenCalledTimes(2));
     await vi.waitFor(() => expect(readState(dataPath).order_instances["buyer@example.com"]?.prod).toEqual([
       expect.objectContaining({ instance: "tiles-second.example.com", template: "Tiles", image: "saashup/tile", version: "v2.0.0" }),
     ]));
     expect(readState(dataPath).order_instances.buyer).toBeUndefined();
     expect(fetchMock.mock.calls.some(([url, options]) => {
       if (!String(url).endsWith("/api/plugins/docker/containers/") || options?.method !== "PATCH") return false;
-      return JSON.parse(options.body).some((item) => item.env?.some((env) => env.var_name === "SAASHUP_OWNER" && env.value === "buyer@example.com"));
+      return JSON.parse(options.body).some((item) => item.env?.some((env) => env.var_name === "OWNER" && env.value === "buyer@example.com"));
     })).toBe(true);
 
-    await request.post("/create").send({
+    await request.post("/create").set("x-auth-request-email", "nohosts@example.com").send({
       instance: "tiles-empty-profile.example.com",
       image: "saashup/tile",
       version: "v2.0.0",
@@ -909,6 +1283,13 @@ describe("server routes", () => {
     expect(stopPatchCountAfterDelete).toBe(stopPatchCountBeforeDelete);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : Cloudflare DNS record delete requested for tiles.example.com"));
     expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/cloudflare/dns/records/61/") && options?.method === "DELETE")).toBe(true);
+    expect(fetchMock.mock.calls.some(([url, options]) => String(url).includes("/api/plugins/docker/volumes/") && options?.method === "DELETE")).toBe(false);
+
+    await request.post("/delete").send({ instance: "tiles.example.com", delete_volumes: "true" }).expect(202);
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : volume tiles-data deleted"));
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : volume tiles-cache deleted"));
+    expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/docker/volumes/40/") && options?.method === "DELETE")).toBe(true);
+    expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/docker/volumes/41/") && options?.method === "DELETE")).toBe(true);
 
     writeState(dataPath, {
       config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 3 },
@@ -946,6 +1327,78 @@ describe("server routes", () => {
     await request.post("/dockerhub/prod").send({ push_data: { tag: "latest" }, repository: { repo_name: "saashup/tile" } }).expect(202);
     await request.post("/dockerhub/prod").send({ push_data: { tag: "v2.0.0" }, repository: { repo_name: "saashup/tile" } }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("v2.0.0"));
+  });
+
+  test("test email uses smtp config and owner email env", async () => {
+    const { dataPath, request, setSmtpSenderForTests } = await loadServer({ ownerEmail: "owner@example.com" });
+    const smtpSender = vi.fn().mockResolvedValue({ messageId: "test-message", accepted: ["owner@example.com"], rejected: [], response: "250 queued" });
+    setSmtpSenderForTests(smtpSender);
+    setSmtpSenderForTests(null);
+    setSmtpSenderForTests(smtpSender);
+    writeState(dataPath, {
+      config: {
+        profiles: {
+          prod: { smtp_config: "mailer:smtp-secret@smtp.example.com:587" },
+        },
+      },
+      templates: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.get("/mail-settings").expect(200).expect((res) => {
+      expect(res.body).toEqual({ owner_email_configured: true });
+    });
+    await request.post("/test-email").send({ profile: "prod", config_profile: "prod" }).expect(200).expect((res) => {
+      expect(res.body).toMatchObject({ status: "sent", message_id: "test-message", accepted: ["owner@example.com"], rejected: [], response: "250 queued" });
+    });
+    expect(smtpSender).toHaveBeenCalledWith(
+      expect.objectContaining({ user: "mailer", password: "smtp-secret", host: "smtp.example.com", port: 587 }),
+      expect.objectContaining({
+        to: "owner@example.com",
+        subject: "test-instance.example.com is ready",
+        text: expect.stringContaining("Your instance is now running: test-instance.example.com"),
+        html: expect.stringContaining("Your instance is ready"),
+      }),
+    );
+    expect(readState(dataPath).logs).toContain("EMAIL : test notification sent to owner for prod");
+  });
+
+  test("test email reports missing owner or smtp config", async () => {
+    const { request } = await loadServer();
+
+    await request.post("/test-email").send({ smtp_config: "smtp.example.com:25" }).expect(400).expect((res) => {
+      expect(res.body.detail).toBe("owner email is not configured");
+    });
+
+    const { request: ownerRequest } = await loadServer({ ownerEmail: "owner@example.com" });
+    await ownerRequest.post("/test-email").send({ smtp_config: "" }).expect(400).expect((res) => {
+      expect(res.body.detail).toBe("smtp config is not configured");
+    });
+  });
+
+  test("test email still sends when the email logo asset is missing", async () => {
+    const missingAppPath = fs.mkdtempSync(path.join(os.tmpdir(), "saashup-missing-assets-"));
+    const { dataPath, request, setSmtpSenderForTests } = await loadServer({ appPath: missingAppPath, ownerEmail: "owner@example.com" });
+    const smtpSender = vi.fn().mockResolvedValue({ messageId: "no-logo-message" });
+    setSmtpSenderForTests(smtpSender);
+    writeState(dataPath, {
+      config: {},
+      templates: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.post("/test-email").send({ smtp_config: "mailer:smtp-secret@smtp.example.com:587" }).expect(200);
+    expect(smtpSender).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        html: expect.not.stringContaining("cid:saashup-logo"),
+        inlineImages: [],
+      }),
+    );
   });
 
   test("records async operation errors and timeout branches", async () => {
@@ -987,6 +1440,67 @@ describe("server routes", () => {
     );
     await request.post("/restart").send({ restart_mode: "instance", instance: "tiles.example.com", tag: "" }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("ERROR : operation failed"));
+  });
+
+  test("marks order create failed when recreate never becomes ready", async () => {
+    const { dataPath, fetchMock, request } = await loadServer({ operationTimeoutSeconds: "0" });
+    setupNetBoxFetch(fetchMock);
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 3 },
+      templates: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.post("/create").set("x-auth-request-email", "slow@example.com").send({
+      instance: "slow.example.com",
+      image: "saashup/tile",
+      version: "v2.0.0",
+      port_value: "8080",
+      var_env_key: ["APP_ENV"],
+      var_env_value: ["production"],
+      label_key: ["custom.label"],
+      label_value: ["custom-value"],
+      order_request: "true",
+      profile: "prod",
+    }).expect(202);
+
+    await vi.waitFor(() => expect(readState(dataPath).order_instances["slow@example.com"]?.prod?.[0]).toEqual(
+      expect.objectContaining({ instance: "slow.example.com", status: "failed" }),
+    ));
+    expect(readState(dataPath).logs).toContain("timeout after 0s");
+  });
+
+  test("keeps order ready when ready email fails", async () => {
+    const { dataPath, fetchMock, request, setSmtpSenderForTests } = await loadServer({ ownerEmail: "owner@example.com" });
+    setupNetBoxFetch(fetchMock);
+    setSmtpSenderForTests(vi.fn().mockRejectedValue(new Error("smtp unavailable")));
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 3, smtp_config: "mailer:smtp-secret@smtp.example.com:587" },
+      templates: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.post("/create").set("x-auth-request-email", "mailfail@example.com").send({
+      instance: "mailfail.example.com",
+      image: "saashup/tile",
+      version: "v2.0.0",
+      port_value: "8080",
+      var_env_key: ["APP_ENV"],
+      var_env_value: ["production"],
+      label_key: ["custom.label"],
+      label_value: ["custom-value"],
+      order_request: "true",
+      profile: "prod",
+    }).expect(202);
+
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("EMAIL : ready notification failed for mailfail@example.com smtp unavailable"));
+    await vi.waitFor(() => expect(readState(dataPath).order_instances["mailfail@example.com"]?.prod?.[0]).toEqual(
+      expect.objectContaining({ instance: "mailfail.example.com", status: "ready" }),
+    ));
   });
 
   test("covers recreate and restart edge branches", async () => {
@@ -1060,8 +1574,17 @@ describe("server routes", () => {
       return JSON.parse(options.body).some((item) => item.image === 20 && !Object.prototype.hasOwnProperty.call(item, "name"));
     })).toBe(true);
 
-    await request.post("/recreate").send({ image: "saashup/tile", version: "v2.0.0", oldversion: "v1.0.0", clean_name: "on" }).expect(202);
+    const imageDeletesBefore = fetchMock.mock.calls.filter(([url, options]) => String(url).endsWith("/api/plugins/docker/images/10/") && options?.method === "DELETE").length;
+    await request.post("/recreate").send({ image: "saashup/tile", version: "v2.0.0", oldversion: "v1.0.0", clean_name: "on", remove_old_images: "true" }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("RECREATE : finished saashup/tile:v1.0.0 -> v2.0.0"));
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("RECREATE : removed old image saashup/tile:v1.0.0 from host-a"));
+    const imageDeletesAfter = fetchMock.mock.calls.filter(([url, options]) => String(url).endsWith("/api/plugins/docker/images/10/") && options?.method === "DELETE").length;
+    expect(imageDeletesAfter).toBe(imageDeletesBefore + 1);
+
+    await request.post("/recreate").send({ image: "saashup/tile", version: "v2.0.0", oldversion: "v2.0.0", remove_old_images: "true" }).expect(202);
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("RECREATE : finished saashup/tile:v2.0.0 -> v2.0.0"));
+    const imageDeletesAfterSameVersion = fetchMock.mock.calls.filter(([url, options]) => String(url).endsWith("/api/plugins/docker/images/10/") && options?.method === "DELETE").length;
+    expect(imageDeletesAfterSameVersion).toBe(imageDeletesAfter);
 
     await request.post("/recreate").send({ image: "saashup/missing", version: "v2.0.0" }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("RECREATE : no old images found for saashup/missing:all previous versions"));
@@ -1095,14 +1618,21 @@ describe("server routes", () => {
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("CREATE : container array-response configured on host-a"));
     await vi.waitFor(() => expect(Object.values(readState(dataPath).order_counts).some((counts) => counts.prod === 1)).toBe(true));
 
-    await request.post("/create").send({
-      instance: "nohosts.example.com",
-      image: "saashup/tile",
-      version: "v2.0.0",
-      tag: "absent",
-      port_value: "8080",
-    }).expect(202);
+    await request.post("/create")
+      .set("x-auth-request-email", "nohosts@example.com")
+      .send({
+        instance: "nohosts.example.com",
+        image: "saashup/tile",
+        version: "v2.0.0",
+        tag: "absent",
+        port_value: "8080",
+        order_request: "true",
+        profile: "prod",
+      }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("CREATE : no Docker hosts found with tag absent"));
+    await vi.waitFor(() => expect(readState(dataPath).order_instances["nohosts@example.com"]?.prod?.[0]).toEqual(
+      expect.objectContaining({ instance: "nohosts.example.com", status: "failed" }),
+    ));
 
     await request.post("/create").send({
       instance: "missing-image.example.com",
@@ -1111,6 +1641,21 @@ describe("server routes", () => {
       port_value: "8080",
     }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("CREATE : image saashup/tile:v3.0.0 not found on host-a"));
+
+    await request.post("/create")
+      .set("x-auth-request-email", "missing-image@example.com")
+      .send({
+        instance: "missing-order.example.com",
+        image: "saashup/tile",
+        version: "v3.0.0",
+        port_value: "8080",
+        order_request: "true",
+        profile: "prod",
+      })
+      .expect(202);
+    await vi.waitFor(() => expect(readState(dataPath).order_instances["missing-image@example.com"]?.prod?.[0]).toEqual(
+      expect.objectContaining({ instance: "missing-order.example.com", status: "failed" }),
+    ));
   });
 
   test("covers fallback container fields used by host and log labels", async () => {
@@ -1197,5 +1742,42 @@ describe("server routes", () => {
     expect(stoppedIndex).toBeGreaterThan(stopIndex);
     expect(deleteIndex).toBeGreaterThan(stoppedIndex);
     expect(readState(dataPath).logs).toContain("DELETE : host-a/tiles stopped");
+  });
+
+  test("deletes mounted docker_volume references when requested", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, { dockerVolumeMount: true });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/delete").send({ instance: "tiles.example.com", delete_volumes: "true" }).expect(202);
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : volume tiles-data deleted"));
+    expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/docker/volumes/40/") && options?.method === "DELETE")).toBe(true);
+  });
+
+  test("deletes named volumes without a container host fallback", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, { omitContainerHost: true });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: { "buyer@example.com": { prod: 1 } },
+      order_instances: { "buyer@example.com": { prod: [{ instance: "tiles.example.com" }] } },
+      logs: "",
+    });
+
+    await request.post("/delete")
+      .set("x-auth-request-email", "buyer@example.com")
+      .send({ instance: "tiles.example.com", delete_volumes: "true", order_request: "true", config_profile: "prod" })
+      .expect(202);
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : volume tiles-cache deleted"));
+
+    const volumeLookup = fetchMock.mock.calls.find(([url, options]) => String(url).includes("/api/plugins/docker/volumes/?") && (options?.method || "GET") === "GET");
+    expect(new URL(String(volumeLookup[0])).searchParams.has("host_id")).toBe(false);
+    expect(readState(dataPath).order_counts["buyer@example.com"]?.prod).toBe(0);
   });
 });

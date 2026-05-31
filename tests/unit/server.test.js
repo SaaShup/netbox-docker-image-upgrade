@@ -16,21 +16,29 @@ const {
   metricLine,
   operationLabel,
   parseProfiles,
+  parseSmtpConfig,
   plainObject,
   routeLabel,
+  sendSmtpMail,
+  smtpMessage,
+  smtpSenderAddress,
+  smtpTransportOptions,
   statusClass,
   valueText,
   volumePayloadsFromForm,
 } = require("../../server");
+const nodemailer = require("nodemailer");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { createAuthHelpers, firstHeader } = require("../../lib/auth");
 const {
+  cloudflareFilterEnabled,
   containerNetworkNames,
   formData,
   hostName,
   normalizedStatus,
+  ownerEnvVarName,
 } = require("../../lib/docker");
 const { createMetrics } = require("../../lib/metrics");
 const { NetBoxClient, dockerHosts, hostIdQuery, setNetBoxFetchForTests } = require("../../lib/netbox");
@@ -93,6 +101,89 @@ describe("server helpers", () => {
     expect(maxInstancesValue("-3")).toBe(0);
     expect(maxInstancesValue("4.9")).toBe(4);
     expect(maxInstancesValue("99")).toBe(10);
+  });
+
+  test("parses simple smtp config strings", () => {
+    const config = parseSmtpConfig("mailer:smtp-secret@smtp.example.com:587");
+    expect(parseSmtpConfig("mailer:smtp-secret@smtp.example.com:587")).toEqual({
+      user: "mailer",
+      password: "smtp-secret",
+      host: "smtp.example.com",
+      port: 587,
+      secure: false,
+    });
+    expect(parseSmtpConfig("mailer:smtp-secret@smtp.example.com:465")).toMatchObject({ port: 465, secure: true });
+    expect(parseSmtpConfig("smtp.example.com:25")).toMatchObject({ user: "", password: "", host: "smtp.example.com", port: 25 });
+    expect(parseSmtpConfig("broken")).toBeNull();
+    expect(parseSmtpConfig(":587")).toBeNull();
+    expect(parseSmtpConfig("smtp.example.com:not-a-port")).toBeNull();
+    expect(parseSmtpConfig("smtp.example.com:70000")).toBeNull();
+    expect(smtpSenderAddress({ user: "mailer@example.com", host: "smtp.example.com" })).toBe("mailer@example.com");
+    expect(smtpSenderAddress({ user: "mailer", host: "smtp.example.com" }, "owner@example.com")).toBe("owner@example.com");
+    expect(smtpSenderAddress({ user: "mailer", host: "smtp.example.com" })).toBe("no-reply@example.com");
+    expect(smtpSenderAddress({})).toBe("no-reply@localhost");
+    expect(smtpTransportOptions(config, 1234)).toMatchObject({
+      host: "smtp.example.com",
+      port: 587,
+      secure: false,
+      requireTLS: true,
+      auth: { user: "mailer", pass: "smtp-secret" },
+      connectionTimeout: 1234,
+    });
+    expect(smtpTransportOptions(parseSmtpConfig("smtp.example.com:25"), 1234)).not.toHaveProperty("auth");
+    expect(smtpMessage({
+      from: "from@example.com",
+      to: "to@example.com",
+      cc: ["owner@example.com"],
+      subject: "Subject",
+      text: "Text",
+      html: "<p>Text</p>",
+      inlineImages: [{ cid: "logo", filename: "logo.png", contentType: "image/png", content: "abc" }],
+    })).toMatchObject({
+      from: "from@example.com",
+      to: "to@example.com",
+      cc: ["owner@example.com"],
+      subject: "Subject",
+      attachments: [{ cid: "logo", filename: "logo.png", contentType: "image/png", content: "abc", encoding: "base64" }],
+    });
+    expect(smtpMessage({
+      inlineImages: [{ cid: "fallback", content: "abc" }],
+    }).attachments[0]).toMatchObject({
+      cid: "fallback",
+      filename: "image",
+      contentType: "application/octet-stream",
+    });
+  });
+
+  test("sends smtp mail through nodemailer transport", async () => {
+    const sendMail = vi.fn().mockResolvedValue({ messageId: "queued" });
+    const createTransport = vi.spyOn(nodemailer, "createTransport").mockReturnValue({ sendMail });
+
+    await expect(sendSmtpMail(
+      parseSmtpConfig("mailer:smtp-secret@smtp.example.com:587"),
+      {
+        to: "to@example.com",
+        subject: "Subject",
+        text: "Text",
+        inlineImages: [{ cid: "logo", filename: "logo.png", contentType: "image/png", content: "abc" }],
+      },
+    )).resolves.toEqual({ messageId: "queued" });
+
+    expect(createTransport).toHaveBeenCalledWith(expect.objectContaining({
+      host: "smtp.example.com",
+      port: 587,
+      requireTLS: true,
+      auth: { user: "mailer", pass: "smtp-secret" },
+      connectionTimeout: 10000,
+    }));
+    expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({
+      from: "no-reply@example.com",
+      to: "to@example.com",
+      subject: "Subject",
+      attachments: [expect.objectContaining({ cid: "logo", encoding: "base64" })],
+    }));
+
+    createTransport.mockRestore();
   });
 
   test("matches docker host tags from NetBox and custom field fallbacks", () => {
@@ -185,6 +276,29 @@ describe("server helpers", () => {
       { var_name: "APP_ENV", value: "production" },
       { var_name: "SAASHUP_OWNER", value: "owner@example.com" },
     ]);
+
+    expect(ownerEnvVarName({})).toBe("SAASHUP_OWNER");
+    expect(ownerEnvVarName({ owner_env_var: "OWNER" })).toBe("OWNER");
+    expect(containerConfigPayloadFromForm({
+      instance: "custom-owned.example.com",
+      host_id: 7,
+      var_env_key: ["OWNER", "SAASHUP_OWNER"],
+      var_env_value: ["spoofed@example.com", "manual@example.com"],
+      owner_env_var: "OWNER",
+      saashup_owner: "owner@example.com",
+    }, 11).env).toEqual([
+      { var_name: "SAASHUP_OWNER", value: "manual@example.com" },
+      { var_name: "OWNER", value: "owner@example.com" },
+    ]);
+
+    expect(cloudflareFilterEnabled({})).toBe(true);
+    expect(cloudflareFilterEnabled({ cloudflare_filter: "false" })).toBe(false);
+    expect(cloudflareFilterEnabled({ cloudflare_filter: ["true", "false"] })).toBe(false);
+    expect(containerConfigPayloadFromForm({
+      instance: "open.example.com",
+      port_value: ["8080"],
+      cloudflare_filter: "false",
+    }, 32).labels.some((label) => label.key.endsWith(".ipallowlist.sourcerange"))).toBe(false);
   });
 
   test("derives route, operation, and status metric labels", () => {
@@ -611,7 +725,7 @@ describe("server helpers", () => {
     await expect(helpers.waitForContainerConfigured(readyClient, 4, "host/no-status")).resolves.toBe(true);
     await expect(helpers.waitForContainerStopped(readyClient, 3, "host/container")).resolves.toBe(true);
     await expect(helpers.waitForHostReady(readyClient, 7, "host")).resolves.toBe(true);
-    await expect(helpers.requestContainerOperation(readyClient, { id: 1, host: { name: "host" }, name: "container" }, "restart", "RESTART")).resolves.toBeUndefined();
+    await expect(helpers.requestContainerOperation(readyClient, { id: 1, host: { name: "host" }, name: "container" }, "restart", "RESTART")).resolves.toBe(true);
     await expect(helpers.ensureImageOnHost(readyClient, { host: { id: 7, display: "host" } }, "app", "v2")).resolves.toEqual({ id: 22, host: { id: 7 } });
     await expect(helpers.createDnsRecord(readyClient, { instance: "app.example.com" }, { name: "host" })).resolves.toBeUndefined();
     await expect(helpers.deleteDnsRecord(readyClient, { instance: "app.example.com" })).resolves.toBeUndefined();
@@ -632,8 +746,8 @@ describe("server helpers", () => {
     await expect(configured).resolves.toBe(false);
     await expect(stopped).resolves.toBe(false);
     await expect(hostReady).resolves.toBe(false);
-    await expect(operationReady).resolves.toBeUndefined();
-    await expect(stopOperation).resolves.toBeUndefined();
+    await expect(operationReady).resolves.toBe(false);
+    await expect(stopOperation).resolves.toBe(false);
 
     const createImageClient = {
       list: vi.fn(async () => []),

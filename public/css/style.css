@@ -518,6 +518,33 @@ h2 {
   font-size: 0.74rem;
 }
 
+.report-tabs {
+  display: inline-flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--button-soft);
+}
+
+.report-tab {
+  min-height: 34px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 14px;
+  background: transparent;
+  color: var(--button-soft-text);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.report-tab.active {
+  background: var(--panel);
+  color: var(--primary);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+}
+
 .report-table-wrap {
   overflow: auto;
   border: 1px solid var(--border);
@@ -550,9 +577,56 @@ h2 {
   color: var(--text);
 }
 
+.toolbar-secret {
+  display: grid;
+  gap: 5px;
+  min-width: 260px;
+  margin-left: auto;
+}
+
+.toolbar-secret.hidden {
+  display: none;
+}
+
+.toolbar-secret span {
+  color: var(--button-soft-text);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.toolbar-secret .password-field {
+  height: 42px;
+}
+
+.toolbar-secret input {
+  width: 100%;
+  height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0 48px 0 12px;
+  font: inherit;
+  color: var(--text);
+  background: var(--field-bg);
+}
+
 .report-table td:last-child,
 .report-table th:last-child {
   text-align: right;
+}
+
+.report-table.report-users td:last-child,
+.report-table.report-users th:last-child {
+  text-align: left;
+}
+
+.report-user-assets {
+  display: grid;
+  gap: 4px;
+}
+
+.report-user-assets span {
+  color: var(--text);
+  font-size: 0.86rem;
 }
 
 .report-table tr:last-child td {
@@ -600,6 +674,69 @@ h2 {
   color: var(--button-soft-text);
 }
 
+.field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.profile-help-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0;
+  background: var(--button-soft);
+  color: var(--button-soft-text);
+  font: 800 0.78rem/20px system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.profile-help-btn:hover,
+.profile-help-btn:focus-visible {
+  border-color: var(--primary);
+  color: var(--primary);
+  outline: none;
+}
+
+.profile-sync-indicator {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.profile-sync-indicator::before {
+  content: "!";
+}
+
+.profile-sync-indicator.is-ok {
+  border: 1px solid #bbf7d0;
+  background: #dcfce7;
+  color: #166534;
+}
+
+.profile-sync-indicator.is-ok::before {
+  content: "✓";
+}
+
+.profile-sync-indicator.is-warning {
+  border: 1px solid #fde68a;
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.profile-sync-indicator.hidden {
+  display: none;
+}
+
 .field input,
 .field select {
   width: 100%;
@@ -618,6 +755,53 @@ h2 {
   border-color: var(--primary);
   box-shadow: 0 0 0 4px rgba(36, 107, 254, 0.12);
   background: var(--panel);
+}
+
+.password-field {
+  position: relative;
+  width: 100%;
+  height: 44px;
+}
+
+.password-field input {
+  padding-right: 48px;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--button-soft-text);
+  cursor: pointer;
+}
+
+.password-toggle:hover,
+.password-toggle:focus-visible {
+  background: var(--button-soft);
+  color: var(--primary);
+  outline: none;
+}
+
+.password-toggle svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.password-toggle[aria-pressed="true"] svg {
+  opacity: 0.72;
 }
 
 .checkbox-field {
@@ -766,7 +950,8 @@ h2 {
   min-height: 70vh;
 }
 
-.content-grid:has(.logs-card.fullscreen) .form-card {
+.content-grid:has(.logs-card.fullscreen) .form-card,
+.content-grid:has(.logs-card.fullscreen) .report-card {
   display: none;
 }
 
@@ -846,6 +1031,16 @@ h2 {
 
 .modal-actions {
   justify-content: flex-end;
+}
+
+.help-modal {
+  width: min(460px, 100%);
+}
+
+.help-modal-body {
+  margin: 16px 0 20px;
+  color: var(--muted);
+  line-height: 1.55;
 }
 
 .app-footer {
@@ -1071,6 +1266,35 @@ body.order-page .order-instances.hidden {
   height: 34px;
   margin-left: auto;
   border-radius: 10px;
+}
+
+.order-instance-status {
+  display: grid;
+  place-items: center;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  margin-left: auto;
+  border-radius: 10px;
+  font-weight: 900;
+}
+
+.order-instance-status-creating {
+  color: var(--primary);
+  background: var(--button-soft);
+  animation: order-status-spin 1s linear infinite;
+}
+
+.order-instance-status-failed {
+  color: #991b1b;
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+}
+
+@keyframes order-status-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .order-instance-copy strong,

@@ -1,5 +1,6 @@
 const path = require("path");
 const crypto = require("crypto");
+const fs = require("fs");
 const express = require("express");
 const packageJson = require("./package.json");
 const { authUserFromRequest, createAuthHelpers, maxInstancesValue } = require("./lib/auth");
@@ -14,6 +15,7 @@ const {
   imageNameFromRef,
   instanceShort,
   instanceZone,
+  ownerEnvVarName,
   isContainerRunning,
   isContainerStopped,
   isOperationDone,
@@ -25,18 +27,27 @@ const { createMetrics, metricLabel, metricLine, operationLabel: operationLabelFo
 const { NetBoxClient, dockerHosts, hostIdQuery, setNetBoxFetchForTests } = require("./lib/netbox");
 const { createOidcAuth, setOidcFetchForTests } = require("./lib/oidc");
 const { createOperationHelpers, delay } = require("./lib/operations");
+const { parseSmtpConfig, sendSmtpMail, smtpMessage, smtpSenderAddress, smtpTransportOptions } = require("./lib/smtp");
 const { createStateStore, parseProfiles, plainObject } = require("./lib/state");
 
 const app = express();
 const dataPath = path.resolve(process.env.DATAPATH || path.join(__dirname, "data"));
 const appPath = path.resolve(process.env.APPPATH || __dirname);
 const publicPath = path.join(appPath, "public");
+const saashupEmailLogo = (() => {
+  try {
+    return fs.readFileSync(path.join(publicPath, "assets/email/saashup-logo.png")).toString("base64");
+  } catch {
+    return "";
+  }
+})();
 const startedAt = Date.now();
 const operationTimeoutSeconds = Number(process.env.OPERATION_TIMEOUT_SECONDS || 30);
 const operationPollMs = Number(process.env.OPERATION_POLL_MS || 3000);
 const createConfigureDelayMs = Number(process.env.CREATE_CONFIGURE_DELAY_MS || 5000);
 const createRecreateDelayMs = Number(process.env.CREATE_RECREATE_DELAY_MS || 5000);
 const dockerhubWebhookSecret = String(process.env.DOCKERHUB_WEBHOOK_SECRET || "");
+const appOwnerEmail = String(process.env.SAASHUP_OWNER_EMAIL || process.env.APP_OWNER_EMAIL || "").trim();
 const adminAllowedEmails = String(process.env.ADMIN_ALLOWED_EMAILS || "")
   .split(",")
   .map((email) => email.trim().toLowerCase())
@@ -53,6 +64,7 @@ const oidcAuth = createOidcAuth({
 const metrics = createMetrics();
 const { readState, writeState, logLine } = createStateStore(dataPath);
 const { isAdminAllowed, selectedProfileConfig, userOrderKey } = createAuthHelpers({ adminAllowedEmails, readState });
+let smtpSender = sendSmtpMail;
 const {
   createDnsRecord,
   deleteDnsRecord,
@@ -112,9 +124,26 @@ function recordOrderInstance(req, profile, data) {
         template: data.order_template || "",
         image: data.image || "",
         version: data.version || "",
+        status: "creating",
         created_at: new Date().toISOString(),
       });
       state.order_instances[emailKey][profile] = instances;
+    }
+    return state;
+  });
+}
+
+function updateOrderInstanceStatus(req, profile, instance, status) {
+  const emailKey = String(authUserFromRequest(req).email || "").trim().toLowerCase();
+  if (!emailKey) return;
+
+  writeState((state) => {
+    state.order_instances = plainObject(state.order_instances);
+    const instances = Array.isArray(state.order_instances[emailKey]?.[profile]) ? state.order_instances[emailKey][profile] : [];
+    const target = instances.find((item) => item.instance === instance);
+    if (target) {
+      target.status = status;
+      target.updated_at = new Date().toISOString();
     }
     return state;
   });
@@ -139,6 +168,126 @@ function removeOrderInstance(req, profile, instance) {
   });
 }
 
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function orderReadyEmail(data, recipient, smtpConfig, { ccOwner = true } = {}) {
+  const instance = data.instance || "your instance";
+  const image = data.image || "";
+  const cc = ccOwner && appOwnerEmail && appOwnerEmail.toLowerCase() !== String(recipient || "").toLowerCase() ? [appOwnerEmail] : [];
+  const actionUrl = /^https?:\/\//i.test(instance) ? instance : `https://${instance}`;
+  const text = [
+    "Hello,",
+    "",
+    `Your instance is now running: ${instance}`,
+    image ? `Image: ${image}` : "",
+    "",
+    "You can start using it now.",
+  ].filter((line) => line !== "").join("\n");
+  const html = `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f6f7fb;font-family:Arial,Helvetica,sans-serif;color:#172033;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f6f7fb;padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#ffffff;border:1px solid #e4e7ef;border-radius:8px;overflow:hidden;">
+            <tr>
+              <td style="padding:24px 28px;background:#111827;color:#ffffff;">
+                <div style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#ffffff;">
+                  ${saashupEmailLogo ? `<img src="cid:saashup-logo" width="28" height="26" alt="SaaShup" style="display:inline-block;vertical-align:middle;margin-right:8px;background:#ffffff;border-radius:4px;padding:2px;">` : ""}
+                  <span style="vertical-align:middle;color:#ffffff;">SaaShup</span>
+                </div>
+                <h1 style="margin:8px 0 0;font-size:24px;line-height:1.25;">Your instance is ready</h1>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:28px;">
+                <p style="margin:0 0 16px;font-size:16px;line-height:1.5;">Hello,</p>
+                <p style="margin:0 0 20px;font-size:16px;line-height:1.5;">Your instance is now running and ready to use.</p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 24px;border-collapse:collapse;">
+                  <tr>
+                    <td style="padding:10px 0;color:#667085;font-size:13px;border-bottom:1px solid #eef0f5;">Instance</td>
+                    <td style="padding:10px 0;text-align:right;font-size:14px;border-bottom:1px solid #eef0f5;"><strong>${escapeHtml(instance)}</strong></td>
+                  </tr>
+                  ${image ? `<tr>
+                    <td style="padding:10px 0;color:#667085;font-size:13px;border-bottom:1px solid #eef0f5;">Image</td>
+                    <td style="padding:10px 0;text-align:right;font-size:14px;border-bottom:1px solid #eef0f5;">${escapeHtml(image)}</td>
+                  </tr>` : ""}
+                </table>
+                <a href="${escapeHtml(actionUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-weight:bold;padding:12px 18px;border-radius:6px;">Open instance</a>
+                <p style="margin:24px 0 0;color:#667085;font-size:13px;line-height:1.5;">If the button does not work, open this URL: ${escapeHtml(actionUrl)}</p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+  return {
+    from: smtpSenderAddress(smtpConfig, appOwnerEmail),
+    to: recipient,
+    cc,
+    subject: `${instance} is ready`,
+    text,
+    html,
+    inlineImages: saashupEmailLogo ? [{
+      cid: "saashup-logo",
+      filename: "saashup-logo.png",
+      contentType: "image/png",
+      content: saashupEmailLogo,
+    }] : [],
+  };
+}
+
+async function sendOrderReadyEmail(data, recipient) {
+  const smtpConfig = parseSmtpConfig(data.smtp_config);
+  if (!smtpConfig || !recipient) return;
+
+  const info = await smtpSender(smtpConfig, orderReadyEmail(data, recipient, smtpConfig));
+  logLine(`EMAIL : ready notification sent to ${recipient} for ${data.instance || ""} ${smtpInfoText(info)}`);
+}
+
+function smtpInfoText(info) {
+  if (!info || typeof info !== "object") return "";
+  const accepted = Array.isArray(info.accepted) ? info.accepted.join(",") : "";
+  const rejected = Array.isArray(info.rejected) ? info.rejected.join(",") : "";
+  return [
+    info.messageId ? `messageId=${info.messageId}` : "",
+    accepted ? `accepted=${accepted}` : "",
+    rejected ? `rejected=${rejected}` : "",
+    info.response ? `response=${String(info.response).slice(0, 120)}` : "",
+  ].filter(Boolean).join(" ");
+}
+
+async function sendTestEmail(data) {
+  const smtpConfig = parseSmtpConfig(data.smtp_config);
+  if (!appOwnerEmail) {
+    const error = new Error("owner email is not configured");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!smtpConfig) {
+    const error = new Error("smtp config is not configured");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const info = await smtpSender(smtpConfig, orderReadyEmail({
+    ...data,
+    instance: data.instance || "test-instance.example.com",
+    image: data.image || "saashup/example",
+    version: data.version || "test",
+  }, appOwnerEmail, smtpConfig, { ccOwner: false }));
+  logLine(`EMAIL : test notification sent to owner for ${data.profile || data.config_profile || "default"} ${smtpInfoText(info)}`);
+  return info;
+}
+
 function requireAdmin(req, res, next) {
   const user = authUserFromRequest(req);
   if (oidcAuth.enabled && !user.email && !user.user && !user.name) return oidcAuth.loginRequired(req, res, next);
@@ -153,10 +302,16 @@ function timingSafeStringEqual(left, right) {
   return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
 }
 
+function dockerhubSecretForProfile(profile) {
+  const config = selectedProfileConfig({ profile, config_profile: profile });
+  return String(config.dockerhub_webhook_secret || dockerhubWebhookSecret || "");
+}
+
 function dockerhubWebhookAllowed(req) {
-  if (!dockerhubWebhookSecret) return true;
+  const secret = dockerhubSecretForProfile(req.params.profile);
+  if (!secret) return true;
   const provided = req.params.secret || req.query.secret || req.get("x-saashup-webhook-secret") || "";
-  return timingSafeStringEqual(provided, dockerhubWebhookSecret);
+  return timingSafeStringEqual(provided, secret);
 }
 
 app.disable("x-powered-by");
@@ -235,6 +390,26 @@ app.get("/order", oidcAuth.loginRequired, (req, res) => res.sendFile(path.join(p
 app.use(express.static(publicPath));
 
 app.get("/config", (req, res) => res.json(readState().config || {}));
+app.get("/mail-settings", requireAdmin, (req, res) => res.json({ owner_email_configured: Boolean(appOwnerEmail) }));
+app.get("/dockerhub-webhook-secret", requireAdmin, (req, res) => {
+  const profile = req.query.profile || req.query.config_profile || "";
+  res.json({ secret: profile ? dockerhubSecretForProfile(profile) : dockerhubWebhookSecret, default_secret: dockerhubWebhookSecret });
+});
+app.post("/test-email", requireAdmin, async (req, res) => {
+  try {
+    const data = { ...selectedProfileConfig(req.body), ...req.body };
+    const info = await sendTestEmail(data);
+    res.json({
+      status: "sent",
+      message_id: info?.messageId || "",
+      accepted: Array.isArray(info?.accepted) ? info.accepted : [],
+      rejected: Array.isArray(info?.rejected) ? info.rejected : [],
+      response: info?.response || "",
+    });
+  } catch (error) {
+    res.status(error.statusCode || 502).json({ detail: error.message || "email test failed" });
+  }
+});
 app.delete("/config", requireAdmin, (req, res) => {
   writeState((state) => {
     state.config = {};
@@ -252,6 +427,10 @@ app.get("/webhook", requireAdmin, (req, res) => {
     domain: req.query.domain || "",
     tag: req.query.tag || "",
     max_instances: maxInstancesValue(req.query.max_instances),
+    owner_env_var: String(req.query.owner_env_var || "SAASHUP_OWNER").trim() || "SAASHUP_OWNER",
+    cloudflare_filter: req.query.cloudflare_filter !== "false",
+    dockerhub_webhook_secret: req.query.dockerhub_webhook_secret || "",
+    smtp_config: req.query.smtp_config || "",
     profile: req.query.profile || req.query.config_profile || "",
     config_profile: req.query.config_profile || req.query.profile || "",
     profiles: JSON.stringify(profiles),
@@ -401,26 +580,81 @@ function reportProfiles(source) {
   return [{ name: "", config: selectedProfileConfig(source) }];
 }
 
-function reportUserCount(profile, profiles) {
-  const counts = plainObject(readState().order_counts);
+function localOrderReportUsers(profile, profiles) {
+  const state = readState();
+  const counts = plainObject(state.order_counts);
+  const instances = plainObject(state.order_instances);
   const profileNames = profile === "all" ? profiles.map((item) => item.name).filter(Boolean) : [profile || ""];
   const includeAllProfiles = profile === "all" && !profileNames.length;
-  return Object.values(counts).filter((userCounts) => {
-    const userProfileCounts = plainObject(userCounts);
-    if (includeAllProfiles) return Object.values(userProfileCounts).some((count) => Number(count || 0) > 0);
-    return profileNames.some((name) => Number(userProfileCounts[name] || 0) > 0);
-  }).length;
+
+  return Object.entries(counts).flatMap(([user, userCounts]) => {
+    const normalizedCounts = plainObject(userCounts);
+    const names = includeAllProfiles
+      ? Object.keys(normalizedCounts).filter((name) => Number(normalizedCounts[name] || 0) > 0)
+      : profileNames.filter((name) => Number(normalizedCounts[name] || 0) > 0);
+
+    if (!names.length) return [];
+
+    const items = names.flatMap((name) => {
+      const profileInstances = Array.isArray(instances[user]?.[name]) ? instances[user][name] : [];
+      return profileInstances.map((item) => ({
+        profile: name || "default",
+        container: valueText(item.instance || item.name),
+        image: valueText(item.image || item.template),
+        version: valueText(item.version),
+      }));
+    });
+
+    const containers = items.length || names.reduce((total, name) => total + Number(normalizedCounts[name] || 0), 0);
+    const imageKeys = new Set(items.map((item) => `${item.image}\u0000${item.version}`).filter((key) => key !== "\u0000"));
+
+    return [{
+      user,
+      profiles: names.map((name) => name || "default").sort((left, right) => left.localeCompare(right)),
+      containers,
+      images: imageKeys.size,
+      items: items.sort((left, right) => left.profile.localeCompare(right.profile) || left.container.localeCompare(right.container)),
+    }];
+  }).sort((left, right) => left.user.localeCompare(right.user));
+}
+
+function containerEnvValue(container, name) {
+  const entries = [
+    ...(Array.isArray(container?.env) ? container.env : []),
+    ...(Array.isArray(container?.env_vars) ? container.env_vars : []),
+    ...(Array.isArray(container?.environment) ? container.environment : []),
+  ];
+
+  for (const entry of entries) {
+    if (!entry || typeof entry !== "object") continue;
+    const key = valueText(entry.var_name || entry.name || entry.key);
+    if (key === name) return valueText(entry.value);
+  }
+
+  return "";
 }
 
 async function imageReportForProfile(name, config) {
-  if (!config.netbox || !config.token) return { hosts: 0, rows: [] };
+  const label = name || "default";
+  if (!config.netbox || !config.token) {
+    logLine(`REPORT_IMAGE : ${label} skipped missing NetBox config`);
+    return { hosts: 0, rows: [] };
+  }
 
   const client = new NetBoxClient(config);
   const hosts = await dockerHosts(client, config.tag);
-  if (!hosts.length) return { hosts: 0, rows: [] };
+  if (!hosts.length) {
+    logLine(`REPORT_IMAGE : ${label} no Docker hosts found${config.tag ? ` with tag ${config.tag}` : ""}`);
+    return { hosts: 0, rows: [] };
+  }
 
+  logLine(`REPORT_IMAGE : ${label} scanning ${hosts.length} host${hosts.length === 1 ? "" : "s"}${config.tag ? ` tag=${config.tag}` : ""}`);
   const images = await client.list("/api/plugins/docker/images/", { limit: 1000, host_id: hosts.map((host) => host.id) });
+  logLine(`REPORT_IMAGE : ${label} found ${images.length} image record${images.length === 1 ? "" : "s"}`);
   const groups = new Map();
+  const ownerEnvName = ownerEnvVarName(config);
+  const owners = new Set();
+  const usersByOwner = new Map();
 
   for (const image of images) {
     const imageName = imageNameFromRef(image.name || image.display || "");
@@ -443,37 +677,109 @@ async function imageReportForProfile(name, config) {
   for (const row of groups.values()) {
     const containers = await client.list("/api/plugins/docker/containers/", { limit: 1000, image_id: row.image_ids });
     row.containers = containers.length;
+    containers.forEach((container) => {
+      const owner = containerEnvValue(container, ownerEnvName);
+      if (!owner) return;
+
+      owners.add(owner);
+      if (!usersByOwner.has(owner)) {
+        usersByOwner.set(owner, {
+          user: owner,
+          profiles: new Set(),
+          items: [],
+          imageKeys: new Set(),
+        });
+      }
+
+      const user = usersByOwner.get(owner);
+      user.profiles.add(name || "default");
+      user.imageKeys.add(`${row.image}\u0000${row.version}`);
+      user.items.push({
+        profile: name || "default",
+        container: valueText(container.display || container.name || container.id),
+        image: row.image,
+        version: row.version,
+      });
+    });
+    logLine(`REPORT_IMAGE : ${label} ${row.image}:${row.version} containers=${row.containers}`);
   }
 
   const rows = Array.from(groups.values())
     .map(({ image_ids, ...row }) => row)
     .sort((left, right) => left.profile.localeCompare(right.profile) || left.image.localeCompare(right.image) || left.version.localeCompare(right.version, undefined, { numeric: true, sensitivity: "base" }));
 
-  return { hosts: hosts.length, rows };
+  const users = Array.from(usersByOwner.values())
+    .map((user) => ({
+      user: user.user,
+      profiles: [...user.profiles],
+      containers: user.items.length,
+      images: user.imageKeys.size,
+      items: user.items.sort((left, right) => left.profile.localeCompare(right.profile) || left.container.localeCompare(right.container) || left.image.localeCompare(right.image)),
+    }))
+    .sort((left, right) => left.user.localeCompare(right.user));
+
+  logLine(`REPORT_IMAGE : ${label} found ${owners.size} owner${owners.size === 1 ? "" : "s"} from ${ownerEnvName}`);
+  return { hosts: hosts.length, rows, owners: [...owners], users };
 }
 
 app.get("/report/images", requireAdmin, async (req, res) => {
   try {
     const profiles = reportProfiles(req.query);
     const requestedProfile = req.query.profile || req.query.config_profile || "";
+    logLine(`REPORT_IMAGE : starting profile=${requestedProfile || "selected"} profiles=${profiles.map((item) => item.name || "default").join(",") || "default"}`);
     const results = [];
+    const owners = new Set();
+    const usersByOwner = new Map();
     let totalHosts = 0;
 
     for (const item of profiles) {
       const report = await imageReportForProfile(item.name, item.config);
       totalHosts += report.hosts;
       results.push(...report.rows);
+      (report.owners || []).forEach((owner) => owners.add(owner));
+      (report.users || []).forEach((user) => {
+        if (!usersByOwner.has(user.user)) {
+          usersByOwner.set(user.user, {
+            user: user.user,
+            profiles: new Set(),
+            items: [],
+            imageKeys: new Set(),
+          });
+        }
+
+        const target = usersByOwner.get(user.user);
+        (user.profiles || []).forEach((profile) => target.profiles.add(profile));
+        for (const owned of user.items || []) {
+          target.items.push(owned);
+          target.imageKeys.add(`${owned.image}\u0000${owned.version}`);
+        }
+      });
     }
 
-    res.json({
+    const netboxUsers = Array.from(usersByOwner.values())
+      .map((user) => ({
+        user: user.user,
+        profiles: [...user.profiles].sort((left, right) => left.localeCompare(right)),
+        containers: user.items.length,
+        images: user.imageKeys.size,
+        items: user.items.sort((left, right) => left.profile.localeCompare(right.profile) || left.container.localeCompare(right.container) || left.image.localeCompare(right.image)),
+      }))
+      .sort((left, right) => left.user.localeCompare(right.user));
+    const users = netboxUsers.length ? netboxUsers : localOrderReportUsers(requestedProfile, profiles);
+
+    const payload = {
       profile: requestedProfile,
       rows: results,
+      users,
       total_hosts: totalHosts,
       total_images: results.length,
       total_containers: results.reduce((total, row) => total + Number(row.containers || 0), 0),
-      total_users: reportUserCount(requestedProfile, profiles),
-    });
+      total_users: users.length,
+    };
+    logLine(`REPORT_IMAGE : finished profile=${requestedProfile || "selected"} hosts=${payload.total_hosts} images=${payload.total_images} containers=${payload.total_containers} users=${payload.total_users}`);
+    res.json(payload);
   } catch (error) {
+    logLine(`REPORT_IMAGE : failed ${error.message || "report error"}`);
     res.status(error.statusCode || 502).json({ detail: error.message, payload: error.payload });
   }
 });
@@ -482,7 +788,8 @@ app.get("/order/limit", (req, res) => res.json(currentUsage(req, req.query.profi
 
 app.post("/create", async (req, res) => {
   const data = { ...selectedProfileConfig(req.body), ...req.body };
-  data.saashup_owner = authUserFromRequest(req).email || "";
+  const authUser = authUserFromRequest(req);
+  data.saashup_owner = authUser.email || "";
   const orderProfile = data.profile || data.config_profile || "";
   const usage = currentUsage(req, orderProfile);
   const isOrderRequest = req.body.order_request === "true";
@@ -491,31 +798,54 @@ app.post("/create", async (req, res) => {
   }
   if (isOrderRequest) recordOrderInstance(req, orderProfile, data);
   asyncOperation(res, async () => {
-    const client = new NetBoxClient(data);
-    const hosts = await dockerHosts(client, data.tag);
-    if (!hosts.length) return logLine(`CREATE : no Docker hosts found${data.tag ? ` with tag ${data.tag}` : ""}`);
-    const containers = await client.list("/api/plugins/docker/containers/", { limit: 1000, host_id: hosts.map((host) => host.id) });
-    const selectedHost = hosts.map((host) => ({ host, count: containers.filter((c) => (c.host?.id || c.host) === host.id).length })).sort((a, b) => a.count - b.count)[0].host;
-    data.host_id = selectedHost.id;
-    const images = await client.list("/api/plugins/docker/images/", { name: data.image, version: data.version, host_id: data.host_id });
-    if (!images[0]) return logLine(`CREATE : image ${data.image}:${data.version} not found on ${hostName(selectedHost)}`);
-    await createDnsRecord(client, data, selectedHost);
-    const volumes = volumePayloadsFromForm(data);
-    if (volumes.length) {
-      await client.request("POST", "/api/plugins/docker/volumes/", { body: volumes.length === 1 ? volumes[0] : volumes, expected: [200, 201, 202] });
-      logLine(`CREATE : ${volumes.length} volume${volumes.length === 1 ? "" : "s"} prepared on ${hostName(selectedHost)}`);
+    try {
+      const client = new NetBoxClient(data);
+      const hosts = await dockerHosts(client, data.tag);
+      if (!hosts.length) {
+        logLine(`CREATE : no Docker hosts found${data.tag ? ` with tag ${data.tag}` : ""}`);
+        if (isOrderRequest) updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
+        return;
+      }
+      const containers = await client.list("/api/plugins/docker/containers/", { limit: 1000, host_id: hosts.map((host) => host.id) });
+      const selectedHost = hosts.map((host) => ({ host, count: containers.filter((c) => (c.host?.id || c.host) === host.id).length })).sort((a, b) => a.count - b.count)[0].host;
+      data.host_id = selectedHost.id;
+      const images = await client.list("/api/plugins/docker/images/", { name: data.image, version: data.version, host_id: data.host_id });
+      if (!images[0]) {
+        logLine(`CREATE : image ${data.image}:${data.version} not found on ${hostName(selectedHost)}`);
+        if (isOrderRequest) updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
+        return;
+      }
+      await createDnsRecord(client, data, selectedHost);
+      const volumes = volumePayloadsFromForm(data);
+      if (volumes.length) {
+        await client.request("POST", "/api/plugins/docker/volumes/", { body: volumes.length === 1 ? volumes[0] : volumes, expected: [200, 201, 202] });
+        logLine(`CREATE : ${volumes.length} volume${volumes.length === 1 ? "" : "s"} prepared on ${hostName(selectedHost)}`);
+      }
+      const containerPayload = containerCreatePayloadFromForm(data, images[0].id);
+      const { payload } = await client.request("POST", "/api/plugins/docker/containers/", { body: containerPayload, expected: [200, 201, 202] });
+      const container = Array.isArray(payload) ? payload[0] : payload;
+      logLine(`CREATE : container ${containerPayload.name} created on ${hostName(selectedHost)}`);
+      if (createConfigureDelayMs > 0) await delay(createConfigureDelayMs);
+      const containerConfig = containerConfigPayloadFromForm(data, container.id);
+      await client.request("PATCH", "/api/plugins/docker/containers/", { body: [containerConfig] });
+      logLine(`CREATE : container ${containerPayload.name} configured on ${hostName(selectedHost)} env=${containerConfig.env.length} labels=${containerConfig.labels.length} mounts=${containerConfig.mounts.length}`);
+      if (createRecreateDelayMs > 0) await delay(createRecreateDelayMs);
+      await waitForContainerConfigured(client, container.id, `${hostName(container)}/${valueText(container.display || container.name)}`);
+      const ready = await requestContainerOperation(client, container, "recreate", "CREATE");
+      if (isOrderRequest && ready) {
+        try {
+          await sendOrderReadyEmail(data, authUser.email || "");
+        } catch (error) {
+          logLine(`EMAIL : ready notification failed for ${authUser.email || ""} ${error.message || "smtp error"}`);
+        }
+        updateOrderInstanceStatus(req, orderProfile, data.instance || "", "ready");
+      } else if (isOrderRequest) {
+        updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
+      }
+    } catch (error) {
+      if (isOrderRequest) updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
+      throw error;
     }
-    const containerPayload = containerCreatePayloadFromForm(data, images[0].id);
-    const { payload } = await client.request("POST", "/api/plugins/docker/containers/", { body: containerPayload, expected: [200, 201, 202] });
-    const container = Array.isArray(payload) ? payload[0] : payload;
-    logLine(`CREATE : container ${containerPayload.name} created on ${hostName(selectedHost)}`);
-    if (createConfigureDelayMs > 0) await delay(createConfigureDelayMs);
-    const containerConfig = containerConfigPayloadFromForm(data, container.id);
-    await client.request("PATCH", "/api/plugins/docker/containers/", { body: [containerConfig] });
-    logLine(`CREATE : container ${containerPayload.name} configured on ${hostName(selectedHost)} env=${containerConfig.env.length} labels=${containerConfig.labels.length} mounts=${containerConfig.mounts.length}`);
-    if (createRecreateDelayMs > 0) await delay(createRecreateDelayMs);
-    await waitForContainerConfigured(client, container.id, `${hostName(container)}/${valueText(container.display || container.name)}`);
-    await requestContainerOperation(client, container, "recreate", "CREATE");
   });
 });
 
@@ -527,6 +857,8 @@ async function recreateContainers(data) {
   if (data.oldversion) query.version = data.oldversion;
   const oldImages = (await client.list("/api/plugins/docker/images/", query)).filter((image) => data.oldversion ? String(image.version) === String(data.oldversion) : String(image.version) !== String(data.version));
   if (!oldImages.length) return logLine(`RECREATE : no old images found for ${data.image}:${data.oldversion || "all previous versions"}`);
+  const removeOldImages = (data.remove_old_images === true || data.remove_old_images === "true" || data.remove_old_images === "on")
+    && (!data.oldversion || String(data.oldversion) !== String(data.version));
   for (const oldImage of oldImages) {
     const newImage = await ensureImageOnHost(client, oldImage, data.image, data.version);
     const containers = await client.list("/api/plugins/docker/containers/", { image_id: oldImage.id, limit: 200 });
@@ -536,8 +868,54 @@ async function recreateContainers(data) {
       logLine(`RECREATE : ${hostName(container)}/${valueText(container.display || container.name)} image set to ${data.image}:${data.version}`);
       await requestContainerOperation(client, container, "recreate", "RECREATE");
     }
+    if (removeOldImages) {
+      await client.request("DELETE", `/api/plugins/docker/images/${oldImage.id}/`, { expected: [200, 202, 204] });
+      logLine(`RECREATE : removed old image ${data.image}:${oldImage.version || data.oldversion || ""} from ${hostName(oldImage)}`);
+    }
   }
   logLine(`RECREATE : finished ${data.image}:${data.oldversion || "all previous versions"} -> ${data.version}`);
+}
+
+function deleteVolumesEnabled(data) {
+  return data.delete_volumes === true || data.delete_volumes === "true" || data.delete_volumes === "on";
+}
+
+function containerVolumeRefs(container) {
+  const hostId = container?.host?.id || container?.host || "";
+  const mounts = [
+    ...(Array.isArray(container?.mounts) ? container.mounts : []),
+    ...(Array.isArray(container?.volumes) ? container.volumes : []),
+  ];
+  const refs = new Map();
+
+  mounts.forEach((mount) => {
+    const volume = mount?.volume || mount?.docker_volume || mount;
+    const id = valueText(volume?.id || mount?.volume_id);
+    const name = valueText(volume?.name || mount?.volume_name);
+    if (!id && !name) return;
+
+    refs.set(id || name, { id, name, hostId });
+  });
+
+  return [...refs.values()];
+}
+
+async function deleteContainerVolumes(client, container) {
+  for (const ref of containerVolumeRefs(container)) {
+    if (ref.id) {
+      await client.request("DELETE", `/api/plugins/docker/volumes/${ref.id}/`, { expected: [200, 202, 204] });
+      logLine(`DELETE : volume ${ref.name || ref.id} deleted`);
+      continue;
+    }
+
+    const query = { name: ref.name };
+    if (ref.hostId) query.host_id = ref.hostId;
+    const volumes = await client.list("/api/plugins/docker/volumes/", query);
+    for (const volume of volumes) {
+      await client.request("DELETE", `/api/plugins/docker/volumes/${volume.id}/`, { expected: [200, 202, 204] });
+      logLine(`DELETE : volume ${valueText(volume.name || ref.name || volume.id)} deleted`);
+    }
+  }
 }
 
 app.post("/recreate", (req, res) => {
@@ -580,6 +958,7 @@ app.post("/delete", (req, res) => {
     }
     await client.request("DELETE", `/api/plugins/docker/containers/${container.id}/`, { expected: [200, 202, 204] });
     logLine(`DELETE : container ${instanceShort(data.instance)} deleted id=${container.id}`);
+    if (deleteVolumesEnabled(data)) await deleteContainerVolumes(client, container);
     await deleteDnsRecord(client, data);
     if (req.body.order_request === "true") removeOrderInstance(req, data.profile || data.config_profile || "", data.instance || "");
   });
@@ -626,10 +1005,18 @@ module.exports = {
   metricLine,
   operationLabel,
   parseProfiles,
+  parseSmtpConfig,
   plainObject,
   routeLabel,
+  sendSmtpMail,
   setNetBoxFetchForTests,
   setOidcFetchForTests,
+  setSmtpSenderForTests: (sender) => {
+    smtpSender = sender || sendSmtpMail;
+  },
+  smtpMessage,
+  smtpSenderAddress,
+  smtpTransportOptions,
   statusClass,
   valueText,
   volumePayloadsFromForm,
