@@ -384,7 +384,7 @@ test("version endpoint exposes package version", async ({ request }) => {
   });
 });
 
-test("report menu shows image usage for all configs", async ({ page }) => {
+test("report menu shows image usage for one config", async ({ page }) => {
   const config = {
     profile: "production",
     config_profile: "production",
@@ -451,9 +451,9 @@ test("report menu shows image usage for all configs", async ({ page }) => {
   await expect(page.locator(".form-card")).toBeHidden();
   await expect(page.locator("#reportTableBody")).toContainText("Loading image report...");
   releaseFirstReport();
-  await expect(page.locator("#reportProfileSelect option")).toHaveText(["All configs", "production", "staging"]);
+  await expect(page.locator("#reportProfileSelect option")).toHaveText(["production", "staging"]);
 
-  await page.locator("#reportProfileSelect").selectOption("all");
+  await page.locator("#reportProfileSelect").selectOption("staging");
   await expect(page.locator('[data-report-stat="hosts"] strong')).toHaveText("3");
   await expect(page.locator('[data-report-stat="hosts"] small')).toHaveText("Hosts");
   await expect(page.locator('[data-report-stat="images"] strong')).toHaveText("2");
@@ -469,8 +469,9 @@ test("report menu shows image usage for all configs", async ({ page }) => {
   await expect(page.locator("#reportTableBody")).toContainText("api-a - saashup/api:v2.0.1");
   await page.getByRole("tab", { name: "Images" }).click();
   await expect(page.locator("#reportTableHead")).toContainText("Image");
-  expect(reportRequests.some((request) => request.profile === "all")).toBe(true);
+  expect(reportRequests.some((request) => request.profile === "all")).toBe(false);
   expect(reportRequests.at(-1).profiles.production.token).toBe("secret");
+  expect(reportRequests.at(-1).profile).toBe("staging");
 });
 
 test("delete config removes the profile and keeps it gone after reload", async ({ page }) => {

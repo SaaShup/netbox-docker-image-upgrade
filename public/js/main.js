@@ -189,7 +189,7 @@ const actions = {
     method: "get",
     menu: "menu_report",
     title: "Image report",
-    description: "Review image usage by container count for one config or all configs.",
+    description: "Review image usage by container count for one config.",
     submitLabel: "Refresh report",
     buttonClass: "btn btn-primary",
     fields: [],
@@ -853,16 +853,18 @@ function updateReportProfileOptions() {
   const profileNames = Object.keys(configProfiles)
     .filter((name) => !deletedProfiles().includes(name))
     .sort((a, b) => a.localeCompare(b));
-  const currentValue = reportProfileSelect.value || currentConfigProfile || "all";
+  const fallbackProfile = currentConfigProfile || profileNames[0] || "";
+  const currentValue = reportProfileSelect.value || fallbackProfile;
+  const names = profileNames.length ? profileNames : [""];
 
-  reportProfileSelect.replaceChildren(new Option("All configs", "all"));
-  profileNames.forEach((name) => {
+  reportProfileSelect.replaceChildren();
+  names.forEach((name) => {
     reportProfileSelect.appendChild(new Option(profileLabel(name), name));
   });
 
-  reportProfileSelect.value = currentValue === "all" || profileNames.includes(currentValue)
+  reportProfileSelect.value = names.includes(currentValue)
     ? currentValue
-    : "all";
+    : names[0];
 }
 
 function applyProfileToFields(name = currentConfigProfile) {
@@ -1071,18 +1073,16 @@ async function refreshImageReport() {
   if (!reportProfileSelect || !refreshReportBtn) return;
 
   updateReportProfileOptions();
-  const profile = reportProfileSelect.value || "all";
+  const profile = reportProfileSelect.value || "";
   const query = new URLSearchParams({ profile });
   query.set("profiles", JSON.stringify(configProfiles));
 
-  if (profile !== "all") {
-    const credentials = profileCredentials(profile);
-    query.set("netbox", credentials.netbox);
-    query.set("token", credentials.token);
-    query.set("proxy", credentials.proxy);
-    query.set("tag", credentials.tag);
-    query.set("config_profile", credentials.profile);
-  }
+  const credentials = profileCredentials(profile);
+  query.set("netbox", credentials.netbox);
+  query.set("token", credentials.token);
+  query.set("proxy", credentials.proxy);
+  query.set("tag", credentials.tag);
+  query.set("config_profile", credentials.profile);
 
   refreshReportBtn.disabled = true;
   if (!reportSummaryHasStats()) renderReportStats();
