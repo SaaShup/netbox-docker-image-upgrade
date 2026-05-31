@@ -156,6 +156,10 @@ function setupNetBoxFetch(fetchMock, {
       return jsonResponse({ id: 20, ...body }, 201);
     }
 
+    if (pathname === "/api/plugins/docker/images/20/" && method === "GET") {
+      return jsonResponse({ id: 20, imageID: "sha256:20" });
+    }
+
     if (pathname === "/api/plugins/docker/images/10/" && method === "DELETE") {
       return jsonResponse({}, 204);
     }
