@@ -776,6 +776,9 @@ describe("server helpers", () => {
     expect(helpers.imagePullIdentifier({ repoDigest: ["app@sha256:def"] })).toEqual(["app@sha256:def"]);
     await expect(helpers.waitForImagePulled({ request: vi.fn() }, { id: 101, imageID: "sha256:ready" }, "app:v5 on host-c")).resolves.toEqual({ id: 101, imageID: "sha256:ready" });
     await expect(helpers.waitForImagePulled({ request: vi.fn() }, {}, "app:v6 on host-c")).rejects.toThrow("created without an id");
+    await expect(helpers.waitForImagePulled({
+      request: vi.fn(async () => ({ payload: { id: 102, repoDigest: ["app@sha256:def"] }, statusCode: 200 })),
+    }, { id: 102 }, "app:v7 on host-d")).resolves.toEqual({ id: 102, repoDigest: ["app@sha256:def"] });
 
     const pendingImageClient = {
       list: vi.fn(async () => []),
@@ -794,9 +797,11 @@ describe("server helpers", () => {
     await expect(helpers.createDnsRecord({ list: vi.fn(async () => []) }, { instance: "app.missing" }, { name: "host" })).resolves.toBeUndefined();
     await expect(helpers.createDnsRecord({ list: vi.fn(async () => { throw new Error("zone down"); }) }, { instance: "app.example.com" }, { name: "host" })).resolves.toBeUndefined();
     await expect(helpers.createDnsRecord({ list: vi.fn(async () => { throw {}; }) }, { instance: "app.example.com" }, { name: "host" })).resolves.toBeUndefined();
+    await expect(helpers.createDnsRecord({ list: vi.fn(async () => { throw { message: "" }; }) }, { instance: "" }, { name: "host" })).resolves.toBeUndefined();
     await expect(helpers.deleteDnsRecord({ list: vi.fn(async () => []) }, { instance: "app.example.com" })).resolves.toBeUndefined();
     await expect(helpers.deleteDnsRecord({ list: vi.fn(async () => { throw new Error("record down"); }) }, { instance: "app.example.com" })).resolves.toBeUndefined();
     await expect(helpers.deleteDnsRecord({ list: vi.fn(async () => { throw {}; }) }, { instance: "app.example.com" })).resolves.toBeUndefined();
+    await expect(helpers.deleteDnsRecord({ list: vi.fn(async () => { throw { message: "" }; }) }, { instance: "" })).resolves.toBeUndefined();
 
     expect(logs.join("\n")).toContain("ready status=running");
     expect(logs.join("\n")).toContain("still has state=none");
