@@ -73,6 +73,8 @@ function setupNetBoxFetch(fetchMock, {
   containerPostArray = false,
   containerHostAsId = false,
   deleteContainerRunning = false,
+  dockerVolumeMount = false,
+  omitContainerHost = false,
   emptyContainersForName = "",
   emptyImagesForName = "",
   invalidReportImages = false,
@@ -238,15 +240,17 @@ function setupNetBoxFetch(fetchMock, {
             id: 30,
             ...(omitContainerName ? {} : { name: recreateContainerName }),
             ...(omitContainerDisplay ? {} : { display: recreateContainerName }),
-            host: containerHostAsId ? 1 : { id: 1, display: "host-a" },
+            ...(omitContainerHost ? {} : { host: containerHostAsId ? 1 : { id: 1, display: "host-a" } }),
             image: { id: 10 },
             state: deleteContainerRunning ? "running" : "created",
             status: deleteContainerRunning ? "running" : "created",
             network_settings: [{ network: { name: "bridge" } }, { network: { name: "traefik-public" } }],
-            mounts: [
-              { volume: { id: 40, name: "tiles-data" }, source: "/app/data" },
-              { volume: { name: "tiles-cache" }, source: "/app/cache" },
-            ],
+            mounts: dockerVolumeMount
+              ? [{ docker_volume: { id: 40, name: "tiles-data" }, source: "/app/data" }]
+              : [
+                { volume: { id: 40, name: "tiles-data" }, source: "/app/data" },
+                { volume: { name: "tiles-cache" }, source: "/app/cache" },
+              ],
             ...(reportContainerOwners ? { env: [{ var_name: "SAASHUP_OWNER", value: "owner@example.com" }] } : {}),
           },
         ],
@@ -618,7 +622,8 @@ describe("server routes", () => {
     writeState(dataPath, {
       config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
       templates: {},
-      order_counts: {},
+      order_counts: { "buyer@example.com": { prod: 1 } },
+      order_instances: { "buyer@example.com": { prod: [{ instance: "tiles.example.com" }] } },
       logs: "",
     });
     setupNetBoxFetch(fetchMock, { invalidReportImages: true });
@@ -630,7 +635,8 @@ describe("server routes", () => {
     writeState(dataPath, {
       config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
       templates: {},
-      order_counts: {},
+      order_counts: { "buyer@example.com": { prod: 1 } },
+      order_instances: { "buyer@example.com": { prod: [{ instance: "tiles.example.com" }] } },
       logs: "",
     });
     setupNetBoxFetch(fetchMock, { reportContainerOwners: true });
@@ -1429,6 +1435,21 @@ describe("server routes", () => {
       port_value: "8080",
     }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("CREATE : image saashup/tile:v3.0.0 not found on host-a"));
+
+    await request.post("/create")
+      .set("x-auth-request-email", "missing-image@example.com")
+      .send({
+        instance: "missing-order.example.com",
+        image: "saashup/tile",
+        version: "v3.0.0",
+        port_value: "8080",
+        order_request: "true",
+        profile: "prod",
+      })
+      .expect(202);
+    await vi.waitFor(() => expect(readState(dataPath).order_instances["missing-image@example.com"]?.prod?.[0]).toEqual(
+      expect.objectContaining({ instance: "missing-order.example.com", status: "failed" }),
+    ));
   });
 
   test("covers fallback container fields used by host and log labels", async () => {
@@ -1515,5 +1536,42 @@ describe("server routes", () => {
     expect(stoppedIndex).toBeGreaterThan(stopIndex);
     expect(deleteIndex).toBeGreaterThan(stoppedIndex);
     expect(readState(dataPath).logs).toContain("DELETE : host-a/tiles stopped");
+  });
+
+  test("deletes mounted docker_volume references when requested", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, { dockerVolumeMount: true });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/delete").send({ instance: "tiles.example.com", delete_volumes: "true" }).expect(202);
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : volume tiles-data deleted"));
+    expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/docker/volumes/40/") && options?.method === "DELETE")).toBe(true);
+  });
+
+  test("deletes named volumes without a container host fallback", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, { omitContainerHost: true });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: { "buyer@example.com": { prod: 1 } },
+      order_instances: { "buyer@example.com": { prod: [{ instance: "tiles.example.com" }] } },
+      logs: "",
+    });
+
+    await request.post("/delete")
+      .set("x-auth-request-email", "buyer@example.com")
+      .send({ instance: "tiles.example.com", delete_volumes: "true", order_request: "true", config_profile: "prod" })
+      .expect(202);
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : volume tiles-cache deleted"));
+
+    const volumeLookup = fetchMock.mock.calls.find(([url, options]) => String(url).includes("/api/plugins/docker/volumes/?") && (options?.method || "GET") === "GET");
+    expect(new URL(String(volumeLookup[0])).searchParams.has("host_id")).toBe(false);
+    expect(readState(dataPath).order_counts["buyer@example.com"]?.prod).toBe(0);
   });
 });
