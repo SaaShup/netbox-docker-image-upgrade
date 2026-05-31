@@ -304,9 +304,14 @@
             <div class="report-summary" id="reportSummary">No report loaded</div>
           </div>
 
+          <div class="report-tabs" role="tablist" aria-label="Report view">
+            <button type="button" class="report-tab active" data-report-view="images" role="tab" aria-selected="true">Images</button>
+            <button type="button" class="report-tab" data-report-view="users" role="tab" aria-selected="false">Users</button>
+          </div>
+
           <div class="report-table-wrap">
             <table class="report-table">
-              <thead>
+              <thead id="reportTableHead">
                 <tr>
                   <th>Config</th>
                   <th>Image</th>

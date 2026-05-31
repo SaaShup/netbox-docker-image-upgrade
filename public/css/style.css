@@ -518,6 +518,33 @@ h2 {
   font-size: 0.74rem;
 }
 
+.report-tabs {
+  display: inline-flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--button-soft);
+}
+
+.report-tab {
+  min-height: 34px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 14px;
+  background: transparent;
+  color: var(--button-soft-text);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.report-tab.active {
+  background: var(--panel);
+  color: var(--primary);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+}
+
 .report-table-wrap {
   overflow: auto;
   border: 1px solid var(--border);
@@ -585,6 +612,21 @@ h2 {
 .report-table td:last-child,
 .report-table th:last-child {
   text-align: right;
+}
+
+.report-table.report-users td:last-child,
+.report-table.report-users th:last-child {
+  text-align: left;
+}
+
+.report-user-assets {
+  display: grid;
+  gap: 4px;
+}
+
+.report-user-assets span {
+  color: var(--text);
+  font-size: 0.86rem;
 }
 
 .report-table tr:last-child td {

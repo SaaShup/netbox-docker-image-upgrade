@@ -156,6 +156,71 @@ function setupNetBoxFetch(fetchMock, {
     if (pathname === "/api/plugins/docker/containers/" && method === "GET") {
       if (parsed.searchParams.get("limit") === "1") return jsonResponse({ results: [{ id: 30 }] });
       if (parsed.searchParams.get("name") === emptyContainersForName) return jsonResponse({ results: [] });
+      if (reportContainerOwners === "variants") {
+        return jsonResponse({
+          results: [
+            {
+              id: 30,
+              display: "env-vars",
+              host: { id: 1, display: "host-a" },
+              image: { id: 10 },
+              state: "created",
+              status: "created",
+              network_settings: [{ network: { name: "bridge" } }],
+              env: [null],
+              env_vars: [{ name: "SAASHUP_OWNER", value: "envvars@example.com" }],
+            },
+            {
+              id: 31,
+              host: { id: 1, display: "host-a" },
+              image: { id: 10 },
+              state: "created",
+              status: "created",
+              network_settings: [{ network: { name: "bridge" } }],
+              environment: [{ key: "SAASHUP_OWNER", value: "environment@example.com" }],
+            },
+          ],
+        });
+      }
+      if (reportContainerOwners === "multiple") {
+        return jsonResponse({
+          results: [
+            {
+              id: 30,
+              name: "zeta",
+              display: "zeta",
+              host: { id: 1, display: "host-a" },
+              image: { id: 10 },
+              state: "created",
+              status: "created",
+              network_settings: [{ network: { name: "bridge" } }],
+              env: [{ var_name: "SAASHUP_OWNER", value: "ada@example.com" }],
+            },
+            {
+              id: 31,
+              name: "alpha",
+              display: "alpha",
+              host: { id: 1, display: "host-a" },
+              image: { id: 10 },
+              state: "created",
+              status: "created",
+              network_settings: [{ network: { name: "bridge" } }],
+              env: [{ var_name: "SAASHUP_OWNER", value: "ada@example.com" }],
+            },
+            {
+              id: 32,
+              name: "omega",
+              display: "omega",
+              host: { id: 1, display: "host-a" },
+              image: { id: 10 },
+              state: "created",
+              status: "created",
+              network_settings: [{ network: { name: "bridge" } }],
+              env: [{ var_name: "SAASHUP_OWNER", value: "zara@example.com" }],
+            },
+          ],
+        });
+      }
       return jsonResponse({
         results: [
           {
@@ -348,8 +413,26 @@ describe("server routes", () => {
       .expect((res) => {
         expect(res.body.max_instances).toBe(3);
       });
+    await request.get("/webhook")
+      .query({
+        customer_name: "CuriooCity",
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "example.com",
+        tag: "tile",
+        max_instances: "3",
+        owner_env_var: "   ",
+        profile: "prod",
+        profiles: JSON.stringify({ prod: { tag: "tile" } }),
+      })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.owner_env_var).toBe("SAASHUP_OWNER");
+      });
 
     await request.get("/config").expect(200).expect((res) => {
+      expect(res.body.owner_env_var).toBe("SAASHUP_OWNER");
       expect(res.body.profile).toBe("prod");
       expect(res.body.customer_name).toBe("CuriooCity");
     });
@@ -538,8 +621,169 @@ describe("server routes", () => {
     setupNetBoxFetch(fetchMock, { reportContainerOwners: true });
     await request.get("/report/images").expect(200).expect((res) => {
       expect(res.body.total_users).toBe(1);
+      expect(res.body.users).toEqual([
+        expect.objectContaining({
+          user: "owner@example.com",
+          containers: 1,
+          items: [
+            expect.objectContaining({
+              container: "tiles",
+              image: "saashup/tile",
+              version: "v1.0.0",
+            }),
+          ],
+        }),
+      ]);
     });
     expect(readState(dataPath).logs).toContain("found 1 owner from SAASHUP_OWNER");
+
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+    setupNetBoxFetch(fetchMock, { reportContainerOwners: "multiple" });
+    await request.get("/report/images").expect(200).expect((res) => {
+      expect(res.body.total_users).toBe(2);
+      expect(res.body.users.map((user) => user.user)).toEqual(["ada@example.com", "zara@example.com"]);
+      expect(res.body.users[0]).toMatchObject({
+        user: "ada@example.com",
+        containers: 2,
+        images: 1,
+        items: [
+          expect.objectContaining({ container: "alpha", image: "saashup/tile" }),
+          expect.objectContaining({ container: "zeta", image: "saashup/tile" }),
+        ],
+      });
+      expect(res.body.users[1]).toMatchObject({
+        user: "zara@example.com",
+        containers: 1,
+        items: [
+          expect.objectContaining({ container: "omega", image: "saashup/tile" }),
+        ],
+      });
+    });
+
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+    setupNetBoxFetch(fetchMock, { multipleReportImages: true, reportContainerOwners: "multiple" });
+    await request.get("/report/images").expect(200).expect((res) => {
+      expect(res.body.total_users).toBe(2);
+      expect(res.body.users[0].images).toBe(3);
+      expect(res.body.users[0].items.map((item) => item.image)).toEqual([
+        "saashup/tile",
+        "saashup/tile",
+        "saashup/zeta",
+        "saashup/tile",
+        "saashup/tile",
+        "saashup/zeta",
+      ]);
+    });
+
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+    setupNetBoxFetch(fetchMock, { reportContainerOwners: "variants" });
+    await request.get("/report/images").expect(200).expect((res) => {
+      expect(res.body.users.map((user) => user.user)).toEqual(["environment@example.com", "envvars@example.com"]);
+      expect(res.body.users[0].items[0].container).toBe("31");
+    });
+
+    writeState(dataPath, {
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        profile: "prod",
+        config_profile: "prod",
+        profiles: {
+          dev: { tag: "guide" },
+          prod: { tag: "tile" },
+        },
+      },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+    setupNetBoxFetch(fetchMock, { reportContainerOwners: true });
+    await request.get("/report/images").query({ profile: "all" }).expect(200).expect((res) => {
+      expect(res.body.total_users).toBe(1);
+      expect(res.body.users[0]).toMatchObject({
+        user: "owner@example.com",
+        profiles: ["dev", "prod"],
+        containers: 2,
+      });
+    });
+
+    writeState(dataPath, {
+      config: { profile: "prod", config_profile: "prod" },
+      templates: {},
+      order_counts: {
+        "buyer@example.com": { prod: 2 },
+        "zara@example.com": { prod: 1 },
+      },
+      order_instances: {
+        "buyer@example.com": {
+          prod: [
+            { instance: "beta.example.com", image: "saashup/beta", version: "v2" },
+            { instance: "alpha.example.com", image: "saashup/alpha", version: "v1" },
+          ],
+        },
+      },
+      logs: "",
+    });
+    await request.get("/report/images").query({ profile: "prod" }).expect(200).expect((res) => {
+      expect(res.body.total_users).toBe(2);
+      expect(res.body.users).toEqual([
+        expect.objectContaining({
+          user: "buyer@example.com",
+          containers: 2,
+          images: 2,
+          items: [
+            expect.objectContaining({ container: "alpha.example.com" }),
+            expect.objectContaining({ container: "beta.example.com" }),
+          ],
+        }),
+        expect.objectContaining({
+          user: "zara@example.com",
+          containers: 1,
+          items: [],
+        }),
+      ]);
+    });
+
+    writeState(dataPath, {
+      config: {},
+      templates: {},
+      order_counts: {
+        "buyer@example.com": { "": 1, prod: 1 },
+      },
+      order_instances: {
+        "buyer@example.com": {
+          "": [{ name: "default.example.com", template: "Template", version: "v1" }],
+          prod: [{ instance: "prod.example.com", image: "saashup/prod", version: "v2" }],
+        },
+      },
+      logs: "",
+    });
+    await request.get("/report/images").query({ profile: "all" }).expect(200).expect((res) => {
+      expect(res.body.users[0]).toMatchObject({
+        user: "buyer@example.com",
+        profiles: ["default", "prod"],
+        containers: 2,
+      });
+      expect(res.body.users[0].items).toEqual([
+        expect.objectContaining({ profile: "default", container: "default.example.com", image: "Template" }),
+        expect.objectContaining({ profile: "prod", container: "prod.example.com", image: "saashup/prod" }),
+      ]);
+    });
   });
 
   test("returns NetBox read errors and empty-list fallbacks", async () => {
@@ -597,6 +841,15 @@ describe("server routes", () => {
       expect(res.body.detail).toBe("report failed");
       expect(res.body.payload.detail).toBe("down");
     });
+    fetchMock.mockRejectedValueOnce(new Error("report plain failed"));
+    await request.get("/report/images").query({ tag: "" }).expect(502).expect((res) => {
+      expect(res.body.detail).toBe("report plain failed");
+    });
+    fetchMock.mockRejectedValueOnce({});
+    await request.get("/report/images").query({ tag: "" }).expect(502).expect((res) => {
+      expect(res.body).toEqual({});
+    });
+    expect(readState(dataPath).logs).toContain("REPORT_IMAGE : failed report error");
 
     fetchMock.mockRejectedValueOnce(new Error("test failed"));
     await request.get("/test").expect(502).expect((res) => {
@@ -710,6 +963,18 @@ describe("server routes", () => {
     expect(readState(dataPath).order_instances["buyer@example.com"].prod).toEqual([
       expect.objectContaining({ instance: "", template: "", image: "", version: "" }),
     ]);
+    await request.get("/report/images").query({ profile: "prod" }).expect(200).expect((res) => {
+      expect(res.body.total_users).toBe(1);
+      expect(res.body.users).toEqual([
+        expect.objectContaining({
+          user: "buyer@example.com",
+          containers: 1,
+          items: [
+            expect.objectContaining({ profile: "prod", container: "" }),
+          ],
+        }),
+      ]);
+    });
   });
 
   test("reports users across all stored orders when no report profiles exist", async () => {

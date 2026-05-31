@@ -430,6 +430,18 @@ test("report menu shows image usage for all configs", async ({ page }) => {
           { profile: "production", image: "saashup/api", version: "v2.0.1", containers: 3 },
           { profile: "staging", image: "saashup/api", version: "v2.0.0", containers: 2 },
         ],
+        users: [
+          {
+            user: "ada@example.com",
+            profiles: ["production"],
+            containers: 2,
+            images: 1,
+            items: [
+              { profile: "production", container: "api-a", image: "saashup/api", version: "v2.0.1" },
+              { profile: "production", container: "api-b", image: "saashup/api", version: "v2.0.1" },
+            ],
+          },
+        ],
       }),
     });
   });
@@ -451,6 +463,12 @@ test("report menu shows image usage for all configs", async ({ page }) => {
   await expect(page.locator("#reportTableBody tr")).toHaveCount(2);
   await expect(page.locator("#reportTableBody")).toContainText("saashup/api");
   await expect(page.locator("#reportTableBody")).toContainText("v2.0.1");
+  await page.getByRole("tab", { name: "Users" }).click();
+  await expect(page.locator("#reportTableHead")).toContainText("What they have");
+  await expect(page.locator("#reportTableBody")).toContainText("ada@example.com");
+  await expect(page.locator("#reportTableBody")).toContainText("api-a - saashup/api:v2.0.1");
+  await page.getByRole("tab", { name: "Images" }).click();
+  await expect(page.locator("#reportTableHead")).toContainText("Image");
   expect(reportRequests.some((request) => request.profile === "all")).toBe(true);
   expect(reportRequests.at(-1).profiles.production.token).toBe("secret");
 });

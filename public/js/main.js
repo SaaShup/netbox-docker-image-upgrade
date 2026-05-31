@@ -69,7 +69,9 @@ const reportCard = document.getElementById("reportCard");
 const reportProfileSelect = document.getElementById("reportProfileSelect");
 const refreshReportBtn = document.getElementById("refreshReportBtn");
 const reportSummary = document.getElementById("reportSummary");
+const reportTableHead = document.getElementById("reportTableHead");
 const reportTableBody = document.getElementById("reportTableBody");
+const reportViewButtons = Array.from(document.querySelectorAll("[data-report-view]"));
 
 let currentAction = isOrderPage ? "create" : (localStorage.getItem("current_action") || "config");
 let currentConfigProfile = localStorage.getItem("current_config_profile") || "";
@@ -87,6 +89,8 @@ let generatedCreateInstanceName = "";
 let orderInstanceCards = [];
 let orderInstanceLimit = { max: 0, used: 0 };
 let dockerhubSecretLoaded = false;
+let currentReportView = "images";
+let lastReportData = null;
 const logsPollFailureNotice = "Activity logs unavailable: network error";
 const sidebarCollapsedStorageKey = "sidebar_collapsed";
 
@@ -971,15 +975,19 @@ function renderReportLoadingRow() {
   `;
 }
 
-function renderImageReport(data) {
-  const rows = Array.isArray(data?.rows) ? data.rows : [];
-  const totalHosts = Number(data?.total_hosts || 0);
-  const totalImages = Number(data?.total_images ?? rows.length);
-  const totalContainers = Number(data?.total_containers ?? rows.reduce((total, row) => total + Number(row.containers || 0), 0));
-  const totalUsers = Number(data?.total_users || 0);
+function renderReportHeader(columns) {
+  if (!reportTableHead) return;
 
-  renderReportStats(totalHosts, totalImages, totalContainers, totalUsers);
+  reportTableHead.innerHTML = `
+    <tr>
+      ${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join("")}
+    </tr>
+  `;
+}
 
+function renderImageReportRows(rows) {
+  renderReportHeader(["Config", "Image", "Version", "Containers"]);
+  reportTableBody?.closest("table")?.classList.remove("report-users");
   if (!reportTableBody) return;
 
   if (!rows.length) {
@@ -995,6 +1003,68 @@ function renderImageReport(data) {
       <td>${Number(row.containers || 0)}</td>
     </tr>
   `).join("");
+}
+
+function renderUserReportRows(users) {
+  renderReportHeader(["User", "Config", "Containers", "What they have"]);
+  reportTableBody?.closest("table")?.classList.add("report-users");
+  if (!reportTableBody) return;
+
+  if (!users.length) {
+    reportTableBody.innerHTML = '<tr><td colspan="4">No user ownership found for this selection.</td></tr>';
+    return;
+  }
+
+  reportTableBody.innerHTML = users.map((user) => `
+    <tr>
+      <td>${escapeHtml(user.user)}</td>
+      <td>${escapeHtml((user.profiles || []).join(", ") || "Default")}</td>
+      <td>${Number(user.containers || 0)}</td>
+      <td>
+        <div class="report-user-assets">
+          ${(user.items || []).length
+            ? user.items.map((item) => {
+              const image = [item.image, item.version].filter(Boolean).join(":");
+              return `<span>${escapeHtml(item.container || "container")}${image ? ` - ${escapeHtml(image)}` : ""}</span>`;
+            }).join("")
+            : '<span>No instance details available</span>'}
+        </div>
+      </td>
+    </tr>
+  `).join("");
+}
+
+function renderReportTable(data) {
+  const rows = Array.isArray(data?.rows) ? data.rows : [];
+  const users = Array.isArray(data?.users) ? data.users : [];
+  if (currentReportView === "users") {
+    renderUserReportRows(users);
+    return;
+  }
+
+  renderImageReportRows(rows);
+}
+
+function renderReport(data) {
+  const rows = Array.isArray(data?.rows) ? data.rows : [];
+  const totalHosts = Number(data?.total_hosts || 0);
+  const totalImages = Number(data?.total_images ?? rows.length);
+  const totalContainers = Number(data?.total_containers ?? rows.reduce((total, row) => total + Number(row.containers || 0), 0));
+  const totalUsers = Number(data?.total_users || 0);
+
+  lastReportData = data;
+  renderReportStats(totalHosts, totalImages, totalContainers, totalUsers);
+  renderReportTable(data);
+}
+
+function setReportView(view) {
+  currentReportView = view === "users" ? "users" : "images";
+  reportViewButtons.forEach((button) => {
+    const active = button.dataset.reportView === currentReportView;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  if (lastReportData) renderReportTable(lastReportData);
 }
 
 async function refreshImageReport() {
@@ -1026,7 +1096,7 @@ async function refreshImageReport() {
 
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-    renderImageReport(await response.json());
+    renderReport(await response.json());
     setNotice("Image report loaded", "success");
   } catch {
     reportSummary?.classList.add("is-error");
@@ -2734,6 +2804,9 @@ sidebarToggle?.addEventListener("click", () => {
 });
 refreshReportBtn?.addEventListener("click", refreshImageReport);
 reportProfileSelect?.addEventListener("change", refreshImageReport);
+reportViewButtons.forEach((button) => {
+  button.addEventListener("click", () => setReportView(button.dataset.reportView));
+});
 templateSelect?.addEventListener("change", () => {
   syncTemplateActions();
   if (templateSelect.value) loadSelectedTemplate();
