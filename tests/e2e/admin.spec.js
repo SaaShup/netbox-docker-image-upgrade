@@ -1641,6 +1641,8 @@ test("upgrade can submit the clean name option", async ({ page }) => {
 
   await page.getByRole("link", { name: "Upgrade" }).click();
   await expect(page.locator("[data-field='clean_name']")).toBeVisible();
+  await expect(page.locator("[data-field='remove_old_images']")).toBeVisible();
+  await expect(page.locator("#remove_old_images")).not.toBeChecked();
   await page.locator("#image").fill("old-filter");
   await page.locator("#oldversion").fill("old-version");
   await page.locator("#refreshImagesBtn").click();
@@ -1654,17 +1656,23 @@ test("upgrade can submit the clean name option", async ({ page }) => {
 
   await page.locator("#image").fill("saashup/app");
   await page.locator("#oldversion").fill("v1.0.0");
+  await page.locator("#version").fill("v1.0.0");
+  await expect(page.locator("#remove_old_images")).toBeDisabled();
+  await expect(page.locator("#remove_old_images")).not.toBeChecked();
   await expect(page.locator("#notif")).toHaveText("3 containers use saashup/app:v1.0.0");
   const countParams = new URL(countUrl).searchParams;
   expect(countParams.get("image")).toBe("saashup/app");
   expect(countParams.get("version")).toBe("v1.0.0");
   expect(countParams.get("tag")).toBe("production");
   await page.locator("#version").fill("v1.1.0");
+  await expect(page.locator("#remove_old_images")).toBeEnabled();
+  await page.locator("#remove_old_images").check();
   await page.locator("#clean_name").check();
   await page.locator("#submitBtn").click();
 
   await expect.poll(() => recreateBody).toContain("clean_name=true");
   expect(recreateBody).toContain("clean_name=true");
+  expect(recreateBody).toContain("remove_old_images=true");
   expect(recreateBody).toContain("tag=production");
 });
 
@@ -1701,6 +1709,16 @@ test("refresh hosts submits the configured tag", async ({ page }) => {
 
 test("delete instance refresh submits the configured tag", async ({ page }) => {
   let instancesUrl = "";
+  let deleteBody = "";
+
+  await page.route("**/delete", async (route) => {
+    deleteBody = route.request().postData() || "";
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
 
   await openAdmin(page, {
     profiles: JSON.stringify({
@@ -1719,6 +1737,8 @@ test("delete instance refresh submits the configured tag", async ({ page }) => {
   });
 
   await page.getByRole("link", { name: "Delete" }).click();
+  await expect(page.locator("[data-field='delete_volumes']")).toBeVisible();
+  await expect(page.locator("#delete_volumes")).not.toBeChecked();
   await page.locator("#instance").fill("old-filter");
   await page.locator("#refreshInstancesBtn").click();
 
@@ -1726,6 +1746,13 @@ test("delete instance refresh submits the configured tag", async ({ page }) => {
   await expect(page.locator("#instance")).toHaveValue("");
   await expect.poll(() => page.locator("#instanceOptions option").evaluateAll((options) => options.map((option) => option.value))).toEqual(["tiles.example.com"]);
   expect(new URL(instancesUrl).searchParams.get("tag")).toBe("TILE");
+
+  await page.locator("#instance").fill("tiles.example.com");
+  await page.locator("#delete_volumes").check();
+  await page.on("dialog", (dialog) => dialog.accept());
+  await page.locator("#submitBtn").click();
+  await expect.poll(() => deleteBody).toContain("delete_volumes=true");
+  expect(deleteBody).toContain("tag=TILE");
 });
 
 test("restart instance refresh clears the instance input before showing choices", async ({ page }) => {

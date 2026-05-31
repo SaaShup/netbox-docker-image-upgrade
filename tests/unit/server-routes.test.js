@@ -149,9 +149,20 @@ function setupNetBoxFetch(fetchMock, {
       return jsonResponse({ id: 20, ...body }, 201);
     }
 
+    if (pathname === "/api/plugins/docker/images/10/" && method === "DELETE") {
+      return jsonResponse({}, 204);
+    }
+
     if (pathname === "/api/plugins/docker/volumes/" && method === "POST") {
       return jsonResponse(JSON.parse(options.body), 201);
     }
+
+    if (pathname === "/api/plugins/docker/volumes/" && method === "GET") {
+      return jsonResponse({ results: [{ id: 41, name: parsed.searchParams.get("name") || "tiles-data" }] });
+    }
+
+    if (pathname === "/api/plugins/docker/volumes/40/" && method === "DELETE") return jsonResponse({}, 204);
+    if (pathname === "/api/plugins/docker/volumes/41/" && method === "DELETE") return jsonResponse({}, 204);
 
     if (pathname === "/api/plugins/docker/containers/" && method === "GET") {
       if (parsed.searchParams.get("limit") === "1") return jsonResponse({ results: [{ id: 30 }] });
@@ -232,6 +243,10 @@ function setupNetBoxFetch(fetchMock, {
             state: deleteContainerRunning ? "running" : "created",
             status: deleteContainerRunning ? "running" : "created",
             network_settings: [{ network: { name: "bridge" } }, { network: { name: "traefik-public" } }],
+            mounts: [
+              { volume: { id: 40, name: "tiles-data" }, source: "/app/data" },
+              { volume: { name: "tiles-cache" }, source: "/app/cache" },
+            ],
             ...(reportContainerOwners ? { env: [{ var_name: "SAASHUP_OWNER", value: "owner@example.com" }] } : {}),
           },
         ],
@@ -1190,6 +1205,13 @@ describe("server routes", () => {
     expect(stopPatchCountAfterDelete).toBe(stopPatchCountBeforeDelete);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : Cloudflare DNS record delete requested for tiles.example.com"));
     expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/cloudflare/dns/records/61/") && options?.method === "DELETE")).toBe(true);
+    expect(fetchMock.mock.calls.some(([url, options]) => String(url).includes("/api/plugins/docker/volumes/") && options?.method === "DELETE")).toBe(false);
+
+    await request.post("/delete").send({ instance: "tiles.example.com", delete_volumes: "true" }).expect(202);
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : volume tiles-data deleted"));
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : volume tiles-cache deleted"));
+    expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/docker/volumes/40/") && options?.method === "DELETE")).toBe(true);
+    expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/docker/volumes/41/") && options?.method === "DELETE")).toBe(true);
 
     writeState(dataPath, {
       config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 3 },
@@ -1341,8 +1363,17 @@ describe("server routes", () => {
       return JSON.parse(options.body).some((item) => item.image === 20 && !Object.prototype.hasOwnProperty.call(item, "name"));
     })).toBe(true);
 
-    await request.post("/recreate").send({ image: "saashup/tile", version: "v2.0.0", oldversion: "v1.0.0", clean_name: "on" }).expect(202);
+    const imageDeletesBefore = fetchMock.mock.calls.filter(([url, options]) => String(url).endsWith("/api/plugins/docker/images/10/") && options?.method === "DELETE").length;
+    await request.post("/recreate").send({ image: "saashup/tile", version: "v2.0.0", oldversion: "v1.0.0", clean_name: "on", remove_old_images: "true" }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("RECREATE : finished saashup/tile:v1.0.0 -> v2.0.0"));
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("RECREATE : removed old image saashup/tile:v1.0.0 from host-a"));
+    const imageDeletesAfter = fetchMock.mock.calls.filter(([url, options]) => String(url).endsWith("/api/plugins/docker/images/10/") && options?.method === "DELETE").length;
+    expect(imageDeletesAfter).toBe(imageDeletesBefore + 1);
+
+    await request.post("/recreate").send({ image: "saashup/tile", version: "v2.0.0", oldversion: "v2.0.0", remove_old_images: "true" }).expect(202);
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("RECREATE : finished saashup/tile:v2.0.0 -> v2.0.0"));
+    const imageDeletesAfterSameVersion = fetchMock.mock.calls.filter(([url, options]) => String(url).endsWith("/api/plugins/docker/images/10/") && options?.method === "DELETE").length;
+    expect(imageDeletesAfterSameVersion).toBe(imageDeletesAfter);
 
     await request.post("/recreate").send({ image: "saashup/missing", version: "v2.0.0" }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("RECREATE : no old images found for saashup/missing:all previous versions"));

@@ -196,6 +196,11 @@
                 <datalist id="instanceOptions"></datalist>
               </label>
 
+              <label class="field checkbox-field" data-field="delete_volumes">
+                <input type="checkbox" id="delete_volumes" name="delete_volumes" value="true">
+                <span>Delete volumes</span>
+              </label>
+
               <div class="field operate-instance-action" data-field="operate_instance_action">
                 <span aria-hidden="true">&nbsp;</span>
                 <button type="submit" class="btn btn-primary hidden" id="restartInstanceBtn" name="restart_mode" value="instance">Operate instance</button>
@@ -230,6 +235,11 @@
               <label class="field checkbox-field" data-field="clean_name">
                 <input type="checkbox" id="clean_name" name="clean_name" value="true">
                 <span>Clean name before recreate</span>
+              </label>
+
+              <label class="field checkbox-field" data-field="remove_old_images">
+                <input type="checkbox" id="remove_old_images" name="remove_old_images" value="true">
+                <span>Remove old images</span>
               </label>
 
               <div class="field env-field" data-field="env_vars">

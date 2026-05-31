@@ -172,7 +172,7 @@ const actions = {
     description: "Replace containers matching an image and old version with a new version.",
     submitLabel: "Upgrade containers",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "image", "oldversion", "version", "clean_name"],
+    fields: ["config_profile", "image", "oldversion", "version", "clean_name", "remove_old_images"],
   },
   restart: {
     endpoint: "/restart",
@@ -212,7 +212,7 @@ const actions = {
     description: "Delete one instance. A confirmation will be requested before submitting.",
     submitLabel: "Delete instance",
     buttonClass: "btn btn-danger",
-    fields: ["config_profile", "instance"],
+    fields: ["config_profile", "instance", "delete_volumes"],
     confirm: "Delete this instance?",
   },
 };
@@ -227,6 +227,7 @@ const allFieldNames = [
   "owner_env_var",
   "config_profile",
   "operate_action",
+  "delete_volumes",
   "config_name",
   "network",
   "instance",
@@ -235,6 +236,7 @@ const allFieldNames = [
   "restart_version",
   "version",
   "clean_name",
+  "remove_old_images",
   "cloudflare_filter",
   "var_env_key",
   "var_env_value",
@@ -1520,6 +1522,7 @@ function setAction(actionName) {
 
   syncCreateNetwork();
   syncCreateVersion();
+  updateRemoveOldImagesState();
   ensureRandomCreateInstanceName();
   if (actionName === "create" && imageRecords.length === 0) {
     refreshImages({ notify: false });
@@ -1536,6 +1539,7 @@ function setAction(actionName) {
   updatePortRemoveButtons();
   updateVolumeRemoveButtons();
   updateRestartButtons();
+  updateRemoveOldImagesState();
   updateOperateControls();
 }
 
@@ -2557,6 +2561,21 @@ async function updateSelectedVersionContainerNotice() {
   }
 }
 
+function updateRemoveOldImagesState() {
+  const checkbox = field("remove_old_images");
+  if (!checkbox) return;
+
+  const oldVersion = fieldValue("oldversion").trim();
+  const newVersion = fieldValue("version").trim();
+  const blocked = currentAction !== "recreate" || (oldVersion && newVersion && oldVersion === newVersion);
+
+  checkbox.disabled = blocked;
+  checkbox.title = blocked && currentAction === "recreate"
+    ? "Old images cannot be removed when old version is the same as the new version."
+    : "";
+  if (blocked) checkbox.checked = false;
+}
+
 async function refreshImages({ notify = true } = {}) {
   if (!imageOptions || !refreshImagesBtn) return;
   const query = credentialsQuery({ includeTag: shouldFilterRefreshByTag() });
@@ -2571,6 +2590,7 @@ async function refreshImages({ notify = true } = {}) {
     setFieldValue("oldversion", "");
     setFieldValue("restart_version", "");
     updateRestartButtons();
+    updateRemoveOldImagesState();
   }
 
   refreshImagesBtn.disabled = true;
@@ -2847,7 +2867,11 @@ field("image")?.addEventListener("change", updateOldVersionOptions);
 field("image")?.addEventListener("change", () => {
   ensureCreateVersion();
 });
-field("oldversion")?.addEventListener("input", updateSelectedVersionContainerNotice);
+field("oldversion")?.addEventListener("input", () => {
+  updateSelectedVersionContainerNotice();
+  updateRemoveOldImagesState();
+});
+field("version")?.addEventListener("input", updateRemoveOldImagesState);
 field("restart_version")?.addEventListener("input", updateRestartButtons);
 field("restart_version")?.addEventListener("input", updateSelectedVersionContainerNotice);
 field("operate_action")?.addEventListener("change", updateOperateControls);

@@ -658,6 +658,8 @@ async function recreateContainers(data) {
   if (data.oldversion) query.version = data.oldversion;
   const oldImages = (await client.list("/api/plugins/docker/images/", query)).filter((image) => data.oldversion ? String(image.version) === String(data.oldversion) : String(image.version) !== String(data.version));
   if (!oldImages.length) return logLine(`RECREATE : no old images found for ${data.image}:${data.oldversion || "all previous versions"}`);
+  const removeOldImages = (data.remove_old_images === true || data.remove_old_images === "true" || data.remove_old_images === "on")
+    && (!data.oldversion || String(data.oldversion) !== String(data.version));
   for (const oldImage of oldImages) {
     const newImage = await ensureImageOnHost(client, oldImage, data.image, data.version);
     const containers = await client.list("/api/plugins/docker/containers/", { image_id: oldImage.id, limit: 200 });
@@ -667,8 +669,54 @@ async function recreateContainers(data) {
       logLine(`RECREATE : ${hostName(container)}/${valueText(container.display || container.name)} image set to ${data.image}:${data.version}`);
       await requestContainerOperation(client, container, "recreate", "RECREATE");
     }
+    if (removeOldImages) {
+      await client.request("DELETE", `/api/plugins/docker/images/${oldImage.id}/`, { expected: [200, 202, 204] });
+      logLine(`RECREATE : removed old image ${data.image}:${oldImage.version || data.oldversion || ""} from ${hostName(oldImage)}`);
+    }
   }
   logLine(`RECREATE : finished ${data.image}:${data.oldversion || "all previous versions"} -> ${data.version}`);
+}
+
+function deleteVolumesEnabled(data) {
+  return data.delete_volumes === true || data.delete_volumes === "true" || data.delete_volumes === "on";
+}
+
+function containerVolumeRefs(container) {
+  const hostId = container?.host?.id || container?.host || "";
+  const mounts = [
+    ...(Array.isArray(container?.mounts) ? container.mounts : []),
+    ...(Array.isArray(container?.volumes) ? container.volumes : []),
+  ];
+  const refs = new Map();
+
+  mounts.forEach((mount) => {
+    const volume = mount?.volume || mount?.docker_volume || mount;
+    const id = valueText(volume?.id || mount?.volume_id);
+    const name = valueText(volume?.name || mount?.volume_name);
+    if (!id && !name) return;
+
+    refs.set(id || name, { id, name, hostId });
+  });
+
+  return [...refs.values()];
+}
+
+async function deleteContainerVolumes(client, container) {
+  for (const ref of containerVolumeRefs(container)) {
+    if (ref.id) {
+      await client.request("DELETE", `/api/plugins/docker/volumes/${ref.id}/`, { expected: [200, 202, 204] });
+      logLine(`DELETE : volume ${ref.name || ref.id} deleted`);
+      continue;
+    }
+
+    const query = { name: ref.name };
+    if (ref.hostId) query.host_id = ref.hostId;
+    const volumes = await client.list("/api/plugins/docker/volumes/", query);
+    for (const volume of volumes) {
+      await client.request("DELETE", `/api/plugins/docker/volumes/${volume.id}/`, { expected: [200, 202, 204] });
+      logLine(`DELETE : volume ${valueText(volume.name || ref.name || volume.id)} deleted`);
+    }
+  }
 }
 
 app.post("/recreate", (req, res) => {
@@ -711,6 +759,7 @@ app.post("/delete", (req, res) => {
     }
     await client.request("DELETE", `/api/plugins/docker/containers/${container.id}/`, { expected: [200, 202, 204] });
     logLine(`DELETE : container ${instanceShort(data.instance)} deleted id=${container.id}`);
+    if (deleteVolumesEnabled(data)) await deleteContainerVolumes(client, container);
     await deleteDnsRecord(client, data);
     if (req.body.order_request === "true") removeOrderInstance(req, data.profile || data.config_profile || "", data.instance || "");
   });
