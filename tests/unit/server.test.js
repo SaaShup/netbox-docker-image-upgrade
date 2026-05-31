@@ -41,7 +41,7 @@ const {
   ownerEnvVarName,
 } = require("../../lib/docker");
 const { createMetrics } = require("../../lib/metrics");
-const { NetBoxClient, dockerHosts, hostIdQuery, setNetBoxFetchForTests } = require("../../lib/netbox");
+const { NetBoxClient, dockerHosts, hostIdQuery, netboxAuthHeader, setNetBoxFetchForTests } = require("../../lib/netbox");
 const { cookie, createOidcAuth, parseCookies, setOidcFetchForTests, userFromClaims } = require("../../lib/oidc");
 const { createOperationHelpers } = require("../../lib/operations");
 const { createStateStore, defaultState, readJson, writeJson } = require("../../lib/state");
@@ -675,8 +675,13 @@ describe("server helpers", () => {
     await expect(client.list("/api/items/", { id: [1, "", null, 2] })).resolves.toEqual([{ id: 2 }]);
     expect(calls.at(-1).url).toContain("id=1");
     expect(calls.at(-1).url).toContain("id=2");
+    expect(calls.at(-1).options.headers.Authorization).toBe("Token secret");
     await expect(client.request("POST", "/api/empty", { body: { ok: true }, expected: [200] })).resolves.toMatchObject({ payload: {} });
     expect(calls.at(-1).options.headers["Content-Type"]).toBe("application/json");
+    expect(netboxAuthHeader(" nbt_key.plaintext ")).toBe("Bearer nbt_key.plaintext");
+    const v2Client = new NetBoxClient({ netbox: "https://netbox.example.com/", token: " nbt_key.plaintext " });
+    await expect(v2Client.request("GET", "/api/items/")).resolves.toMatchObject({ statusCode: 200 });
+    expect(calls.at(-1).options.headers.Authorization).toBe("Bearer nbt_key.plaintext");
     await expect(client.request("GET", "/api/text")).resolves.toMatchObject({ payload: "plain text" });
     await expect(client.request("GET", "/api/bad")).rejects.toMatchObject({ statusCode: 500, payload: { detail: "bad" } });
     await expect(client.list("/api/array")).resolves.toEqual([{ id: 1 }]);
