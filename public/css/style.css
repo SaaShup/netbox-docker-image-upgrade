@@ -1268,6 +1268,35 @@ body.order-page .order-instances.hidden {
   border-radius: 10px;
 }
 
+.order-instance-status {
+  display: grid;
+  place-items: center;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  margin-left: auto;
+  border-radius: 10px;
+  font-weight: 900;
+}
+
+.order-instance-status-creating {
+  color: var(--primary);
+  background: var(--button-soft);
+  animation: order-status-spin 1s linear infinite;
+}
+
+.order-instance-status-failed {
+  color: #991b1b;
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+}
+
+@keyframes order-status-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .order-instance-copy strong,
 .order-instance-copy a,
 .order-instance-copy small {

@@ -113,9 +113,26 @@ function recordOrderInstance(req, profile, data) {
         template: data.order_template || "",
         image: data.image || "",
         version: data.version || "",
+        status: "creating",
         created_at: new Date().toISOString(),
       });
       state.order_instances[emailKey][profile] = instances;
+    }
+    return state;
+  });
+}
+
+function updateOrderInstanceStatus(req, profile, instance, status) {
+  const emailKey = String(authUserFromRequest(req).email || "").trim().toLowerCase();
+  if (!emailKey) return;
+
+  writeState((state) => {
+    state.order_instances = plainObject(state.order_instances);
+    const instances = Array.isArray(state.order_instances[emailKey]?.[profile]) ? state.order_instances[emailKey][profile] : [];
+    const target = instances.find((item) => item.instance === instance);
+    if (target) {
+      target.status = status;
+      target.updated_at = new Date().toISOString();
     }
     return state;
   });
@@ -622,31 +639,45 @@ app.post("/create", async (req, res) => {
   }
   if (isOrderRequest) recordOrderInstance(req, orderProfile, data);
   asyncOperation(res, async () => {
-    const client = new NetBoxClient(data);
-    const hosts = await dockerHosts(client, data.tag);
-    if (!hosts.length) return logLine(`CREATE : no Docker hosts found${data.tag ? ` with tag ${data.tag}` : ""}`);
-    const containers = await client.list("/api/plugins/docker/containers/", { limit: 1000, host_id: hosts.map((host) => host.id) });
-    const selectedHost = hosts.map((host) => ({ host, count: containers.filter((c) => (c.host?.id || c.host) === host.id).length })).sort((a, b) => a.count - b.count)[0].host;
-    data.host_id = selectedHost.id;
-    const images = await client.list("/api/plugins/docker/images/", { name: data.image, version: data.version, host_id: data.host_id });
-    if (!images[0]) return logLine(`CREATE : image ${data.image}:${data.version} not found on ${hostName(selectedHost)}`);
-    await createDnsRecord(client, data, selectedHost);
-    const volumes = volumePayloadsFromForm(data);
-    if (volumes.length) {
-      await client.request("POST", "/api/plugins/docker/volumes/", { body: volumes.length === 1 ? volumes[0] : volumes, expected: [200, 201, 202] });
-      logLine(`CREATE : ${volumes.length} volume${volumes.length === 1 ? "" : "s"} prepared on ${hostName(selectedHost)}`);
+    try {
+      const client = new NetBoxClient(data);
+      const hosts = await dockerHosts(client, data.tag);
+      if (!hosts.length) {
+        logLine(`CREATE : no Docker hosts found${data.tag ? ` with tag ${data.tag}` : ""}`);
+        if (isOrderRequest) updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
+        return;
+      }
+      const containers = await client.list("/api/plugins/docker/containers/", { limit: 1000, host_id: hosts.map((host) => host.id) });
+      const selectedHost = hosts.map((host) => ({ host, count: containers.filter((c) => (c.host?.id || c.host) === host.id).length })).sort((a, b) => a.count - b.count)[0].host;
+      data.host_id = selectedHost.id;
+      const images = await client.list("/api/plugins/docker/images/", { name: data.image, version: data.version, host_id: data.host_id });
+      if (!images[0]) {
+        logLine(`CREATE : image ${data.image}:${data.version} not found on ${hostName(selectedHost)}`);
+        if (isOrderRequest) updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
+        return;
+      }
+      await createDnsRecord(client, data, selectedHost);
+      const volumes = volumePayloadsFromForm(data);
+      if (volumes.length) {
+        await client.request("POST", "/api/plugins/docker/volumes/", { body: volumes.length === 1 ? volumes[0] : volumes, expected: [200, 201, 202] });
+        logLine(`CREATE : ${volumes.length} volume${volumes.length === 1 ? "" : "s"} prepared on ${hostName(selectedHost)}`);
+      }
+      const containerPayload = containerCreatePayloadFromForm(data, images[0].id);
+      const { payload } = await client.request("POST", "/api/plugins/docker/containers/", { body: containerPayload, expected: [200, 201, 202] });
+      const container = Array.isArray(payload) ? payload[0] : payload;
+      logLine(`CREATE : container ${containerPayload.name} created on ${hostName(selectedHost)}`);
+      if (createConfigureDelayMs > 0) await delay(createConfigureDelayMs);
+      const containerConfig = containerConfigPayloadFromForm(data, container.id);
+      await client.request("PATCH", "/api/plugins/docker/containers/", { body: [containerConfig] });
+      logLine(`CREATE : container ${containerPayload.name} configured on ${hostName(selectedHost)} env=${containerConfig.env.length} labels=${containerConfig.labels.length} mounts=${containerConfig.mounts.length}`);
+      if (createRecreateDelayMs > 0) await delay(createRecreateDelayMs);
+      await waitForContainerConfigured(client, container.id, `${hostName(container)}/${valueText(container.display || container.name)}`);
+      await requestContainerOperation(client, container, "recreate", "CREATE");
+      if (isOrderRequest) updateOrderInstanceStatus(req, orderProfile, data.instance || "", "ready");
+    } catch (error) {
+      if (isOrderRequest) updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
+      throw error;
     }
-    const containerPayload = containerCreatePayloadFromForm(data, images[0].id);
-    const { payload } = await client.request("POST", "/api/plugins/docker/containers/", { body: containerPayload, expected: [200, 201, 202] });
-    const container = Array.isArray(payload) ? payload[0] : payload;
-    logLine(`CREATE : container ${containerPayload.name} created on ${hostName(selectedHost)}`);
-    if (createConfigureDelayMs > 0) await delay(createConfigureDelayMs);
-    const containerConfig = containerConfigPayloadFromForm(data, container.id);
-    await client.request("PATCH", "/api/plugins/docker/containers/", { body: [containerConfig] });
-    logLine(`CREATE : container ${containerPayload.name} configured on ${hostName(selectedHost)} env=${containerConfig.env.length} labels=${containerConfig.labels.length} mounts=${containerConfig.mounts.length}`);
-    if (createRecreateDelayMs > 0) await delay(createRecreateDelayMs);
-    await waitForContainerConfigured(client, container.id, `${hostName(container)}/${valueText(container.display || container.name)}`);
-    await requestContainerOperation(client, container, "recreate", "CREATE");
   });
 });
 

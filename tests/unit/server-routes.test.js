@@ -938,7 +938,7 @@ describe("server routes", () => {
 
     expect(readState(dataPath).order_counts["buyer@example.com"]?.prod).toBe(1);
     expect(readState(dataPath).order_instances["buyer@example.com"]?.prod).toEqual([
-      expect.objectContaining({ instance: "tiles.example.com", template: "Tiles" }),
+      expect.objectContaining({ instance: "tiles.example.com", template: "Tiles", status: expect.stringMatching(/^(creating|failed)$/) }),
     ]);
 
     await request.post("/create")
@@ -976,8 +976,11 @@ describe("server routes", () => {
 
     expect(readState(dataPath).order_counts["buyer@example.com"].prod).toBe(1);
     expect(readState(dataPath).order_instances["buyer@example.com"].prod).toEqual([
-      expect.objectContaining({ instance: "", template: "", image: "", version: "" }),
+      expect.objectContaining({ instance: "", template: "", image: "", version: "", status: expect.stringMatching(/^(creating|failed)$/) }),
     ]);
+    await vi.waitFor(() => expect(readState(dataPath).order_instances["buyer@example.com"].prod[0]).toEqual(
+      expect.objectContaining({ status: "failed" }),
+    ));
     await request.get("/report/images").query({ profile: "prod" }).expect(200).expect((res) => {
       expect(res.body.total_users).toBe(1);
       expect(res.body.users).toEqual([
@@ -1123,6 +1126,9 @@ describe("server routes", () => {
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("CREATE :"));
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("CREATE : 2 volumes prepared on host-a"));
     await vi.waitFor(() => expect(Object.values(readState(dataPath).order_counts).some((counts) => counts.prod === 1)).toBe(true));
+    await vi.waitFor(() => expect(readState(dataPath).order_instances["admin@example.com"]?.prod?.[0]).toEqual(
+      expect.objectContaining({ instance: "tiles.example.com", status: "ready" }),
+    ));
     expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/cloudflare/dns/records/") && options?.method === "POST" && JSON.parse(options.body).content === "host-a.example.com")).toBe(true);
     expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/docker/volumes/") && options?.method === "POST" && JSON.parse(options.body).length === 2)).toBe(true);
     expect(fetchMock.mock.calls.some(([url, options]) => {

@@ -91,6 +91,7 @@ let orderInstanceLimit = { max: 0, used: 0 };
 let dockerhubSecretLoaded = false;
 let currentReportView = "images";
 let lastReportData = null;
+let orderStatusPollTimer = null;
 const logsPollFailureNotice = "Activity logs unavailable: network error";
 const sidebarCollapsedStorageKey = "sidebar_collapsed";
 
@@ -1361,6 +1362,52 @@ function setOrderStatus(message, type = "success") {
   orderStatus.className = `order-status ${type}`;
 }
 
+function normalizedOrderInstanceStatus(item) {
+  const status = String(item?.status || "ready").toLowerCase();
+  return ["creating", "failed", "ready"].includes(status) ? status : "ready";
+}
+
+function orderInstanceStatusControl(item, index) {
+  const status = normalizedOrderInstanceStatus(item);
+  const instance = escapeHtml(item.instance || "instance");
+
+  if (status === "creating") {
+    return '<span class="order-instance-status order-instance-status-creating" title="Instance is being created" aria-label="Instance is being created">↻</span>';
+  }
+
+  if (status === "failed") {
+    return '<span class="order-instance-status order-instance-status-failed" title="Instance creation failed" aria-label="Instance creation failed">!</span>';
+  }
+
+  return `<button type="button" class="icon-btn icon-btn-danger order-instance-delete" data-order-instance-delete="${index}" title="Delete ${instance}" aria-label="Delete ${instance}">×</button>`;
+}
+
+async function refreshOrderInstanceStatuses() {
+  if (!isOrderPage || !orderInstances) return;
+
+  try {
+    const limit = await orderLimitForProfile(selectedProfileCredentials().profile);
+    renderOrderInstances(limit.instances, limit);
+  } catch {
+    // Keep the current cards visible if a background refresh fails.
+  }
+}
+
+function syncOrderStatusPolling() {
+  if (!isOrderPage) return;
+  const hasCreating = orderInstanceCards.some((item) => normalizedOrderInstanceStatus(item) === "creating");
+
+  if (!hasCreating && orderStatusPollTimer) {
+    clearInterval(orderStatusPollTimer);
+    orderStatusPollTimer = null;
+    return;
+  }
+
+  if (hasCreating && !orderStatusPollTimer) {
+    orderStatusPollTimer = setInterval(refreshOrderInstanceStatuses, 3000);
+  }
+}
+
 function renderOrderInstances(instances = orderInstanceCards, limit = orderInstanceLimit) {
   if (!orderInstances) return;
 
@@ -1373,6 +1420,7 @@ function renderOrderInstances(instances = orderInstanceCards, limit = orderInsta
   if (!orderInstanceCards.length) {
     orderInstances.classList.add("hidden");
     orderInstances.replaceChildren();
+    syncOrderStatusPolling();
     return;
   }
 
@@ -1393,11 +1441,12 @@ function renderOrderInstances(instances = orderInstanceCards, limit = orderInsta
             ${orderInstanceNameLink(item.instance)}
             <small>${escapeHtml(item.template || item.image || "SaaShup instance")}</small>
           </span>
-          <button type="button" class="icon-btn icon-btn-danger order-instance-delete" data-order-instance-delete="${index}" title="Delete ${escapeHtml(item.instance || "instance")}" aria-label="Delete ${escapeHtml(item.instance || "instance")}">×</button>
+          ${orderInstanceStatusControl(item, index)}
         </article>
       `).join("")}
     </div>
   `;
+  syncOrderStatusPolling();
 }
 
 function orderInstanceNameLink(instance) {
@@ -1421,6 +1470,7 @@ function addOrderInstanceCard(instance) {
       template: orderTemplateName,
       image: fieldValue("image"),
       version: fieldValue("version"),
+      status: "creating",
     },
   ];
   renderOrderInstances(next, {

@@ -1319,12 +1319,14 @@ test("order page informs the user when the max instance limit is reached", async
       body: JSON.stringify({
         instances: [
           { instance: "demo-1.daily.paashup.cloud", template: "demo" },
+          { instance: "demo-2.daily.paashup.cloud", template: "demo", status: "creating" },
+          { instance: "demo-3.daily.paashup.cloud", template: "demo", status: "failed" },
         ],
-        max: 1,
+        max: 3,
         profile: "demo",
         remaining: 0,
         reached: true,
-        used: 1,
+        used: 3,
       }),
     });
   });
@@ -1347,7 +1349,7 @@ test("order page informs the user when the max instance limit is reached", async
         proxy: "",
         domain: "daily.paashup.cloud",
         tag: "DEMO",
-        max_instances: 1,
+        max_instances: 3,
       },
     }),
   }, {
@@ -1362,12 +1364,16 @@ test("order page informs the user when the max instance limit is reached", async
   await expect(page.locator("#orderLoading")).toBeHidden();
   await expect(page.locator("#orderActions")).toBeHidden();
   await expect(page.locator("#orderInstances")).toBeVisible();
-  await expect(page.locator("#orderInstances")).toContainText("1 / 1");
+  await expect(page.locator("#orderInstances")).toContainText("3 / 3");
   await expect(page.locator("#orderInstances")).toContainText("demo-1.daily.paashup.cloud");
   await expect(page.locator(".order-instance-card").first().locator(".order-instance-link")).toHaveAttribute("href", "https://demo-1.daily.paashup.cloud");
   await expect(page.locator(".order-instance-card").first().locator(".order-instance-delete")).toBeVisible();
+  await expect(page.locator(".order-instance-card").nth(1).locator(".order-instance-delete")).toBeHidden();
+  await expect(page.locator(".order-instance-card").nth(1).locator(".order-instance-status-creating")).toBeVisible();
+  await expect(page.locator(".order-instance-card").nth(2).locator(".order-instance-delete")).toBeHidden();
+  await expect(page.locator(".order-instance-card").nth(2).locator(".order-instance-status-failed")).toBeVisible();
   await expect(page.locator("#orderStatus")).toHaveClass(/error/);
-  await expect(page.locator("#orderStatus")).toHaveText("You have reached your maximum of 1 instance for this config.");
+  await expect(page.locator("#orderStatus")).toHaveText("You have reached your maximum of 3 instances for this config.");
   expect(createCalled).toBe(false);
 });
 
