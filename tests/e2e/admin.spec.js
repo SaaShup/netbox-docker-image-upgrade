@@ -145,6 +145,17 @@ test("config tab starts without a forced default profile", async ({ page }) => {
   await expect(page.locator("#profileHelpBody")).toContainText("base URL of the NetBox instance");
   await page.locator("#profileHelpOkBtn").click();
   await expect(page.locator("#profileHelpModal")).toBeHidden();
+  await page.getByRole("link", { name: "Upgrade" }).click();
+  await page.locator('[data-profile-help="remove_old_images"]').click();
+  await expect(page.locator("#profileHelpTitle")).toHaveText("Remove old images");
+  await expect(page.locator("#profileHelpBody")).toContainText("after all containers using that old image have recreated successfully");
+  await page.locator("#profileHelpOkBtn").click();
+  await page.getByRole("link", { name: "Delete" }).click();
+  await page.locator('[data-profile-help="delete_volumes"]').click();
+  await expect(page.locator("#profileHelpTitle")).toHaveText("Delete volumes");
+  await expect(page.locator("#profileHelpBody")).toContainText("Leave it off to keep data volumes");
+  await page.locator("#profileHelpOkBtn").click();
+  await page.getByRole("link", { name: "Config" }).click();
   await expect(page.locator("#deleteConfigBtn")).toBeVisible();
   await expect(page.locator("#clearBtn")).toBeHidden();
   await expect(page.locator("#dockerRunBtn")).toBeHidden();

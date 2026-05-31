@@ -139,6 +139,42 @@ const profileFieldHelp = {
     title: "Cloudflare IP restriction",
     body: "When enabled, created containers receive the Traefik IP allow-list label for Cloudflare source ranges. Disable it to create routes without that allow-list label.",
   },
+  operate_action: {
+    title: "Action",
+    body: "Choose the container operation to request. Start, stop, restart and kill can be applied to one instance or to all containers using the selected image version.",
+  },
+  instance: {
+    title: "Instance name",
+    body: "The container instance to operate on or delete. You can type it directly or refresh the list from NetBox for the selected config.",
+  },
+  delete_volumes: {
+    title: "Delete volumes",
+    body: "When enabled, deleting the instance also deletes the Docker volumes mounted on that container. Leave it off to keep data volumes.",
+  },
+  image: {
+    title: "Image name",
+    body: "The Docker image name used to find containers or available versions in NetBox, for example saashup/app.",
+  },
+  oldversion: {
+    title: "Old version",
+    body: "The currently deployed image version to replace during upgrade. Leave it empty to upgrade all previous versions except the target version.",
+  },
+  restart_version: {
+    title: "Version",
+    body: "The image version used to find containers for bulk operate actions.",
+  },
+  version: {
+    title: "Version",
+    body: "The target image version for creation or upgrade.",
+  },
+  clean_name: {
+    title: "Clean name before recreate",
+    body: "Removes generated timestamp suffixes from container names during upgrade before requesting the recreate operation.",
+  },
+  remove_old_images: {
+    title: "Remove old images",
+    body: "When enabled, each old image is deleted from its host only after all containers using that old image have recreated successfully.",
+  },
 };
 
 const configFields = ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_instances", "owner_env_var", "cloudflare_filter"];
