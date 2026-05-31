@@ -25,9 +25,14 @@ const deleteTemplateBtn = document.getElementById("deleteTemplateBtn");
 const orderCancelBtn = document.getElementById("orderCancelBtn");
 const dockerRunModal = document.getElementById("dockerRunModal");
 const dockerRunInput = document.getElementById("dockerRunInput");
+const dockerComposeInput = document.getElementById("dockerComposeInput");
+const importProfileSelect = document.getElementById("importProfileSelect");
+const createWorkflowInput = document.getElementById("createWorkflowInput");
 const dockerRunApplyBtn = document.getElementById("dockerRunApplyBtn");
 const dockerRunCancelBtn = document.getElementById("dockerRunCancelBtn");
 const dockerRunCloseBtn = document.getElementById("dockerRunCloseBtn");
+const importTabButtons = [...document.querySelectorAll("[data-import-tab]")];
+const importPanels = [...document.querySelectorAll("[data-import-panel]")];
 const profileHelpModal = document.getElementById("profileHelpModal");
 const profileHelpTitle = document.getElementById("profileHelpTitle");
 const profileHelpBody = document.getElementById("profileHelpBody");
@@ -46,6 +51,8 @@ const addLabelBtn = document.getElementById("addLabelBtn");
 const portList = document.getElementById("portList");
 const volumeList = document.getElementById("volumeList");
 const addVolumeBtn = document.getElementById("addVolumeBtn");
+const bindList = document.getElementById("bindList");
+const addBindBtn = document.getElementById("addBindBtn");
 const instanceOptions = document.getElementById("instanceOptions");
 const refreshInstancesBtn = document.getElementById("refreshInstancesBtn");
 const imageOptions = document.getElementById("imageOptions");
@@ -73,6 +80,12 @@ const reportSummary = document.getElementById("reportSummary");
 const reportTableHead = document.getElementById("reportTableHead");
 const reportTableBody = document.getElementById("reportTableBody");
 const reportViewButtons = Array.from(document.querySelectorAll("[data-report-view]"));
+const workflowCard = document.getElementById("workflowCard");
+const workflowSelect = document.getElementById("workflowSelect");
+const workflowSummary = document.getElementById("workflowSummary");
+const workflowTableBody = document.getElementById("workflowTableBody");
+const runWorkflowBtn = document.getElementById("runWorkflowBtn");
+const deleteWorkflowBtn = document.getElementById("deleteWorkflowBtn");
 
 let currentAction = isOrderPage ? "create" : (localStorage.getItem("current_action") || "config");
 let currentConfigProfile = localStorage.getItem("current_config_profile") || "";
@@ -86,7 +99,10 @@ let createNetworkRequestId = 0;
 let lastLogsHtml = "";
 let logsPollFailed = false;
 let createTemplates = {};
+let createWorkflows = {};
+let workflowStepStatuses = {};
 let generatedCreateInstanceName = "";
+let generatedCreateDnsName = "";
 let orderInstanceCards = [];
 let orderInstanceLimit = { max: 0, used: 0 };
 let currentReportView = "images";
@@ -95,6 +111,9 @@ let orderStatusPollTimer = null;
 let mailSettings = { owner_email_configured: false };
 let dockerhubWebhookDefaultSecret = "";
 let dockerhubWebhookDefaultLoaded = false;
+let currentImportTab = "run";
+let templateVersionOverride = "";
+let templateNetworkOverride = "";
 const logsPollFailureNotice = "Activity logs unavailable: network error";
 const sidebarCollapsedStorageKey = "sidebar_collapsed";
 
@@ -157,7 +176,11 @@ const profileFieldHelp = {
   },
   instance: {
     title: "Instance name",
-    body: "The container instance to operate on or delete. You can type it directly or refresh the list from NetBox for the selected config.",
+    body: "The Docker container name to create, operate on or delete. DNS is configured separately when Traefik is enabled.",
+  },
+  dns_name: {
+    title: "DNS name",
+    body: "The public DNS name used for Traefik labels and Cloudflare DNS when Traefik is enabled.",
   },
   delete_volumes: {
     title: "Delete volumes",
@@ -207,10 +230,20 @@ const actions = {
     method: "post",
     menu: "menu_create",
     title: "Create instance",
-    description: "Create a container, volume, DNS record and Traefik labels.",
+    description: "Create a container, volume, optional DNS record and optional Traefik labels.",
     submitLabel: "Create instance",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "network", "instance", "image", "version", "env_vars", "labels", "ports", "volumes"],
+    fields: ["config_profile", "network", "traefik", "instance", "dns_name", "image", "version", "env_vars", "labels", "ports", "volumes", "binds"],
+  },
+  workflow: {
+    endpoint: "",
+    method: "post",
+    menu: "menu_workflow",
+    title: "Workflow",
+    description: "Run compose-imported templates in the order they were defined.",
+    submitLabel: "Run workflow",
+    buttonClass: "btn btn-primary",
+    fields: [],
   },
   recreate: {
     endpoint: "/recreate",
@@ -278,7 +311,9 @@ const allFieldNames = [
   "delete_volumes",
   "config_name",
   "network",
+  "traefik",
   "instance",
+  "dns_name",
   "image",
   "oldversion",
   "restart_version",
@@ -295,6 +330,9 @@ const allFieldNames = [
   "port_value",
   "volume_source",
   "volume_name",
+  "bind_host_path",
+  "bind_container_path",
+  "bind_read_only",
 ];
 
 const operateActionLabels = {
@@ -408,6 +446,47 @@ function instanceFqdn(value, domain) {
   return normalizedDomain ? `${name}.${normalizedDomain}` : name;
 }
 
+function dnsParts(value) {
+  const text = String(value || "").trim();
+  if (!text) return { host: "", path: "" };
+
+  try {
+    const url = new URL(/^https?:\/\//i.test(text) ? text : `https://${text}`);
+    const path = `${url.pathname || ""}${url.search || ""}${url.hash || ""}`;
+    return { host: url.hostname, path: path === "/" ? "" : path };
+  } catch {
+    const slash = text.indexOf("/");
+    if (slash === -1) return { host: text, path: "" };
+    return { host: text.slice(0, slash), path: text.slice(slash) || "" };
+  }
+}
+
+function dnsNameFqdn(value, domain) {
+  const { host, path } = dnsParts(value);
+  const fqdnHost = instanceFqdn(host, domain);
+  return fqdnHost ? `${fqdnHost}${path}` : "";
+}
+
+function createDnsName() {
+  return dnsNameFqdn(fieldValue("instance"), selectedProfileCredentials().domain);
+}
+
+function syncCreateDnsName({ force = false } = {}) {
+  const dnsInput = field("dns_name");
+  if (!dnsInput || currentAction !== "create") return;
+
+  const hasTraefik = fieldChecked("traefik", true);
+  dnsInput.disabled = !hasTraefik;
+  if (!hasTraefik) return;
+
+  const nextName = createDnsName();
+  const currentName = fieldValue("dns_name");
+  if (force || !currentName || currentName === generatedCreateDnsName) {
+    setFieldValue("dns_name", nextName);
+  }
+  generatedCreateDnsName = nextName;
+}
+
 function randomInstanceSuffix(length = 16) {
   const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
   const cryptoObject = window.crypto || window.msCrypto;
@@ -477,6 +556,7 @@ function ensureRandomCreateInstanceName() {
 
   generatedCreateInstanceName = `${instanceNamePrefix()}-${randomInstanceSuffix()}`;
   setFieldValue("instance", generatedCreateInstanceName);
+  syncCreateDnsName({ force: true });
   syncVolumeNames();
 }
 
@@ -537,9 +617,17 @@ async function refreshCreateNetworkFromInstances(requestId) {
       .filter(isTraefikNetwork)))
       .sort((a, b) => a.localeCompare(b));
 
+    if (templateNetworkOverride) {
+      setFieldValue("network", templateNetworkOverride);
+      return;
+    }
     setFieldValue("network", networks[0] || "");
   } catch {
     if (requestId === createNetworkRequestId && currentAction === "create") {
+      if (templateNetworkOverride) {
+        setFieldValue("network", templateNetworkOverride);
+        return;
+      }
       setFieldValue("network", "");
     }
   }
@@ -552,6 +640,10 @@ function syncCreateNetwork() {
   network.readOnly = currentAction === "create";
   if (currentAction !== "create") return;
 
+  if (templateNetworkOverride) {
+    setFieldValue("network", templateNetworkOverride);
+    return;
+  }
   setFieldValue("network", "");
   const requestId = ++createNetworkRequestId;
   refreshCreateNetworkFromInstances(requestId);
@@ -559,6 +651,37 @@ function syncCreateNetwork() {
 
 function profileLabel(name) {
   return name || "No config saved";
+}
+
+function knownProfileEntries() {
+  const entries = {
+    ...parseProfiles(savedConfig.profiles),
+    ...serverConfigProfiles,
+    ...configProfiles,
+  };
+  const profile = savedConfig.profile || savedConfig.config_profile || "";
+  if (profile && !entries[profile] && savedConfig.netbox && savedConfig.token) {
+    entries[profile] = {
+      netbox: savedConfig.netbox,
+      token: savedConfig.token,
+      proxy: savedConfig.proxy || "",
+      domain: savedConfig.domain || "",
+      tag: savedConfig.tag || "",
+      max_instances: normalizeMaxInstances(savedConfig.max_instances),
+      owner_env_var: ownerEnvVarValue(savedConfig.owner_env_var),
+      cloudflare_filter: checkboxValue(savedConfig.cloudflare_filter, true),
+      dockerhub_webhook_secret: savedConfig.dockerhub_webhook_secret || "",
+      smtp_config: smtpConfigValue(savedConfig),
+    };
+  }
+  return entries;
+}
+
+function knownProfileNames() {
+  const deleted = new Set(deletedProfiles());
+  return Object.keys(knownProfileEntries())
+    .filter((name) => !deleted.has(name))
+    .sort((a, b) => a.localeCompare(b));
 }
 
 function parseProfiles(value) {
@@ -674,6 +797,7 @@ function parseStoredObject(key) {
 
 function loadCreateTemplates() {
   createTemplates = parseStoredObject("create_templates");
+  createWorkflows = parseStoredObject("create_workflows");
 
   return fetch("/templates", {
     headers: { Accept: "application/json" },
@@ -686,14 +810,17 @@ function loadCreateTemplates() {
       createTemplates = templates && typeof templates === "object" && !Array.isArray(templates) ? templates : {};
       localStorage.setItem("create_templates", JSON.stringify(createTemplates));
       updateTemplateOptions();
+      updateWorkflowOptions();
     })
     .catch(() => {
       updateTemplateOptions();
+      updateWorkflowOptions();
     });
 }
 
 function persistCreateTemplates() {
   localStorage.setItem("create_templates", JSON.stringify(createTemplates));
+  localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
 
   return fetch("/templates", {
     method: "POST",
@@ -781,18 +908,22 @@ async function importPortableConfig(event) {
     const importedConfig = plainObject(data.config);
     const importedProfiles = parseProfiles(data.profiles || importedConfig.profiles);
     const importedTemplates = plainObject(data.templates);
+    const importedWorkflows = plainObject(data.workflows);
 
     configProfiles = importedProfiles;
     serverConfigProfiles = importedProfiles;
     createTemplates = importedTemplates;
+    createWorkflows = importedWorkflows;
     savedConfig = { ...importedConfig, profiles: importedProfiles };
     currentConfigProfile = importedConfig.profile || importedConfig.config_profile || Object.keys(configProfiles).sort((a, b) => a.localeCompare(b))[0] || "";
 
     localStorage.removeItem("deleted_config_profiles");
     persistProfiles();
     localStorage.setItem("create_templates", JSON.stringify(createTemplates));
+    localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
     updateProfileOptions();
     updateTemplateOptions();
+    updateWorkflowOptions();
     applyProfileToFields(currentConfigProfile);
     setNotice("Config import complete", "success");
   } catch {
@@ -814,6 +945,108 @@ function updateTemplateOptions(selected = "") {
 
   templateSelect.value = names.includes(selected) ? selected : "";
   syncTemplateActions();
+}
+
+function updateWorkflowOptions(selected = workflowSelect?.value || "") {
+  if (!workflowSelect) return;
+
+  const names = Object.keys(createWorkflows).sort((a, b) => workflowOptionLabel(a).localeCompare(workflowOptionLabel(b)));
+  workflowSelect.replaceChildren(new Option(names.length ? "Select workflow" : "No workflows saved", ""));
+  names.forEach((name) => workflowSelect.appendChild(new Option(workflowOptionLabel(name), name)));
+  workflowSelect.value = names.includes(selected) ? selected : "";
+  renderWorkflow();
+}
+
+function selectedWorkflow() {
+  return createWorkflows[workflowSelect?.value || ""] || null;
+}
+
+function workflowProfile(workflow) {
+  return workflow?.config_profile || workflow?.profile || "";
+}
+
+function workflowNameFromKey(key) {
+  return String(key || "").split("::").pop() || "";
+}
+
+function workflowStorageKey(profileName, workflowName) {
+  return profileName ? `${profileName}::${workflowName || "compose"}` : (workflowName || "compose");
+}
+
+function workflowOptionLabel(key) {
+  const workflow = createWorkflows[key] || {};
+  const name = workflow.name || workflowNameFromKey(key);
+  const profile = workflowProfile(workflow);
+  return profile ? `${profileLabel(profile)} / ${name}` : name;
+}
+
+function workflowStepName(step) {
+  return typeof step === "string" ? step : step?.template;
+}
+
+function workflowStepTemplate(step) {
+  const templateName = workflowStepName(step);
+  const embeddedTemplate = plainObject(step?.template_data || step?.data);
+  return Object.keys(embeddedTemplate).length ? embeddedTemplate : (createTemplates[templateName] || {});
+}
+
+function workflowStepStatusIcon(status = "pending") {
+  const normalized = ["pending", "running", "done", "failed"].includes(status) ? status : "pending";
+  const labels = {
+    pending: "Step pending",
+    running: "Step running",
+    done: "Step done",
+    failed: "Step failed",
+  };
+  const icons = {
+    pending: "↻",
+    running: "↻",
+    done: "✓",
+    failed: "!",
+  };
+  return `<span class="workflow-step-status workflow-step-status-${normalized}" title="${labels[normalized]}" aria-label="${labels[normalized]}">${icons[normalized]}</span>`;
+}
+
+function renderWorkflow() {
+  const workflow = selectedWorkflow();
+  if (!workflowSummary || !workflowTableBody) return;
+
+  const steps = Array.isArray(workflow?.steps) ? workflow.steps : [];
+  const profile = workflowProfile(workflow);
+  workflowSummary.textContent = workflow
+    ? `${steps.length} step${steps.length === 1 ? "" : "s"}${profile ? ` - ${profileLabel(profile)}` : ""}`
+    : "No workflow selected";
+  if (runWorkflowBtn) runWorkflowBtn.disabled = !steps.length;
+  if (deleteWorkflowBtn) deleteWorkflowBtn.disabled = !workflow;
+
+  if (!steps.length) {
+    workflowTableBody.innerHTML = '<tr><td colspan="4">Import a compose file with workflow enabled.</td></tr>';
+    return;
+  }
+
+  workflowTableBody.replaceChildren(...steps.map((step, index) => {
+    const templateName = workflowStepName(step);
+    const template = workflowStepTemplate(step);
+    const status = workflowStepStatuses[index] || "pending";
+    const row = document.createElement("tr");
+    row.dataset.workflowStepStatus = status;
+    row.innerHTML = `
+      <td>${workflowStepStatusIcon(status)}</td>
+      <td>${escapeHtml(templateName || "")}</td>
+      <td>${escapeHtml(template.instance || "")}</td>
+      <td>${escapeHtml(template.image || "")}:${escapeHtml(template.version || "")}</td>
+    `;
+    return row;
+  }));
+}
+
+function updateImportProfileOptions() {
+  if (!importProfileSelect) return;
+
+  const profileNames = knownProfileNames();
+  const names = profileNames.length ? profileNames : [""];
+  importProfileSelect.replaceChildren(...names.map((name) => new Option(profileLabel(name), name)));
+  importProfileSelect.value = names.includes(currentConfigProfile) ? currentConfigProfile : names[0] || "";
 }
 
 function syncTemplateActions() {
@@ -866,7 +1099,7 @@ function persistProfiles() {
 }
 
 function profileCredentials(name = currentConfigProfile) {
-  const profile = configProfiles[name] || {};
+  const profile = knownProfileEntries()[name] || {};
   return {
     profile: name,
     netbox: profile.netbox || "",
@@ -907,10 +1140,7 @@ function selectedProfileCredentials() {
 function updateProfileOptions() {
   if (!configProfileSelect) return;
 
-  const deleted = new Set(deletedProfiles());
-  const profileNames = Object.keys(configProfiles)
-    .filter((name) => !deleted.has(name))
-    .sort((a, b) => a.localeCompare(b));
+  const profileNames = knownProfileNames();
 
   if (!profileNames.includes(currentConfigProfile)) {
     currentConfigProfile = profileNames[0] || "";
@@ -932,9 +1162,7 @@ function updateProfileOptions() {
 function updateReportProfileOptions() {
   if (!reportProfileSelect) return;
 
-  const profileNames = Object.keys(configProfiles)
-    .filter((name) => !deletedProfiles().includes(name))
-    .sort((a, b) => a.localeCompare(b));
+  const profileNames = knownProfileNames();
   const fallbackProfile = currentConfigProfile || profileNames[0] || "";
   const currentValue = reportProfileSelect.value || fallbackProfile;
   const names = profileNames.length ? profileNames : [""];
@@ -1307,6 +1535,13 @@ function updateVolumeRemoveButtons() {
   });
 }
 
+function updateBindRemoveButtons() {
+  repeatRows(bindList, ".repeat-row").forEach((row) => {
+    const button = row.querySelector(".repeat-remove");
+    if (button) button.disabled = false;
+  });
+}
+
 function addEnvRow(key = "", value = "") {
   if (!envList) return;
 
@@ -1380,6 +1615,37 @@ function addVolumeRow(source = "", name = "") {
   updateVolumeRemoveButtons();
 }
 
+function addBindRow(hostPath = "", containerPath = "", readOnly = false) {
+  if (!bindList) return;
+
+  const isFirstRow = repeatRows(bindList, ".repeat-row").length === 0;
+  const row = document.createElement("div");
+  row.className = "repeat-row bind-row";
+  row.innerHTML = `
+    <input type="text" name="bind_host_path" placeholder="/var/run/docker.sock" aria-label="Bind host path">
+    <input type="text" name="bind_container_path" placeholder="/var/run/docker.sock" aria-label="Bind container path">
+    <label class="mini-check mini-toggle" aria-label="Bind read only">
+      <input type="checkbox" name="bind_read_only" value="true">
+      <span>RO</span>
+    </label>
+    <button type="button" class="icon-btn repeat-remove" aria-label="Remove bind">&times;</button>
+  `;
+
+  const hostInput = row.querySelector('[name="bind_host_path"]');
+  const containerInput = row.querySelector('[name="bind_container_path"]');
+  const readOnlyInput = row.querySelector('[name="bind_read_only"]');
+  if (isFirstRow) {
+    hostInput.id = "bind_host_path";
+    containerInput.id = "bind_container_path";
+    readOnlyInput.id = "bind_read_only";
+  }
+  hostInput.value = hostPath;
+  containerInput.value = containerPath;
+  readOnlyInput.checked = readOnly === true || readOnly === "true" || readOnly === "ro";
+  bindList.appendChild(row);
+  updateBindRemoveButtons();
+}
+
 function setPortValue(value = "") {
   setFieldValue("port_value", value);
   updatePortRemoveButtons();
@@ -1407,6 +1673,11 @@ function clearVolumeRows() {
   repeatRows(volumeList, ".repeat-row").forEach((row) => row.remove());
   syncVolumeNames();
   updateVolumeRemoveButtons();
+}
+
+function clearBindRows() {
+  repeatRows(bindList, ".repeat-row").forEach((row) => row.remove());
+  updateBindRemoveButtons();
 }
 
 function clearPortRows() {
@@ -1664,7 +1935,7 @@ function setAction(actionName) {
   updateTestEmailVisibility();
   exportConfigBtn?.classList.toggle("hidden", actionName !== "config");
   importConfigBtn?.classList.toggle("hidden", actionName !== "config");
-  clearBtn?.classList.toggle("hidden", actionName === "config" || actionName === "report");
+  clearBtn?.classList.toggle("hidden", actionName === "config" || actionName === "report" || actionName === "workflow");
   dockerRunBtn?.classList.toggle("hidden", actionName !== "create");
   templateSelect?.classList.toggle("hidden", actionName !== "create");
   loadTemplateBtn?.classList.toggle("hidden", actionName !== "create");
@@ -1675,8 +1946,9 @@ function setAction(actionName) {
   if (restartInstanceBtn) restartInstanceBtn.disabled = actionName !== "restart";
   refreshInstancesBtn?.classList.toggle("hidden", actionName === "create");
   if (refreshInstancesBtn && actionName === "create") refreshInstancesBtn.disabled = true;
-  formCard?.classList.toggle("hidden", actionName === "report");
+  formCard?.classList.toggle("hidden", actionName === "report" || actionName === "workflow");
   reportCard?.classList.toggle("hidden", actionName !== "report");
+  workflowCard?.classList.toggle("hidden", actionName !== "workflow");
 
   const visibleFields = new Set(config.fields);
 
@@ -1698,6 +1970,7 @@ function setAction(actionName) {
   syncCreateVersion();
   updateRemoveOldImagesState();
   ensureRandomCreateInstanceName();
+  syncCreateDnsName();
   if (actionName === "create" && imageRecords.length === 0) {
     refreshImages({ notify: false });
   }
@@ -1707,6 +1980,9 @@ function setAction(actionName) {
   if (actionName === "report") {
     updateReportProfileOptions();
     refreshImageReport();
+  }
+  if (actionName === "workflow") {
+    updateWorkflowOptions();
   }
   updateEnvRemoveButtons();
   updateLabelRemoveButtons();
@@ -1743,19 +2019,25 @@ function updateOperateControls() {
 
 function clearActionFields() {
   const preserved = new Set(configFields);
+  templateVersionOverride = "";
+  templateNetworkOverride = "";
+  generatedCreateDnsName = "";
 
   for (const name of allFieldNames) {
     if (preserved.has(name)) continue;
     setFieldValue(name, "");
   }
+  setFieldValue("traefik", true);
 
   clearEnvRows();
   clearLabelRows();
   clearPortRows();
   clearVolumeRows();
+  clearBindRows();
   syncCreateNetwork();
   syncCreateVersion();
   ensureRandomCreateInstanceName();
+  syncCreateDnsName({ force: true });
   if (currentAction === "restart") setFieldValue("operate_action", "restart");
   updateRestartButtons();
   updateOperateControls();
@@ -1766,6 +2048,8 @@ function openDockerRunModal() {
   if (!dockerRunModal || !dockerRunInput) return;
 
   if (currentAction !== "create") setAction("create");
+  updateImportProfileOptions();
+  setImportTab("run");
   dockerRunInput.value = "";
   dockerRunModal.classList.remove("hidden");
   dockerRunInput.focus();
@@ -1773,6 +2057,18 @@ function openDockerRunModal() {
 
 function closeDockerRunModal() {
   dockerRunModal?.classList.add("hidden");
+}
+
+function setImportTab(tabName) {
+  currentImportTab = tabName === "compose" ? "compose" : "run";
+  importTabButtons.forEach((button) => {
+    const active = button.dataset.importTab === currentImportTab;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  importPanels.forEach((panel) => panel.classList.toggle("hidden", panel.dataset.importPanel !== currentImportTab));
+  if (currentImportTab === "run") dockerRunInput?.focus();
+  else dockerComposeInput?.focus();
 }
 
 function openProfileHelp(key) {
@@ -1850,6 +2146,8 @@ function splitOptionValue(token) {
 
 function splitImageRef(ref) {
   ref = String(ref || "").trim();
+  const composeDefault = ref.match(/^\$\{[^}:]+:?-([^}]+)\}$/);
+  if (composeDefault) ref = composeDefault[1].trim();
   const slashIndex = ref.lastIndexOf("/");
   const colonIndex = ref.lastIndexOf(":");
 
@@ -1877,9 +2175,27 @@ function parsePublishPort(value) {
   return /^\d+$/.test(port) ? port : "";
 }
 
+function parseDockerMount(value) {
+  const entries = {};
+  String(value || "").split(",").forEach((part) => {
+    const [key, entryValue = ""] = splitOptionValue(part);
+    if (key) entries[key] = entryValue || "true";
+  });
+
+  const type = entries.type || "";
+  const source = entries.source || entries.src || "";
+  const target = entries.target || entries.dst || entries.destination || "";
+  if (!source || !target) return null;
+
+  if (type === "bind" || isBindSource(source)) {
+    return { kind: "bind", host_path: source, container_path: target, read_only: entries.readonly === "true" || entries.ro === "true" };
+  }
+  return { kind: "volume", name: source, source: target };
+}
+
 function parseDockerRun(command) {
   const tokens = tokenizeDockerRun(command);
-  const parsed = { env: [], labels: [], ports: [], volumes: [] };
+  const parsed = { env: [], labels: [], ports: [], volumes: [], binds: [] };
   let i = 0;
 
   if (tokens[i] === "docker") i += 1;
@@ -1917,8 +2233,14 @@ function parseDockerRun(command) {
     } else if (option === "-v" || option === "--volume") {
       const parts = readValue().split(":");
       if (parts.length >= 2) {
-        parsed.volumes.push({ name: parts[0], source: parts[1] });
+        const readOnly = parts.includes("ro");
+        if (isBindSource(parts[0])) parsed.binds.push({ host_path: parts[0], container_path: parts[1], read_only: readOnly });
+        else parsed.volumes.push({ name: parts[0], source: parts[1] });
       }
+    } else if (option === "--mount") {
+      const mount = parseDockerMount(readValue());
+      if (mount?.kind === "bind") parsed.binds.push({ host_path: mount.host_path, container_path: mount.container_path, read_only: mount.read_only });
+      else if (mount?.kind === "volume") parsed.volumes.push({ name: mount.name, source: mount.source });
     } else if (option === "-p" || option === "--publish") {
       const port = parsePublishPort(readValue());
       if (port && parsed.ports.length === 0) parsed.ports.push({ value: port });
@@ -1930,6 +2252,238 @@ function parseDockerRun(command) {
   }
 
   return parsed;
+}
+
+function isBindSource(value) {
+  const text = String(value || "");
+  return text.startsWith("/") || text.startsWith("./") || text.startsWith("../") || text.startsWith("~");
+}
+
+function stripYamlComment(value) {
+  let quote = "";
+  for (let i = 0; i < value.length; i += 1) {
+    const char = value[i];
+    if (quote) {
+      if (char === quote && value[i - 1] !== "\\") quote = "";
+      continue;
+    }
+    if (char === "'" || char === '"') quote = char;
+    else if (char === "#") return value.slice(0, i);
+  }
+  return value;
+}
+
+function yamlIndent(line) {
+  return (line.match(/^\s*/) || [""])[0].replace(/\t/g, "  ").length;
+}
+
+function yamlScalar(value) {
+  value = stripYamlComment(String(value || "")).trim();
+  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+    return value.slice(1, -1).replace(/\\"/g, '"').replace(/\\'/g, "'");
+  }
+  return value;
+}
+
+function splitYamlInlineList(value) {
+  value = yamlScalar(value);
+  if (!value.startsWith("[") || !value.endsWith("]")) return [];
+  const items = [];
+  let current = "";
+  let quote = "";
+  for (const char of value.slice(1, -1)) {
+    if (quote) {
+      if (char === quote) quote = "";
+      current += char;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      current += char;
+      continue;
+    }
+    if (char === ",") {
+      if (current.trim()) items.push(yamlScalar(current));
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  if (current.trim()) items.push(yamlScalar(current));
+  return items;
+}
+
+function parseComposePair(value) {
+  value = yamlScalar(value);
+  const equal = value.indexOf("=");
+  if (equal >= 0) return { key: value.slice(0, equal), value: value.slice(equal + 1) };
+  const colon = value.indexOf(":");
+  if (colon >= 0) return { key: yamlScalar(value.slice(0, colon)), value: yamlScalar(value.slice(colon + 1)) };
+  return value ? { key: value, value: "" } : null;
+}
+
+function parseComposePairs(inlineValue, blockLines) {
+  const inlineItems = splitYamlInlineList(inlineValue);
+  if (inlineItems.length) return inlineItems.map(parseComposePair).filter(Boolean);
+
+  const pairs = [];
+  blockLines.forEach(({ text }) => {
+    const line = stripYamlComment(text).trim();
+    if (!line) return;
+    if (line.startsWith("- ")) {
+      const pair = parseComposePair(line.slice(2));
+      if (pair) pairs.push(pair);
+      return;
+    }
+    const pair = parseComposePair(line);
+    if (pair) pairs.push(pair);
+  });
+  return pairs;
+}
+
+function parseComposeList(inlineValue, blockLines) {
+  const inlineItems = splitYamlInlineList(inlineValue);
+  if (inlineItems.length) return inlineItems;
+  if (inlineValue && yamlScalar(inlineValue)) return [yamlScalar(inlineValue)];
+
+  const items = [];
+  blockLines.forEach(({ text }) => {
+    const line = stripYamlComment(text).trim();
+    if (!line) return;
+    if (line.startsWith("- ")) items.push(yamlScalar(line.slice(2)));
+    else if (line.endsWith(":")) items.push(yamlScalar(line.slice(0, -1)));
+  });
+  return items;
+}
+
+function parseComposePorts(inlineValue, blockLines) {
+  return parseComposeList(inlineValue, blockLines)
+    .map(parsePublishPort)
+    .filter(Boolean)
+    .slice(0, 1)
+    .map((value) => ({ value }));
+}
+
+function parseComposeVolumes(inlineValue, blockLines) {
+  return parseComposeList(inlineValue, blockLines)
+    .map((value) => {
+      const parts = String(value).split(":");
+      return parts.length >= 2 ? { name: yamlScalar(parts[0]), source: yamlScalar(parts[1]) } : null;
+    })
+    .filter(Boolean);
+}
+
+function splitComposeMounts(inlineValue, blockLines) {
+  const mounts = parseComposeList(inlineValue, blockLines)
+    .map((value) => {
+      const parts = String(value).split(":");
+      if (parts.length < 2) return null;
+      const source = yamlScalar(parts[0]);
+      const target = yamlScalar(parts[1]);
+      const readOnly = parts.slice(2).includes("ro");
+      return isBindSource(source)
+        ? { type: "bind", host_path: source, container_path: target, read_only: readOnly }
+        : { type: "volume", name: source, source: target };
+    })
+    .filter(Boolean);
+
+  return {
+    volumes: mounts.filter((item) => item.type === "volume").map(({ type, ...item }) => item),
+    binds: mounts.filter((item) => item.type === "bind").map(({ type, ...item }) => item),
+  };
+}
+
+function parseComposeService(lines, serviceIndent, profileName = selectedProfileCredentials().profile) {
+  const template = {
+    config_profile: profileName,
+    traefik: true,
+    network: fieldValue("network"),
+    image: "",
+    version: "",
+    env: [],
+    labels: [],
+    ports: [],
+    volumes: [],
+    binds: [],
+  };
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const raw = lines[i];
+    if (!stripYamlComment(raw).trim()) continue;
+    const indent = yamlIndent(raw);
+    const match = raw.trim().match(/^([A-Za-z0-9_.-]+):\s*(.*)$/);
+    if (!match || indent <= serviceIndent) continue;
+
+    const [, key, inlineValue] = match;
+    const blockLines = [];
+    let next = i + 1;
+    while (next < lines.length && (!stripYamlComment(lines[next]).trim() || yamlIndent(lines[next]) > indent)) {
+      blockLines.push({ indent: yamlIndent(lines[next]), text: lines[next] });
+      next += 1;
+    }
+    i = next - 1;
+
+    if (key === "image") {
+      const imageParts = splitImageRef(yamlScalar(inlineValue));
+      template.image = imageParts.image;
+      template.version = imageParts.version;
+    } else if (key === "container_name") {
+      template.instance = yamlScalar(inlineValue);
+    } else if (key === "networks") {
+      template.network = parseComposeList(inlineValue, blockLines)[0] || template.network;
+    } else if (key === "environment" || key === "env") {
+      template.env = parseComposePairs(inlineValue, blockLines);
+    } else if (key === "labels") {
+      template.labels = parseComposePairs(inlineValue, blockLines);
+    } else if (key === "ports") {
+      template.ports = parseComposePorts(inlineValue, blockLines);
+    } else if (key === "volumes") {
+      const mounts = splitComposeMounts(inlineValue, blockLines);
+      template.volumes = mounts.volumes;
+      template.binds = mounts.binds;
+    }
+  }
+
+  return template.image ? template : null;
+}
+
+function composeWorkflowName(text) {
+  const lines = String(text || "").replace(/\r\n/g, "\n").split("\n");
+  const match = lines
+    .map((line) => stripYamlComment(line).trim().match(/^name:\s*(.+)$/))
+    .find(Boolean);
+  return match ? yamlScalar(match[1]) : "compose";
+}
+
+function parseDockerCompose(text) {
+  const lines = String(text || "").replace(/\r\n/g, "\n").split("\n");
+  const servicesIndex = lines.findIndex((line) => stripYamlComment(line).trim() === "services:");
+  if (servicesIndex === -1) return [];
+
+  const servicesIndent = yamlIndent(lines[servicesIndex]);
+  const templates = [];
+  for (let i = servicesIndex + 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (!stripYamlComment(line).trim()) continue;
+    const indent = yamlIndent(line);
+    if (indent <= servicesIndent) break;
+
+    const match = line.trim().match(/^([A-Za-z0-9_.-]+):\s*$/);
+    if (!match) continue;
+
+    const serviceName = match[1];
+    const block = [];
+    let next = i + 1;
+    while (next < lines.length && (!stripYamlComment(lines[next]).trim() || yamlIndent(lines[next]) > indent)) {
+      block.push(lines[next]);
+      next += 1;
+    }
+    const template = parseComposeService(block, indent, importProfileSelect?.value || selectedProfileCredentials().profile);
+    if (template) templates.push({ name: serviceName, template });
+    i = next - 1;
+  }
+
+  return templates;
 }
 
 function setRepeatRows(items, clearFn, addFn, selectors) {
@@ -1950,6 +2504,19 @@ function setRepeatRows(items, clearFn, addFn, selectors) {
 
   items.slice(1).forEach((item) => {
     addFn(item.key ?? item.source ?? "", item.value ?? item.name ?? "");
+  });
+}
+
+function setBindRows(items = []) {
+  clearBindRows();
+  if (!items.length) return;
+
+  items.forEach((item) => {
+    addBindRow(
+      item.host_path ?? item.host ?? item.key ?? "",
+      item.container_path ?? item.container ?? item.value ?? "",
+      item.read_only ?? item.readonly ?? false,
+    );
   });
 }
 
@@ -1975,11 +2542,41 @@ function volumeValues() {
     .filter((item) => item.key);
 }
 
+function bindValues() {
+  return repeatRows(bindList, ".repeat-row")
+    .map((row) => ({
+      host_path: row.querySelector('[name="bind_host_path"]')?.value || "",
+      container_path: row.querySelector('[name="bind_container_path"]')?.value || "",
+      read_only: row.querySelector('[name="bind_read_only"]')?.checked || false,
+    }))
+    .filter((item) => item.host_path && item.container_path);
+}
+
+function prepareBindReadOnlyForFormData() {
+  const inputs = repeatRows(bindList, ".repeat-row")
+    .map((row) => row.querySelector('[name="bind_read_only"]'))
+    .filter(Boolean);
+  const states = inputs.map((input) => ({ input, checked: input.checked, value: input.value }));
+  inputs.forEach((input) => {
+    input.value = input.checked ? "true" : "false";
+    input.checked = true;
+  });
+  return () => {
+    states.forEach(({ input, checked, value }) => {
+      input.checked = checked;
+      input.value = value;
+    });
+  };
+}
+
 function currentCreateTemplate() {
   const credentials = selectedProfileCredentials();
 
   return {
     config_profile: credentials.profile,
+    instance: fieldValue("instance"),
+    dns_name: fieldValue("dns_name"),
+    traefik: fieldChecked("traefik", true),
     network: fieldValue("network"),
     image: fieldValue("image"),
     version: fieldValue("version"),
@@ -1987,6 +2584,7 @@ function currentCreateTemplate() {
     labels: repeatValues(labelList, ".repeat-row", "label_key", "label_value"),
     ports: portValues(),
     volumes: volumeValues(),
+    binds: bindValues(),
   };
 }
 
@@ -2005,15 +2603,23 @@ function applyCreateTemplate(template) {
   }
 
   setFieldValue("network", template.network || fieldValue("network"));
+  setFieldValue("traefik", template.traefik ?? true);
+  templateNetworkOverride = template.network || "";
+  templateVersionOverride = template.version || "";
   generatedCreateInstanceName = "";
-  setFieldValue("instance", "");
-  ensureRandomCreateInstanceName();
+  generatedCreateDnsName = "";
+  setFieldValue("instance", template.instance || "");
+  if (!template.instance) ensureRandomCreateInstanceName();
+  setFieldValue("dns_name", template.dns_name || "");
+  syncCreateDnsName({ force: !template.dns_name });
   setFieldValue("image", template.image || "");
   syncCreateVersion();
+  if (template.version) setFieldValue("version", template.version);
   setRepeatRows(template.env || [], clearEnvRows, addEnvRow, { key: "var_env_key", value: "var_env_value" });
   setRepeatRows(template.labels || [], clearLabelRows, addLabelRow, { key: "label_key", value: "label_value" });
   setPortValue((template.ports || [])[0]?.value || "");
   setRepeatRows(template.volumes || [], clearVolumeRows, addVolumeRow, { key: "volume_source", value: "volume_name" });
+  setBindRows(template.binds || []);
 }
 
 async function saveCreateTemplate() {
@@ -2110,9 +2716,18 @@ async function applyOrderTemplate({ reveal = true } = {}) {
   }
 
   if (reveal) showOrderActions();
+  const templateDnsPath = dnsParts(entry.template.dns_name).path;
   applyCreateTemplate(entry.template);
   setFieldValue("instance", "");
+  setFieldValue("dns_name", "");
+  generatedCreateDnsName = "";
   ensureRandomCreateInstanceName();
+  syncCreateDnsName({ force: true });
+  if (templateDnsPath) {
+    const dnsName = `${createDnsName()}${templateDnsPath}`;
+    setFieldValue("dns_name", dnsName);
+    generatedCreateDnsName = dnsName;
+  }
   submitBtn.textContent = "Yes";
 
   if (templateSelect) {
@@ -2120,8 +2735,10 @@ async function applyOrderTemplate({ reveal = true } = {}) {
   }
 
   const imagesLoaded = await refreshImages({ notify: false });
-  if (imagesLoaded) {
+  if (imagesLoaded && !entry.template.version) {
     syncCreateVersion();
+  } else if (entry.template.version) {
+    setFieldValue("version", entry.template.version);
   }
 
   await ensureCreateVersion();
@@ -2145,8 +2762,70 @@ async function applyOrderTemplate({ reveal = true } = {}) {
   return true;
 }
 
-function applyDockerRunCommand() {
-  const parsed = parseDockerRun(dockerRunInput?.value || "");
+async function applyDockerComposeFile(text) {
+  const composeText = text ?? dockerComposeInput?.value ?? "";
+  const templates = parseDockerCompose(composeText);
+  if (!templates.length) {
+    setNotice("Compose services with images are required", "error");
+    return;
+  }
+
+  const previousTemplates = { ...createTemplates };
+  const previousWorkflows = { ...createWorkflows };
+  templates.forEach(({ name, template }) => {
+    createTemplates[name] = template;
+  });
+  if (createWorkflowInput?.checked) {
+    const workflowName = composeWorkflowName(composeText);
+    const workflowProfileName = importProfileSelect?.value || selectedProfileCredentials().profile || "";
+    const workflowKey = workflowStorageKey(workflowProfileName, workflowName);
+    createWorkflows[workflowKey] = {
+      name: workflowName,
+      config_profile: workflowProfileName,
+      steps: templates.map(({ name, template }) => ({
+        template: name,
+        template_data: template,
+      })),
+      created_at: new Date().toISOString(),
+    };
+  }
+
+  try {
+    await persistCreateTemplates();
+    updateTemplateOptions(templates[0].name);
+    if (createWorkflowInput?.checked) {
+      const workflowName = composeWorkflowName(composeText);
+      const workflowProfileName = importProfileSelect?.value || selectedProfileCredentials().profile || "";
+      updateWorkflowOptions(workflowStorageKey(workflowProfileName, workflowName));
+    } else {
+      updateWorkflowOptions("");
+    }
+    closeDockerRunModal();
+    setNotice(`${templates.length} compose template${templates.length === 1 ? "" : "s"} imported`, "success");
+  } catch {
+    createTemplates = previousTemplates;
+    createWorkflows = previousWorkflows;
+    localStorage.setItem("create_templates", JSON.stringify(createTemplates));
+    localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
+    updateTemplateOptions();
+    updateWorkflowOptions();
+    setNotice("Compose import failed", "error");
+  }
+}
+
+async function applyDockerRunCommand() {
+  if (currentImportTab === "compose") {
+    await applyDockerComposeFile();
+    return;
+  }
+
+  const runText = dockerRunInput?.value || "";
+  if (parseDockerCompose(runText).length) {
+    await applyDockerComposeFile(runText);
+    return;
+  }
+
+  const parsed = parseDockerRun(runText);
   const currentNetwork = fieldValue("network");
 
   if (!parsed.image) {
@@ -2155,15 +2834,21 @@ function applyDockerRunCommand() {
   }
 
   if (currentAction !== "create") setAction("create");
+  templateNetworkOverride = "";
+  templateVersionOverride = parsed.version || "";
+  generatedCreateDnsName = "";
   setFieldValue("network", currentNetwork);
   if (parsed.instance) setFieldValue("instance", parsed.instance);
+  syncCreateDnsName({ force: true });
   setFieldValue("image", parsed.image);
   syncCreateVersion();
+  if (parsed.version) setFieldValue("version", parsed.version);
 
   setRepeatRows(parsed.env, clearEnvRows, addEnvRow, { key: "var_env_key", value: "var_env_value" });
   setRepeatRows(parsed.labels, clearLabelRows, addLabelRow, { key: "label_key", value: "label_value" });
   setPortValue(parsed.ports[0]?.value || "");
   setRepeatRows(parsed.volumes, clearVolumeRows, addVolumeRow, { key: "volume_source", value: "volume_name" });
+  setBindRows(parsed.binds);
 
   closeDockerRunModal();
   setNotice("Docker run imported", "success");
@@ -2494,10 +3179,135 @@ async function deleteConfig() {
   }
 }
 
+function workflowVolumeName(instance, index) {
+  const suffix = index === 0 ? "data" : `data-${index + 1}`;
+  return `${String(instance || "instance").split(".")[0]}-${suffix}`;
+}
+
+function appendWorkflowPairs(body, items, keyField, valueField, keyNames = ["key"], valueNames = ["value"]) {
+  items.forEach((item) => {
+    const key = keyNames.map((name) => item?.[name]).find((value) => value !== undefined) || "";
+    const value = valueNames.map((name) => item?.[name]).find((entry) => entry !== undefined) || "";
+    body.append(keyField, key);
+    body.append(valueField, value);
+  });
+}
+
+function workflowCreateBody(template, templateName) {
+  const profileName = template.config_profile || template.profile || currentConfigProfile || "";
+  const credentials = profileCredentials(profileName);
+  if (!credentials.netbox || !credentials.token) throw new Error(`Config "${profileLabel(profileName)}" is missing NetBox URL or token`);
+
+  const instanceName = String(template.instance || templateName || "").trim();
+  const hasTraefik = checkboxValue(template.traefik, true);
+  const body = new URLSearchParams({
+    config_profile: profileName,
+    netbox: credentials.netbox,
+    token: credentials.token,
+    proxy: credentials.proxy,
+    domain: credentials.domain,
+    tag: credentials.tag,
+    max_instances: String(credentials.max_instances),
+    owner_env_var: credentials.owner_env_var,
+    profile: credentials.profile,
+    network: template.network || "",
+    traefik: hasTraefik ? "true" : "false",
+    instance: instanceName,
+    dns_name: hasTraefik ? dnsNameFqdn(template.dns_name || instanceName, credentials.domain) : "",
+    image: template.image || "",
+    version: template.version || "",
+    cloudflare_filter: credentials.cloudflare_filter ? "true" : "false",
+  });
+
+  appendWorkflowPairs(body, template.env || [], "var_env_key", "var_env_value", ["key", "var_name", "name"], ["value"]);
+  appendWorkflowPairs(body, template.labels || [], "label_key", "label_value", ["key"], ["value"]);
+  (template.ports || []).slice(0, 1).forEach((port) => body.append("port_value", port.value || port.key || ""));
+  (template.volumes || []).forEach((volume, index) => {
+    const source = volume.source ?? volume.key ?? "";
+    if (!source) return;
+    body.append("volume_source", source);
+    body.append("volume_name", volume.name ?? volume.value ?? workflowVolumeName(instanceName, index));
+  });
+  (template.binds || []).forEach((bind) => {
+    const hostPath = bind.host_path ?? bind.host ?? bind.key ?? "";
+    const containerPath = bind.container_path ?? bind.container ?? bind.value ?? "";
+    if (!hostPath || !containerPath) return;
+    body.append("bind_host_path", hostPath);
+    body.append("bind_container_path", containerPath);
+    body.append("bind_read_only", bind.read_only || bind.readonly ? "true" : "false");
+  });
+  return body;
+}
+
+async function runWorkflow() {
+  const workflowName = workflowSelect?.value || "";
+  const workflow = selectedWorkflow();
+  const steps = Array.isArray(workflow?.steps) ? workflow.steps : [];
+  if (!steps.length) {
+    setNotice("Select a workflow first", "error");
+    return;
+  }
+
+  runWorkflowBtn.disabled = true;
+  deleteWorkflowBtn.disabled = true;
+  await clearLogs({ notify: false });
+  workflowStepStatuses = Object.fromEntries(steps.map((_, index) => [index, "pending"]));
+  renderWorkflow();
+
+  try {
+    for (let index = 0; index < steps.length; index += 1) {
+      const templateName = workflowStepName(steps[index]);
+      const template = workflowStepTemplate(steps[index]);
+      if (!template.image) throw new Error(`Template "${templateName}" is missing`);
+
+      workflowStepStatuses[index] = "running";
+      renderWorkflow();
+      workflowSummary.textContent = `Running ${index + 1}/${steps.length}: ${templateName}`;
+      const body = workflowCreateBody(template, templateName);
+      body.set("wait", "true");
+      const response = await fetch("/create", {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+      });
+      if (!response.ok) throw new Error(`Template "${templateName}" failed (${response.status})`);
+      workflowStepStatuses[index] = "done";
+      renderWorkflow();
+    }
+    setNotice(`Workflow "${workflowOptionLabel(workflowName)}" requested`, "success");
+    workflowSummary.textContent = `${steps.length} step${steps.length === 1 ? "" : "s"} requested`;
+  } catch (error) {
+    const failedIndex = steps.findIndex((_, index) => workflowStepStatuses[index] === "running");
+    if (failedIndex !== -1) workflowStepStatuses[failedIndex] = "failed";
+    setNotice(error.message || "Workflow failed", "error", false);
+    renderWorkflow();
+  } finally {
+    runWorkflowBtn.disabled = false;
+    deleteWorkflowBtn.disabled = false;
+  }
+}
+
+function deleteWorkflow() {
+  const name = workflowSelect?.value || "";
+  if (!name || !createWorkflows[name]) {
+    setNotice("Select a workflow first", "error");
+    return;
+  }
+  const label = workflowOptionLabel(name);
+  if (!confirm(`Delete workflow "${label}"?`)) return;
+
+  delete createWorkflows[name];
+  localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
+  updateWorkflowOptions();
+  setNotice(`Workflow "${label}" deleted`, "success");
+}
+
 async function submitAction(config, submitter) {
   syncVolumeNames();
 
+  const restoreBindReadOnly = prepareBindReadOnlyForFormData();
   const body = new URLSearchParams(new FormData(form));
+  restoreBindReadOnly();
   const credentials = selectedProfileCredentials();
   let createdInstanceFqdn = "";
 
@@ -2520,11 +3330,19 @@ async function submitAction(config, submitter) {
   }
 
   if (currentAction === "create") {
-    const fqdn = instanceFqdn(body.get("instance"), credentials.domain);
-    body.set("instance", fqdn);
+    const hasTraefik = fieldChecked("traefik", true);
+    const instanceName = String(body.get("instance") || "").trim();
+    let rawDnsName = body.get("dns_name") || instanceName;
+    const orderTemplateDnsPath = isOrderPage ? dnsParts(createTemplateEntry(orderTemplateName)?.template?.dns_name).path : "";
+    if (orderTemplateDnsPath && !dnsParts(rawDnsName).path) rawDnsName = `${rawDnsName}${orderTemplateDnsPath}`;
+    const dnsName = hasTraefik ? dnsNameFqdn(rawDnsName, credentials.domain) : "";
+    body.set("instance", instanceName);
+    body.set("dns_name", dnsName);
     body.set("cloudflare_filter", credentials.cloudflare_filter ? "true" : "false");
-    setFieldValue("instance", fqdn);
-    createdInstanceFqdn = fqdn;
+    body.set("traefik", hasTraefik ? "true" : "false");
+    setFieldValue("instance", instanceName);
+    setFieldValue("dns_name", dnsName);
+    createdInstanceFqdn = hasTraefik ? dnsName : instanceName;
   }
 
   if (submitter?.name) {
@@ -2714,6 +3532,11 @@ function syncCreateVersion() {
 
   version.readOnly = currentAction === "create";
   if (currentAction !== "create") return;
+
+  if (templateVersionOverride) {
+    setFieldValue("version", templateVersionOverride);
+    return;
+  }
 
   setFieldValue("version", highestVersionForImage());
 }
@@ -2928,6 +3751,19 @@ addVolumeBtn?.addEventListener("click", () => {
   repeatRows(volumeList, ".repeat-row").at(-1)?.querySelector("input")?.focus();
 });
 
+bindList?.addEventListener("click", (event) => {
+  const button = event.target.closest(".repeat-remove");
+  if (!button || button.disabled) return;
+
+  button.closest(".repeat-row")?.remove();
+  updateBindRemoveButtons();
+});
+
+addBindBtn?.addEventListener("click", () => {
+  addBindRow();
+  repeatRows(bindList, ".repeat-row").at(-1)?.querySelector("input")?.focus();
+});
+
 form.addEventListener("submit", async (event) => {
   const config = actions[currentAction];
   event.preventDefault();
@@ -2969,8 +3805,8 @@ form.addEventListener("submit", async (event) => {
     return;
   }
 
-  if (currentAction === "create" && !isFqdn(instanceFqdn(fieldValue("instance"), selectedProfileCredentials().domain))) {
-    setNotice("Instance name must be a fully qualified domain name", "error");
+  if (currentAction === "create" && fieldChecked("traefik", true) && !isFqdn(dnsParts(dnsNameFqdn(fieldValue("dns_name") || fieldValue("instance"), selectedProfileCredentials().domain)).host)) {
+    setNotice("DNS name must be a fully qualified domain name", "error");
     return;
   }
 
@@ -3037,6 +3873,12 @@ sidebarToggle?.addEventListener("click", () => {
 });
 refreshReportBtn?.addEventListener("click", refreshImageReport);
 reportProfileSelect?.addEventListener("change", refreshImageReport);
+workflowSelect?.addEventListener("change", () => {
+  workflowStepStatuses = {};
+  renderWorkflow();
+});
+runWorkflowBtn?.addEventListener("click", runWorkflow);
+deleteWorkflowBtn?.addEventListener("click", deleteWorkflow);
 reportViewButtons.forEach((button) => {
   button.addEventListener("click", () => setReportView(button.dataset.reportView));
 });
@@ -3047,6 +3889,9 @@ templateSelect?.addEventListener("change", () => {
 dockerRunApplyBtn?.addEventListener("click", applyDockerRunCommand);
 dockerRunCancelBtn?.addEventListener("click", closeDockerRunModal);
 dockerRunCloseBtn?.addEventListener("click", closeDockerRunModal);
+importTabButtons.forEach((button) => {
+  button.addEventListener("click", () => setImportTab(button.dataset.importTab));
+});
 dockerRunModal?.addEventListener("click", (event) => {
   if (event.target === dockerRunModal) closeDockerRunModal();
 });
@@ -3070,19 +3915,35 @@ configProfileSelect?.addEventListener("change", () => {
   applyProfileToFields(configProfileSelect.value);
   ensureRandomCreateInstanceName();
   imageRecords = [];
+  templateVersionOverride = "";
+  templateNetworkOverride = "";
+  generatedCreateDnsName = "";
   setFieldValue("image", "");
   setFieldValue("version", "");
   replaceOptions(imageOptions, []);
   replaceOptions(oldVersionOptions, []);
   replaceOptions(restartVersionOptions, []);
   syncCreateVersion();
+  syncCreateDnsName({ force: true });
 
   if (currentAction === "create") {
     refreshImages({ notify: false });
   }
 });
-field("image")?.addEventListener("input", updateOldVersionOptions);
-field("image")?.addEventListener("change", updateOldVersionOptions);
+field("network")?.addEventListener("input", () => {
+  templateNetworkOverride = "";
+});
+field("network")?.addEventListener("change", () => {
+  templateNetworkOverride = "";
+});
+field("image")?.addEventListener("input", () => {
+  templateVersionOverride = "";
+  updateOldVersionOptions();
+});
+field("image")?.addEventListener("change", () => {
+  templateVersionOverride = "";
+  updateOldVersionOptions();
+});
 field("image")?.addEventListener("change", () => {
   ensureCreateVersion();
 });
@@ -3096,8 +3957,13 @@ field("restart_version")?.addEventListener("input", updateSelectedVersionContain
 field("operate_action")?.addEventListener("change", updateOperateControls);
 field("instance")?.addEventListener("input", () => {
   updateRestartButtons();
+  syncCreateDnsName();
   syncVolumeNames();
 });
+field("dns_name")?.addEventListener("input", () => {
+  generatedCreateDnsName = fieldValue("dns_name");
+});
+field("traefik")?.addEventListener("change", () => syncCreateDnsName({ force: !fieldValue("dns_name") }));
 logsFullscreenBtn?.addEventListener("click", () => {
   setLogsExpanded(!logsCard?.classList.contains("fullscreen"));
 });

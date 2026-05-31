@@ -88,6 +88,8 @@ function setupNetBoxFetch(fetchMock, {
   omitContainerName = false,
   recreateContainerName = "tiles",
   reportContainerOwners = false,
+  expectTraefikConfig = true,
+  fuzzyContainerNameMatches = false,
 } = {}) {
   let deleteContainerGetCount = 0;
   let stopRequested = false;
@@ -174,10 +176,39 @@ function setupNetBoxFetch(fetchMock, {
 
     if (pathname === "/api/plugins/docker/volumes/40/" && method === "DELETE") return jsonResponse({}, 204);
     if (pathname === "/api/plugins/docker/volumes/41/" && method === "DELETE") return jsonResponse({}, 204);
+    if (pathname === "/api/plugins/docker/containers/70/" && method === "DELETE") return jsonResponse({}, 204);
 
     if (pathname === "/api/plugins/docker/containers/" && method === "GET") {
       if (parsed.searchParams.get("limit") === "1") return jsonResponse({ results: [{ id: 30 }] });
       if (parsed.searchParams.get("name") === emptyContainersForName) return jsonResponse({ results: [] });
+      if (fuzzyContainerNameMatches && parsed.searchParams.get("name") === "netbox") {
+        return jsonResponse({
+          results: [
+            {
+              id: 70,
+              name: "netbox",
+              display: "netbox",
+              host: { id: 1, display: "host-a" },
+              image: { id: 10 },
+              state: "created",
+              status: "created",
+              network_settings: [{ network: { name: "bridge" } }],
+              mounts: [],
+            },
+            {
+              id: 71,
+              name: "netbox-worker",
+              display: "netbox-worker",
+              host: { id: 1, display: "host-a" },
+              image: { id: 10 },
+              state: "created",
+              status: "created",
+              network_settings: [{ network: { name: "bridge" } }],
+              mounts: [],
+            },
+          ],
+        });
+      }
       if (reportContainerOwners === "variants") {
         return jsonResponse({
           results: [
@@ -281,13 +312,17 @@ function setupNetBoxFetch(fetchMock, {
       }
       if (Array.isArray(body) && body.some((item) => item.id === 31 && !item.operation)) {
         const config = body.find((item) => item.id === 31);
-        expect(config.env).toEqual(expect.arrayContaining([{ var_name: "APP_ENV", value: "production" }]));
-        expect(config.labels).toEqual(expect.arrayContaining([
-          { key: "traefik.http.middlewares.force-https-header.headers.customrequestheaders.X-Forwarded-Proto", value: "https" },
-          { key: "custom.label", value: "custom-value" },
-        ]));
-        expect(config.labels.some((label) => label.key.endsWith(".middlewares") && label.value === "force-https-header")).toBe(true);
-        expect(config.labels.some((label) => label.key.endsWith(".ipallowlist.sourcerange") && label.value.includes("173.245.48.0/20"))).toBe(true);
+        if (expectTraefikConfig) {
+          expect(config.env).toEqual(expect.arrayContaining([{ var_name: "APP_ENV", value: "production" }]));
+          expect(config.labels).toEqual(expect.arrayContaining([
+            { key: "traefik.http.middlewares.force-https-header.headers.customrequestheaders.X-Forwarded-Proto", value: "https" },
+            { key: "custom.label", value: "custom-value" },
+          ]));
+          expect(config.labels.some((label) => label.key.endsWith(".middlewares") && label.value === "force-https-header")).toBe(true);
+          expect(config.labels.some((label) => label.key.endsWith(".ipallowlist.sourcerange") && label.value.includes("173.245.48.0/20"))).toBe(true);
+        } else {
+          expect(config.labels.some((label) => label.key === "traefik.enable" || label.key.startsWith("traefik.http."))).toBe(false);
+        }
       }
       return jsonResponse({});
     }
@@ -1156,6 +1191,32 @@ describe("server routes", () => {
     await request.post("/dockerhub/dev/env-secret").send(body).expect(202);
   });
 
+  test("skips Traefik labels and Cloudflare DNS when Traefik is disabled", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, { expectTraefikConfig: false });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/create").send({
+      instance: "plain.example.com",
+      image: "saashup/tile",
+      version: "v2.0.0",
+      port_value: "8080",
+      traefik: "false",
+    }).expect(202);
+
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("CREATE : container plain configured on host-a"));
+    expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/cloudflare/dns/records/") && options?.method === "POST")).toBe(false);
+    expect(fetchMock.mock.calls.some(([url, options]) => {
+      if (!String(url).endsWith("/api/plugins/docker/containers/") || options?.method !== "PATCH") return false;
+      return JSON.parse(options.body).some((item) => item.id === 31 && item.labels?.some((label) => label.key === "traefik.enable" || label.key.startsWith("traefik.http.")));
+    })).toBe(false);
+  });
+
   test("accepts write operations and records logs", async () => {
     const { dataPath, fetchMock, request, setSmtpSenderForTests } = await loadServer({ ownerEmail: "owner@example.com" });
     setupNetBoxFetch(fetchMock);
@@ -1597,6 +1658,23 @@ describe("server routes", () => {
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : cannot delete missing, expected 1 container got 0"));
   });
 
+  test("deletes the exact container when NetBox returns fuzzy name matches", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, { fuzzyContainerNameMatches: true });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/delete").send({ instance: "netbox" }).expect(202);
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : container netbox deleted id=70"));
+    expect(readState(dataPath).logs).not.toContain("cannot delete netbox");
+    expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/docker/containers/70/") && options?.method === "DELETE")).toBe(true);
+    expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/docker/containers/71/") && options?.method === "DELETE")).toBe(false);
+  });
+
   test("covers create response and validation branches", async () => {
     const { dataPath, fetchMock, request } = await loadServer({ configureDelayMs: "1", recreateDelayMs: "1" });
     setupNetBoxFetch(fetchMock, { containerPostArray: true });
@@ -1761,6 +1839,32 @@ describe("server routes", () => {
     await request.post("/delete").send({ instance: "tiles.example.com", delete_volumes: "true" }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : volume tiles-data deleted"));
     expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/docker/volumes/40/") && options?.method === "DELETE")).toBe(true);
+  });
+
+  test("create wait mode blocks until recreate finishes", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock);
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    const response = await request.post("/create").send({
+      instance: "workflow-step.example.com",
+      image: "saashup/tile",
+      version: "v2.0.0",
+      port_value: "8080",
+      var_env_key: ["APP_ENV"],
+      var_env_value: ["production"],
+      label_key: ["custom.label"],
+      label_value: ["custom-value"],
+      wait: "true",
+    }).expect(200);
+
+    expect(response.body).toEqual({ status: "finished" });
+    expect(readState(dataPath).logs).toContain("CREATE : host-a/workflow-step ready status=running operation=none");
   });
 
   test("deletes named volumes without a container host fallback", async () => {
