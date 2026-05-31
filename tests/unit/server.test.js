@@ -766,11 +766,28 @@ describe("server helpers", () => {
 
     const createImageClient = {
       list: vi.fn(async () => []),
-      request: vi.fn(async () => ({ payload: [{ id: 99 }], statusCode: 201 })),
+      request: vi.fn(async (method, apiPath) => {
+        if (method === "GET" && apiPath === "/api/plugins/docker/images/99/") return { payload: { id: 99, Digest: "sha256:abc" }, statusCode: 200 };
+        return { payload: [{ id: 99 }], statusCode: 201 };
+      }),
     };
-    const createdImage = helpers.ensureImageOnHost(createImageClient, { host: 8, registry: 4 }, "app", "v3");
-    await vi.advanceTimersByTimeAsync(5000);
-    await expect(createdImage).resolves.toEqual({ id: 99 });
+    await expect(helpers.ensureImageOnHost(createImageClient, { host: 8, registry: 4 }, "app", "v3")).resolves.toEqual({ id: 99, Digest: "sha256:abc" });
+    expect(helpers.imagePullIdentifier({ imageID: "sha256:id" })).toBe("sha256:id");
+    expect(helpers.imagePullIdentifier({ repoDigest: ["app@sha256:def"] })).toEqual(["app@sha256:def"]);
+    await expect(helpers.waitForImagePulled({ request: vi.fn() }, { id: 101, imageID: "sha256:ready" }, "app:v5 on host-c")).resolves.toEqual({ id: 101, imageID: "sha256:ready" });
+    await expect(helpers.waitForImagePulled({ request: vi.fn() }, {}, "app:v6 on host-c")).rejects.toThrow("created without an id");
+
+    const pendingImageClient = {
+      list: vi.fn(async () => []),
+      request: vi.fn(async (method, apiPath) => {
+        if (method === "GET" && apiPath === "/api/plugins/docker/images/100/") return { payload: { id: 100, Digest: "" }, statusCode: 200 };
+        return { payload: { id: 100 }, statusCode: 202 };
+      }),
+    };
+    const pendingImage = helpers.ensureImageOnHost(pendingImageClient, { host: { id: 8, name: "host-b" } }, "app", "v4");
+    const pendingImageExpectation = expect(pendingImage).rejects.toThrow("image app:v4 on host-b was not pulled after 0.01s");
+    await vi.advanceTimersByTimeAsync(20);
+    await pendingImageExpectation;
 
     await expect(helpers.createDnsRecord(readyClient, { instance: "shortname" }, { name: "host" })).resolves.toBeUndefined();
     await expect(helpers.createDnsRecord(readyClient, { instance: "primitive.example.com" }, "primitive-host")).resolves.toBeUndefined();
