@@ -105,6 +105,7 @@ let generatedCreateInstanceName = "";
 let generatedCreateDnsName = "";
 let orderInstanceCards = [];
 let orderInstanceLimit = { max: 0, used: 0 };
+const orderDeletingInstances = new Set();
 let currentReportView = "images";
 let lastReportData = null;
 let orderStatusPollTimer = null;
@@ -1754,17 +1755,46 @@ function orderLimitMessage(limit) {
   return `You have reached your maximum of ${max} instance${max === 1 ? "" : "s"} for this config.`;
 }
 
+function orderCanRequestMessage(limit) {
+  const remaining = Number(limit?.remaining || 0);
+  if (remaining > 1) return `You can request ${remaining} more instances for this config.`;
+  return "You can request another instance for this config.";
+}
+
+function prepareNextOrderRequest() {
+  if (!isOrderPage) return;
+
+  const entry = createTemplateEntry(orderTemplateName);
+  const templateDnsPath = dnsParts(entry?.template?.dns_name).path;
+  setFieldValue("instance", "");
+  setFieldValue("dns_name", "");
+  generatedCreateInstanceName = "";
+  generatedCreateDnsName = "";
+  ensureRandomCreateInstanceName();
+  if (templateDnsPath) {
+    const dnsName = `${createDnsName()}${templateDnsPath}`;
+    setFieldValue("dns_name", dnsName);
+    generatedCreateDnsName = dnsName;
+  }
+  if (submitBtn) submitBtn.disabled = false;
+}
+
 function normalizedOrderInstanceStatus(item) {
   const status = String(item?.status || "ready").toLowerCase();
-  return ["creating", "failed", "ready"].includes(status) ? status : "ready";
+  return ["creating", "deleting", "failed", "ready"].includes(status) ? status : "ready";
+}
+
+function isPendingOrderInstance(item) {
+  return ["creating", "deleting"].includes(normalizedOrderInstanceStatus(item));
 }
 
 function orderInstanceStatusControl(item, index) {
   const status = normalizedOrderInstanceStatus(item);
   const instance = escapeHtml(item.instance || "instance");
 
-  if (status === "creating") {
-    return '<span class="order-instance-status order-instance-status-creating" title="Instance is being created" aria-label="Instance is being created">↻</span>';
+  if (status === "creating" || status === "deleting") {
+    const label = status === "deleting" ? "Instance is being deleted" : "Instance is being created";
+    return `<span class="order-instance-status order-instance-status-${status}" title="${label}" aria-label="${label}">↻</span>`;
   }
 
   if (status === "failed") {
@@ -1774,17 +1804,40 @@ function orderInstanceStatusControl(item, index) {
   return `<button type="button" class="icon-btn icon-btn-danger order-instance-delete" data-order-instance-delete="${index}" title="Delete ${instance}" aria-label="Delete ${instance}">×</button>`;
 }
 
+function orderInstanceStatusText(item) {
+  const status = normalizedOrderInstanceStatus(item);
+  if (status === "creating") return "Creating";
+  if (status === "deleting") return "Deleting";
+  if (status === "failed") return "Failed";
+  return "Ready";
+}
+
+function orderInstanceStatusTextClass(item) {
+  return `order-instance-state order-instance-state-${normalizedOrderInstanceStatus(item)}`;
+}
+
 async function refreshOrderInstanceStatuses() {
   if (!isOrderPage || !orderInstances) return;
 
   try {
     const limit = await orderLimitForProfile(selectedProfileCredentials().profile);
-    renderOrderInstances(limit.instances, limit);
+    const instances = Array.isArray(limit.instances) ? limit.instances : [];
+    const visibleInstances = new Set(instances.map((item) => item?.instance).filter(Boolean));
+    Array.from(orderDeletingInstances).forEach((instance) => {
+      if (!visibleInstances.has(instance)) orderDeletingInstances.delete(instance);
+    });
+    renderOrderInstances(instances.map((item) => (
+      orderDeletingInstances.has(item?.instance) ? { ...item, status: "deleting" } : item
+    )), limit);
     const hasCreating = orderInstanceCards.some((item) => normalizedOrderInstanceStatus(item) === "creating");
-    const hasOrderUsage = Number(limit.used || 0) > 0 || (Array.isArray(limit.instances) && limit.instances.length > 0);
+    const hasOrderUsage = Number(limit.used || 0) > 0 || instances.length > 0;
     if (hasOrderUsage && !hasCreating && orderStatus?.dataset.reason === "order-requested") {
       if (limit.reached) setOrderStatus(orderLimitMessage(limit), "error", "limit-reached");
-      else clearOrderStatus("order-requested");
+      else {
+        prepareNextOrderRequest();
+        showOrderActions();
+        setOrderStatus(orderCanRequestMessage(limit), "success", "request-available");
+      }
     }
   } catch {
     // Keep the current cards visible if a background refresh fails.
@@ -1793,15 +1846,15 @@ async function refreshOrderInstanceStatuses() {
 
 function syncOrderStatusPolling() {
   if (!isOrderPage) return;
-  const hasCreating = orderInstanceCards.some((item) => normalizedOrderInstanceStatus(item) === "creating");
+  const hasPending = orderInstanceCards.some(isPendingOrderInstance);
 
-  if (!hasCreating && orderStatusPollTimer) {
+  if (!hasPending && orderStatusPollTimer) {
     clearInterval(orderStatusPollTimer);
     orderStatusPollTimer = null;
     return;
   }
 
-  if (hasCreating && !orderStatusPollTimer) {
+  if (hasPending && !orderStatusPollTimer) {
     orderStatusPollTimer = setInterval(refreshOrderInstanceStatuses, 3000);
   }
 }
@@ -1838,6 +1891,7 @@ function renderOrderInstances(instances = orderInstanceCards, limit = orderInsta
           <span class="order-instance-copy">
             ${orderInstanceNameLink(item.instance, item.dns_name)}
             <small>${escapeHtml(item.template || item.image || "SaaShup instance")}</small>
+            <small class="${orderInstanceStatusTextClass(item)}">${orderInstanceStatusText(item)}</small>
           </span>
           ${orderInstanceStatusControl(item, index)}
         </article>
@@ -1883,6 +1937,7 @@ async function deleteOrderInstance(index) {
   const item = orderInstanceCards[index];
   if (!item?.instance) return;
   if (!confirm(`Delete instance "${item.instance}"?`)) return;
+  hideOrderActions();
 
   const credentials = selectedProfileCredentials();
   if (!credentials.netbox || !credentials.token) {
@@ -1916,12 +1971,13 @@ async function deleteOrderInstance(index) {
     return;
   }
 
-  const next = orderInstanceCards.filter((_, itemIndex) => itemIndex !== index);
-  renderOrderInstances(next, {
-    ...orderInstanceLimit,
-    used: Math.max(0, Number(orderInstanceLimit.used || 0) - 1),
-  });
+  orderDeletingInstances.add(item.instance);
+  const next = orderInstanceCards.map((card, itemIndex) => (
+    itemIndex === index ? { ...card, status: "deleting" } : card
+  ));
+  renderOrderInstances(next, orderInstanceLimit);
   setOrderDeleteStatus(item.instance);
+  window.setTimeout(refreshOrderInstanceStatuses, 250);
 }
 
 function hideOrderActions() {
