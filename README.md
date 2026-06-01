@@ -12,12 +12,14 @@ App to deploy new image to all containers
 # Run
 
 ```
-docker run -d -v netbox-docker-image-upgrade:/data -p 1880:1880 --name netbox-docker-image-upgrade saashup/netbox-docker-image-upgrade
+docker run -d -v netbox-docker-image-upgrade:/data \
+ -p 1880:1880 --name netbox-docker-image-upgrade \
+ saashup/netbox-docker-image-upgrade
 ```
 
-# Keycloak
+# Authentication
 
-The app can authenticate directly with Keycloak using OIDC, so an external oauth2-proxy container is not required. Configure a confidential Keycloak client with this redirect URI:
+The app can authenticate directly using OIDC. Configure a confidential oidc client with this redirect URI:
 
 ```
 https://your-domain.example/oidc/callback
@@ -75,5 +77,12 @@ Upgrade, Operate and Refresh process one item at a time. After each operation re
 # Contribute 
 
 ```
+npm ci
 npm run dev
+```
+
+# Test
+
+```
+npm run test
 ```
