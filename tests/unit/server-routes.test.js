@@ -683,17 +683,30 @@ describe("server routes", () => {
     }).expect(200).expect((res) => {
       expect(res.body).toMatchObject({ status: "imported", profiles: 1, templates: 1 });
     });
+    expect(JSON.parse(readState(dataPath).config.profiles)).toMatchObject({
+      prod: { tag: "tile" },
+      dev: { tag: "guide" },
+    });
+    expect(readState(dataPath).templates).toMatchObject({
+      tile: { image: "saashup/tile" },
+      guide: { image: "saashup/guide" },
+    });
     await request.post("/portable-config").send({
       config: {
         profile: "prod",
         config_profile: "prod",
-        profiles: { prod: { tag: "tile" } },
+        profiles: { prod: { tag: "tile-v2" } },
       },
       templates: {},
       order_counts: {},
     }).expect(200).expect((res) => {
       expect(res.body).toMatchObject({ status: "imported", profiles: 1, templates: 0 });
     });
+    expect(JSON.parse(readState(dataPath).config.profiles)).toMatchObject({
+      prod: { tag: "tile-v2" },
+      dev: { tag: "guide" },
+    });
+    expect(readState(dataPath).templates.guide.image).toBe("saashup/guide");
     await request.post("/portable-config").send({
       config: { profile: "solo" },
       templates: {},

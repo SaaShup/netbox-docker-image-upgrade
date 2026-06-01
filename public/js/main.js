@@ -891,7 +891,7 @@ async function importPortableConfig(event) {
     const text = await file.text();
     const data = JSON.parse(text);
 
-    if (!confirm("Import config, profiles and templates from this file? Current values will be replaced.")) {
+    if (!confirm("Import config, profiles and templates from this file? Matching names will be replaced and new names will be added.")) {
       return;
     }
 
@@ -910,15 +910,17 @@ async function importPortableConfig(event) {
     const importedProfiles = parseProfiles(data.profiles || importedConfig.profiles);
     const importedTemplates = normalizeCreateTemplates(plainObject(data.templates));
     const importedWorkflows = normalizeCreateWorkflows(plainObject(data.workflows));
+    const mergedProfiles = { ...configProfiles, ...importedProfiles };
+    const selectedProfile = importedConfig.profile || importedConfig.config_profile || currentConfigProfile || Object.keys(mergedProfiles).sort((a, b) => a.localeCompare(b))[0] || "";
 
-    configProfiles = importedProfiles;
-    serverConfigProfiles = importedProfiles;
-    createTemplates = importedTemplates;
-    createWorkflows = importedWorkflows;
-    savedConfig = { ...importedConfig, profiles: importedProfiles };
-    currentConfigProfile = importedConfig.profile || importedConfig.config_profile || Object.keys(configProfiles).sort((a, b) => a.localeCompare(b))[0] || "";
+    configProfiles = mergedProfiles;
+    serverConfigProfiles = { ...serverConfigProfiles, ...importedProfiles };
+    createTemplates = { ...createTemplates, ...importedTemplates };
+    createWorkflows = { ...createWorkflows, ...importedWorkflows };
+    savedConfig = { ...savedConfig, ...importedConfig, profiles: mergedProfiles };
+    currentConfigProfile = selectedProfile;
 
-    localStorage.removeItem("deleted_config_profiles");
+    Object.keys(importedProfiles).forEach(forgetDeletedProfile);
     persistProfiles();
     localStorage.setItem("create_templates", JSON.stringify(createTemplates));
     localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
@@ -1715,11 +1717,41 @@ function setNotice(message, type = "info", autoClear = true) {
   }
 }
 
-function setOrderStatus(message, type = "success") {
+function setOrderStatus(message, type = "success", reason = "") {
   if (!orderStatus) return;
 
-  orderStatus.textContent = message;
   orderStatus.className = `order-status ${type}`;
+  orderStatus.dataset.reason = reason;
+  orderStatus.replaceChildren(document.createTextNode(message));
+}
+
+function clearOrderStatus(reason = "") {
+  if (!orderStatus) return;
+  if (reason && orderStatus.dataset.reason !== reason) return;
+
+  orderStatus.className = "order-status hidden";
+  orderStatus.dataset.reason = "";
+  orderStatus.replaceChildren();
+}
+
+function setOrderDeleteStatus(instance) {
+  if (!orderStatus) return;
+
+  const message = document.createElement("span");
+  message.textContent = `Delete requested for ${instance}.`;
+  const homeLink = document.createElement("a");
+  homeLink.href = "/";
+  homeLink.className = "btn btn-secondary order-status-home";
+  homeLink.textContent = "Back to home";
+
+  orderStatus.className = "order-status success has-action";
+  orderStatus.dataset.reason = "delete-requested";
+  orderStatus.replaceChildren(message, homeLink);
+}
+
+function orderLimitMessage(limit) {
+  const max = Number(limit?.max || 0);
+  return `You have reached your maximum of ${max} instance${max === 1 ? "" : "s"} for this config.`;
 }
 
 function normalizedOrderInstanceStatus(item) {
@@ -1748,6 +1780,12 @@ async function refreshOrderInstanceStatuses() {
   try {
     const limit = await orderLimitForProfile(selectedProfileCredentials().profile);
     renderOrderInstances(limit.instances, limit);
+    const hasCreating = orderInstanceCards.some((item) => normalizedOrderInstanceStatus(item) === "creating");
+    const hasOrderUsage = Number(limit.used || 0) > 0 || (Array.isArray(limit.instances) && limit.instances.length > 0);
+    if (hasOrderUsage && !hasCreating && orderStatus?.dataset.reason === "order-requested") {
+      if (limit.reached) setOrderStatus(orderLimitMessage(limit), "error", "limit-reached");
+      else clearOrderStatus("order-requested");
+    }
   } catch {
     // Keep the current cards visible if a background refresh fails.
   }
@@ -1798,7 +1836,7 @@ function renderOrderInstances(instances = orderInstanceCards, limit = orderInsta
         <article class="order-instance-card" data-order-instance-card="${index}">
           <span class="order-instance-icon" aria-hidden="true">${reportStatIcon("containers")}</span>
           <span class="order-instance-copy">
-            ${orderInstanceNameLink(item.instance)}
+            ${orderInstanceNameLink(item.instance, item.dns_name)}
             <small>${escapeHtml(item.template || item.image || "SaaShup instance")}</small>
           </span>
           ${orderInstanceStatusControl(item, index)}
@@ -1809,14 +1847,15 @@ function renderOrderInstances(instances = orderInstanceCards, limit = orderInsta
   syncOrderStatusPolling();
 }
 
-function orderInstanceNameLink(instance) {
+function orderInstanceNameLink(instance, hrefTarget = "") {
   const name = String(instance || "").trim();
 
   if (!name) {
     return "<strong>Instance requested</strong>";
   }
 
-  const host = name.replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
+  const target = String(hrefTarget || name).trim();
+  const host = target.replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
   const href = `https://${host}`;
 
   return `<a class="order-instance-link" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(name)}</a>`;
@@ -1837,6 +1876,7 @@ function addOrderInstanceCard(instance) {
     ...orderInstanceLimit,
     used: Math.max(Number(orderInstanceLimit.used || 0) + 1, next.length),
   });
+  window.setTimeout(refreshOrderInstanceStatuses, 250);
 }
 
 async function deleteOrderInstance(index) {
@@ -1881,7 +1921,7 @@ async function deleteOrderInstance(index) {
     ...orderInstanceLimit,
     used: Math.max(0, Number(orderInstanceLimit.used || 0) - 1),
   });
-  setOrderStatus(`Delete requested for ${item.instance}.`, "success");
+  setOrderDeleteStatus(item.instance);
 }
 
 function hideOrderActions() {
@@ -2822,7 +2862,7 @@ async function applyOrderTemplate({ reveal = true } = {}) {
     renderOrderInstances(limit.instances, limit);
     if (limit.reached) {
       hideOrderActions();
-      setOrderStatus(`You have reached your maximum of ${limit.max} instance${limit.max === 1 ? "" : "s"} for this config.`, "error");
+      setOrderStatus(orderLimitMessage(limit), "error", "limit-reached");
       return false;
     }
   } catch {
@@ -3448,7 +3488,7 @@ async function submitAction(config, submitter) {
     if (response.status === 202) {
       hideOrderActions();
       addOrderInstanceCard(createdInstanceFqdn);
-      setOrderStatus(`Thank you, your instance installation has been requested for ${createdInstanceFqdn}.`, "success");
+      setOrderStatus(`Thank you, your instance installation has been requested for ${createdInstanceFqdn}.`, "success", "order-requested");
     } else {
       const text = await response.text();
       let detail = "";

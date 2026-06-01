@@ -489,6 +489,18 @@ app.post("/templates", requireAdmin, (req, res) => {
   res.json(templates);
 });
 
+function mergeProfileMaps(existing, imported) {
+  return {
+    ...existing,
+    ...Object.fromEntries(
+      Object.entries(imported).map(([key, value]) => [
+        key,
+        { ...plainObject(existing[key]), ...plainObject(value) },
+      ]),
+    ),
+  };
+}
+
 app.get("/portable-config", requireAdmin, (req, res) => {
   const state = readState();
   const config = plainObject(state.config);
@@ -509,19 +521,29 @@ app.post("/portable-config", requireAdmin, (req, res) => {
   const config = plainObject(payload.config);
   const profiles = parseProfiles(payload.profiles || config.profiles);
   const names = Object.keys(profiles).sort((a, b) => a.localeCompare(b));
-  if (names.length) {
-    config.profiles = JSON.stringify(profiles);
-    if (!config.profile || !profiles[config.profile]) config.profile = names[0];
-    if (!config.config_profile || !profiles[config.config_profile]) config.config_profile = config.profile;
-  }
+  const importedTemplates = plainObject(payload.templates);
+  const importedOrderCounts = plainObject(payload.order_counts);
+  const importedOrderInstances = plainObject(payload.order_instances);
   writeState((state) => {
-    state.config = config;
-    state.templates = plainObject(payload.templates);
-    state.order_counts = plainObject(payload.order_counts);
-    state.order_instances = plainObject(payload.order_instances);
+    const existingConfig = plainObject(state.config);
+    const mergedProfiles = { ...parseProfiles(existingConfig.profiles), ...profiles };
+    const selectedProfile = config.profile || config.config_profile || existingConfig.profile || existingConfig.config_profile || names[0] || "";
+    const nextConfig = {
+      ...existingConfig,
+      ...config,
+      profiles: JSON.stringify(mergedProfiles),
+    };
+    if (selectedProfile) {
+      nextConfig.profile = selectedProfile;
+      nextConfig.config_profile = selectedProfile;
+    }
+    state.config = nextConfig;
+    state.templates = { ...plainObject(state.templates), ...importedTemplates };
+    state.order_counts = mergeProfileMaps(plainObject(state.order_counts), importedOrderCounts);
+    state.order_instances = mergeProfileMaps(plainObject(state.order_instances), importedOrderInstances);
     return state;
   });
-  res.json({ status: "imported", profiles: names.length, templates: Object.keys(plainObject(payload.templates)).length });
+  res.json({ status: "imported", profiles: names.length, templates: Object.keys(importedTemplates).length });
 });
 
 app.get("/logs", (req, res) => res.type("text/html").send(readState().logs || "&nbsp;<br>"));

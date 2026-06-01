@@ -303,7 +303,25 @@ test("config page imports config profiles and templates", async ({ page }) => {
     });
   });
 
-  await openAdmin(page, {});
+  await openAdmin(page, {
+    profile: "staging",
+    profiles: JSON.stringify({
+      staging: {
+        netbox: "https://staging-netbox.example.com",
+        token: "staging-secret",
+        proxy: "",
+        domain: "staging.example.com",
+        tag: "staging",
+        max_instances: 1,
+      },
+    }),
+  }, {
+    Existing: {
+      image: "saashup/existing",
+      version: "v0.1.0",
+    },
+  });
+  await expect(page.locator("#config_profile")).toHaveValue("staging");
   page.on("dialog", (dialog) => dialog.accept());
 
   const importPayload = {
@@ -353,9 +371,11 @@ test("config page imports config profiles and templates", async ({ page }) => {
 
   const localProfiles = await page.evaluate(() => JSON.parse(localStorage.getItem("config_profiles")));
   const localTemplates = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")));
+  expect(localProfiles.staging.tag).toBe("staging");
   expect(localProfiles.production.tag).toBe("production");
   expect(localProfiles.production.owner_env_var).toBe("OWNER");
   expect(localProfiles.production.cloudflare_filter).toBe(false);
+  expect(localTemplates.Existing.image).toBe("saashup/existing");
   expect(localTemplates.Guide.image).toBe("saashup/guide");
 });
 
@@ -1643,6 +1663,31 @@ test("order page creates an instance from the requested template", async ({ page
       body: "{}",
     });
   });
+  await page.route("**/order/limit**", async (route) => {
+    const created = new URLSearchParams(createBody || "");
+    const instance = created.get("dns_name") || "";
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(instance
+        ? {
+          instances: [{ instance: generatedName, dns_name: instance, template: "curiootiles", status: "ready" }],
+          max: 1,
+          profile: "tile",
+          remaining: 0,
+          reached: true,
+          used: 1,
+        }
+        : {
+          instances: [],
+          max: 1,
+          profile: "tile",
+          remaining: 1,
+          reached: false,
+          used: 0,
+        }),
+    });
+  });
 
   await openAdmin(page, {
     profile: "guide",
@@ -1694,6 +1739,11 @@ test("order page creates an instance from the requested template", async ({ page
   await expect(page.locator("#orderActions")).toBeHidden();
   await expect(page.locator("#orderStatus")).toHaveClass(/success/);
   await expect(page.locator("#orderStatus")).toHaveText(`Thank you, your instance installation has been requested for ${generatedName}.daily.paashup.cloud/app.`);
+  await expect(page.locator("#orderStatus")).toHaveText("You have reached your maximum of 1 instance for this config.", { timeout: 5000 });
+  const orderCard = page.locator(".order-instance-card").first();
+  await expect(orderCard.locator(".order-instance-link")).toHaveText(generatedName);
+  await expect(orderCard.locator(".order-instance-link")).toHaveAttribute("href", `https://${generatedName}.daily.paashup.cloud`);
+  await expect(orderCard.locator(".order-instance-delete")).toBeVisible();
   expect(createBody).toContain("profile=tile");
   expect(createBody).toContain("tag=TILE");
   expect(createBody).toContain("network=traefik-public");
@@ -1712,6 +1762,7 @@ test("order page creates an instance from the requested template", async ({ page
 
 test("order page informs the user when the max instance limit is reached", async ({ page }) => {
   let createCalled = false;
+  let deleteBody = "";
 
   await page.route("**/images?**", async (route) => {
     await route.fulfill({
@@ -1744,6 +1795,14 @@ test("order page informs the user when the max instance limit is reached", async
 
   await page.route("**/create", async (route) => {
     createCalled = true;
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+  await page.route("**/delete", async (route) => {
+    deleteBody = route.request().postData() || "";
     await route.fulfill({
       status: 202,
       contentType: "application/json",
@@ -1786,6 +1845,14 @@ test("order page informs the user when the max instance limit is reached", async
   await expect(page.locator("#orderStatus")).toHaveClass(/error/);
   await expect(page.locator("#orderStatus")).toHaveText("You have reached your maximum of 3 instances for this config.");
   expect(createCalled).toBe(false);
+
+  page.on("dialog", (dialog) => dialog.accept());
+  await page.locator(".order-instance-card").first().locator(".order-instance-delete").click();
+  await expect.poll(() => deleteBody).toContain("instance=demo-1.daily.paashup.cloud");
+  await expect(page.locator("#orderStatus")).toContainText("Delete requested for demo-1.daily.paashup.cloud.");
+  await expect(page.locator("#orderStatus .order-status-home")).toHaveText("Back to home");
+  await page.locator("#orderStatus .order-status-home").click();
+  await expect(page).toHaveURL("/");
 });
 
 test("order page shows oauth user and logs out through app auth", async ({ page }) => {

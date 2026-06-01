@@ -1366,6 +1366,44 @@ body.order-page .order-status {
   text-align: center;
 }
 
+body.order-page .order-status.has-action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+body.order-page .order-status-home {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 0 20px;
+  border: 1px solid rgba(22, 101, 52, 0.22);
+  border-radius: 999px;
+  color: #14532d;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 10px 22px rgba(22, 101, 52, 0.12);
+  text-decoration: none;
+}
+
+body.order-page .order-status-home::before {
+  content: "←";
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+body.order-page .order-status-home:hover {
+  background: #ffffff;
+  box-shadow: 0 12px 26px rgba(22, 101, 52, 0.18);
+}
+
+body.order-page .order-status-home:focus-visible {
+  outline: 3px solid rgba(22, 163, 74, 0.26);
+  outline-offset: 3px;
+}
+
 body.order-page .order-status.hidden {
   display: none;
 }
