@@ -1665,7 +1665,7 @@ test("order page creates an instance from the requested template", async ({ page
   }, templates, [
     { instance: "tiles.example.com", networks: ["traefik-public"] },
   ], async (route) => {
-    logsRequests += 1;
+    if (route.request().frame().url().includes("/order")) logsRequests += 1;
     await route.fulfill({
       status: 200,
       contentType: "text/plain",
