@@ -1239,6 +1239,7 @@ test("create import can save docker compose services as templates", async ({ pag
     "      traefik.enable: \"true\"",
     "      saashup_traefik: \"true\"",
     "      saashup_dns: \"web.staging.example.com/dashboard\"",
+    "      saashup_enabled: false;",
     "    volumes:",
     "      - web-data:/app/data",
     "      - /var/run/docker.sock:/var/run/docker.sock:ro",
@@ -1276,6 +1277,7 @@ test("create import can save docker compose services as templates", async ({ pag
       { key: "FEATURE_FLAG", value: "true" },
     ],
     labels: [{ key: "traefik.enable", value: "true" }],
+    saashup_enabled: false,
     ports: [{ value: "3000" }],
     volumes: [{ name: "web-data", source: "/app/data" }],
     binds: [{ host_path: "/var/run/docker.sock", container_path: "/var/run/docker.sock", read_only: true }],
@@ -1418,6 +1420,7 @@ test("compose import reads SaaShup labels from map labels", async ({ page }) => 
   await expect(page.locator("#traefik")).not.toBeChecked();
   await page.locator("#templateSelect").selectOption("netbox");
   await expect(page.locator("#traefik")).toBeChecked();
+  await expect(page.locator("#saashup_enabled")).toBeChecked();
   await expect(page.locator("#dns_name")).toHaveValue("https://daily.paashup.cloud/cmdb");
 });
 
@@ -1440,6 +1443,7 @@ test("saved templates are normalized from SaaShup labels", async ({ page }) => {
       labels: [
         { key: "saashup_traefik", value: "false" },
         { key: "saashup_dns", value: "https://daily.paashup.cloud" },
+        { key: "saashup_enabled", value: "false;" },
       ],
     },
   });
@@ -1447,12 +1451,14 @@ test("saved templates are normalized from SaaShup labels", async ({ page }) => {
   await page.getByRole("link", { name: "Create" }).click();
   await page.locator("#templateSelect").selectOption("legacy");
   await expect(page.locator("#traefik")).not.toBeChecked();
+  await expect(page.locator("#saashup_enabled")).not.toBeChecked();
   await expect(page.locator("#dns_name")).toHaveValue("https://daily.paashup.cloud");
 
   const templates = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")));
   expect(templates.legacy).toMatchObject({
     traefik: false,
     dns_name: "https://daily.paashup.cloud",
+    saashup_enabled: false,
     labels: [],
   });
 });
@@ -1543,6 +1549,7 @@ test("create form can save and load templates", async ({ page }) => {
   await page.locator("#port_value").fill("3000");
   await page.locator("#volume_source").fill("/app/data");
   await expect(page.locator("#volume_name")).toHaveValue("guide-app-data");
+  await expect(page.locator("#saashup_enabled")).toBeChecked();
 
   page.once("dialog", async (dialog) => {
     expect(dialog.message()).toBe("Template name");
@@ -1553,6 +1560,7 @@ test("create form can save and load templates", async ({ page }) => {
   await expect(page.locator("#notif")).toContainText('Template "Guide" saved');
   const savedTemplate = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")).Guide);
   expect(savedTemplate.instance).toBe("guide-app");
+  expect(savedTemplate.saashup_enabled).toBe(true);
   expect(savedTemplate.volumes).toEqual([{ key: "/app/data" }]);
 
   await page.evaluate(() => localStorage.removeItem("create_templates"));
@@ -1573,6 +1581,7 @@ test("create form can save and load templates", async ({ page }) => {
   await expect(page.locator("#instance")).toHaveValue("guide-app");
   await expect(page.locator("#image")).toHaveValue("saashup/guide");
   await expect(page.locator("#version")).toHaveValue("v1.10.0");
+  await expect(page.locator("#saashup_enabled")).toBeChecked();
   await expect(page.locator("#var_env_key")).toHaveValue("APP_ENV");
   await expect(page.locator("#label_key")).toHaveValue("traefik.enable");
   await expect(page.locator("#port_value")).toHaveValue("3000");
@@ -1591,6 +1600,33 @@ test("create form can save and load templates", async ({ page }) => {
   await page.locator("#deleteTemplateBtn").click();
   await expect(page.locator("#notif")).toContainText('Template "Guide" deleted');
   await expect(page.locator("#templateSelect option")).toHaveText("No templates saved");
+});
+
+test("create template order button reflects disabled order templates", async ({ page }) => {
+  await openAdmin(page, {
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        tag: "production",
+      },
+    }),
+  }, {
+    "Guide App": {
+      config_profile: "production",
+      network: "traefik-net",
+      image: "saashup/guide",
+      ports: [{ value: "3000" }],
+      saashup_enabled: false,
+    },
+  });
+
+  await page.getByRole("link", { name: "Create" }).click();
+  await page.locator("#templateSelect").selectOption("Guide App");
+  await expect(page.locator("#saashup_enabled")).not.toBeChecked();
+  await expect(page.locator("#orderTemplateBtn")).toBeDisabled();
+  await expect(page.locator("#orderTemplateBtn")).toHaveText("Template disabled");
 });
 
 test("create template order button opens the selected order page", async ({ page }) => {
@@ -2026,7 +2062,36 @@ test("order page hides the order form when the requested template is missing", a
 
   await expect(page.locator("#orderActions")).toBeHidden();
   await expect(page.locator("#orderStatus")).toHaveClass(/error/);
-  await expect(page.locator("#orderStatus")).toHaveText('Template "missing" not found');
+  await expect(page.locator("#orderStatus")).toHaveText('Template "missing" not foundBack to home');
+  await expect(page.locator("#orderStatus .order-status-home")).toHaveAttribute("href", "/");
+});
+
+test("order page hides the order form when the requested template is disabled", async ({ page }) => {
+  await openAdmin(page, {
+    profile: "tile",
+    profiles: JSON.stringify({
+      tile: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "daily.paashup.cloud",
+        tag: "TILE",
+      },
+    }),
+  }, {
+    test: {
+      config_profile: "tile",
+      network: "traefik-public",
+      image: "saashup/test",
+      ports: [{ value: "3000" }],
+      saashup_enabled: false,
+    },
+  }, [], undefined, "/order?template=test");
+
+  await expect(page.locator("#orderActions")).toBeHidden();
+  await expect(page.locator("#orderStatus")).toHaveClass(/error/);
+  await expect(page.locator("#orderStatus")).toHaveText('Template "test" is disabled for ordersBack to home');
+  await expect(page.locator("#orderStatus .order-status-home")).toHaveAttribute("href", "/");
 });
 
 test("order page displays an error when create is not accepted", async ({ page }) => {

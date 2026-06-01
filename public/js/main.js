@@ -211,6 +211,10 @@ const profileFieldHelp = {
     title: "Remove old images",
     body: "When enabled, each old image is deleted from its host only after all containers using that old image have recreated successfully.",
   },
+  saashup_enabled: {
+    title: "Enable template orders",
+    body: "When enabled, the template can be requested from the order page. Disable it to keep the template saved but unavailable for orders.",
+  },
 };
 
 const configFields = ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_instances", "owner_env_var", "cloudflare_filter", "dockerhub_webhook_secret", "smtp_config"];
@@ -234,7 +238,7 @@ const actions = {
     description: "Create a container, volume, optional DNS record and optional Traefik labels.",
     submitLabel: "Create instance",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "network", "traefik", "all_hosts", "instance", "dns_name", "image", "version", "env_vars", "labels", "ports", "volumes", "binds"],
+    fields: ["config_profile", "network", "traefik", "all_hosts", "saashup_enabled", "instance", "dns_name", "image", "version", "env_vars", "labels", "ports", "volumes", "binds"],
   },
   workflow: {
     endpoint: "",
@@ -314,6 +318,7 @@ const allFieldNames = [
   "network",
   "traefik",
   "all_hosts",
+  "saashup_enabled",
   "instance",
   "dns_name",
   "image",
@@ -1055,16 +1060,18 @@ function updateImportProfileOptions() {
 
 function syncTemplateActions() {
   const hasTemplate = Boolean(templateSelect?.value);
+  const selectedTemplate = hasTemplate ? createTemplates[templateSelect.value] : null;
+  const orderEnabled = !selectedTemplate || selectedTemplate.saashup_enabled !== false;
 
   if (loadTemplateBtn) loadTemplateBtn.disabled = !hasTemplate;
   if (deleteTemplateBtn) deleteTemplateBtn.disabled = !hasTemplate;
   if (!orderTemplateBtn) return;
 
-  orderTemplateBtn.disabled = false;
-  orderTemplateBtn.textContent = hasTemplate ? "Order template" : "Select template to order";
-  orderTemplateBtn.title = hasTemplate ? "Open the order page for this template" : "Select a template before ordering";
-  orderTemplateBtn.classList.toggle("btn-primary", hasTemplate);
-  orderTemplateBtn.classList.toggle("btn-danger-outline", !hasTemplate);
+  orderTemplateBtn.disabled = hasTemplate && !orderEnabled;
+  orderTemplateBtn.textContent = hasTemplate && !orderEnabled ? "Template disabled" : (hasTemplate ? "Order template" : "Select template to order");
+  orderTemplateBtn.title = hasTemplate && !orderEnabled ? "This template is disabled for orders" : (hasTemplate ? "Open the order page for this template" : "Select a template before ordering");
+  orderTemplateBtn.classList.toggle("btn-primary", hasTemplate && orderEnabled);
+  orderTemplateBtn.classList.toggle("btn-danger-outline", !hasTemplate || !orderEnabled);
 }
 
 function deletedProfiles() {
@@ -1766,6 +1773,10 @@ function setOrderLimitStatus(limit) {
   setOrderActionStatus(orderLimitMessage(limit), "error", "limit-reached");
 }
 
+function setOrderBlockedStatus(message, reason) {
+  setOrderActionStatus(message, "error", reason);
+}
+
 function orderCanRequestMessage(limit) {
   const remaining = Number(limit?.remaining || 0);
   if (remaining > 1) return `You can request ${remaining} more instances for this config.`;
@@ -2452,7 +2463,7 @@ function parseComposePairs(inlineValue, blockLines) {
 }
 
 function labelBoolean(value, defaultValue = false) {
-  const text = String(value ?? "").trim().toLowerCase();
+  const text = String(value ?? "").trim().replace(/;+$/, "").toLowerCase();
   if (!text) return defaultValue;
   if (["1", "true", "yes", "on", "enabled"].includes(text)) return true;
   if (["0", "false", "no", "off", "disabled"].includes(text)) return false;
@@ -2477,6 +2488,11 @@ function applySaashupTemplateLabels(template) {
       return;
     }
 
+    if (normalized === "saashup_enabled") {
+      template.saashup_enabled = labelBoolean(value, true);
+      return;
+    }
+
     runtimeLabels.push(label);
   });
 
@@ -2487,6 +2503,7 @@ function applySaashupTemplateLabels(template) {
 function normalizeCreateTemplate(template) {
   const normalized = { ...plainObject(template) };
   normalized.labels = Array.isArray(normalized.labels) ? normalized.labels.map((label) => ({ ...plainObject(label) })) : [];
+  normalized.saashup_enabled = checkboxValue(normalized.saashup_enabled, true);
   return applySaashupTemplateLabels(normalized);
 }
 
@@ -2751,6 +2768,7 @@ function currentCreateTemplate() {
     dns_name: fieldValue("dns_name"),
     traefik: fieldChecked("traefik", true),
     all_hosts: fieldChecked("all_hosts", false),
+    saashup_enabled: fieldChecked("saashup_enabled", true),
     network: fieldValue("network"),
     image: fieldValue("image"),
     version: fieldValue("version"),
@@ -2781,6 +2799,7 @@ function applyCreateTemplate(template) {
   setFieldValue("network", template.network || fieldValue("network"));
   setFieldValue("traefik", template.traefik ?? true);
   setFieldValue("all_hosts", template.all_hosts ?? false);
+  setFieldValue("saashup_enabled", template.saashup_enabled ?? true);
   templateNetworkOverride = template.network || "";
   templateVersionOverride = template.version || "";
   generatedCreateInstanceName = "";
@@ -2867,6 +2886,11 @@ function openSelectedTemplateOrder() {
     return;
   }
 
+  if (createTemplates[name]?.saashup_enabled === false) {
+    setNotice(`Template "${name}" is disabled for orders`, "error");
+    return;
+  }
+
   window.location.href = `/order?template=${encodeURIComponent(name)}`;
 }
 
@@ -2888,7 +2912,15 @@ async function applyOrderTemplate({ reveal = true } = {}) {
     submitBtn.disabled = true;
     submitBtn.textContent = "Yes";
     hideOrderActions();
-    setOrderStatus(orderTemplateName ? `Template "${orderTemplateName}" not found` : "Template is required", "error");
+    setOrderBlockedStatus(orderTemplateName ? `Template "${orderTemplateName}" not found` : "Template is required", "template-unavailable");
+    return false;
+  }
+
+  if (entry.template.saashup_enabled === false) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Yes";
+    hideOrderActions();
+    setOrderBlockedStatus(`Template "${entry.name}" is disabled for orders`, "template-disabled");
     return false;
   }
 

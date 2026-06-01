@@ -41,6 +41,7 @@ const {
   dnsPartsFromName,
   formData,
   hostName,
+  normalizedSaashupLabelConfig,
   normalizedStatus,
   ownerEnvVarName,
   traefikRuleFromData,
@@ -238,6 +239,7 @@ describe("server helpers", () => {
       { host_path: "/var/run/docker.sock", container_path: "/var/run/docker.sock", read_only: true },
       { host_path: "/etc/localtime", container_path: "/etc/localtime", read_only: false },
     ]);
+    expect(bindPayloadsFromForm({ bind_host_path: ["/tmp/missing-target"] })).toEqual([]);
     expect(volumePayloadsFromForm(data)).toEqual([{ host: 42, name: "tiles-data" }]);
     expect(volumePayloadsFromForm({
       host_id: 42,
@@ -246,6 +248,7 @@ describe("server helpers", () => {
       { host: 42, name: "tiles-data" },
       { host: 42, name: "tiles-cache" },
     ]);
+    expect(volumePayloadsFromForm({ volume_name: ["cache", "cache"] })).toEqual([{ host: undefined, name: "cache" }]);
     expect(containerCreatePayloadFromForm(data, 12)).toEqual({
       host: 42,
       name: "tiles",
@@ -339,7 +342,10 @@ describe("server helpers", () => {
     expect(dnsNameFromData({ instance: "tiles", dns_name: "tiles.example.com" })).toBe("tiles.example.com");
     expect(dnsNameFromData({ instance: "tiles.example.com" })).toBe("tiles.example.com");
     expect(dnsPartsFromName("tiles.example.com/dashboard")).toEqual({ host: "tiles.example.com", path: "/dashboard" });
+    expect(dnsPartsFromName("tiles.example.com/")).toEqual({ host: "tiles.example.com", path: "" });
+    expect(dnsPartsFromName("tiles.example.com?debug=true#top")).toEqual({ host: "tiles.example.com", path: "/?debug=true#top" });
     expect(dnsPartsFromName("[")).toEqual({ host: "[", path: "" });
+    expect(dnsPartsFromName("://bad")).toEqual({ host: ":", path: "//bad" });
     expect(dnsPartsFromName("http://[bad]/dashboard")).toEqual({ host: "http:", path: "//[bad]/dashboard" });
     expect(dnsHostNameFromData({ instance: "tiles", dns_name: "tiles.example.com/dashboard" })).toBe("tiles.example.com");
     expect(traefikRuleFromData({ instance: "tiles", dns_name: "tiles.example.com/dashboard" })).toBe("Host(`tiles.example.com`) && PathPrefix(`/dashboard`)");
@@ -373,6 +379,10 @@ describe("server helpers", () => {
       label_key: ["saashup_traefik", "traefik.enable", "custom.label"],
       label_value: ["false", "true", "custom-value"],
     }, 37).labels).toEqual([{ key: "custom.label", value: "custom-value" }]);
+    expect(normalizedSaashupLabelConfig({ label_key: [null, "runtime"], label_value: ["ignored", "kept"] })).toMatchObject({
+      label_key: [null, "runtime"],
+      label_value: ["ignored", "kept"],
+    });
     expect(containerConfigPayloadFromForm({
       instance: "open.example.com",
       port_value: ["8080"],
@@ -754,6 +764,8 @@ describe("server helpers", () => {
       calls.push({ url: String(url), options });
       if (String(url).includes("/text")) return { status: 200, text: async () => "plain text" };
       if (String(url).includes("/bad")) return { status: 500, text: async () => '{"detail":"bad"}' };
+      if (String(url).includes("/array-next") && String(url).includes("page=2")) return { status: 200, text: async () => '[{"id":6}]' };
+      if (String(url).includes("/array-next")) return { status: 200, text: async () => '{"next":"https://netbox.example.com/api/array-next/?page=2","results":[{"id":5}]}' };
       if (String(url).includes("/array")) return { status: 200, text: async () => '[{"id":1}]' };
       if (String(url).includes("/empty")) return { status: 200, text: async () => "" };
       if (String(url).includes("/paged") && String(url).includes("page=2")) return { status: 200, text: async () => '{"next":null,"results":[{"id":4}]}' };
@@ -778,6 +790,7 @@ describe("server helpers", () => {
     await expect(client.request("GET", "/api/text")).resolves.toMatchObject({ payload: "plain text" });
     await expect(client.request("GET", "/api/bad")).rejects.toMatchObject({ statusCode: 500, payload: { detail: "bad" } });
     await expect(client.list("/api/array")).resolves.toEqual([{ id: 1 }]);
+    await expect(client.list("/api/array-next")).resolves.toEqual([{ id: 5 }, { id: 6 }]);
     await expect(client.list("/api/empty")).resolves.toEqual([]);
     await expect(client.list("/api/paged/", { limit: 1 })).resolves.toEqual([{ id: 3 }, { id: 4 }]);
     expect(calls.filter((call) => call.url.includes("/api/paged/")).map((call) => call.url)).toEqual([
