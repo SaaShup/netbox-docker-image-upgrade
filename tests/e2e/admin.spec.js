@@ -1629,6 +1629,8 @@ test("create template order button opens the selected order page", async ({ page
 
 test("order page creates an instance from the requested template", async ({ page }) => {
   let createBody = "";
+  let deleteBody = "";
+  let deleteLimitRequests = 0;
   let logsRequests = 0;
   const templates = {
     curiootiles: {
@@ -1663,26 +1665,37 @@ test("order page creates an instance from the requested template", async ({ page
       body: "{}",
     });
   });
+  await page.route("**/delete", async (route) => {
+    deleteBody = route.request().postData() || "";
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
   await page.route("**/order/limit**", async (route) => {
     const created = new URLSearchParams(createBody || "");
     const instance = created.get("dns_name") || "";
+    const deletionRequested = Boolean(deleteBody);
+    if (deletionRequested) deleteLimitRequests += 1;
+    const deleted = deletionRequested && deleteLimitRequests > 1;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(instance
+      body: JSON.stringify(instance && !deleted
         ? {
           instances: [{ instance: generatedName, dns_name: instance, template: "curiootiles", status: "ready" }],
-          max: 1,
+          max: 2,
           profile: "tile",
-          remaining: 0,
-          reached: true,
+          remaining: 1,
+          reached: false,
           used: 1,
         }
         : {
           instances: [],
-          max: 1,
+          max: 2,
           profile: "tile",
-          remaining: 1,
+          remaining: 2,
           reached: false,
           used: 0,
         }),
@@ -1720,7 +1733,7 @@ test("order page creates an instance from the requested template", async ({ page
 
   await expect(page).toHaveURL(/\/order\?template=curiootiles$/);
   await expect(page.locator("#submitBtn")).toBeVisible();
-  await expect(page.locator(".order-question")).toHaveText("Are you sure you want to install an instance?");
+  await expect(page.locator(".order-question")).toHaveText("Do you  want to install an instance?");
   await expect(page.locator("[data-app-version]")).toHaveText(appVersion);
   await expect(page.locator("#submitBtn")).toHaveText("Yes");
   await expect(page.locator("#orderCancelBtn")).toHaveText("No");
@@ -1739,11 +1752,22 @@ test("order page creates an instance from the requested template", async ({ page
   await expect(page.locator("#orderActions")).toBeHidden();
   await expect(page.locator("#orderStatus")).toHaveClass(/success/);
   await expect(page.locator("#orderStatus")).toHaveText(`Thank you, your instance installation has been requested for ${generatedName}.daily.paashup.cloud/app.`);
-  await expect(page.locator("#orderStatus")).toHaveText("You have reached your maximum of 1 instance for this config.", { timeout: 5000 });
+  await expect(page.locator("#orderStatus")).toHaveText("You can request another instance for this config.", { timeout: 5000 });
+  await expect(page.locator("#orderActions")).toBeVisible();
+  await expect(page.locator("#instance")).not.toHaveValue(generatedName);
   const orderCard = page.locator(".order-instance-card").first();
   await expect(orderCard.locator(".order-instance-link")).toHaveText(generatedName);
   await expect(orderCard.locator(".order-instance-link")).toHaveAttribute("href", `https://${generatedName}.daily.paashup.cloud`);
+  await expect(orderCard.locator(".order-instance-state")).toHaveText("Ready");
   await expect(orderCard.locator(".order-instance-delete")).toBeVisible();
+  page.on("dialog", (dialog) => dialog.accept());
+  await orderCard.locator(".order-instance-delete").click();
+  await expect.poll(() => deleteBody).toContain(`instance=${generatedName}`);
+  await expect(orderCard.locator(".order-instance-status-deleting")).toBeVisible();
+  await expect(orderCard.locator(".order-instance-state")).toHaveText("Deleting");
+  await expect(page.locator("#orderActions")).toBeHidden();
+  await expect(page.locator("#orderStatus")).toContainText(`Delete requested for ${generatedName}.`);
+  await expect(orderCard).toBeHidden({ timeout: 5000 });
   expect(createBody).toContain("profile=tile");
   expect(createBody).toContain("tag=TILE");
   expect(createBody).toContain("network=traefik-public");
@@ -1838,10 +1862,13 @@ test("order page informs the user when the max instance limit is reached", async
   await expect(page.locator("#orderInstances")).toContainText("demo-1.daily.paashup.cloud");
   await expect(page.locator(".order-instance-card").first().locator(".order-instance-link")).toHaveAttribute("href", "https://demo-1.daily.paashup.cloud");
   await expect(page.locator(".order-instance-card").first().locator(".order-instance-delete")).toBeVisible();
+  await expect(page.locator(".order-instance-card").first().locator(".order-instance-state")).toHaveText("Ready");
   await expect(page.locator(".order-instance-card").nth(1).locator(".order-instance-delete")).toBeHidden();
   await expect(page.locator(".order-instance-card").nth(1).locator(".order-instance-status-creating")).toBeVisible();
+  await expect(page.locator(".order-instance-card").nth(1).locator(".order-instance-state")).toHaveText("Creating");
   await expect(page.locator(".order-instance-card").nth(2).locator(".order-instance-delete")).toBeHidden();
   await expect(page.locator(".order-instance-card").nth(2).locator(".order-instance-status-failed")).toBeVisible();
+  await expect(page.locator(".order-instance-card").nth(2).locator(".order-instance-state")).toHaveText("Failed");
   await expect(page.locator("#orderStatus")).toHaveClass(/error/);
   await expect(page.locator("#orderStatus")).toHaveText("You have reached your maximum of 3 instances for this config.");
   expect(createCalled).toBe(false);
@@ -1916,7 +1943,7 @@ test("order page shows oauth user and logs out through app auth", async ({ page 
   await expect(page.locator("#authEmail")).toHaveText("ada@example.com");
   await expect(page.locator("#orderLoading")).toBeHidden();
   await expect(page.locator("#orderActions")).toBeVisible();
-  await expect(page.locator(".order-question")).toHaveText("Are you sure you want to install an instance?");
+  await expect(page.locator(".order-question")).toHaveText("Do you  want to install an instance?");
 
   await page.locator("#logoutBtn").click();
   await expect(page).toHaveURL("/");

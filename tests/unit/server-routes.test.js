@@ -91,6 +91,7 @@ function setupNetBoxFetch(fetchMock, {
   reportContainerOwners = false,
   expectTraefikConfig = true,
   fuzzyContainerNameMatches = false,
+  createHostSelectionContainers,
 } = {}) {
   let deleteContainerGetCount = 0;
   let stopRequested = false;
@@ -182,6 +183,9 @@ function setupNetBoxFetch(fetchMock, {
     if (pathname === "/api/plugins/docker/containers/" && method === "GET") {
       if (parsed.searchParams.get("limit") === "1") return jsonResponse({ results: [{ id: 30 }] });
       if (parsed.searchParams.get("name") === emptyContainersForName) return jsonResponse({ results: [] });
+      if (createHostSelectionContainers && parsed.searchParams.get("limit") === "1000" && parsed.searchParams.has("host_id")) {
+        return jsonResponse({ results: createHostSelectionContainers });
+      }
       if (fuzzyContainerNameMatches && parsed.searchParams.get("name") === "netbox") {
         return jsonResponse({
           results: [
@@ -1558,6 +1562,37 @@ describe("server routes", () => {
       .map(([, options]) => JSON.parse(options.body).host);
     expect(containerCreates).toEqual([1, 2]);
     expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/cloudflare/dns/records/") && options?.method === "POST")).toBe(false);
+  });
+
+  test("create selects the least loaded host with normalized host ids and logs the decision", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, {
+      expectTraefikConfig: false,
+      createHostSelectionContainers: [
+        { id: 80, name: "existing-a", host: "1" },
+        { id: 81, name: "existing-b", host: { id: "1", display: "host-a" } },
+      ],
+    });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/create").send({
+      instance: "least-loaded",
+      image: "saashup/tile",
+      version: "v2.0.0",
+      port_value: "8080",
+      traefik: "false",
+      wait: "true",
+    }).expect(200);
+
+    expect(readState(dataPath).logs).toContain("CREATE : host selection hosts=2 containers=2 loads=host-a=2,host-b=0 selected=host-b count=0");
+    expect(readState(dataPath).logs).toContain("CREATE : container least-loaded created on host-b");
+    const createCall = fetchMock.mock.calls.find(([url, options]) => String(url).endsWith("/api/plugins/docker/containers/") && options?.method === "POST");
+    expect(JSON.parse(createCall[1].body).host).toBe(2);
   });
 
   test("accepts write operations and records logs", async () => {

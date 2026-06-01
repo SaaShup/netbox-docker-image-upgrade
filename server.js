@@ -106,13 +106,27 @@ function allHostsEnabled(data) {
   return data.all_hosts === true || data.all_hosts === "true" || data.all_hosts === "on";
 }
 
-function leastLoadedHost(hosts, containers) {
-  return hosts
-    .map((host) => ({
+function hostIdValue(value) {
+  return String(value?.id || value || "");
+}
+
+function hostLoadStats(hosts, containers) {
+  return hosts.map((host) => {
+    const hostId = hostIdValue(host.id);
+    return {
       host,
-      count: containers.filter((container) => (container.host?.id || container.host) === host.id).length,
-    }))
+      count: containers.filter((container) => hostIdValue(container.host) === hostId).length,
+    };
+  });
+}
+
+function leastLoadedHost(hosts, containers) {
+  return hostLoadStats(hosts, containers)
     .sort((left, right) => left.count - right.count)[0]?.host;
+}
+
+function hostLoadSummary(stats) {
+  return stats.map((item) => `${hostName(item.host)}=${item.count}`).join(",");
 }
 
 function currentUsage(req, profile) {
@@ -854,9 +868,17 @@ async function createInstance(req, data, { isOrderRequest, orderProfile, authUse
     if (isOrderRequest) updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
     return false;
   }
-  const targetHosts = allHostsEnabled(data)
-    ? hosts
-    : [leastLoadedHost(hosts, await client.list("/api/plugins/docker/containers/", { limit: 1000, host_id: hosts.map((host) => host.id) }))].filter(Boolean);
+  let targetHosts = hosts;
+  if (allHostsEnabled(data)) {
+    logLine(`CREATE : host selection all_hosts=true hosts=${hosts.length} selected=${hosts.map(hostName).join(",")}`);
+  } else {
+    const existingContainers = await client.list("/api/plugins/docker/containers/", { limit: 1000, host_id: hosts.map((host) => host.id) });
+    const loadStats = hostLoadStats(hosts, existingContainers);
+    const selected = leastLoadedHost(hosts, existingContainers);
+    const selectedStats = loadStats.find((item) => item.host === selected);
+    logLine(`CREATE : host selection hosts=${hosts.length} containers=${existingContainers.length} loads=${hostLoadSummary(loadStats)} selected=${hostName(selected)} count=${selectedStats?.count ?? 0}`);
+    targetHosts = [selected].filter(Boolean);
+  }
   let readyCount = 0;
 
   for (const [index, selectedHost] of targetHosts.entries()) {
