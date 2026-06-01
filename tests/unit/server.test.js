@@ -756,6 +756,8 @@ describe("server helpers", () => {
       if (String(url).includes("/bad")) return { status: 500, text: async () => '{"detail":"bad"}' };
       if (String(url).includes("/array")) return { status: 200, text: async () => '[{"id":1}]' };
       if (String(url).includes("/empty")) return { status: 200, text: async () => "" };
+      if (String(url).includes("/paged") && String(url).includes("page=2")) return { status: 200, text: async () => '{"next":null,"results":[{"id":4}]}' };
+      if (String(url).includes("/paged")) return { status: 200, text: async () => '{"next":"https://netbox.example.com/api/paged/?page=2","results":[{"id":3}]}' };
       return { status: 200, text: async () => '{"results":[{"id":2}]}' };
     });
 
@@ -777,6 +779,11 @@ describe("server helpers", () => {
     await expect(client.request("GET", "/api/bad")).rejects.toMatchObject({ statusCode: 500, payload: { detail: "bad" } });
     await expect(client.list("/api/array")).resolves.toEqual([{ id: 1 }]);
     await expect(client.list("/api/empty")).resolves.toEqual([]);
+    await expect(client.list("/api/paged/", { limit: 1 })).resolves.toEqual([{ id: 3 }, { id: 4 }]);
+    expect(calls.filter((call) => call.url.includes("/api/paged/")).map((call) => call.url)).toEqual([
+      "https://netbox.example.com/api/paged/?limit=1",
+      "https://netbox.example.com/api/paged/?page=2",
+    ]);
 
     const proxyClient = new NetBoxClient({ netbox: "https://netbox.example.com", token: "secret", proxy: "http://127.0.0.1:3128" });
     await expect(proxyClient.request("GET", "/api/items/")).resolves.toMatchObject({ statusCode: 200 });

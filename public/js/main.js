@@ -1735,24 +1735,35 @@ function clearOrderStatus(reason = "") {
   orderStatus.replaceChildren();
 }
 
-function setOrderDeleteStatus(instance) {
-  if (!orderStatus) return;
-
-  const message = document.createElement("span");
-  message.textContent = `Delete requested for ${instance}.`;
+function orderHomeLink() {
   const homeLink = document.createElement("a");
   homeLink.href = "/";
   homeLink.className = "btn btn-secondary order-status-home";
   homeLink.textContent = "Back to home";
+  return homeLink;
+}
 
-  orderStatus.className = "order-status success has-action";
-  orderStatus.dataset.reason = "delete-requested";
-  orderStatus.replaceChildren(message, homeLink);
+function setOrderActionStatus(messageText, type, reason) {
+  if (!orderStatus) return;
+
+  const message = document.createElement("span");
+  message.textContent = messageText;
+  orderStatus.className = `order-status ${type} has-action`;
+  orderStatus.dataset.reason = reason;
+  orderStatus.replaceChildren(message, orderHomeLink());
+}
+
+function setOrderDeleteStatus(instance) {
+  setOrderActionStatus(`Delete requested for ${instance}.`, "success", "delete-requested");
 }
 
 function orderLimitMessage(limit) {
   const max = Number(limit?.max || 0);
   return `You have reached your maximum of ${max} instance${max === 1 ? "" : "s"} for this config.`;
+}
+
+function setOrderLimitStatus(limit) {
+  setOrderActionStatus(orderLimitMessage(limit), "error", "limit-reached");
 }
 
 function orderCanRequestMessage(limit) {
@@ -1832,7 +1843,7 @@ async function refreshOrderInstanceStatuses() {
     const hasCreating = orderInstanceCards.some((item) => normalizedOrderInstanceStatus(item) === "creating");
     const hasOrderUsage = Number(limit.used || 0) > 0 || instances.length > 0;
     if (hasOrderUsage && !hasCreating && orderStatus?.dataset.reason === "order-requested") {
-      if (limit.reached) setOrderStatus(orderLimitMessage(limit), "error", "limit-reached");
+      if (limit.reached) setOrderLimitStatus(limit);
       else {
         prepareNextOrderRequest();
         showOrderActions();
@@ -2918,7 +2929,7 @@ async function applyOrderTemplate({ reveal = true } = {}) {
     renderOrderInstances(limit.instances, limit);
     if (limit.reached) {
       hideOrderActions();
-      setOrderStatus(orderLimitMessage(limit), "error", "limit-reached");
+      setOrderLimitStatus(limit);
       return false;
     }
   } catch {
