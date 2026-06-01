@@ -70,6 +70,14 @@ function readState(dataPath) {
   return JSON.parse(fs.readFileSync(path.join(dataPath, "app-state.json"), "utf8"));
 }
 
+function parsedFetchCalls(fetchMock) {
+  return fetchMock.mock.calls.map(([url, options = {}]) => ({
+    url: new URL(String(url)),
+    method: options.method || "GET",
+    body: options.body ? JSON.parse(options.body) : undefined,
+  }));
+}
+
 function cookieHeader(setCookie) {
   return setCookie.map((value) => value.split(";")[0]).join("; ");
 }
@@ -1285,6 +1293,95 @@ describe("server routes", () => {
     ]);
   });
 
+  test("sends the expected NetBox create payloads for container, config, DNS, and volumes", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock);
+    writeState(dataPath, {
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        domain: "example.com",
+        tag: "tile",
+        owner_env_var: "OWNER",
+      },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/create")
+      .set("x-auth-request-email", "payload@example.com")
+      .send({
+        instance: "payload-check.example.com",
+        dns_name: "payload-check.example.com/app",
+        image: "saashup/tile",
+        version: "v2.0.0",
+        network: "traefik-public",
+        port_value: "8080",
+        var_env_key: ["APP_ENV", "OWNER"],
+        var_env_value: ["production", "spoofed@example.com"],
+        label_key: ["custom.label"],
+        label_value: ["custom-value"],
+        bind_host_path: ["/var/run/docker.sock"],
+        bind_container_path: ["/var/run/docker.sock"],
+        bind_read_only: ["true"],
+        volume_source: ["/data"],
+        volume_name: ["payload-data"],
+        traefik: "true",
+        cloudflare_filter: "true",
+        wait: "true",
+      })
+      .expect(200);
+
+    const calls = parsedFetchCalls(fetchMock);
+    const dnsCreate = calls.find((call) => call.url.pathname === "/api/plugins/cloudflare/dns/records/" && call.method === "POST");
+    expect(dnsCreate.body).toMatchObject({
+      zone: 51,
+      name: "payload-check.example.com",
+      type: "CNAME",
+      content: "host-a.example.com",
+      ttl: 60,
+      proxied: true,
+    });
+
+    const volumeCreate = calls.find((call) => call.url.pathname === "/api/plugins/docker/volumes/" && call.method === "POST");
+    expect(volumeCreate.body).toEqual({ host: 1, name: "payload-data" });
+
+    const containerCreate = calls.find((call) => call.url.pathname === "/api/plugins/docker/containers/" && call.method === "POST");
+    expect(containerCreate.body).toEqual({
+      host: 1,
+      name: "payload-check",
+      image: 20,
+      restart_policy: "unless-stopped",
+    });
+
+    const containerConfig = calls.find((call) => (
+      call.url.pathname === "/api/plugins/docker/containers/"
+      && call.method === "PATCH"
+      && Array.isArray(call.body)
+      && call.body.some((item) => item.id === 31 && !item.operation)
+    )).body[0];
+    expect(containerConfig).toMatchObject({
+      id: 31,
+      host: 1,
+      network_settings: [{ network: { host: 1, name: "traefik-public" } }],
+      ports: [{ public_port: -1, private_port: 8080, type: "tcp" }],
+      binds: [{ host_path: "/var/run/docker.sock", container_path: "/var/run/docker.sock", read_only: true }],
+      mounts: [{ source: "/data", volume: { host: 1, name: "payload-data" }, read_only: false }],
+    });
+    expect(containerConfig.env).toEqual([
+      { var_name: "APP_ENV", value: "production" },
+      { var_name: "OWNER", value: "payload@example.com" },
+    ]);
+    expect(containerConfig.labels).toEqual(expect.arrayContaining([
+      { key: "traefik.enable", value: "true" },
+      { key: "traefik.http.routers.payload-check.rule", value: "Host(`payload-check.example.com`) && PathPrefix(`/app`)" },
+      { key: "traefik.http.services.payload-check.loadbalancer.server.port", value: "8080" },
+      { key: "custom.label", value: "custom-value" },
+    ]));
+    expect(containerConfig.labels.some((label) => label.key === "traefik.http.middlewares.payload-check.ipallowlist.sourcerange")).toBe(true);
+  });
+
   test("reserves order slots immediately when create is accepted", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock);
@@ -1772,6 +1869,41 @@ describe("server routes", () => {
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("v2.0.0"));
   });
 
+  test("restarts containers by image using the NetBox host filter and requested operation", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock);
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/restart").send({
+      restart_mode: "image",
+      operate_action: "kill",
+      image: "saashup/tile",
+      restart_version: "v1.0.0",
+    }).expect(202);
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("KILL : host-a/tiles kill requested"));
+
+    const calls = parsedFetchCalls(fetchMock);
+    const imageLookup = calls.find((call) => call.url.pathname === "/api/plugins/docker/images/" && call.method === "GET" && call.url.searchParams.get("version") === "v1.0.0");
+    expect(imageLookup.url.searchParams.get("name")).toBe("saashup/tile");
+    expect(imageLookup.url.searchParams.get("host_id")).toBe("1");
+    expect(imageLookup.url.searchParams.get("limit")).toBe("200");
+
+    const containerLookup = calls.find((call) => call.url.pathname === "/api/plugins/docker/containers/" && call.method === "GET" && call.url.searchParams.get("image_id") === "10");
+    expect(containerLookup.url.searchParams.get("limit")).toBe("200");
+
+    expect(calls.some((call) => (
+      call.url.pathname === "/api/plugins/docker/containers/"
+      && call.method === "PATCH"
+      && Array.isArray(call.body)
+      && call.body.some((item) => item.id === 30 && item.operation === "kill")
+    ))).toBe(true);
+  });
+
   test("test email uses smtp config and owner email env", async () => {
     const { dataPath, request, setSmtpSenderForTests } = await loadServer({ ownerEmail: "owner@example.com" });
     const smtpSender = vi.fn().mockResolvedValue({ messageId: "test-message", accepted: ["owner@example.com"], rejected: [], response: "250 queued" });
@@ -2051,6 +2183,30 @@ describe("server routes", () => {
     expect(readState(dataPath).logs).not.toContain("cannot delete netbox");
     expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/docker/containers/70/") && options?.method === "DELETE")).toBe(true);
     expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/docker/containers/71/") && options?.method === "DELETE")).toBe(false);
+  });
+
+  test("keeps order usage when NetBox cannot delete the requested instance", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, { emptyContainersForName: "ghost" });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: { "buyer@example.com": { prod: 1 } },
+      order_instances: { "buyer@example.com": { prod: [{ instance: "ghost.example.com", template: "Ghost" }] } },
+      logs: "",
+    });
+
+    await request.post("/delete")
+      .set("x-auth-request-email", "buyer@example.com")
+      .send({ instance: "ghost.example.com", order_request: "true", profile: "prod" })
+      .expect(202);
+
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : cannot delete ghost, expected 1 container got 0"));
+    expect(readState(dataPath).order_counts["buyer@example.com"].prod).toBe(1);
+    expect(readState(dataPath).order_instances["buyer@example.com"].prod).toEqual([
+      expect.objectContaining({ instance: "ghost.example.com", template: "Ghost" }),
+    ]);
+    expect(parsedFetchCalls(fetchMock).some((call) => call.url.pathname.startsWith("/api/plugins/docker/containers/") && call.method === "DELETE")).toBe(false);
   });
 
   test("covers create response and validation branches", async () => {
