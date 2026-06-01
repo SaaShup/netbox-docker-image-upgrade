@@ -1661,6 +1661,42 @@ describe("server routes", () => {
     expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/cloudflare/dns/records/") && options?.method === "POST")).toBe(false);
   });
 
+  test("create all_hosts with Traefik creates DNS once and containers on every host", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock);
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", domain: "example.com", tag: "" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/create").send({
+      instance: "all-traefik.example.com",
+      dns_name: "all-traefik.example.com",
+      image: "saashup/tile",
+      version: "v2.0.0",
+      network: "traefik-public",
+      port_value: "8080",
+      var_env_key: ["APP_ENV"],
+      var_env_value: ["production"],
+      label_key: ["custom.label"],
+      label_value: ["custom-value"],
+      traefik: "true",
+      all_hosts: "true",
+      wait: "true",
+    }).expect(200).expect((res) => {
+      expect(res.body).toEqual({ status: "finished" });
+    });
+
+    expect(readState(dataPath).logs).toContain("CREATE : host selection all_hosts=true hosts=2 selected=host-a,host-b");
+    expect(readState(dataPath).logs).toContain("CREATE : finished all hosts ready=2/2");
+    const calls = parsedFetchCalls(fetchMock);
+    expect(calls.filter((call) => call.url.pathname === "/api/plugins/cloudflare/dns/records/" && call.method === "POST")).toHaveLength(1);
+    expect(calls.filter((call) => call.url.pathname === "/api/plugins/docker/containers/" && call.method === "POST").map((call) => call.body.host)).toEqual([1, 2]);
+    expect(calls.filter((call) => call.url.pathname === "/api/plugins/docker/containers/" && call.method === "PATCH" && Array.isArray(call.body) && call.body.some((item) => item.id === 31 && !item.operation)).map((call) => call.body[0].host)).toEqual([1, 2]);
+  });
+
   test("create selects the least loaded host with normalized host ids and logs the decision", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock, {
@@ -2209,6 +2245,33 @@ describe("server routes", () => {
     expect(parsedFetchCalls(fetchMock).some((call) => call.url.pathname.startsWith("/api/plugins/docker/containers/") && call.method === "DELETE")).toBe(false);
   });
 
+  test("releases order usage when container deletion succeeds but DNS cleanup fails", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock);
+    rejectNextMatchingNetBoxFetch(
+      fetchMock,
+      (url, options) => url.pathname === "/api/plugins/cloudflare/dns/records/61/" && (options.method || "GET") === "DELETE",
+      new Error("dns cleanup failed"),
+    );
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: { "buyer@example.com": { prod: 1 } },
+      order_instances: { "buyer@example.com": { prod: [{ instance: "tiles.example.com", template: "Tiles" }] } },
+      logs: "",
+    });
+
+    await request.post("/delete")
+      .set("x-auth-request-email", "buyer@example.com")
+      .send({ instance: "tiles.example.com", order_request: "true", profile: "prod" })
+      .expect(202);
+
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : container tiles deleted id=30"));
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : Cloudflare DNS record delete failed for tiles.example.com dns cleanup failed"));
+    await vi.waitFor(() => expect(readState(dataPath).order_counts["buyer@example.com"].prod).toBe(0));
+    expect(readState(dataPath).order_instances["buyer@example.com"].prod).toEqual([]);
+  });
+
   test("covers create response and validation branches", async () => {
     const { dataPath, fetchMock, request } = await loadServer({ configureDelayMs: "1", recreateDelayMs: "1" });
     setupNetBoxFetch(fetchMock, { containerPostArray: true });
@@ -2447,6 +2510,50 @@ describe("server routes", () => {
     expect(readState(dataPath).order_instances["workflow@example.com"]?.prod?.[0]).toEqual(
       expect.objectContaining({ instance: "broken.example.com", status: "failed" }),
     );
+  });
+
+  test("marks reserved order instances failed when NetBox create fails after reservation", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock);
+    rejectNextMatchingNetBoxFetch(
+      fetchMock,
+      (url, options) => url.pathname === "/api/plugins/docker/containers/" && (options.method || "GET") === "POST",
+      Object.assign(new Error("container create failed"), { statusCode: 502, payload: { detail: "boom" } }),
+    );
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 2 },
+      templates: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.post("/create")
+      .set("x-auth-request-email", "reserve@example.com")
+      .send({
+        instance: "reserved-failure.example.com",
+        image: "saashup/tile",
+        version: "v2.0.0",
+        port_value: "8080",
+        order_request: "true",
+        order_template: "Broken",
+        profile: "prod",
+        wait: "true",
+      })
+      .expect(502)
+      .expect((res) => {
+        expect(res.body.detail).toBe("container create failed");
+      });
+
+    expect(readState(dataPath).order_counts["reserve@example.com"].prod).toBe(1);
+    expect(readState(dataPath).order_instances["reserve@example.com"].prod).toEqual([
+      expect.objectContaining({
+        instance: "reserved-failure.example.com",
+        template: "Broken",
+        status: "failed",
+      }),
+    ]);
+    expect(readState(dataPath).logs).toContain("ERROR : container create failed");
   });
 
   test("deletes named volumes without a container host fallback", async () => {

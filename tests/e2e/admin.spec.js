@@ -1870,12 +1870,17 @@ test("order page informs the user when the max instance limit is reached", async
   await expect(page.locator(".order-instance-card").nth(2).locator(".order-instance-status-failed")).toBeVisible();
   await expect(page.locator(".order-instance-card").nth(2).locator(".order-instance-state")).toHaveText("Failed");
   await expect(page.locator("#orderStatus")).toHaveClass(/error/);
-  await expect(page.locator("#orderStatus")).toHaveText("You have reached your maximum of 3 instances for this config.");
+  await expect(page.locator("#orderStatus")).toContainText("You have reached your maximum of 3 instances for this config.");
+  await expect(page.locator("#orderStatus .order-status-home")).toHaveText("Back to home");
   expect(createCalled).toBe(false);
 
   page.on("dialog", (dialog) => dialog.accept());
   await page.locator(".order-instance-card").first().locator(".order-instance-delete").click();
   await expect.poll(() => deleteBody).toContain("instance=demo-1.daily.paashup.cloud");
+  await expect(page.locator(".order-instance-card").first().locator(".order-instance-status-deleting")).toBeVisible();
+  await expect(page.locator(".order-instance-card").first().locator(".order-instance-state")).toHaveText("Deleting");
+  await expect(page.locator(".order-instance-card").nth(1).locator(".order-instance-status-creating")).toBeVisible();
+  await expect(page.locator(".order-instance-card").nth(1).locator(".order-instance-state")).toHaveText("Creating");
   await expect(page.locator("#orderStatus")).toContainText("Delete requested for demo-1.daily.paashup.cloud.");
   await expect(page.locator("#orderStatus .order-status-home")).toHaveText("Back to home");
   await page.locator("#orderStatus .order-status-home").click();
