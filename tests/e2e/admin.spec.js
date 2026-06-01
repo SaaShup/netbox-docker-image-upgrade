@@ -303,7 +303,25 @@ test("config page imports config profiles and templates", async ({ page }) => {
     });
   });
 
-  await openAdmin(page, {});
+  await openAdmin(page, {
+    profile: "staging",
+    profiles: JSON.stringify({
+      staging: {
+        netbox: "https://staging-netbox.example.com",
+        token: "staging-secret",
+        proxy: "",
+        domain: "staging.example.com",
+        tag: "staging",
+        max_instances: 1,
+      },
+    }),
+  }, {
+    Existing: {
+      image: "saashup/existing",
+      version: "v0.1.0",
+    },
+  });
+  await expect(page.locator("#config_profile")).toHaveValue("staging");
   page.on("dialog", (dialog) => dialog.accept());
 
   const importPayload = {
@@ -353,9 +371,11 @@ test("config page imports config profiles and templates", async ({ page }) => {
 
   const localProfiles = await page.evaluate(() => JSON.parse(localStorage.getItem("config_profiles")));
   const localTemplates = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")));
+  expect(localProfiles.staging.tag).toBe("staging");
   expect(localProfiles.production.tag).toBe("production");
   expect(localProfiles.production.owner_env_var).toBe("OWNER");
   expect(localProfiles.production.cloudflare_filter).toBe(false);
+  expect(localTemplates.Existing.image).toBe("saashup/existing");
   expect(localTemplates.Guide.image).toBe("saashup/guide");
 });
 
@@ -451,13 +471,14 @@ test("report menu shows image usage for one config", async ({ page }) => {
   let releaseFirstReport;
 
   await openAdmin(page, config);
-  await expect(page.locator(".sidebar .nav-item")).toHaveText([
+  await expect(page.locator(".sidebar .nav-label")).toHaveText([
     "Config",
     "Create",
     "Upgrade",
     "Operate",
     "Delete",
     "Refresh",
+    "Workflow",
     "Report",
   ]);
   await page.route("**/report/images?**", async (route) => {
@@ -581,7 +602,7 @@ test("delete config removes the profile and keeps it gone after reload", async (
   await expect(page.locator("#config_profile option")).toHaveText("No config saved");
 });
 
-test("create form supports repeatable env, labels, ports, and volumes", async ({ page }) => {
+test("create form supports repeatable env, labels, ports, volumes, and binds", async ({ page }) => {
   await page.route("**/images?**", async (route) => {
     await route.fulfill({
       status: 200,
@@ -618,11 +639,13 @@ test("create form supports repeatable env, labels, ports, and volumes", async ({
   await expect(page.locator("[data-field='labels']")).toBeVisible();
   await expect(page.locator("[data-field='ports']")).toBeVisible();
   await expect(page.locator("[data-field='volumes']")).toBeVisible();
+  await expect(page.locator("[data-field='binds']")).toBeVisible();
   await expect(page.locator("#port_value")).toHaveAttribute("required", "");
   await expect(page.locator("#envList .env-remove")).toBeEnabled();
   await expect(page.locator("#labelList .repeat-remove")).toBeEnabled();
   await expect(page.locator("#volume_name")).toHaveAttribute("readonly", "");
   await expect(page.locator("#volumeList .repeat-remove")).toBeEnabled();
+  await expect(page.locator("#bindList .repeat-remove")).toBeEnabled();
 
   await page.locator("#refreshImagesBtn").click();
   await expect(page.locator("#notif")).toContainText("Loaded 2 images");
@@ -633,29 +656,40 @@ test("create form supports repeatable env, labels, ports, and volumes", async ({
   await page.locator("#addEnvBtn").click();
   await page.locator("#addLabelBtn").click();
   await page.locator("#addVolumeBtn").click();
+  await page.locator("#addBindBtn").click();
 
   await expect(page.locator("#envList .env-row")).toHaveCount(2);
   await expect(page.locator("#labelList .repeat-row")).toHaveCount(2);
   await expect(page.locator("#portList .repeat-row")).toHaveCount(1);
   await expect(page.locator("#volumeList .repeat-row")).toHaveCount(2);
+  await expect(page.locator("#bindList .repeat-row")).toHaveCount(2);
   await page.locator('#volumeList [name="volume_source"]').first().fill("/app/data");
   await page.locator('#volumeList [name="volume_source"]').nth(1).fill("/app/cache");
+  await page.locator('#bindList [name="bind_host_path"]').first().fill("/var/run/docker.sock");
+  await page.locator('#bindList [name="bind_container_path"]').first().fill("/var/run/docker.sock");
+  await page.locator('#bindList [name="bind_read_only"]').first().check();
+  await page.locator('#bindList [name="bind_host_path"]').nth(1).fill("/etc/localtime");
+  await page.locator('#bindList [name="bind_container_path"]').nth(1).fill("/etc/localtime");
   await expect(page.locator('#volumeList [name="volume_name"]').first()).toHaveValue(`${generatedInstance}-data`);
   await expect(page.locator('#volumeList [name="volume_name"]').nth(1)).toHaveValue(`${generatedInstance}-data-2`);
 
   await page.locator("#envList .env-remove").last().click();
   await page.locator("#labelList .repeat-remove").last().click();
   await page.locator("#volumeList .repeat-remove").last().click();
+  await page.locator("#bindList .repeat-remove").last().click();
 
   await expect(page.locator("#envList .env-row")).toHaveCount(1);
   await expect(page.locator("#labelList .repeat-row")).toHaveCount(1);
   await expect(page.locator("#volumeList .repeat-row")).toHaveCount(1);
+  await expect(page.locator("#bindList .repeat-row")).toHaveCount(1);
   await page.locator("#envList .env-remove").click();
   await expect(page.locator("#envList .env-row")).toHaveCount(0);
   await page.locator("#labelList .repeat-remove").click();
   await expect(page.locator("#labelList .repeat-row")).toHaveCount(0);
   await page.locator("#volumeList .repeat-remove").click();
   await expect(page.locator("#volumeList .repeat-row")).toHaveCount(0);
+  await page.locator("#bindList .repeat-remove").click();
+  await expect(page.locator("#bindList .repeat-row")).toHaveCount(0);
 });
 
 test("create form generates a random instance name when empty", async ({ page }) => {
@@ -961,11 +995,23 @@ test("create form selects the network starting with traefik", async ({ page }) =
   expect(instanceTags).toContain("TILE");
 });
 
-test("create form requires an fqdn instance name", async ({ page }) => {
+test("create form requires an fqdn DNS name when Traefik is enabled", async ({ page }) => {
   let createSubmitted = false;
+  let createBody = "";
+
+  await page.route("**/images?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        { name: "saashup/guide", version: "v1.0.0" },
+      ]),
+    });
+  });
 
   await page.route("**/create", async (route) => {
     createSubmitted = true;
+    createBody = route.request().postData() || "";
     await route.fulfill({
       status: 202,
       contentType: "application/json",
@@ -990,8 +1036,15 @@ test("create form requires an fqdn instance name", async ({ page }) => {
   await page.locator("#port_value").fill("3000");
   await page.locator("#submitBtn").click();
 
-  await expect(page.locator("#notif")).toContainText("Instance name must be a fully qualified domain name");
+  await expect(page.locator("#notif")).toContainText("DNS name must be a fully qualified domain name");
   expect(createSubmitted).toBe(false);
+
+  await page.locator("#traefik").uncheck();
+  await page.locator("#submitBtn").click();
+
+  await expect.poll(() => createBody).toContain("instance=guide-app");
+  expect(createBody).toContain("dns_name=");
+  expect(createBody).toContain("traefik=false");
 });
 
 test("create form appends the configured domain to short instance names", async ({ page }) => {
@@ -1031,17 +1084,22 @@ test("create form appends the configured domain to short instance names", async 
   });
 
   await page.getByRole("link", { name: "Create" }).click();
+  await expect(page.locator("#traefik")).toBeChecked();
   await page.locator("#instance").fill("tiles");
+  await page.locator("#dns_name").fill("tiles.daily.paashup.cloud/dashboard");
   await page.locator("#image").fill("saashup/tiles");
   await page.locator("#port_value").fill("3000");
   await page.locator("#submitBtn").click();
 
-  await expect.poll(() => createBody).toContain("instance=tiles.daily.paashup.cloud");
+  await expect.poll(() => createBody).toContain("instance=tiles");
+  expect(createBody).toContain("dns_name=tiles.daily.paashup.cloud%2Fdashboard");
   expect(createBody).toContain("domain=daily.paashup.cloud");
   expect(createBody).toContain("owner_env_var=OWNER");
   expect(createBody).toContain("cloudflare_filter=false");
+  expect(createBody).toContain("traefik=true");
   expect(createBody).toContain("port_value=3000");
-  await expect(page.locator("#instance")).toHaveValue("tiles.daily.paashup.cloud");
+  await expect(page.locator("#instance")).toHaveValue("tiles");
+  await expect(page.locator("#dns_name")).toHaveValue("tiles.daily.paashup.cloud/dashboard");
 });
 
 test("create form can import a docker run command", async ({ page }) => {
@@ -1085,13 +1143,20 @@ test("create form can import a docker run command", async ({ page }) => {
   await expect(page.locator("#notif")).toContainText("Loaded 1 images");
   const requestsBeforeImport = instanceRequestCount;
   await expect(page.locator("#dockerRunBtn")).toBeVisible();
+  await expect(page.locator("#dockerRunBtn")).toHaveText("Import");
   await page.locator("#dockerRunBtn").click();
   await expect(page.locator("#dockerRunModal")).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Run" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "Compose" })).toHaveAttribute("aria-selected", "false");
+  await page.getByRole("tab", { name: "Compose" }).click();
+  await expect(page.getByRole("tab", { name: "Compose" })).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("tab", { name: "Run" }).click();
+  await expect(page.locator("#dockerRunApplyBtn")).toBeEnabled();
 
   await page.locator("#dockerRunInput").fill([
     "docker run -d --name guide-app --network mgmt",
     "-e APP_ENV=production --label traefik.enable=true -p 8080:3000",
-    "-v guide-data:/app/data saashup/guide:v1.2.3",
+    "-v guide-data:/app/data -v /var/run/docker.sock:/var/run/docker.sock:ro saashup/guide:v1.2.3",
   ].join(" "));
   await page.locator("#dockerRunApplyBtn").click();
 
@@ -1100,7 +1165,7 @@ test("create form can import a docker run command", async ({ page }) => {
   await expect(page.locator("#network")).toHaveValue("traefik-net");
   expect(instanceRequestCount).toBe(requestsBeforeImport);
   await expect(page.locator("#image")).toHaveValue("saashup/guide");
-  await expect(page.locator("#version")).toHaveValue("v2.0.0");
+  await expect(page.locator("#version")).toHaveValue("v1.2.3");
   await expect(page.locator("#var_env_key")).toHaveValue("APP_ENV");
   await expect(page.locator("#var_env_value")).toHaveValue("production");
   await expect(page.locator("#label_key")).toHaveValue("traefik.enable");
@@ -1108,6 +1173,327 @@ test("create form can import a docker run command", async ({ page }) => {
   await expect(page.locator("#port_value")).toHaveValue("3000");
   await expect(page.locator("#volume_source")).toHaveValue("/app/data");
   await expect(page.locator("#volume_name")).toHaveValue("guide-app-data");
+  await expect(page.locator("#bind_host_path")).toHaveValue("/var/run/docker.sock");
+  await expect(page.locator("#bind_container_path")).toHaveValue("/var/run/docker.sock");
+  await expect(page.locator("#bind_read_only")).toBeChecked();
+});
+
+test("create import can save docker compose services as templates", async ({ page }) => {
+  const createBodies = [];
+
+  await page.route("**/images?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        { name: "saashup/guide", version: "v2.0.0" },
+      ]),
+    });
+  });
+  await page.route("**/create", async (route) => {
+    createBodies.push(route.request().postData() || "");
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "production",
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        tag: "production",
+      },
+      staging: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        tag: "staging",
+      },
+    }),
+  });
+
+  await page.getByRole("link", { name: "Create" }).click();
+  await page.locator("#dockerRunBtn").click();
+  await expect(page.locator("#importProfileSelect")).toHaveValue("production");
+  await page.locator("#importProfileSelect").selectOption("staging");
+  await expect(page.getByRole("tab", { name: "Run" })).toHaveAttribute("aria-selected", "true");
+  await page.locator("#dockerRunInput").fill([
+    "name: stack",
+    "services:",
+    "  web:",
+    "    container_name: web-container",
+    "    image: registry.example.com:5000/saashup/web:v1.2.3",
+    "    networks:",
+    "      - proxy",
+    "    ports:",
+    "      - \"8080:3000\"",
+    "    environment:",
+    "      APP_ENV: production",
+    "      FEATURE_FLAG: \"true\"",
+    "    labels:",
+    "      traefik.enable: \"true\"",
+    "      saashup_traefik: \"true\"",
+    "      saashup_dns: \"web.staging.example.com/dashboard\"",
+    "    volumes:",
+    "      - web-data:/app/data",
+    "      - /var/run/docker.sock:/var/run/docker.sock:ro",
+    "  worker:",
+    "    image: saashup/worker:latest",
+    "    environment:",
+    "      - QUEUE=default",
+    "    labels:",
+    "      - saashup_traefik=false",
+    "      - saashup_dns=worker.staging.example.com",
+  ].join("\n"));
+  await page.locator("#dockerRunApplyBtn").click();
+
+  await expect(page.locator("#dockerRunModal")).toBeHidden();
+  await expect(page.locator("#notif")).toContainText("2 compose templates imported");
+  await expect(page.locator("#templateSelect option")).toContainText(["Select template", "web", "worker"]);
+
+  const templates = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")));
+  const workflows = await page.evaluate(() => JSON.parse(localStorage.getItem("create_workflows")));
+  expect(workflows["staging::stack"]).toMatchObject({
+    name: "stack",
+    config_profile: "staging",
+  });
+  expect(workflows["staging::stack"].steps.map((step) => step.template)).toEqual(["web", "worker"]);
+  expect(templates.web).toMatchObject({
+    config_profile: "staging",
+    instance: "web-container",
+    dns_name: "web.staging.example.com/dashboard",
+    traefik: true,
+    network: "proxy",
+    image: "registry.example.com:5000/saashup/web",
+    version: "v1.2.3",
+    env: [
+      { key: "APP_ENV", value: "production" },
+      { key: "FEATURE_FLAG", value: "true" },
+    ],
+    labels: [{ key: "traefik.enable", value: "true" }],
+    ports: [{ value: "3000" }],
+    volumes: [{ name: "web-data", source: "/app/data" }],
+    binds: [{ host_path: "/var/run/docker.sock", container_path: "/var/run/docker.sock", read_only: true }],
+  });
+  expect(templates.worker).toMatchObject({
+    dns_name: "worker.staging.example.com",
+    traefik: false,
+    image: "saashup/worker",
+    version: "latest",
+    env: [{ key: "QUEUE", value: "default" }],
+    labels: [],
+  });
+
+  await page.getByRole("link", { name: "Workflow" }).click();
+  await expect(page.locator("#workflowSelect")).toHaveValue("staging::stack");
+  await expect(page.locator("#workflowSelect option:checked")).toHaveText("staging / stack");
+  await expect(page.locator("#workflowSummary")).toContainText("staging");
+  await expect(page.locator("#workflowTableBody")).toContainText("web");
+  await expect(page.locator("#workflowTableBody")).toContainText("worker");
+  await expect(page.locator(".workflow-step-status-pending")).toHaveCount(2);
+  await page.locator("#runWorkflowBtn").click();
+  await expect.poll(() => createBodies.length).toBe(2);
+  expect(createBodies[0]).toContain("instance=web-container");
+  expect(createBodies[0]).toContain("image=registry.example.com%3A5000%2Fsaashup%2Fweb");
+  expect(createBodies[0]).toContain("dns_name=web.staging.example.com%2Fdashboard");
+  expect(createBodies[0]).toContain("traefik=true");
+  expect(createBodies[0]).toContain("wait=true");
+  expect(createBodies[0]).toContain("bind_host_path=%2Fvar%2Frun%2Fdocker.sock");
+  expect(createBodies[0]).toContain("bind_container_path=%2Fvar%2Frun%2Fdocker.sock");
+  expect(createBodies[0]).toContain("bind_read_only=true");
+  expect(createBodies[1]).toContain("instance=worker");
+  expect(createBodies[1]).toContain("image=saashup%2Fworker");
+  expect(createBodies[1]).toContain("traefik=false");
+  expect(createBodies[1]).toContain("dns_name=");
+  expect(createBodies[1]).toContain("wait=true");
+  await expect(page.locator(".workflow-step-status-done")).toHaveCount(2);
+  await expect(page.locator("#notif")).toContainText('Workflow "staging / stack" requested');
+
+  await page.getByRole("link", { name: "Create" }).click();
+  await page.locator("#dockerRunBtn").click();
+  await page.locator("#importProfileSelect").selectOption("production");
+  await page.locator("#dockerRunInput").fill([
+    "name: stack",
+    "services:",
+    "  api:",
+    "    image: saashup/api:v9.9.9",
+  ].join("\n"));
+  await page.locator("#dockerRunApplyBtn").click();
+
+  const workflowsByProfile = await page.evaluate(() => JSON.parse(localStorage.getItem("create_workflows")));
+  expect(Object.keys(workflowsByProfile).sort()).toEqual(["production::stack", "staging::stack"]);
+  await page.getByRole("link", { name: "Workflow" }).click();
+  await expect(page.locator("#workflowSelect option")).toContainText(["production / stack", "staging / stack"]);
+
+  await page.getByRole("link", { name: "Create" }).click();
+  await page.locator("#dockerRunBtn").click();
+  await page.getByRole("tab", { name: "Compose" }).click();
+  await page.locator("#dockerComposeInput").fill([
+    "services:",
+    "  db:",
+    "    image: ${POSTGRES_IMAGE:-postgres:18}",
+  ].join("\n"));
+  await page.locator("#dockerRunApplyBtn").click();
+
+  const templatesWithDefaultImage = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")));
+  expect(templatesWithDefaultImage.db).toMatchObject({
+    image: "postgres",
+    version: "18",
+  });
+
+  await page.locator("#templateSelect").selectOption("db");
+  await expect(page.locator("#image")).toHaveValue("postgres");
+  await expect(page.locator("#version")).toHaveValue("18");
+  await page.locator("#templateSelect").selectOption("web");
+  await expect(page.locator("#config_profile")).toHaveValue("staging");
+  await expect(page.locator("#network")).toHaveValue("proxy");
+  await expect(page.locator("#dns_name")).toHaveValue("web.staging.example.com/dashboard");
+  await page.waitForTimeout(50);
+  await expect(page.locator("#network")).toHaveValue("proxy");
+  await page.locator("#refreshImagesBtn").click();
+  await expect(page.locator("#notif")).toContainText("Loaded 1 images");
+  await page.locator("#image").fill("saashup/guide");
+  await page.locator("#image").dispatchEvent("input");
+  await expect(page.locator("#version")).toHaveValue("v2.0.0");
+});
+
+test("compose import reads SaaShup labels from map labels", async ({ page }) => {
+  await openAdmin(page, {
+    profile: "production",
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        tag: "production",
+      },
+    }),
+  });
+
+  await page.getByRole("link", { name: "Create" }).click();
+  await page.locator("#dockerRunBtn").click();
+  await page.locator("#dockerRunInput").fill([
+    "name: paashup",
+    "services:",
+    "  traefik:",
+    "    image: saashup/traefik:v3.7.1",
+    "    container_name: traefik",
+    "    labels:",
+    "      saashup_traefik: false",
+    "  saashup:",
+    "    image: saashup/netbox-docker-image-upgrade:v2.4.2",
+    "    container_name: saashup",
+    "    labels:",
+    "      saashup_traefik: true",
+    "      saashup_dns: https://daily.paashup.cloud",
+    "      prometheus_address: saashup:1880",
+    "  netbox:",
+    "    image: saashup/netbox-docker:v4.6.1.2",
+    "    container_name: netbox",
+    "    labels:",
+    "      saashup_traefik: true",
+    "      saashup_dns: https://daily.paashup.cloud/cmdb",
+  ].join("\n"));
+  await page.locator("#dockerRunApplyBtn").click();
+
+  const templates = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")));
+  expect(templates.traefik).toMatchObject({ traefik: false });
+  expect(templates.traefik.labels).toEqual([]);
+  expect(templates.saashup).toMatchObject({
+    traefik: true,
+    dns_name: "https://daily.paashup.cloud",
+    labels: [{ key: "prometheus_address", value: "saashup:1880" }],
+  });
+  expect(templates.netbox).toMatchObject({
+    traefik: true,
+    dns_name: "https://daily.paashup.cloud/cmdb",
+  });
+
+  await page.locator("#templateSelect").selectOption("traefik");
+  await expect(page.locator("#traefik")).not.toBeChecked();
+  await page.locator("#templateSelect").selectOption("netbox");
+  await expect(page.locator("#traefik")).toBeChecked();
+  await expect(page.locator("#dns_name")).toHaveValue("https://daily.paashup.cloud/cmdb");
+});
+
+test("saved templates are normalized from SaaShup labels", async ({ page }) => {
+  await openAdmin(page, {
+    profile: "production",
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        tag: "production",
+      },
+    }),
+  }, {
+    legacy: {
+      image: "saashup/traefik",
+      version: "v3.7.1",
+      traefik: true,
+      labels: [
+        { key: "saashup_traefik", value: "false" },
+        { key: "saashup_dns", value: "https://daily.paashup.cloud" },
+      ],
+    },
+  });
+
+  await page.getByRole("link", { name: "Create" }).click();
+  await page.locator("#templateSelect").selectOption("legacy");
+  await expect(page.locator("#traefik")).not.toBeChecked();
+  await expect(page.locator("#dns_name")).toHaveValue("https://daily.paashup.cloud");
+
+  const templates = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")));
+  expect(templates.legacy).toMatchObject({
+    traefik: false,
+    dns_name: "https://daily.paashup.cloud",
+    labels: [],
+  });
+});
+
+test("import profile selector includes server profiles beyond local cache", async ({ page }) => {
+  await openAdmin(page, {
+    profile: "install",
+    config_profile: "install",
+    netbox: "https://netbox.example.com",
+    token: "secret",
+    tag: "install",
+    profiles: JSON.stringify({
+      PaaShup: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        tag: "paashup",
+      },
+      install: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        tag: "install",
+      },
+    }),
+  });
+
+  await page.evaluate(() => {
+    localStorage.setItem("config_profiles", JSON.stringify({
+      install: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        tag: "install",
+      },
+    }));
+  });
+  await page.reload();
+  await page.getByRole("link", { name: "Create" }).click();
+  await page.locator("#dockerRunBtn").click();
+
+  await expect(page.locator("#importProfileSelect option")).toContainText(["install", "PaaShup"]);
 });
 
 test("create form can save and load templates", async ({ page }) => {
@@ -1166,7 +1552,7 @@ test("create form can save and load templates", async ({ page }) => {
   await page.locator("#saveTemplateBtn").click();
   await expect(page.locator("#notif")).toContainText('Template "Guide" saved');
   const savedTemplate = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")).Guide);
-  expect(savedTemplate).not.toHaveProperty("instance");
+  expect(savedTemplate.instance).toBe("guide-app");
   expect(savedTemplate.volumes).toEqual([{ key: "/app/data" }]);
 
   await page.evaluate(() => localStorage.removeItem("create_templates"));
@@ -1184,8 +1570,7 @@ test("create form can save and load templates", async ({ page }) => {
   await expect(page.locator("#orderTemplateBtn")).toHaveClass(/btn-primary/);
   expect(imageRequestCount).toBeGreaterThanOrEqual(imageRequestsBeforeLoad);
   await expect(page.locator("#network")).toHaveValue("traefik-net");
-  await expect(page.locator("#instance")).toHaveValue(/^production-[a-z0-9]{16}$/);
-  await expect(page.locator("#instance")).not.toHaveValue("guide-app");
+  await expect(page.locator("#instance")).toHaveValue("guide-app");
   await expect(page.locator("#image")).toHaveValue("saashup/guide");
   await expect(page.locator("#version")).toHaveValue("v1.10.0");
   await expect(page.locator("#var_env_key")).toHaveValue("APP_ENV");
@@ -1250,7 +1635,9 @@ test("order page creates an instance from the requested template", async ({ page
       config_profile: "tile",
       network: "traefik-public",
       instance: "curiootiles",
+      dns_name: "curiootiles.daily.paashup.cloud/app",
       image: "saashup/curiootiles",
+      version: "v1.5.0",
       env: [{ key: "APP_ENV", value: "production" }],
       labels: [{ key: "traefik.enable", value: "true" }],
       ports: [{ value: "3000" }],
@@ -1276,6 +1663,31 @@ test("order page creates an instance from the requested template", async ({ page
       body: "{}",
     });
   });
+  await page.route("**/order/limit**", async (route) => {
+    const created = new URLSearchParams(createBody || "");
+    const instance = created.get("dns_name") || "";
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(instance
+        ? {
+          instances: [{ instance: generatedName, dns_name: instance, template: "curiootiles", status: "ready" }],
+          max: 1,
+          profile: "tile",
+          remaining: 0,
+          reached: true,
+          used: 1,
+        }
+        : {
+          instances: [],
+          max: 1,
+          profile: "tile",
+          remaining: 1,
+          reached: false,
+          used: 0,
+        }),
+    });
+  });
 
   await openAdmin(page, {
     profile: "guide",
@@ -1298,7 +1710,7 @@ test("order page creates an instance from the requested template", async ({ page
   }, templates, [
     { instance: "tiles.example.com", networks: ["traefik-public"] },
   ], async (route) => {
-    logsRequests += 1;
+    if (route.request().frame().url().includes("/order")) logsRequests += 1;
     await route.fulfill({
       status: 200,
       contentType: "text/plain",
@@ -1318,19 +1730,25 @@ test("order page creates an instance from the requested template", async ({ page
   await expect(page.locator("#instance")).toHaveValue(/^tile-[a-z0-9]{16}$/);
   const generatedName = await page.locator("#instance").inputValue();
   await expect(page.locator("#image")).toHaveValue("saashup/curiootiles");
-  await expect(page.locator("#version")).toHaveValue("v2.0.0");
+  await expect(page.locator("#version")).toHaveValue("v1.5.0");
 
   await page.locator("#submitBtn").click();
 
-  await expect.poll(() => createBody).toContain(`instance=${generatedName}.daily.paashup.cloud`);
+  await expect.poll(() => createBody).toContain(`instance=${generatedName}`);
+  expect(createBody).toContain(`dns_name=${generatedName}.daily.paashup.cloud%2Fapp`);
   await expect(page.locator("#orderActions")).toBeHidden();
   await expect(page.locator("#orderStatus")).toHaveClass(/success/);
-  await expect(page.locator("#orderStatus")).toHaveText(`Thank you, your instance installation has been requested for ${generatedName}.daily.paashup.cloud.`);
+  await expect(page.locator("#orderStatus")).toHaveText(`Thank you, your instance installation has been requested for ${generatedName}.daily.paashup.cloud/app.`);
+  await expect(page.locator("#orderStatus")).toHaveText("You have reached your maximum of 1 instance for this config.", { timeout: 5000 });
+  const orderCard = page.locator(".order-instance-card").first();
+  await expect(orderCard.locator(".order-instance-link")).toHaveText(generatedName);
+  await expect(orderCard.locator(".order-instance-link")).toHaveAttribute("href", `https://${generatedName}.daily.paashup.cloud`);
+  await expect(orderCard.locator(".order-instance-delete")).toBeVisible();
   expect(createBody).toContain("profile=tile");
   expect(createBody).toContain("tag=TILE");
   expect(createBody).toContain("network=traefik-public");
   expect(createBody).toContain("image=saashup%2Fcuriootiles");
-  expect(createBody).toContain("version=v2.0.0");
+  expect(createBody).toContain("version=v1.5.0");
   expect(createBody).toContain("var_env_key=APP_ENV");
   expect(createBody).toContain("var_env_value=production");
   expect(createBody).toContain("port_value=3000");
@@ -1344,6 +1762,7 @@ test("order page creates an instance from the requested template", async ({ page
 
 test("order page informs the user when the max instance limit is reached", async ({ page }) => {
   let createCalled = false;
+  let deleteBody = "";
 
   await page.route("**/images?**", async (route) => {
     await route.fulfill({
@@ -1376,6 +1795,14 @@ test("order page informs the user when the max instance limit is reached", async
 
   await page.route("**/create", async (route) => {
     createCalled = true;
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+  await page.route("**/delete", async (route) => {
+    deleteBody = route.request().postData() || "";
     await route.fulfill({
       status: 202,
       contentType: "application/json",
@@ -1418,6 +1845,14 @@ test("order page informs the user when the max instance limit is reached", async
   await expect(page.locator("#orderStatus")).toHaveClass(/error/);
   await expect(page.locator("#orderStatus")).toHaveText("You have reached your maximum of 3 instances for this config.");
   expect(createCalled).toBe(false);
+
+  page.on("dialog", (dialog) => dialog.accept());
+  await page.locator(".order-instance-card").first().locator(".order-instance-delete").click();
+  await expect.poll(() => deleteBody).toContain("instance=demo-1.daily.paashup.cloud");
+  await expect(page.locator("#orderStatus")).toContainText("Delete requested for demo-1.daily.paashup.cloud.");
+  await expect(page.locator("#orderStatus .order-status-home")).toHaveText("Back to home");
+  await page.locator("#orderStatus .order-status-home").click();
+  await expect(page).toHaveURL("/");
 });
 
 test("order page shows oauth user and logs out through app auth", async ({ page }) => {
@@ -1538,7 +1973,8 @@ test("order page generates and submits an instance name when the template has no
 
   await page.locator("#submitBtn").click();
 
-  await expect.poll(() => createBody).toContain(`instance=${generatedName}.daily.paashup.cloud`);
+  await expect.poll(() => createBody).toContain(`instance=${generatedName}`);
+  expect(createBody).toContain(`dns_name=${generatedName}.daily.paashup.cloud`);
   await expect(page.locator("#orderStatus")).toHaveText(`Thank you, your instance installation has been requested for ${generatedName}.daily.paashup.cloud.`);
 });
 
@@ -1939,6 +2375,13 @@ test("logs panel can go fullscreen and clear logs", async ({ page }) => {
   await page.locator("#logsFullscreenBtn").click();
   await expect(page.locator("#reportCard")).toBeVisible();
 
+  await page.getByRole("link", { name: "Workflow" }).click();
+  await page.locator("#logsFullscreenBtn").click();
+  await expect(page.locator("#logsCard")).toHaveClass(/fullscreen/);
+  await expect(page.locator("#workflowCard")).toBeHidden();
+  await page.locator("#logsFullscreenBtn").click();
+  await expect(page.locator("#workflowCard")).toBeVisible();
+
   await page.on("dialog", (dialog) => dialog.accept());
   await page.locator("#clearLogsBtn").click();
   await expect(page.locator("#notif")).toContainText("Logs cleared");
@@ -2009,6 +2452,7 @@ test("docker run parser supports quoted values and registry ports", async ({ pag
     "--label traefik.http.routers.tile.rule=Host(`tiles.example.com`)",
     "--publish 127.0.0.1:8443:443/tcp",
     "--volume tile-cache:/app/cache:ro",
+    "--volume /var/run/docker.sock:/var/run/docker.sock:ro",
     "registry.example.com:5000/saashup/tile-api:v2.4.1",
   ].join(" ")));
 
@@ -2025,6 +2469,7 @@ test("docker run parser supports quoted values and registry ports", async ({ pag
   });
   expect(parsed.ports).toContainEqual({ value: "443" });
   expect(parsed.volumes).toContainEqual({ name: "tile-cache", source: "/app/cache" });
+  expect(parsed.binds).toContainEqual({ host_path: "/var/run/docker.sock", container_path: "/var/run/docker.sock", read_only: true });
 });
 
 test("log formatter escapes unexpected html content", async ({ page }) => {

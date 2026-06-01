@@ -79,6 +79,7 @@ function setupNetBoxFetch(fetchMock, {
   containerHostAsId = false,
   deleteContainerRunning = false,
   dockerVolumeMount = false,
+  volumeIdOnlyMount = false,
   omitContainerHost = false,
   emptyContainersForName = "",
   emptyImagesForName = "",
@@ -88,6 +89,8 @@ function setupNetBoxFetch(fetchMock, {
   omitContainerName = false,
   recreateContainerName = "tiles",
   reportContainerOwners = false,
+  expectTraefikConfig = true,
+  fuzzyContainerNameMatches = false,
 } = {}) {
   let deleteContainerGetCount = 0;
   let stopRequested = false;
@@ -174,10 +177,39 @@ function setupNetBoxFetch(fetchMock, {
 
     if (pathname === "/api/plugins/docker/volumes/40/" && method === "DELETE") return jsonResponse({}, 204);
     if (pathname === "/api/plugins/docker/volumes/41/" && method === "DELETE") return jsonResponse({}, 204);
+    if (pathname === "/api/plugins/docker/containers/70/" && method === "DELETE") return jsonResponse({}, 204);
 
     if (pathname === "/api/plugins/docker/containers/" && method === "GET") {
       if (parsed.searchParams.get("limit") === "1") return jsonResponse({ results: [{ id: 30 }] });
       if (parsed.searchParams.get("name") === emptyContainersForName) return jsonResponse({ results: [] });
+      if (fuzzyContainerNameMatches && parsed.searchParams.get("name") === "netbox") {
+        return jsonResponse({
+          results: [
+            {
+              id: 70,
+              name: "netbox",
+              display: "netbox",
+              host: { id: 1, display: "host-a" },
+              image: { id: 10 },
+              state: "created",
+              status: "created",
+              network_settings: [{ network: { name: "bridge" } }],
+              mounts: [],
+            },
+            {
+              id: 71,
+              name: "netbox-worker",
+              display: "netbox-worker",
+              host: { id: 1, display: "host-a" },
+              image: { id: 10 },
+              state: "created",
+              status: "created",
+              network_settings: [{ network: { name: "bridge" } }],
+              mounts: [],
+            },
+          ],
+        });
+      }
       if (reportContainerOwners === "variants") {
         return jsonResponse({
           results: [
@@ -254,7 +286,9 @@ function setupNetBoxFetch(fetchMock, {
             state: deleteContainerRunning ? "running" : "created",
             status: deleteContainerRunning ? "running" : "created",
             network_settings: [{ network: { name: "bridge" } }, { network: { name: "traefik-public" } }],
-            mounts: dockerVolumeMount
+            mounts: volumeIdOnlyMount
+              ? [{ volume_id: 40, source: "/app/data" }]
+              : dockerVolumeMount
               ? [{ docker_volume: { id: 40, name: "tiles-data" }, source: "/app/data" }]
               : [
                 { volume: { id: 40, name: "tiles-data" }, source: "/app/data" },
@@ -281,13 +315,17 @@ function setupNetBoxFetch(fetchMock, {
       }
       if (Array.isArray(body) && body.some((item) => item.id === 31 && !item.operation)) {
         const config = body.find((item) => item.id === 31);
-        expect(config.env).toEqual(expect.arrayContaining([{ var_name: "APP_ENV", value: "production" }]));
-        expect(config.labels).toEqual(expect.arrayContaining([
-          { key: "traefik.http.middlewares.force-https-header.headers.customrequestheaders.X-Forwarded-Proto", value: "https" },
-          { key: "custom.label", value: "custom-value" },
-        ]));
-        expect(config.labels.some((label) => label.key.endsWith(".middlewares") && label.value === "force-https-header")).toBe(true);
-        expect(config.labels.some((label) => label.key.endsWith(".ipallowlist.sourcerange") && label.value.includes("173.245.48.0/20"))).toBe(true);
+        if (expectTraefikConfig) {
+          expect(config.env).toEqual(expect.arrayContaining([{ var_name: "APP_ENV", value: "production" }]));
+          expect(config.labels).toEqual(expect.arrayContaining([
+            { key: "traefik.http.middlewares.force-https-header.headers.customrequestheaders.X-Forwarded-Proto", value: "https" },
+            { key: "custom.label", value: "custom-value" },
+          ]));
+          expect(config.labels.some((label) => label.key.endsWith(".middlewares") && label.value === "force-https-header")).toBe(true);
+          expect(config.labels.some((label) => label.key.endsWith(".ipallowlist.sourcerange") && label.value.includes("173.245.48.0/20"))).toBe(true);
+        } else {
+          expect(config.labels.some((label) => label.key === "traefik.enable" || label.key.startsWith("traefik.http."))).toBe(false);
+        }
       }
       return jsonResponse({});
     }
@@ -316,6 +354,166 @@ function rejectNextMatchingNetBoxFetch(fetchMock, predicate, error) {
     }
     return previousImplementation(url, options);
   });
+}
+
+function setupOrderWorkflowNetBoxFetch(fetchMock) {
+  const calls = [];
+  const containers = new Map();
+  let nextContainerId = 31;
+  let dnsRecordCreated = false;
+
+  fetchMock.mockImplementation(async (url, options = {}) => {
+    const parsed = new URL(String(url));
+    const method = options.method || "GET";
+    const body = options.body ? JSON.parse(options.body) : undefined;
+    const call = { method, path: parsed.pathname, query: Object.fromEntries(parsed.searchParams.entries()), body };
+    calls.push(call);
+
+    if (parsed.pathname === "/api/plugins/docker/hosts/" && method === "GET") {
+      return jsonResponse({
+        count: 2,
+        results: [
+          { id: 1, name: "host-a", display: "host-a", tags: [{ slug: "prod" }] },
+          { id: 2, name: "host-b", display: "host-b", tags: [{ slug: "other" }] },
+        ],
+      });
+    }
+
+    if (parsed.pathname === "/api/plugins/docker/containers/" && method === "GET") {
+      if (parsed.searchParams.get("name") === "tiles-order") {
+        return jsonResponse({
+          count: 1,
+          results: [
+            {
+              id: 31,
+              name: "tiles-order",
+              display: "tiles-order",
+              host: { id: 1, display: "host-a" },
+              image: { id: 10 },
+              state: "running",
+              status: "running",
+              operation: "none",
+              mounts: [
+                { volume: { id: 41, name: "tiles-order-data" }, source: "/data" },
+              ],
+              network_settings: [{ network: { name: "traefik-public" } }],
+            },
+          ],
+        });
+      }
+      return jsonResponse({ count: containers.size, results: [...containers.values()] });
+    }
+
+    if (parsed.pathname === "/api/plugins/docker/images/" && method === "GET") {
+      return jsonResponse({
+        count: 1,
+        results: [
+          { id: 10, name: "saashup/tile", version: "v2.0.0", host: { id: Number(parsed.searchParams.get("host_id") || 1), display: "host-a" } },
+        ],
+      });
+    }
+
+    if (parsed.pathname === "/api/plugins/cloudflare/dns/accounts/" && method === "GET") {
+      expect(parsed.searchParams.get("name")).toBe("example.com");
+      return jsonResponse({ count: 1, results: [{ id: 51, name: "example.com" }] });
+    }
+
+    if (parsed.pathname === "/api/plugins/cloudflare/dns/records/" && method === "POST") {
+      dnsRecordCreated = true;
+      expect(body).toMatchObject({
+        zone: 51,
+        name: "tiles-order.example.com",
+        type: "CNAME",
+        content: "host-a.example.com",
+        proxied: true,
+      });
+      return jsonResponse({ id: 61, ...body }, 201);
+    }
+
+    if (parsed.pathname === "/api/plugins/docker/volumes/" && method === "POST") {
+      expect(body).toEqual({ host: 1, name: "tiles-order-data" });
+      return jsonResponse({ id: 41, ...body }, 201);
+    }
+
+    if (parsed.pathname === "/api/plugins/docker/containers/" && method === "POST") {
+      expect(body).toMatchObject({
+        host: 1,
+        name: "tiles-order",
+        image: 10,
+        restart_policy: "unless-stopped",
+      });
+      const container = {
+        id: nextContainerId++,
+        name: body.name,
+        display: body.name,
+        host: { id: body.host, display: "host-a" },
+        image: { id: body.image },
+        state: "created",
+        status: "created",
+        operation: "none",
+      };
+      containers.set(container.id, container);
+      return jsonResponse(container, 201);
+    }
+
+    if (parsed.pathname === "/api/plugins/docker/containers/" && method === "PATCH") {
+      if (body.some((item) => item.id === 31 && !item.operation)) {
+        expect(itemWithId(body, 31)).toMatchObject({
+          host: 1,
+          ports: [{ public_port: -1, private_port: 8080, type: "tcp" }],
+          mounts: [{ source: "/data", volume: { host: 1, name: "tiles-order-data" }, read_only: false }],
+        });
+        expect(itemWithId(body, 31).env).toEqual(expect.arrayContaining([
+          { var_name: "APP_ENV", value: "production" },
+          { var_name: "SAASHUP_OWNER", value: "buyer@example.com" },
+        ]));
+        expect(itemWithId(body, 31).labels).toEqual(expect.arrayContaining([
+          { key: "traefik.enable", value: "true" },
+          { key: "custom.label", value: "custom-value" },
+        ]));
+      }
+      if (body.some((item) => item.id === 31 && item.operation === "recreate")) {
+        const container = containers.get(31);
+        containers.set(31, { ...container, state: "running", status: "running", operation: "none" });
+      }
+      if (body.some((item) => item.id === 31 && item.operation === "stop")) {
+        const container = containers.get(31) || {};
+        containers.set(31, { ...container, state: "exited", status: "exited", operation: "none" });
+      }
+      return jsonResponse({}, 200);
+    }
+
+    if (parsed.pathname === "/api/plugins/docker/containers/31/" && method === "GET") {
+      return jsonResponse(containers.get(31) || { id: 31, state: "running", status: "running", operation: "none" });
+    }
+
+    if (parsed.pathname === "/api/plugins/docker/containers/31/" && method === "DELETE") {
+      containers.delete(31);
+      return jsonResponse({}, 204);
+    }
+
+    if (parsed.pathname === "/api/plugins/docker/volumes/41/" && method === "DELETE") {
+      return jsonResponse({}, 204);
+    }
+
+    if (parsed.pathname === "/api/plugins/cloudflare/dns/records/" && method === "GET") {
+      expect(parsed.searchParams.get("name")).toBe("tiles-order.example.com");
+      return jsonResponse({ count: dnsRecordCreated ? 1 : 0, results: dnsRecordCreated ? [{ id: 61, name: "tiles-order.example.com" }] : [] });
+    }
+
+    if (parsed.pathname === "/api/plugins/cloudflare/dns/records/61/" && method === "DELETE") {
+      dnsRecordCreated = false;
+      return jsonResponse({}, 204);
+    }
+
+    return jsonResponse({ detail: `${method} ${parsed.pathname}` }, 404);
+  });
+
+  return calls;
+}
+
+function itemWithId(items, id) {
+  return items.find((item) => item.id === id);
 }
 
 describe("server routes", () => {
@@ -485,17 +683,30 @@ describe("server routes", () => {
     }).expect(200).expect((res) => {
       expect(res.body).toMatchObject({ status: "imported", profiles: 1, templates: 1 });
     });
+    expect(JSON.parse(readState(dataPath).config.profiles)).toMatchObject({
+      prod: { tag: "tile" },
+      dev: { tag: "guide" },
+    });
+    expect(readState(dataPath).templates).toMatchObject({
+      tile: { image: "saashup/tile" },
+      guide: { image: "saashup/guide" },
+    });
     await request.post("/portable-config").send({
       config: {
         profile: "prod",
         config_profile: "prod",
-        profiles: { prod: { tag: "tile" } },
+        profiles: { prod: { tag: "tile-v2" } },
       },
       templates: {},
       order_counts: {},
     }).expect(200).expect((res) => {
       expect(res.body).toMatchObject({ status: "imported", profiles: 1, templates: 0 });
     });
+    expect(JSON.parse(readState(dataPath).config.profiles)).toMatchObject({
+      prod: { tag: "tile-v2" },
+      dev: { tag: "guide" },
+    });
+    expect(readState(dataPath).templates.guide.image).toBe("saashup/guide");
     await request.post("/portable-config").send({
       config: { profile: "solo" },
       templates: {},
@@ -933,6 +1144,143 @@ describe("server routes", () => {
       });
   });
 
+  test("runs the complete order workflow with mocked NetBox API responses", async () => {
+    const { dataPath, fetchMock, request } = await loadServer({ operationTimeoutSeconds: "2" });
+    const netboxCalls = setupOrderWorkflowNetBoxFetch(fetchMock);
+    writeState(dataPath, {
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        domain: "example.com",
+        tag: "prod",
+        max_instances: 2,
+        profile: "prod",
+        config_profile: "prod",
+        owner_env_var: "SAASHUP_OWNER",
+      },
+      templates: {
+        Tiles: {
+          instance: "tiles-order",
+          dns_name: "tiles-order.example.com",
+          image: "saashup/tile",
+          version: "v2.0.0",
+          network: "traefik-public",
+          port_value: "8080",
+        },
+      },
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.get("/order").set("x-auth-request-email", "buyer@example.com").expect(200).expect((res) => {
+      expect(res.text).toContain("Order Saashup Instance");
+    });
+
+    await request.get("/order/limit")
+      .set("x-auth-request-email", "buyer@example.com")
+      .query({ profile: "prod" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toMatchObject({ profile: "prod", used: 0, max: 2, remaining: 2, reached: false, instances: [] });
+      });
+
+    await request.post("/create")
+      .set("x-auth-request-email", "buyer@example.com")
+      .send({
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        domain: "example.com",
+        tag: "prod",
+        max_instances: "2",
+        owner_env_var: "SAASHUP_OWNER",
+        profile: "prod",
+        config_profile: "prod",
+        instance: "tiles-order.example.com",
+        dns_name: "tiles-order.example.com",
+        image: "saashup/tile",
+        version: "v2.0.0",
+        network: "traefik-public",
+        port_value: "8080",
+        var_env_key: ["APP_ENV"],
+        var_env_value: ["production"],
+        label_key: ["custom.label"],
+        label_value: ["custom-value"],
+        volume_source: ["/data"],
+        volume_name: ["tiles-order-data"],
+        traefik: "true",
+        cloudflare_filter: "true",
+        order_request: "true",
+        order_template: "Tiles",
+        wait: "true",
+      })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toEqual({ status: "finished" });
+      });
+
+    await request.get("/order/limit")
+      .set("x-auth-request-email", "buyer@example.com")
+      .query({ profile: "prod" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toMatchObject({ used: 1, max: 2, remaining: 1, reached: false });
+        expect(res.body.instances).toEqual([
+          expect.objectContaining({
+            instance: "tiles-order.example.com",
+            dns_name: "tiles-order.example.com",
+            template: "Tiles",
+            image: "saashup/tile",
+            version: "v2.0.0",
+            status: "ready",
+          }),
+        ]);
+      });
+
+    expect(readState(dataPath).logs).toContain("CREATE : Cloudflare DNS record requested for tiles-order.example.com -> host-a.example.com status=201");
+    expect(readState(dataPath).logs).toContain("CREATE : container tiles-order configured on host-a");
+    expect(readState(dataPath).logs).toContain("CREATE : host-a/tiles-order recreate requested");
+
+    await request.post("/delete")
+      .set("x-auth-request-email", "buyer@example.com")
+      .send({
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        tag: "prod",
+        instance: "tiles-order.example.com",
+        profile: "prod",
+        config_profile: "prod",
+        delete_volumes: "true",
+        order_request: "true",
+      })
+      .expect(202);
+
+    await vi.waitFor(() => expect(readState(dataPath).order_counts["buyer@example.com"].prod).toBe(0));
+    await vi.waitFor(() => expect(readState(dataPath).order_instances["buyer@example.com"].prod).toEqual([]));
+
+    expect(netboxCalls.map((call) => `${call.method} ${call.path}`)).toEqual([
+      "GET /api/plugins/docker/hosts/",
+      "GET /api/plugins/docker/containers/",
+      "GET /api/plugins/docker/images/",
+      "GET /api/plugins/cloudflare/dns/accounts/",
+      "POST /api/plugins/cloudflare/dns/records/",
+      "POST /api/plugins/docker/volumes/",
+      "POST /api/plugins/docker/containers/",
+      "PATCH /api/plugins/docker/containers/",
+      "GET /api/plugins/docker/containers/31/",
+      "PATCH /api/plugins/docker/containers/",
+      "GET /api/plugins/docker/containers/31/",
+      "GET /api/plugins/docker/hosts/",
+      "GET /api/plugins/docker/containers/",
+      "PATCH /api/plugins/docker/containers/",
+      "GET /api/plugins/docker/containers/31/",
+      "DELETE /api/plugins/docker/containers/31/",
+      "DELETE /api/plugins/docker/volumes/41/",
+      "GET /api/plugins/cloudflare/dns/records/",
+      "DELETE /api/plugins/cloudflare/dns/records/61/",
+    ]);
+  });
+
   test("reserves order slots immediately when create is accepted", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock);
@@ -1154,6 +1502,62 @@ describe("server routes", () => {
     await request.post("/dockerhub/prod/env-secret").send(body).expect(403);
     await request.post("/dockerhub/prod/profile-secret").send(body).expect(202);
     await request.post("/dockerhub/dev/env-secret").send(body).expect(202);
+  });
+
+  test("skips Traefik labels and Cloudflare DNS when Traefik is disabled", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, { expectTraefikConfig: false });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/create").send({
+      instance: "plain.example.com",
+      image: "saashup/tile",
+      version: "v2.0.0",
+      port_value: "8080",
+      traefik: "false",
+    }).expect(202);
+
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("CREATE : container plain configured on host-a"));
+    expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/cloudflare/dns/records/") && options?.method === "POST")).toBe(false);
+    expect(fetchMock.mock.calls.some(([url, options]) => {
+      if (!String(url).endsWith("/api/plugins/docker/containers/") || options?.method !== "PATCH") return false;
+      return JSON.parse(options.body).some((item) => item.id === 31 && item.labels?.some((label) => label.key === "traefik.enable" || label.key.startsWith("traefik.http.")));
+    })).toBe(false);
+  });
+
+  test("create can install on all matching Docker hosts", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, { expectTraefikConfig: false });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/create").send({
+      instance: "all-hosts",
+      image: "saashup/tile",
+      version: "v2.0.0",
+      port_value: "8080",
+      traefik: "false",
+      all_hosts: "true",
+      wait: "true",
+    }).expect(200).expect((res) => {
+      expect(res.body).toEqual({ status: "finished" });
+    });
+
+    expect(readState(dataPath).logs).toContain("CREATE : finished all hosts ready=2/2");
+    const containerCreates = fetchMock.mock.calls
+      .filter(([url, options]) => String(url).endsWith("/api/plugins/docker/containers/") && options?.method === "POST")
+      .map(([, options]) => JSON.parse(options.body).host);
+    expect(containerCreates).toEqual([1, 2]);
+    expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/cloudflare/dns/records/") && options?.method === "POST")).toBe(false);
   });
 
   test("accepts write operations and records logs", async () => {
@@ -1597,6 +2001,23 @@ describe("server routes", () => {
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : cannot delete missing, expected 1 container got 0"));
   });
 
+  test("deletes the exact container when NetBox returns fuzzy name matches", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, { fuzzyContainerNameMatches: true });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/delete").send({ instance: "netbox" }).expect(202);
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : container netbox deleted id=70"));
+    expect(readState(dataPath).logs).not.toContain("cannot delete netbox");
+    expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/docker/containers/70/") && options?.method === "DELETE")).toBe(true);
+    expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/docker/containers/71/") && options?.method === "DELETE")).toBe(false);
+  });
+
   test("covers create response and validation branches", async () => {
     const { dataPath, fetchMock, request } = await loadServer({ configureDelayMs: "1", recreateDelayMs: "1" });
     setupNetBoxFetch(fetchMock, { containerPostArray: true });
@@ -1761,6 +2182,80 @@ describe("server routes", () => {
     await request.post("/delete").send({ instance: "tiles.example.com", delete_volumes: "true" }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : volume tiles-data deleted"));
     expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/docker/volumes/40/") && options?.method === "DELETE")).toBe(true);
+  });
+
+  test("deletes mounted volume_id references when requested", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, { volumeIdOnlyMount: true });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/delete").send({ instance: "tiles.example.com", delete_volumes: "true" }).expect(202);
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : volume 40 deleted"));
+    expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/docker/volumes/40/") && options?.method === "DELETE")).toBe(true);
+  });
+
+  test("create wait mode blocks until recreate finishes", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock);
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    const response = await request.post("/create").send({
+      instance: "workflow-step.example.com",
+      image: "saashup/tile",
+      version: "v2.0.0",
+      port_value: "8080",
+      var_env_key: ["APP_ENV"],
+      var_env_value: ["production"],
+      label_key: ["custom.label"],
+      label_value: ["custom-value"],
+      wait: "true",
+    }).expect(200);
+
+    expect(response.body).toEqual({ status: "finished" });
+    expect(readState(dataPath).logs).toContain("CREATE : host-a/workflow-step ready status=running operation=none");
+  });
+
+  test("create wait mode reports failures and marks order failed", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock);
+    rejectNextMatchingNetBoxFetch(
+      fetchMock,
+      (url, options) => url.pathname === "/api/plugins/docker/hosts/" && (options.method || "GET") === "GET",
+      Object.assign(new Error("netbox unavailable"), { statusCode: 503, payload: { detail: "down" } }),
+    );
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 3 },
+      templates: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    const response = await request.post("/create").set("x-auth-request-email", "workflow@example.com").send({
+      instance: "broken.example.com",
+      image: "saashup/tile",
+      version: "v2.0.0",
+      port_value: "8080",
+      order_request: "true",
+      profile: "prod",
+      wait: "true",
+    }).expect(503);
+
+    expect(response.body).toMatchObject({ detail: "netbox unavailable", payload: { detail: "down" } });
+    expect(readState(dataPath).logs).toContain("ERROR : netbox unavailable");
+    expect(readState(dataPath).order_instances["workflow@example.com"]?.prod?.[0]).toEqual(
+      expect.objectContaining({ instance: "broken.example.com", status: "failed" }),
+    );
   });
 
   test("deletes named volumes without a container host fallback", async () => {

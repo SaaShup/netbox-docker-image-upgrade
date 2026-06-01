@@ -1,6 +1,7 @@
 const {
   asArray,
   authUserFromRequest,
+  bindPayloadsFromForm,
   containerConfigPayloadFromForm,
   containerCreatePayloadFromForm,
   hostMatchesTag,
@@ -35,10 +36,15 @@ const { createAuthHelpers, firstHeader } = require("../../lib/auth");
 const {
   cloudflareFilterEnabled,
   containerNetworkNames,
+  dnsHostNameFromData,
+  dnsNameFromData,
+  dnsPartsFromName,
   formData,
   hostName,
   normalizedStatus,
   ownerEnvVarName,
+  traefikRuleFromData,
+  traefikEnabled,
 } = require("../../lib/docker");
 const { createMetrics } = require("../../lib/metrics");
 const { NetBoxClient, dockerHosts, hostIdQuery, netboxAuthHeader, setNetBoxFetchForTests } = require("../../lib/netbox");
@@ -223,9 +229,23 @@ describe("server helpers", () => {
       port_value: ["8080"],
       volume_source: ["/app/data", ""],
       volume_name: ["tiles-data", ""],
+      bind_host_path: ["/var/run/docker.sock", "/etc/localtime"],
+      bind_container_path: ["/var/run/docker.sock", "/etc/localtime"],
+      bind_read_only: ["true", "false"],
     };
 
+    expect(bindPayloadsFromForm(data)).toEqual([
+      { host_path: "/var/run/docker.sock", container_path: "/var/run/docker.sock", read_only: true },
+      { host_path: "/etc/localtime", container_path: "/etc/localtime", read_only: false },
+    ]);
     expect(volumePayloadsFromForm(data)).toEqual([{ host: 42, name: "tiles-data" }]);
+    expect(volumePayloadsFromForm({
+      host_id: 42,
+      volume_name: ["tiles-data", "tiles-data", "tiles-cache", "/var/run/docker.sock"],
+    })).toEqual([
+      { host: 42, name: "tiles-data" },
+      { host: 42, name: "tiles-cache" },
+    ]);
     expect(containerCreatePayloadFromForm(data, 12)).toEqual({
       host: 42,
       name: "tiles",
@@ -238,6 +258,10 @@ describe("server helpers", () => {
       network_settings: [{ network: { host: 42, name: "traefik-public" } }],
       ports: [{ public_port: -1, private_port: 8080, type: "tcp" }],
       env: [{ var_name: "NODE_ENV", value: "production" }],
+      binds: [
+        { host_path: "/var/run/docker.sock", container_path: "/var/run/docker.sock", read_only: true },
+        { host_path: "/etc/localtime", container_path: "/etc/localtime", read_only: false },
+      ],
       labels: [
         { key: "traefik.enable", value: "true" },
         { key: "traefik.http.routers.tiles.rule", value: "Host(`tiles.example.com`)" },
@@ -254,7 +278,7 @@ describe("server helpers", () => {
       mounts: [
         {
           source: "/app/data",
-          volume: { name: "tiles-data" },
+          volume: { host: 42, name: "tiles-data" },
           read_only: false,
         },
       ],
@@ -264,13 +288,15 @@ describe("server helpers", () => {
       instance: "api.example.com",
       host_id: 7,
       label_key: ["empty.value"],
-      volume_source: ["/cache"],
+      volume_source: ["/cache", "/var/run/docker.sock"],
+      volume_name: ["", "/var/run/docker.sock"],
     }, 9)).toMatchObject({
       network_settings: [],
       ports: [],
       env: [],
+      binds: [{ host_path: "/var/run/docker.sock", container_path: "/var/run/docker.sock", read_only: false }],
       labels: expect.arrayContaining([{ key: "empty.value", value: "" }]),
-      mounts: [{ source: "/cache", volume: { name: "api-data-1" }, read_only: false }],
+      mounts: [{ source: "/cache", volume: { host: 7, name: "api-data-1" }, read_only: false }],
     });
 
     expect(containerConfigPayloadFromForm({
@@ -303,10 +329,65 @@ describe("server helpers", () => {
     expect(cloudflareFilterEnabled({ cloudflare_filter: "false" })).toBe(false);
     expect(cloudflareFilterEnabled({ cloudflare_filter: ["true", "false"] })).toBe(false);
     expect(containerConfigPayloadFromForm({
+      instance: "tiles",
+      dns_name: "tiles.example.com",
+      host_id: 42,
+      port_value: ["8080"],
+    }, 34).labels).toEqual(expect.arrayContaining([
+      { key: "traefik.http.routers.tiles.rule", value: "Host(`tiles.example.com`)" },
+    ]));
+    expect(dnsNameFromData({ instance: "tiles", dns_name: "tiles.example.com" })).toBe("tiles.example.com");
+    expect(dnsNameFromData({ instance: "tiles.example.com" })).toBe("tiles.example.com");
+    expect(dnsPartsFromName("tiles.example.com/dashboard")).toEqual({ host: "tiles.example.com", path: "/dashboard" });
+    expect(dnsPartsFromName("[")).toEqual({ host: "[", path: "" });
+    expect(dnsPartsFromName("http://[bad]/dashboard")).toEqual({ host: "http:", path: "//[bad]/dashboard" });
+    expect(dnsHostNameFromData({ instance: "tiles", dns_name: "tiles.example.com/dashboard" })).toBe("tiles.example.com");
+    expect(traefikRuleFromData({ instance: "tiles", dns_name: "tiles.example.com/dashboard" })).toBe("Host(`tiles.example.com`) && PathPrefix(`/dashboard`)");
+    expect(containerConfigPayloadFromForm({
+      instance: "tiles",
+      dns_name: "tiles.example.com/dashboard",
+      host_id: 42,
+      port_value: ["8080"],
+    }, 35).labels).toEqual(expect.arrayContaining([
+      { key: "traefik.http.routers.tiles.rule", value: "Host(`tiles.example.com`) && PathPrefix(`/dashboard`)" },
+    ]));
+    expect(dnsNameFromData({
+      instance: "saashup",
+      label_key: ["saashup_dns"],
+      label_value: ["https://daily.paashup.cloud"],
+    })).toBe("https://daily.paashup.cloud");
+    expect(containerConfigPayloadFromForm({
+      instance: "saashup",
+      host_id: 42,
+      port_value: ["1880"],
+      label_key: ["saashup_traefik", "saashup_dns", "prometheus_scrape"],
+      label_value: ["true", "https://daily.paashup.cloud", "true"],
+    }, 36).labels).toEqual(expect.arrayContaining([
+      { key: "traefik.http.routers.saashup.rule", value: "Host(`daily.paashup.cloud`)" },
+      { key: "prometheus_scrape", value: "true" },
+    ]));
+    expect(containerConfigPayloadFromForm({
+      instance: "traefik",
+      host_id: 42,
+      port_value: ["8080"],
+      label_key: ["saashup_traefik", "traefik.enable", "custom.label"],
+      label_value: ["false", "true", "custom-value"],
+    }, 37).labels).toEqual([{ key: "custom.label", value: "custom-value" }]);
+    expect(containerConfigPayloadFromForm({
       instance: "open.example.com",
       port_value: ["8080"],
       cloudflare_filter: "false",
     }, 32).labels.some((label) => label.key.endsWith(".ipallowlist.sourcerange"))).toBe(false);
+    expect(traefikEnabled({})).toBe(true);
+    expect(traefikEnabled({ traefik: "false" })).toBe(false);
+    expect(traefikEnabled({ traefik: ["true", "false"] })).toBe(false);
+    expect(containerConfigPayloadFromForm({
+      instance: "plain.example.com",
+      port_value: ["8080"],
+      traefik: "false",
+      label_key: ["traefik.enable", "custom.label"],
+      label_value: ["true", "custom-value"],
+    }, 33).labels).toEqual([{ key: "custom.label", value: "custom-value" }]);
   });
 
   test("derives route, operation, and status metric labels", () => {
@@ -743,6 +824,11 @@ describe("server helpers", () => {
     await expect(helpers.requestContainerOperation(readyClient, { id: 1, host: { name: "host" }, name: "container" }, "restart", "RESTART")).resolves.toBe(true);
     await expect(helpers.ensureImageOnHost(readyClient, { host: { id: 7, display: "host" } }, "app", "v2")).resolves.toEqual({ id: 22, host: { id: 7 } });
     await expect(helpers.createDnsRecord(readyClient, { instance: "app.example.com" }, { name: "host" })).resolves.toBeUndefined();
+    await expect(helpers.createDnsRecord(readyClient, { instance: "app", dns_name: "app.example.com" }, { name: "host" })).resolves.toBeUndefined();
+    await expect(helpers.createDnsRecord(readyClient, { instance: "app", dns_name: "app.example.com/dashboard" }, { name: "host" })).resolves.toBeUndefined();
+    expect(readyClient.request).toHaveBeenCalledWith("POST", "/api/plugins/cloudflare/dns/records/", expect.objectContaining({
+      body: expect.objectContaining({ name: "app.example.com" }),
+    }));
     await expect(helpers.deleteDnsRecord(readyClient, { instance: "app.example.com" })).resolves.toBeUndefined();
 
     const timeoutClient = {

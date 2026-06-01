@@ -50,6 +50,10 @@
           <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.9-3"></path><path d="M4 5v5h5"></path><path d="M4 13a8 8 0 0 0 14.9 3"></path><path d="M20 19v-5h-5"></path></svg></span>
           <span class="nav-label">Refresh</span>
         </a>
+        <a href="#" class="menu nav-item" data-action="workflow" id="menu_workflow" title="Workflow">
+          <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 5h4v4H6z"></path><path d="M14 15h4v4h-4z"></path><path d="M8 9v3a3 3 0 0 0 3 3h3"></path><path d="M14 7h4"></path><path d="M16 5v4"></path></svg></span>
+          <span class="nav-label">Workflow</span>
+        </a>
         <a href="#" class="menu nav-item" data-action="report" id="menu_report" title="Report">
           <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19V5"></path><path d="M4 19h16"></path><path d="M8 16v-5"></path><path d="M12 16V8"></path><path d="M16 16v-3"></path></svg></span>
           <span class="nav-label">Report</span>
@@ -87,7 +91,7 @@
         <button type="button" class="btn btn-secondary hidden" id="importConfigBtn">Import</button>
         <input type="file" class="hidden" id="importConfigFile" accept="application/json,.json">
         <button type="button" class="btn btn-danger" id="clearBtn">Clear form</button>
-        <button type="button" class="btn btn-secondary hidden" id="dockerRunBtn">Docker run</button>
+        <button type="button" class="btn btn-secondary hidden" id="dockerRunBtn">Import</button>
         <select class="toolbar-select hidden" id="templateSelect" aria-label="Create template"></select>
         <button type="button" class="btn btn-secondary hidden" id="loadTemplateBtn">Load template</button>
         <button type="button" class="btn btn-secondary hidden" id="saveTemplateBtn">Save template</button>
@@ -199,13 +203,28 @@
                 <input type="text" id="network" name="network" placeholder="mgmt">
               </label>
 
+              <label class="field checkbox-field" data-field="traefik">
+                <input type="checkbox" id="traefik" name="traefik" value="true" checked>
+                <span class="field-label">Traefik</span>
+              </label>
+
+              <label class="field checkbox-field" data-field="all_hosts">
+                <input type="checkbox" id="all_hosts" name="all_hosts" value="true">
+                <span class="field-label">Install on all hosts</span>
+              </label>
+
               <label class="field" data-field="instance">
                 <span class="field-label">Instance name <span class="profile-help-btn" data-profile-help="instance" role="button" tabindex="0" aria-label="Explain Instance name">?</span></span>
                 <div class="input-action">
-                  <input type="text" id="instance" name="instance" list="instanceOptions" placeholder="app.paashup.cloud">
+                  <input type="text" id="instance" name="instance" list="instanceOptions" placeholder="app">
                   <button type="button" class="icon-btn" id="refreshInstancesBtn" title="Refresh instances" aria-label="Refresh instances">↻</button>
                 </div>
                 <datalist id="instanceOptions"></datalist>
+              </label>
+
+              <label class="field" data-field="dns_name">
+                <span>DNS name</span>
+                <input type="text" id="dns_name" name="dns_name" placeholder="app.paashup.cloud">
               </label>
 
               <label class="field checkbox-field" data-field="delete_volumes">
@@ -299,6 +318,22 @@
                 </div>
                 <button type="button" class="btn btn-secondary repeat-add" id="addVolumeBtn">+ Add volume</button>
               </div>
+
+              <div class="field repeat-field" data-field="binds">
+                <span>Binds</span>
+                <div class="repeat-list" id="bindList">
+                  <div class="repeat-row bind-row">
+                    <input type="text" id="bind_host_path" name="bind_host_path" placeholder="/var/run/docker.sock" aria-label="Bind host path">
+                    <input type="text" id="bind_container_path" name="bind_container_path" placeholder="/var/run/docker.sock" aria-label="Bind container path">
+                    <label class="mini-check mini-toggle" aria-label="Bind read only">
+                      <input type="checkbox" id="bind_read_only" name="bind_read_only" value="true">
+                      <span>RO</span>
+                    </label>
+                    <button type="button" class="icon-btn repeat-remove" aria-label="Remove bind" disabled>&times;</button>
+                  </div>
+                </div>
+                <button type="button" class="btn btn-secondary repeat-add" id="addBindBtn">+ Add bind</button>
+              </div>
             </div>
 
             <div class="form-actions">
@@ -350,6 +385,47 @@
           </div>
         </div>
 
+        <div class="card workflow-card hidden" id="workflowCard">
+          <div class="card-header">
+            <div class="card-title-row">
+              <div>
+                <h3>Workflow</h3>
+                <p>Run imported compose templates in order.</p>
+              </div>
+              <div class="workflow-actions">
+                <button type="button" class="btn btn-primary" id="runWorkflowBtn">Run workflow</button>
+                <button type="button" class="btn btn-danger" id="deleteWorkflowBtn">Delete workflow</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="report-toolbar">
+            <label class="field">
+              <span>Workflow</span>
+              <select id="workflowSelect" aria-label="Workflow"></select>
+            </label>
+            <div class="report-summary" id="workflowSummary">No workflow selected</div>
+          </div>
+
+          <div class="report-table-wrap">
+            <table class="report-table">
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  <th>Template</th>
+                  <th>Instance</th>
+                  <th>Image</th>
+                </tr>
+              </thead>
+              <tbody id="workflowTableBody">
+                <tr>
+                  <td colspan="4">Import a compose file with workflow enabled.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <aside class="card logs-card" id="logsCard">
           <div class="card-header">
             <div class="card-title-row">
@@ -389,10 +465,36 @@
   <div class="modal-backdrop hidden" id="dockerRunModal" role="dialog" aria-modal="true" aria-labelledby="dockerRunTitle">
     <div class="modal">
       <div class="modal-header">
-        <h3 id="dockerRunTitle">Docker run</h3>
-        <button type="button" class="icon-btn" id="dockerRunCloseBtn" aria-label="Close Docker run modal">&times;</button>
+        <h3 id="dockerRunTitle">Import</h3>
+        <button type="button" class="icon-btn" id="dockerRunCloseBtn" aria-label="Close import modal">&times;</button>
       </div>
-      <textarea id="dockerRunInput" class="modal-textarea" spellcheck="false" placeholder="docker run --name app --network mgmt -e APP_ENV=production -v app-data:/app/data saashup/app:v1.0.0"></textarea>
+      <label class="modal-field">
+        <span>Config profile</span>
+        <select id="importProfileSelect"></select>
+      </label>
+      <div class="import-tabs" role="tablist" aria-label="Import type">
+        <button type="button" class="import-tab active" id="dockerRunTab" data-import-tab="run" role="tab" aria-selected="true" aria-controls="dockerRunPanel">Run</button>
+        <button type="button" class="import-tab" id="dockerComposeTab" data-import-tab="compose" role="tab" aria-selected="false" aria-controls="dockerComposePanel">Compose</button>
+      </div>
+      <div id="dockerRunPanel" data-import-panel="run" role="tabpanel" aria-labelledby="dockerRunTab">
+        <textarea id="dockerRunInput" class="modal-textarea" spellcheck="false" placeholder="docker run --name app --network mgmt -e APP_ENV=production -v app-data:/app/data saashup/app:v1.0.0"></textarea>
+      </div>
+      <div id="dockerComposePanel" class="hidden" data-import-panel="compose" role="tabpanel" aria-labelledby="dockerComposeTab">
+        <label class="modal-check">
+          <input type="checkbox" id="createWorkflowInput" checked>
+          <span>Create workflow</span>
+        </label>
+        <textarea id="dockerComposeInput" class="modal-textarea" spellcheck="false" placeholder="services:
+  web:
+    container_name: web
+    image: saashup/web:v1.0.0
+    ports:
+      - &quot;8080:3000&quot;
+    environment:
+      APP_ENV: production
+    volumes:
+      - web-data:/app/data"></textarea>
+      </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-secondary" id="dockerRunCancelBtn">Cancel</button>
         <button type="button" class="btn btn-primary" id="dockerRunApplyBtn">OK</button>

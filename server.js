@@ -6,20 +6,24 @@ const packageJson = require("./package.json");
 const { authUserFromRequest, createAuthHelpers, maxInstancesValue } = require("./lib/auth");
 const {
   asArray,
+  bindPayloadsFromForm,
   containerConfigPayloadFromForm,
   containerCreatePayloadFromForm,
   containerNetworkNames,
+  dnsNameFromData,
   formData,
   hostMatchesTag,
   hostName,
   imageNameFromRef,
   instanceShort,
   instanceZone,
+  normalizedSaashupLabelConfig,
   ownerEnvVarName,
   isContainerRunning,
   isContainerStopped,
   isOperationDone,
   isReadyContainer,
+  traefikEnabled,
   valueText,
   volumePayloadsFromForm,
 } = require("./lib/docker");
@@ -94,6 +98,23 @@ function asyncOperation(res, fn) {
   });
 }
 
+function waitForRequest(data) {
+  return data.wait === true || data.wait === "true" || data.wait === "on";
+}
+
+function allHostsEnabled(data) {
+  return data.all_hosts === true || data.all_hosts === "true" || data.all_hosts === "on";
+}
+
+function leastLoadedHost(hosts, containers) {
+  return hosts
+    .map((host) => ({
+      host,
+      count: containers.filter((container) => (container.host?.id || container.host) === host.id).length,
+    }))
+    .sort((left, right) => left.count - right.count)[0]?.host;
+}
+
 function currentUsage(req, profile) {
   const state = readState();
   const counts = plainObject(state.order_counts);
@@ -121,6 +142,7 @@ function recordOrderInstance(req, profile, data) {
       const instances = Array.isArray(state.order_instances[emailKey][profile]) ? state.order_instances[emailKey][profile] : [];
       instances.push({
         instance: data.instance || "",
+        dns_name: data.dns_name || "",
         template: data.order_template || "",
         image: data.image || "",
         version: data.version || "",
@@ -168,6 +190,21 @@ function removeOrderInstance(req, profile, instance) {
   });
 }
 
+function exactContainerNameMatches(containers, name) {
+  const expected = instanceShort(name);
+  const items = asArray(containers);
+  const matches = items.filter((container) => {
+    const names = [
+      container?.name,
+      container?.display,
+      container?.container_name,
+      container?.container,
+    ].map((value) => instanceShort(valueText(value))).filter(Boolean);
+    return names.includes(expected);
+  });
+  return matches.length || items.length !== 1 ? matches : items;
+}
+
 function escapeHtml(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -177,7 +214,7 @@ function escapeHtml(value) {
 }
 
 function orderReadyEmail(data, recipient, smtpConfig, { ccOwner = true } = {}) {
-  const instance = data.instance || "your instance";
+  const instance = dnsNameFromData(data) || data.instance || "your instance";
   const image = data.image || "";
   const cc = ccOwner && appOwnerEmail && appOwnerEmail.toLowerCase() !== String(recipient || "").toLowerCase() ? [appOwnerEmail] : [];
   const actionUrl = /^https?:\/\//i.test(instance) ? instance : `https://${instance}`;
@@ -452,6 +489,18 @@ app.post("/templates", requireAdmin, (req, res) => {
   res.json(templates);
 });
 
+function mergeProfileMaps(existing, imported) {
+  return {
+    ...existing,
+    ...Object.fromEntries(
+      Object.entries(imported).map(([key, value]) => [
+        key,
+        { ...plainObject(existing[key]), ...plainObject(value) },
+      ]),
+    ),
+  };
+}
+
 app.get("/portable-config", requireAdmin, (req, res) => {
   const state = readState();
   const config = plainObject(state.config);
@@ -472,19 +521,29 @@ app.post("/portable-config", requireAdmin, (req, res) => {
   const config = plainObject(payload.config);
   const profiles = parseProfiles(payload.profiles || config.profiles);
   const names = Object.keys(profiles).sort((a, b) => a.localeCompare(b));
-  if (names.length) {
-    config.profiles = JSON.stringify(profiles);
-    if (!config.profile || !profiles[config.profile]) config.profile = names[0];
-    if (!config.config_profile || !profiles[config.config_profile]) config.config_profile = config.profile;
-  }
+  const importedTemplates = plainObject(payload.templates);
+  const importedOrderCounts = plainObject(payload.order_counts);
+  const importedOrderInstances = plainObject(payload.order_instances);
   writeState((state) => {
-    state.config = config;
-    state.templates = plainObject(payload.templates);
-    state.order_counts = plainObject(payload.order_counts);
-    state.order_instances = plainObject(payload.order_instances);
+    const existingConfig = plainObject(state.config);
+    const mergedProfiles = { ...parseProfiles(existingConfig.profiles), ...profiles };
+    const selectedProfile = config.profile || config.config_profile || existingConfig.profile || existingConfig.config_profile || names[0] || "";
+    const nextConfig = {
+      ...existingConfig,
+      ...config,
+      profiles: JSON.stringify(mergedProfiles),
+    };
+    if (selectedProfile) {
+      nextConfig.profile = selectedProfile;
+      nextConfig.config_profile = selectedProfile;
+    }
+    state.config = nextConfig;
+    state.templates = { ...plainObject(state.templates), ...importedTemplates };
+    state.order_counts = mergeProfileMaps(plainObject(state.order_counts), importedOrderCounts);
+    state.order_instances = mergeProfileMaps(plainObject(state.order_instances), importedOrderInstances);
     return state;
   });
-  res.json({ status: "imported", profiles: names.length, templates: Object.keys(plainObject(payload.templates)).length });
+  res.json({ status: "imported", profiles: names.length, templates: Object.keys(importedTemplates).length });
 });
 
 app.get("/logs", (req, res) => res.type("text/html").send(readState().logs || "&nbsp;<br>"));
@@ -786,6 +845,62 @@ app.get("/report/images", requireAdmin, async (req, res) => {
 
 app.get("/order/limit", (req, res) => res.json(currentUsage(req, req.query.profile || "")));
 
+async function createInstance(req, data, { isOrderRequest, orderProfile, authUser }) {
+  data = normalizedSaashupLabelConfig(data);
+  const client = new NetBoxClient(data);
+  const hosts = await dockerHosts(client, data.tag);
+  if (!hosts.length) {
+    logLine(`CREATE : no Docker hosts found${data.tag ? ` with tag ${data.tag}` : ""}`);
+    if (isOrderRequest) updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
+    return false;
+  }
+  const targetHosts = allHostsEnabled(data)
+    ? hosts
+    : [leastLoadedHost(hosts, await client.list("/api/plugins/docker/containers/", { limit: 1000, host_id: hosts.map((host) => host.id) }))].filter(Boolean);
+  let readyCount = 0;
+
+  for (const [index, selectedHost] of targetHosts.entries()) {
+    data.host_id = selectedHost.id;
+    const images = await client.list("/api/plugins/docker/images/", { name: data.image, version: data.version, host_id: data.host_id });
+    if (!images[0]) {
+      logLine(`CREATE : image ${data.image}:${data.version} not found on ${hostName(selectedHost)}`);
+      continue;
+    }
+    if (traefikEnabled(data) && index === 0) await createDnsRecord(client, data, selectedHost);
+    const volumes = volumePayloadsFromForm(data);
+    if (volumes.length) {
+      await client.request("POST", "/api/plugins/docker/volumes/", { body: volumes.length === 1 ? volumes[0] : volumes, expected: [200, 201, 202] });
+      logLine(`CREATE : ${volumes.length} volume${volumes.length === 1 ? "" : "s"} prepared on ${hostName(selectedHost)}`);
+    }
+    const containerPayload = containerCreatePayloadFromForm(data, images[0].id);
+    const { payload } = await client.request("POST", "/api/plugins/docker/containers/", { body: containerPayload, expected: [200, 201, 202] });
+    const container = Array.isArray(payload) ? payload[0] : payload;
+    logLine(`CREATE : container ${containerPayload.name} created on ${hostName(selectedHost)}`);
+    if (createConfigureDelayMs > 0) await delay(createConfigureDelayMs);
+    const containerConfig = containerConfigPayloadFromForm(data, container.id);
+    await client.request("PATCH", "/api/plugins/docker/containers/", { body: [containerConfig] });
+    logLine(`CREATE : container ${containerPayload.name} configured on ${hostName(selectedHost)} env=${containerConfig.env.length} labels=${containerConfig.labels.length} mounts=${containerConfig.mounts.length}`);
+    if (createRecreateDelayMs > 0) await delay(createRecreateDelayMs);
+    await waitForContainerConfigured(client, container.id, `${hostName(container)}/${valueText(container.display || container.name)}`);
+    const ready = await requestContainerOperation(client, container, "recreate", "CREATE");
+    if (ready) readyCount += 1;
+  }
+
+  const allReady = readyCount === targetHosts.length;
+  if (isOrderRequest && allReady) {
+    try {
+      await sendOrderReadyEmail(data, authUser.email || "");
+    } catch (error) {
+      logLine(`EMAIL : ready notification failed for ${authUser.email || ""} ${error.message || "smtp error"}`);
+    }
+    updateOrderInstanceStatus(req, orderProfile, data.instance || "", "ready");
+  } else if (isOrderRequest) {
+    updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
+  }
+  if (allHostsEnabled(data)) logLine(`CREATE : finished all hosts ready=${readyCount}/${targetHosts.length}`);
+  return allReady;
+}
+
 app.post("/create", async (req, res) => {
   const data = { ...selectedProfileConfig(req.body), ...req.body };
   const authUser = authUserFromRequest(req);
@@ -797,51 +912,22 @@ app.post("/create", async (req, res) => {
     return res.status(429).json({ code: "max_instances_reached", detail: `You have reached your maximum of ${usage.max} instance${usage.max === 1 ? "" : "s"} for this config.`, max_instances: usage.max, used_instances: usage.used });
   }
   if (isOrderRequest) recordOrderInstance(req, orderProfile, data);
+
+  const operationContext = { isOrderRequest, orderProfile, authUser };
+  if (waitForRequest(data)) {
+    try {
+      const ready = await createInstance(req, data, operationContext);
+      return res.status(ready ? 200 : 422).json({ status: ready ? "finished" : "failed" });
+    } catch (error) {
+      if (isOrderRequest) updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
+      logLine(`ERROR : ${error.message || "operation failed"} payload=${JSON.stringify(error.payload || {}).slice(0, 240)}`);
+      return res.status(error.statusCode || 502).json({ detail: error.message || "operation failed", payload: error.payload });
+    }
+  }
+
   asyncOperation(res, async () => {
     try {
-      const client = new NetBoxClient(data);
-      const hosts = await dockerHosts(client, data.tag);
-      if (!hosts.length) {
-        logLine(`CREATE : no Docker hosts found${data.tag ? ` with tag ${data.tag}` : ""}`);
-        if (isOrderRequest) updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
-        return;
-      }
-      const containers = await client.list("/api/plugins/docker/containers/", { limit: 1000, host_id: hosts.map((host) => host.id) });
-      const selectedHost = hosts.map((host) => ({ host, count: containers.filter((c) => (c.host?.id || c.host) === host.id).length })).sort((a, b) => a.count - b.count)[0].host;
-      data.host_id = selectedHost.id;
-      const images = await client.list("/api/plugins/docker/images/", { name: data.image, version: data.version, host_id: data.host_id });
-      if (!images[0]) {
-        logLine(`CREATE : image ${data.image}:${data.version} not found on ${hostName(selectedHost)}`);
-        if (isOrderRequest) updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
-        return;
-      }
-      await createDnsRecord(client, data, selectedHost);
-      const volumes = volumePayloadsFromForm(data);
-      if (volumes.length) {
-        await client.request("POST", "/api/plugins/docker/volumes/", { body: volumes.length === 1 ? volumes[0] : volumes, expected: [200, 201, 202] });
-        logLine(`CREATE : ${volumes.length} volume${volumes.length === 1 ? "" : "s"} prepared on ${hostName(selectedHost)}`);
-      }
-      const containerPayload = containerCreatePayloadFromForm(data, images[0].id);
-      const { payload } = await client.request("POST", "/api/plugins/docker/containers/", { body: containerPayload, expected: [200, 201, 202] });
-      const container = Array.isArray(payload) ? payload[0] : payload;
-      logLine(`CREATE : container ${containerPayload.name} created on ${hostName(selectedHost)}`);
-      if (createConfigureDelayMs > 0) await delay(createConfigureDelayMs);
-      const containerConfig = containerConfigPayloadFromForm(data, container.id);
-      await client.request("PATCH", "/api/plugins/docker/containers/", { body: [containerConfig] });
-      logLine(`CREATE : container ${containerPayload.name} configured on ${hostName(selectedHost)} env=${containerConfig.env.length} labels=${containerConfig.labels.length} mounts=${containerConfig.mounts.length}`);
-      if (createRecreateDelayMs > 0) await delay(createRecreateDelayMs);
-      await waitForContainerConfigured(client, container.id, `${hostName(container)}/${valueText(container.display || container.name)}`);
-      const ready = await requestContainerOperation(client, container, "recreate", "CREATE");
-      if (isOrderRequest && ready) {
-        try {
-          await sendOrderReadyEmail(data, authUser.email || "");
-        } catch (error) {
-          logLine(`EMAIL : ready notification failed for ${authUser.email || ""} ${error.message || "smtp error"}`);
-        }
-        updateOrderInstanceStatus(req, orderProfile, data.instance || "", "ready");
-      } else if (isOrderRequest) {
-        updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
-      }
+      await createInstance(req, data, operationContext);
     } catch (error) {
       if (isOrderRequest) updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
       throw error;
@@ -933,7 +1019,7 @@ app.post("/restart", (req, res) => {
     if (hostFilter.host_id === "__none__") return logLine(`${logPrefix} : no Docker hosts found with tag ${data.tag}`);
     let containers = [];
     if (data.restart_mode === "instance") {
-      containers = await client.list("/api/plugins/docker/containers/", { name: instanceShort(data.instance), ...hostFilter });
+      containers = exactContainerNameMatches(await client.list("/api/plugins/docker/containers/", { name: instanceShort(data.instance), ...hostFilter }), data.instance);
     } else {
       const images = await client.list("/api/plugins/docker/images/", { name: data.image, version: data.restart_version, limit: 200, ...hostFilter });
       for (const image of images) containers.push(...await client.list("/api/plugins/docker/containers/", { image_id: image.id, limit: 200 }));
@@ -948,7 +1034,7 @@ app.post("/delete", (req, res) => {
   asyncOperation(res, async () => {
     const client = new NetBoxClient(data);
     const hostFilter = await hostIdQuery(client, data.tag);
-    const matches = await client.list("/api/plugins/docker/containers/", { name: instanceShort(data.instance), ...hostFilter });
+    const matches = exactContainerNameMatches(await client.list("/api/plugins/docker/containers/", { name: instanceShort(data.instance), ...hostFilter }), data.instance);
     if (matches.length !== 1) return logLine(`DELETE : cannot delete ${instanceShort(data.instance)}, expected 1 container got ${matches.length}`);
     const container = matches[0];
     if (isContainerRunning(container)) {
@@ -990,6 +1076,7 @@ module.exports = {
   app,
   asArray,
   authUserFromRequest,
+  bindPayloadsFromForm,
   containerConfigPayloadFromForm,
   containerCreatePayloadFromForm,
   hostMatchesTag,

@@ -220,6 +220,7 @@ body {
 
 .main {
   padding: 32px;
+  min-width: 0;
 }
 
 .page-header {
@@ -388,6 +389,10 @@ h2 {
   align-items: start;
 }
 
+.content-grid > * {
+  min-width: 0;
+}
+
 .card {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -397,6 +402,7 @@ h2 {
 
 .form-card,
 .report-card,
+.workflow-card,
 .logs-card {
   padding: 24px;
   height: 100%;
@@ -411,7 +417,77 @@ h2 {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
+}
+
+.workflow-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.workflow-card .card-title-row {
+  align-items: center;
+}
+
+.workflow-card .workflow-actions .btn {
+  min-width: 132px;
+}
+
+.workflow-card .report-table {
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.workflow-card .report-table th,
+.workflow-card .report-table td {
+  overflow-wrap: anywhere;
+}
+
+.workflow-card .report-table th:first-child,
+.workflow-card .report-table td:first-child {
+  width: 68px;
+  text-align: center;
+}
+
+.workflow-step-status {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--button-soft);
+  color: var(--button-soft-text);
+  font-size: 0.9rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.workflow-step-status-running {
+  color: var(--primary);
+  border-color: rgba(36, 107, 254, 0.24);
+  background: rgba(36, 107, 254, 0.10);
+  animation: workflow-status-spin 1s linear infinite;
+}
+
+.workflow-step-status-done {
+  color: var(--success);
+  border-color: rgba(22, 163, 74, 0.24);
+  background: var(--success-soft);
+}
+
+.workflow-step-status-failed {
+  color: var(--danger);
+  border-color: rgba(220, 38, 38, 0.24);
+  background: var(--danger-soft);
+}
+
+@keyframes workflow-status-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .log-tools {
@@ -848,6 +924,66 @@ h2 {
   gap: 10px;
 }
 
+.bind-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 72px 44px;
+}
+
+.mini-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--field-bg);
+  color: var(--button-soft-text);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.mini-check input {
+  margin: 0;
+}
+
+.mini-toggle {
+  position: relative;
+  min-width: 58px;
+  padding: 0 10px 0 30px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.mini-toggle input {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  opacity: 0;
+}
+
+.mini-toggle::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+}
+
+.mini-toggle:has(input:checked) {
+  color: var(--primary);
+  border-color: rgba(36, 107, 254, 0.28);
+  background: rgba(36, 107, 254, 0.08);
+}
+
+.mini-toggle:has(input:checked)::before {
+  border-color: var(--primary);
+  background: var(--primary);
+  box-shadow: inset 0 0 0 3px var(--panel);
+}
+
 .icon-btn {
   width: 44px;
   height: 44px;
@@ -951,7 +1087,8 @@ h2 {
 }
 
 .content-grid:has(.logs-card.fullscreen) .form-card,
-.content-grid:has(.logs-card.fullscreen) .report-card {
+.content-grid:has(.logs-card.fullscreen) .report-card,
+.content-grid:has(.logs-card.fullscreen) .workflow-card {
   display: none;
 }
 
@@ -1008,6 +1145,59 @@ h2 {
 .modal-header h3 {
   margin: 0;
   font-size: 1.15rem;
+}
+
+.modal-field {
+  display: grid;
+  gap: 6px;
+  margin-top: 16px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.modal-field select {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  background: var(--field-bg);
+}
+
+.modal-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 10px;
+  color: var(--text);
+  font-weight: 800;
+}
+
+.import-tabs {
+  display: inline-flex;
+  gap: 4px;
+  margin-top: 16px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--button-soft);
+}
+
+.import-tab {
+  min-height: 34px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 14px;
+  background: transparent;
+  color: var(--button-soft-text);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.import-tab.active {
+  background: var(--panel);
+  color: var(--primary);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
 }
 
 .modal-textarea {
@@ -1174,6 +1364,44 @@ body.order-page .order-status {
   font-size: 1.05rem;
   font-weight: 700;
   text-align: center;
+}
+
+body.order-page .order-status.has-action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+body.order-page .order-status-home {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 0 20px;
+  border: 1px solid rgba(22, 101, 52, 0.22);
+  border-radius: 999px;
+  color: #14532d;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 10px 22px rgba(22, 101, 52, 0.12);
+  text-decoration: none;
+}
+
+body.order-page .order-status-home::before {
+  content: "←";
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+body.order-page .order-status-home:hover {
+  background: #ffffff;
+  box-shadow: 0 12px 26px rgba(22, 101, 52, 0.18);
+}
+
+body.order-page .order-status-home:focus-visible {
+  outline: 3px solid rgba(22, 163, 74, 0.26);
+  outline-offset: 3px;
 }
 
 body.order-page .order-status.hidden {
@@ -1401,7 +1629,7 @@ body.order-page #orderCancelBtn {
   }
 
   .nav {
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+    grid-template-columns: repeat(8, minmax(0, 1fr));
   }
 
   .content-grid {
@@ -1469,8 +1697,35 @@ body.order-page #orderCancelBtn {
     grid-template-columns: 1fr;
   }
 
+  .workflow-card .card-title-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .workflow-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .workflow-card .workflow-actions .btn {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .workflow-card .report-table th,
+  .workflow-card .report-table td {
+    padding: 10px 8px;
+    font-size: 0.76rem;
+  }
+
   .env-row,
   .repeat-row {
+    grid-template-columns: 1fr;
+  }
+
+  .bind-row {
     grid-template-columns: 1fr;
   }
 
