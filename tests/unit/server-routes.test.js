@@ -356,6 +356,166 @@ function rejectNextMatchingNetBoxFetch(fetchMock, predicate, error) {
   });
 }
 
+function setupOrderWorkflowNetBoxFetch(fetchMock) {
+  const calls = [];
+  const containers = new Map();
+  let nextContainerId = 31;
+  let dnsRecordCreated = false;
+
+  fetchMock.mockImplementation(async (url, options = {}) => {
+    const parsed = new URL(String(url));
+    const method = options.method || "GET";
+    const body = options.body ? JSON.parse(options.body) : undefined;
+    const call = { method, path: parsed.pathname, query: Object.fromEntries(parsed.searchParams.entries()), body };
+    calls.push(call);
+
+    if (parsed.pathname === "/api/plugins/docker/hosts/" && method === "GET") {
+      return jsonResponse({
+        count: 2,
+        results: [
+          { id: 1, name: "host-a", display: "host-a", tags: [{ slug: "prod" }] },
+          { id: 2, name: "host-b", display: "host-b", tags: [{ slug: "other" }] },
+        ],
+      });
+    }
+
+    if (parsed.pathname === "/api/plugins/docker/containers/" && method === "GET") {
+      if (parsed.searchParams.get("name") === "tiles-order") {
+        return jsonResponse({
+          count: 1,
+          results: [
+            {
+              id: 31,
+              name: "tiles-order",
+              display: "tiles-order",
+              host: { id: 1, display: "host-a" },
+              image: { id: 10 },
+              state: "running",
+              status: "running",
+              operation: "none",
+              mounts: [
+                { volume: { id: 41, name: "tiles-order-data" }, source: "/data" },
+              ],
+              network_settings: [{ network: { name: "traefik-public" } }],
+            },
+          ],
+        });
+      }
+      return jsonResponse({ count: containers.size, results: [...containers.values()] });
+    }
+
+    if (parsed.pathname === "/api/plugins/docker/images/" && method === "GET") {
+      return jsonResponse({
+        count: 1,
+        results: [
+          { id: 10, name: "saashup/tile", version: "v2.0.0", host: { id: Number(parsed.searchParams.get("host_id") || 1), display: "host-a" } },
+        ],
+      });
+    }
+
+    if (parsed.pathname === "/api/plugins/cloudflare/dns/accounts/" && method === "GET") {
+      expect(parsed.searchParams.get("name")).toBe("example.com");
+      return jsonResponse({ count: 1, results: [{ id: 51, name: "example.com" }] });
+    }
+
+    if (parsed.pathname === "/api/plugins/cloudflare/dns/records/" && method === "POST") {
+      dnsRecordCreated = true;
+      expect(body).toMatchObject({
+        zone: 51,
+        name: "tiles-order.example.com",
+        type: "CNAME",
+        content: "host-a.example.com",
+        proxied: true,
+      });
+      return jsonResponse({ id: 61, ...body }, 201);
+    }
+
+    if (parsed.pathname === "/api/plugins/docker/volumes/" && method === "POST") {
+      expect(body).toEqual({ host: 1, name: "tiles-order-data" });
+      return jsonResponse({ id: 41, ...body }, 201);
+    }
+
+    if (parsed.pathname === "/api/plugins/docker/containers/" && method === "POST") {
+      expect(body).toMatchObject({
+        host: 1,
+        name: "tiles-order",
+        image: 10,
+        restart_policy: "unless-stopped",
+      });
+      const container = {
+        id: nextContainerId++,
+        name: body.name,
+        display: body.name,
+        host: { id: body.host, display: "host-a" },
+        image: { id: body.image },
+        state: "created",
+        status: "created",
+        operation: "none",
+      };
+      containers.set(container.id, container);
+      return jsonResponse(container, 201);
+    }
+
+    if (parsed.pathname === "/api/plugins/docker/containers/" && method === "PATCH") {
+      if (body.some((item) => item.id === 31 && !item.operation)) {
+        expect(itemWithId(body, 31)).toMatchObject({
+          host: 1,
+          ports: [{ public_port: -1, private_port: 8080, type: "tcp" }],
+          mounts: [{ source: "/data", volume: { host: 1, name: "tiles-order-data" }, read_only: false }],
+        });
+        expect(itemWithId(body, 31).env).toEqual(expect.arrayContaining([
+          { var_name: "APP_ENV", value: "production" },
+          { var_name: "SAASHUP_OWNER", value: "buyer@example.com" },
+        ]));
+        expect(itemWithId(body, 31).labels).toEqual(expect.arrayContaining([
+          { key: "traefik.enable", value: "true" },
+          { key: "custom.label", value: "custom-value" },
+        ]));
+      }
+      if (body.some((item) => item.id === 31 && item.operation === "recreate")) {
+        const container = containers.get(31);
+        containers.set(31, { ...container, state: "running", status: "running", operation: "none" });
+      }
+      if (body.some((item) => item.id === 31 && item.operation === "stop")) {
+        const container = containers.get(31) || {};
+        containers.set(31, { ...container, state: "exited", status: "exited", operation: "none" });
+      }
+      return jsonResponse({}, 200);
+    }
+
+    if (parsed.pathname === "/api/plugins/docker/containers/31/" && method === "GET") {
+      return jsonResponse(containers.get(31) || { id: 31, state: "running", status: "running", operation: "none" });
+    }
+
+    if (parsed.pathname === "/api/plugins/docker/containers/31/" && method === "DELETE") {
+      containers.delete(31);
+      return jsonResponse({}, 204);
+    }
+
+    if (parsed.pathname === "/api/plugins/docker/volumes/41/" && method === "DELETE") {
+      return jsonResponse({}, 204);
+    }
+
+    if (parsed.pathname === "/api/plugins/cloudflare/dns/records/" && method === "GET") {
+      expect(parsed.searchParams.get("name")).toBe("tiles-order.example.com");
+      return jsonResponse({ count: dnsRecordCreated ? 1 : 0, results: dnsRecordCreated ? [{ id: 61, name: "tiles-order.example.com" }] : [] });
+    }
+
+    if (parsed.pathname === "/api/plugins/cloudflare/dns/records/61/" && method === "DELETE") {
+      dnsRecordCreated = false;
+      return jsonResponse({}, 204);
+    }
+
+    return jsonResponse({ detail: `${method} ${parsed.pathname}` }, 404);
+  });
+
+  return calls;
+}
+
+function itemWithId(items, id) {
+  return items.find((item) => item.id === id);
+}
+
 describe("server routes", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -969,6 +1129,143 @@ describe("server routes", () => {
       .expect((res) => {
         expect(res.body.detail).toContain("maximum of 2 instances");
       });
+  });
+
+  test("runs the complete order workflow with mocked NetBox API responses", async () => {
+    const { dataPath, fetchMock, request } = await loadServer({ operationTimeoutSeconds: "2" });
+    const netboxCalls = setupOrderWorkflowNetBoxFetch(fetchMock);
+    writeState(dataPath, {
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        domain: "example.com",
+        tag: "prod",
+        max_instances: 2,
+        profile: "prod",
+        config_profile: "prod",
+        owner_env_var: "SAASHUP_OWNER",
+      },
+      templates: {
+        Tiles: {
+          instance: "tiles-order",
+          dns_name: "tiles-order.example.com",
+          image: "saashup/tile",
+          version: "v2.0.0",
+          network: "traefik-public",
+          port_value: "8080",
+        },
+      },
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.get("/order").set("x-auth-request-email", "buyer@example.com").expect(200).expect((res) => {
+      expect(res.text).toContain("Order Saashup Instance");
+    });
+
+    await request.get("/order/limit")
+      .set("x-auth-request-email", "buyer@example.com")
+      .query({ profile: "prod" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toMatchObject({ profile: "prod", used: 0, max: 2, remaining: 2, reached: false, instances: [] });
+      });
+
+    await request.post("/create")
+      .set("x-auth-request-email", "buyer@example.com")
+      .send({
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        domain: "example.com",
+        tag: "prod",
+        max_instances: "2",
+        owner_env_var: "SAASHUP_OWNER",
+        profile: "prod",
+        config_profile: "prod",
+        instance: "tiles-order.example.com",
+        dns_name: "tiles-order.example.com",
+        image: "saashup/tile",
+        version: "v2.0.0",
+        network: "traefik-public",
+        port_value: "8080",
+        var_env_key: ["APP_ENV"],
+        var_env_value: ["production"],
+        label_key: ["custom.label"],
+        label_value: ["custom-value"],
+        volume_source: ["/data"],
+        volume_name: ["tiles-order-data"],
+        traefik: "true",
+        cloudflare_filter: "true",
+        order_request: "true",
+        order_template: "Tiles",
+        wait: "true",
+      })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toEqual({ status: "finished" });
+      });
+
+    await request.get("/order/limit")
+      .set("x-auth-request-email", "buyer@example.com")
+      .query({ profile: "prod" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toMatchObject({ used: 1, max: 2, remaining: 1, reached: false });
+        expect(res.body.instances).toEqual([
+          expect.objectContaining({
+            instance: "tiles-order.example.com",
+            dns_name: "tiles-order.example.com",
+            template: "Tiles",
+            image: "saashup/tile",
+            version: "v2.0.0",
+            status: "ready",
+          }),
+        ]);
+      });
+
+    expect(readState(dataPath).logs).toContain("CREATE : Cloudflare DNS record requested for tiles-order.example.com -> host-a.example.com status=201");
+    expect(readState(dataPath).logs).toContain("CREATE : container tiles-order configured on host-a");
+    expect(readState(dataPath).logs).toContain("CREATE : host-a/tiles-order recreate requested");
+
+    await request.post("/delete")
+      .set("x-auth-request-email", "buyer@example.com")
+      .send({
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        tag: "prod",
+        instance: "tiles-order.example.com",
+        profile: "prod",
+        config_profile: "prod",
+        delete_volumes: "true",
+        order_request: "true",
+      })
+      .expect(202);
+
+    await vi.waitFor(() => expect(readState(dataPath).order_counts["buyer@example.com"].prod).toBe(0));
+    await vi.waitFor(() => expect(readState(dataPath).order_instances["buyer@example.com"].prod).toEqual([]));
+
+    expect(netboxCalls.map((call) => `${call.method} ${call.path}`)).toEqual([
+      "GET /api/plugins/docker/hosts/",
+      "GET /api/plugins/docker/containers/",
+      "GET /api/plugins/docker/images/",
+      "GET /api/plugins/cloudflare/dns/accounts/",
+      "POST /api/plugins/cloudflare/dns/records/",
+      "POST /api/plugins/docker/volumes/",
+      "POST /api/plugins/docker/containers/",
+      "PATCH /api/plugins/docker/containers/",
+      "GET /api/plugins/docker/containers/31/",
+      "PATCH /api/plugins/docker/containers/",
+      "GET /api/plugins/docker/containers/31/",
+      "GET /api/plugins/docker/hosts/",
+      "GET /api/plugins/docker/containers/",
+      "PATCH /api/plugins/docker/containers/",
+      "GET /api/plugins/docker/containers/31/",
+      "DELETE /api/plugins/docker/containers/31/",
+      "DELETE /api/plugins/docker/volumes/41/",
+      "GET /api/plugins/cloudflare/dns/records/",
+      "DELETE /api/plugins/cloudflare/dns/records/61/",
+    ]);
   });
 
   test("reserves order slots immediately when create is accepted", async () => {

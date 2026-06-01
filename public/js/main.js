@@ -2662,6 +2662,7 @@ function applyCreateTemplate(template) {
   setAction("create");
 
   const templateProfile = template.config_profile || template.profile || "";
+  const switchesProfile = Boolean(templateProfile && templateProfile !== currentConfigProfile && Object.hasOwn(configProfiles, templateProfile));
   if (templateProfile && Object.hasOwn(configProfiles, templateProfile)) {
     applyProfileToFields(templateProfile);
     imageRecords = [];
@@ -2677,8 +2678,8 @@ function applyCreateTemplate(template) {
   templateVersionOverride = template.version || "";
   generatedCreateInstanceName = "";
   generatedCreateDnsName = "";
-  setFieldValue("instance", template.instance || "");
-  if (!template.instance) ensureRandomCreateInstanceName();
+  setFieldValue("instance", switchesProfile ? "" : (template.instance || ""));
+  if (switchesProfile || !template.instance) ensureRandomCreateInstanceName();
   setFieldValue("dns_name", template.dns_name || "");
   syncCreateDnsName({ force: !template.dns_name });
   setFieldValue("image", template.image || "");

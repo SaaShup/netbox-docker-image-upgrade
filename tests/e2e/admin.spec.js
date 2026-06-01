@@ -451,13 +451,14 @@ test("report menu shows image usage for one config", async ({ page }) => {
   let releaseFirstReport;
 
   await openAdmin(page, config);
-  await expect(page.locator(".sidebar .nav-item")).toHaveText([
+  await expect(page.locator(".sidebar .nav-label")).toHaveText([
     "Config",
     "Create",
     "Upgrade",
     "Operate",
     "Delete",
     "Refresh",
+    "Workflow",
     "Report",
   ]);
   await page.route("**/report/images?**", async (route) => {
