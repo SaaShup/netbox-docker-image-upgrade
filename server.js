@@ -142,6 +142,40 @@ function currentUsage(req, profile) {
   return { profile, used, max, remaining: Math.max(0, max - used), reached: used >= max, instances: userInstances };
 }
 
+function orderTemplateEnabled(value, defaultValue = true) {
+  if (value === undefined || value === null || value === "") return defaultValue;
+  if (typeof value === "boolean") return value;
+  return !["false", "0", "off", "no", "disabled"].includes(String(value).trim().replace(/;+$/, "").toLowerCase());
+}
+
+function orderTemplateEntry(name) {
+  const requestedName = String(name || "").trim();
+  if (!requestedName) return null;
+
+  const templates = plainObject(readState().templates);
+  if (Object.hasOwn(templates, requestedName)) return { name: requestedName, template: plainObject(templates[requestedName]) };
+
+  const match = Object.keys(templates).find((templateName) => templateName.toLowerCase() === requestedName.toLowerCase());
+  return match ? { name: match, template: plainObject(templates[match]) } : null;
+}
+
+function validateOrderTemplate(req, res) {
+  const requestedName = String(req.body.order_template || "").trim();
+  if (!requestedName) return true;
+
+  const entry = orderTemplateEntry(requestedName);
+  if (!entry) {
+    return true;
+  }
+
+  if (!orderTemplateEnabled(entry.template.saashup_enabled, true)) {
+    res.status(403).json({ code: "template_disabled", detail: `Template "${entry.name}" is disabled for orders` });
+    return false;
+  }
+
+  return true;
+}
+
 function recordOrderInstance(req, profile, data) {
   writeState((state) => {
     const userKey = userOrderKey(req);
@@ -930,6 +964,7 @@ app.post("/create", async (req, res) => {
   const orderProfile = data.profile || data.config_profile || "";
   const usage = currentUsage(req, orderProfile);
   const isOrderRequest = req.body.order_request === "true";
+  if (isOrderRequest && !validateOrderTemplate(req, res)) return;
   if (isOrderRequest && usage.reached) {
     return res.status(429).json({ code: "max_instances_reached", detail: `You have reached your maximum of ${usage.max} instance${usage.max === 1 ? "" : "s"} for this config.`, max_instances: usage.max, used_instances: usage.used });
   }

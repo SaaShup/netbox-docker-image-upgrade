@@ -2479,6 +2479,32 @@ describe("server routes", () => {
     expect(readState(dataPath).logs).toContain("CREATE : host-a/workflow-step ready status=running operation=none");
   });
 
+  test("create wait mode returns failed when recreate never becomes ready", async () => {
+    const { dataPath, fetchMock, request } = await loadServer({ operationTimeoutSeconds: "0" });
+    setupNetBoxFetch(fetchMock);
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    const response = await request.post("/create").send({
+      instance: "workflow-timeout.example.com",
+      image: "saashup/tile",
+      version: "v2.0.0",
+      port_value: "8080",
+      var_env_key: ["APP_ENV"],
+      var_env_value: ["production"],
+      label_key: ["custom.label"],
+      label_value: ["custom-value"],
+      wait: "true",
+    }).expect(422);
+
+    expect(response.body).toEqual({ status: "failed" });
+    expect(readState(dataPath).logs).toContain("timeout after 0s");
+  });
+
   test("create wait mode reports failures and marks order failed", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock);
@@ -2510,6 +2536,108 @@ describe("server routes", () => {
     expect(readState(dataPath).order_instances["workflow@example.com"]?.prod?.[0]).toEqual(
       expect.objectContaining({ instance: "broken.example.com", status: "failed" }),
     );
+  });
+
+  test("order create rejects disabled templates before reserving usage", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock);
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 3 },
+      templates: {
+        Disabled: { image: "saashup/tile", saashup_enabled: "false;" },
+      },
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.post("/create")
+      .set("x-auth-request-email", "buyer@example.com")
+      .send({
+        instance: "disabled.example.com",
+        image: "saashup/tile",
+        version: "v2.0.0",
+        port_value: "8080",
+        order_request: "true",
+        order_template: "disabled",
+        profile: "prod",
+      })
+      .expect(403)
+      .expect((res) => {
+        expect(res.body).toMatchObject({ code: "template_disabled", detail: 'Template "Disabled" is disabled for orders' });
+      });
+
+    expect(readState(dataPath).order_counts).toEqual({});
+    expect(readState(dataPath).order_instances).toEqual({});
+    expect(fetchMock.mock.calls.some(([url]) => new URL(String(url)).pathname === "/api/plugins/docker/containers/")).toBe(false);
+  });
+
+  test("create wait mode reports failures without an order reservation", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock);
+    rejectNextMatchingNetBoxFetch(
+      fetchMock,
+      (url, options) => url.pathname === "/api/plugins/docker/hosts/" && (options.method || "GET") === "GET",
+      Object.assign(new Error("wait create failed"), { statusCode: 502, payload: { detail: "bad gateway" } }),
+    );
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 3 },
+      templates: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    const response = await request.post("/create").send({
+      instance: "broken-no-order.example.com",
+      image: "saashup/tile",
+      version: "v2.0.0",
+      port_value: "8080",
+      wait: "true",
+    }).expect(502);
+
+    expect(response.body).toMatchObject({ detail: "wait create failed", payload: { detail: "bad gateway" } });
+    expect(readState(dataPath).order_instances).toEqual({});
+    expect(readState(dataPath).logs).toContain("ERROR : wait create failed");
+  });
+
+  test("async create failures mark reserved order instances failed", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock);
+    rejectNextMatchingNetBoxFetch(
+      fetchMock,
+      (url, options) => url.pathname === "/api/plugins/docker/containers/" && (options.method || "GET") === "POST",
+      Object.assign(new Error("async create failed"), { statusCode: 502, payload: { detail: "boom" } }),
+    );
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 2 },
+      templates: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.post("/create")
+      .set("x-auth-request-email", "async@example.com")
+      .send({
+        instance: "async-failure.example.com",
+        image: "saashup/tile",
+        version: "v2.0.0",
+        port_value: "8080",
+        order_request: "true",
+        order_template: "Async Broken",
+        profile: "prod",
+      })
+      .expect(202);
+
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("ERROR : async create failed"));
+    expect(readState(dataPath).order_instances["async@example.com"].prod).toEqual([
+      expect.objectContaining({
+        instance: "async-failure.example.com",
+        template: "Async Broken",
+        status: "failed",
+      }),
+    ]);
   });
 
   test("marks reserved order instances failed when NetBox create fails after reservation", async () => {
