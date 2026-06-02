@@ -668,7 +668,7 @@ describe("server routes", () => {
         max_instances: "3",
         owner_env_var: "   ",
         profile: "prod",
-        profiles: JSON.stringify({ prod: { tag: "tile" } }),
+        profiles: JSON.stringify({ prod: { tag: "tile", saashup_default: true }, dev: { tag: "guide", saashup_default: true } }),
       })
       .expect(200)
       .expect((res) => {
@@ -679,6 +679,8 @@ describe("server routes", () => {
       expect(res.body.owner_env_var).toBe("SAASHUP_OWNER");
       expect(res.body.profile).toBe("prod");
       expect(res.body.customer_name).toBe("CuriooCity");
+      expect(JSON.parse(res.body.profiles).prod.saashup_default).toBe(true);
+      expect(JSON.parse(res.body.profiles).dev.saashup_default).toBeUndefined();
     });
     await request.post("/templates").send({ tile: { image: "saashup/tile" } }).expect(200);
     await request.get("/templates").expect(200).expect((res) => {
@@ -732,6 +734,60 @@ describe("server routes", () => {
     });
     await request.delete("/config").expect(200);
     expect(readState(dataPath).config).toEqual({});
+  });
+
+  test("stores template creator email and preserves it on edits", async () => {
+    const { dataPath, request } = await loadServer();
+
+    await request
+      .post("/templates")
+      .set("x-auth-request-email", "creator@example.com")
+      .send({ tile: { image: "saashup/tile" } })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.tile).toMatchObject({
+          image: "saashup/tile",
+          creator_email: "creator@example.com",
+        });
+      });
+
+    await request
+      .post("/templates")
+      .set("x-auth-request-email", "editor@example.com")
+      .send({
+        tile: { image: "saashup/tile", version: "v2" },
+        guide: { image: "saashup/guide" },
+      })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.tile).toMatchObject({
+          version: "v2",
+          creator_email: "creator@example.com",
+        });
+        expect(res.body.guide).toMatchObject({
+          image: "saashup/guide",
+          creator_email: "editor@example.com",
+        });
+      });
+
+    await request
+      .post("/templates")
+      .set("x-auth-request-email", "editor@example.com")
+      .send({
+        tile: { image: "saashup/tile", version: "v2", creator_email: "owner@example.com" },
+        guide: { image: "saashup/guide" },
+      })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.tile).toMatchObject({
+          creator_email: "owner@example.com",
+        });
+      });
+
+    expect(readState(dataPath).templates).toMatchObject({
+      tile: { image: "saashup/tile", version: "v2", creator_email: "owner@example.com" },
+      guide: { image: "saashup/guide", creator_email: "editor@example.com" },
+    });
   });
 
   test("calls NetBox for read endpoints", async () => {
@@ -1188,6 +1244,11 @@ describe("server routes", () => {
     await request.get("/order").set("x-auth-request-email", "buyer@example.com").expect(200).expect((res) => {
       expect(res.text).toContain("Order Saashup Instance");
     });
+    await request.get("/enroll.html").set("x-auth-request-email", "buyer@example.com").expect(200).expect((res) => {
+      expect(res.text).toContain("Enroll Saashup Instance");
+      expect(res.text).toContain('id="submitBtn" disabled');
+      expect(res.headers["cache-control"]).toContain("no-store");
+    });
 
     await request.get("/order/limit")
       .set("x-auth-request-email", "buyer@example.com")
@@ -1537,6 +1598,13 @@ describe("server routes", () => {
     await request.get("/admin").expect(302).expect((res) => {
       expect(res.headers.location).toContain("/login?rd=%2Fadmin");
     });
+    await request.post("/create")
+      .set("Accept", "application/json")
+      .send({ image: "saashup/tile", version: "v2.0.0", port_value: "3000" })
+      .expect(401)
+      .expect((res) => {
+        expect(res.body.detail).toBe("login required");
+      });
     await request.post("/dockerhub/prod")
       .send({ push_data: { tag: "v2.0.0" }, repository: { repo_name: "saashup/tile" } })
       .expect(202)

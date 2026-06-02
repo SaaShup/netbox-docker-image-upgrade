@@ -102,7 +102,17 @@
       <section class="content-grid">
         <div class="card form-card">
           <div class="card-header">
-            <h3 id="form-title">Config</h3>
+            <div class="card-title-row">
+              <h3 id="form-title">Config</h3>
+              <label class="template-creator hidden" id="templateCreatorEmailWrap">
+                <span>Creator</span>
+                <input type="email" id="templateCreatorEmail" autocomplete="email" placeholder="creator email">
+              </label>
+              <label class="config-default hidden" id="configDefaultWrap">
+                <input type="checkbox" id="configDefaultInput">
+                <span>Default config</span>
+              </label>
+            </div>
             <p id="form-description">Save the URL and token used by the automation.</p>
           </div>
 
