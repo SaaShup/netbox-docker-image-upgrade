@@ -215,6 +215,52 @@ test("config profile shows green status when synced to server", async ({ page })
   await expect(page.locator("#profileSyncWarning")).toHaveAttribute("aria-label", "Profile synced with server.");
 });
 
+test("config profile default flag allows only one default", async ({ page }) => {
+  await openAdmin(page, {});
+
+  await page.evaluate(() => {
+    localStorage.setItem("config_profiles", JSON.stringify({
+      prod: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        tag: "prod",
+        saashup_default: true,
+      },
+      staging: {
+        netbox: "https://staging-netbox.example.com",
+        token: "secret",
+        tag: "staging",
+      },
+      empty: {
+        netbox: "https://empty-netbox.example.com",
+        token: "secret",
+        tag: "empty",
+      },
+    }));
+    localStorage.setItem("current_config_profile", "prod");
+  });
+  await page.reload();
+
+  await expect(page.locator("#configDefaultWrap")).toBeVisible();
+  await page.locator("#config_profile").selectOption("prod");
+  await expect(page.locator("#configDefaultInput")).toBeChecked();
+  await expect(page.locator("#configDefaultInput")).toBeEnabled();
+
+  await page.locator("#config_profile").selectOption("staging");
+  await expect(page.locator("#configDefaultInput")).not.toBeChecked();
+  await expect(page.locator("#configDefaultInput")).toBeDisabled();
+
+  await page.evaluate(() => {
+    const profiles = JSON.parse(localStorage.getItem("config_profiles"));
+    delete profiles.prod.saashup_default;
+    localStorage.setItem("config_profiles", JSON.stringify(profiles));
+  });
+  await page.reload();
+  await page.locator("#config_profile").selectOption("empty");
+  await expect(page.locator("#configDefaultInput")).not.toBeChecked();
+  await expect(page.locator("#configDefaultInput")).toBeEnabled();
+});
+
 test("config page can send a test email when smtp and owner email are configured", async ({ page }) => {
   let emailBody = "";
   await page.route("**/mail-settings", async (route) => {
@@ -721,6 +767,13 @@ test("create form preloads a profile-based random instance name on page load", a
 
   await openAdmin(page, {
     profile: "production",
+    config_profile: "production",
+    netbox: "https://netbox.example.com",
+    token: "secret",
+    proxy: "",
+    domain: "example.com",
+    tag: "production",
+    max_instances: 1,
     profiles: JSON.stringify({
       production: {
         netbox: "https://netbox.example.com",
@@ -1577,6 +1630,8 @@ test("create form can save and load templates", async ({ page }) => {
   await expect(page.locator("#orderTemplateBtn")).toHaveText("Order template");
   await expect(page.locator("#orderTemplateBtn")).toHaveClass(/btn-primary/);
   expect(imageRequestCount).toBeGreaterThanOrEqual(imageRequestsBeforeLoad);
+  await expect(page.locator("#templateCreatorEmailWrap")).toBeVisible();
+  await expect(page.locator("#templateCreatorEmail")).toHaveValue("");
   await expect(page.locator("#network")).toHaveValue("traefik-net");
   await expect(page.locator("#instance")).toHaveValue("guide-app");
   await expect(page.locator("#image")).toHaveValue("saashup/guide");
@@ -1588,6 +1643,17 @@ test("create form can save and load templates", async ({ page }) => {
   await expect(page.locator("#volume_source")).toHaveValue("/app/data");
   const loadedInstance = await page.locator("#instance").inputValue();
   await expect(page.locator("#volume_name")).toHaveValue(`${loadedInstance}-data`);
+
+  await page.locator("#templateCreatorEmail").fill("creator@example.com");
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toBe("Template name");
+    expect(dialog.defaultValue()).toBe("Guide");
+    await dialog.accept("Guide");
+  });
+  await page.locator("#saveTemplateBtn").click();
+  await expect(page.locator("#notif")).toContainText('Template "Guide" saved');
+  const updatedTemplate = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")).Guide);
+  expect(updatedTemplate.creator_email).toBe("creator@example.com");
 
   page.once("dialog", async (dialog) => {
     expect(dialog.message()).toBe("Template name");
@@ -1623,7 +1689,12 @@ test("create template order button reflects disabled order templates", async ({ 
   });
 
   await page.getByRole("link", { name: "Create" }).click();
+  await expect(page.locator("#templateCreatorEmailWrap")).toBeVisible();
+  await expect(page.locator("#templateCreatorEmail")).toBeDisabled();
   await page.locator("#templateSelect").selectOption("Guide App");
+  await expect(page.locator("#templateCreatorEmailWrap")).toBeVisible();
+  await expect(page.locator("#templateCreatorEmail")).toHaveValue("");
+  await expect(page.locator("#templateCreatorEmail")).toBeEnabled();
   await expect(page.locator("#saashup_enabled")).not.toBeChecked();
   await expect(page.locator("#orderTemplateBtn")).toBeDisabled();
   await expect(page.locator("#orderTemplateBtn")).toHaveText("Template disabled");
@@ -1661,6 +1732,252 @@ test("create template order button opens the selected order page", async ({ page
   await page.locator("#orderTemplateBtn").click();
 
   await expect(page).toHaveURL(/\/order\?template=Guide%20App$/);
+});
+
+test("enroll page imports docker run and submits creation", async ({ page }) => {
+  let createBody = "";
+
+  await page.route("**/session/user", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ email: "ada@example.com", user: "ada", name: "Ada Lovelace" }),
+    });
+  });
+
+  await page.route("**/create", async (route) => {
+    createBody = route.request().postData() || "";
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "production",
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "example.com",
+        tag: "production",
+        saashup_default: true,
+      },
+    }),
+  }, {}, [
+    { instance: "guide-app", networks: ["bridge", "traefik-net"] },
+  ], undefined, "/enroll.html");
+
+  await expect(page).toHaveURL(/\/enroll\.html$/);
+  await expect(page.locator("#authUser")).toBeVisible();
+  await expect(page.locator("#dockerRunApplyBtn")).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Back to home" })).toHaveClass(/btn-secondary/);
+  await expect(page.getByRole("link", { name: "Back to home" })).toHaveAttribute("href", "/");
+  await expect(page.locator("#submitBtn")).toBeDisabled();
+  await expect(page.locator("#importProfileSelect")).toBeHidden();
+  await expect(page.locator("#config_profile")).toHaveValue("production");
+
+  await page.locator("#dockerRunInput").fill([
+    "docker run -d --name guide-app --network mgmt",
+    "-e APP_ENV=production -p 8080:3000",
+    "-v guide-data:/app/data saashup/guide:v1.2.3",
+  ].join(" "));
+  await expect(page.locator("#submitBtn")).toBeEnabled();
+  await page.locator("#submitBtn").click();
+
+  await expect.poll(() => createBody).toContain("image=saashup%2Fguide");
+  await expect(page.locator("#enrollSummary")).toContainText("Docker run imported");
+  expect(createBody).toContain("version=v1.2.3");
+  expect(createBody).toContain("instance=guide-app");
+  expect(createBody).toContain("dns_name=guide-app.example.com");
+  expect(createBody).toContain("network=traefik-net");
+  expect(createBody).toContain("var_env_key=APP_ENV");
+  expect(createBody).toContain("var_env_value=production");
+  expect(createBody).toContain("port_value=3000");
+  expect(createBody).toContain("profile=production");
+  await expect(page.locator("#notif")).toContainText("Creation requested for guide-app.example.com.");
+});
+
+test("enroll page keeps submit disabled before import content", async ({ page }) => {
+  await page.route("**/session/user", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ email: "ada@example.com", user: "ada", name: "Ada Lovelace" }),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "production",
+    config_profile: "production",
+    netbox: "https://netbox.example.com",
+    token: "secret",
+    proxy: "",
+    domain: "example.com",
+    tag: "production",
+    max_instances: 1,
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "example.com",
+        tag: "production",
+        saashup_default: true,
+      },
+    }),
+  }, {}, [], undefined, "/enroll");
+
+  await expect(page).toHaveURL(/\/enroll$/);
+  await expect(page.locator("#instanceForm")).toBeVisible();
+  await expect(page.locator("#dockerRunInput")).toHaveValue("");
+  await expect(page.locator("#submitBtn")).toBeDisabled();
+});
+
+test("enroll page hides deploy panel without a default config", async ({ page }) => {
+  await page.route("**/session/user", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ email: "ada@example.com", user: "ada", name: "Ada Lovelace" }),
+    });
+  });
+
+  await openAdmin(page, {
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "example.com",
+        tag: "production",
+      },
+    }),
+  }, {}, [], undefined, "/enroll.html");
+
+  await expect(page.locator("#instanceForm")).toBeHidden();
+  await expect(page.locator("#notif")).toContainText("You cannot deploy a new SaaS yet. Ask an administrator to configure a config.");
+});
+
+test("enroll page blocks docker compose files with multiple services", async ({ page }) => {
+  let createRequests = 0;
+
+  await page.route("**/session/user", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ email: "ada@example.com", user: "ada", name: "Ada Lovelace" }),
+    });
+  });
+
+  await page.route("**/create", async (route) => {
+    createRequests += 1;
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "production",
+    config_profile: "production",
+    netbox: "https://netbox.example.com",
+    token: "secret",
+    proxy: "",
+    domain: "example.com",
+    tag: "production",
+    max_instances: 1,
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "example.com",
+        tag: "production",
+        saashup_default: true,
+      },
+    }),
+  }, {}, [], undefined, "/enroll.html");
+
+  await page.locator("#dockerComposeTab").click();
+  await expect(page.locator("#submitBtn")).toBeDisabled();
+
+  await page.locator("#dockerComposeInput").fill([
+    "services:",
+    "  web:",
+    "    image: saashup/web:v1.0.0",
+    "    ports:",
+    "      - \"8080:3000\"",
+    "  worker:",
+    "    image: saashup/worker:v1.0.0",
+  ].join("\n"));
+  await expect(page.locator("#notif")).toContainText("Compose files on enroll must contain a single service.");
+  await expect(page.locator("#submitBtn")).toBeDisabled();
+
+  await page.locator("#dockerComposeInput").fill([
+    "services:",
+    "  web:",
+    "    image: saashup/web:v1.0.0",
+    "    ports:",
+    "      - \"8080:3000\"",
+  ].join("\n"));
+  await expect(page.locator("#submitBtn")).toBeEnabled();
+
+  await page.locator("#dockerComposeInput").fill([
+    "services:",
+    "  web:",
+    "    image: saashup/web:v1.0.0",
+    "  worker:",
+    "    image: saashup/worker:v1.0.0",
+  ].join("\n"));
+  await page.locator("#submitBtn").click({ force: true });
+  await expect(page.locator("#notif")).toContainText("Compose files on enroll must contain a single service.");
+  expect(createRequests).toBe(0);
+});
+
+test("enroll page flags multi-service compose pasted in run input", async ({ page }) => {
+  await page.route("**/session/user", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ email: "ada@example.com", user: "ada", name: "Ada Lovelace" }),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "production",
+    config_profile: "production",
+    netbox: "https://netbox.example.com",
+    token: "secret",
+    proxy: "",
+    domain: "example.com",
+    tag: "production",
+    max_instances: 1,
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "example.com",
+        tag: "production",
+        saashup_default: true,
+      },
+    }),
+  }, {}, [], undefined, "/enroll.html");
+
+  await page.locator("#dockerRunInput").fill([
+    "services:",
+    "  web:",
+    "    image: saashup/web:v1.0.0",
+    "  worker:",
+    "    image: saashup/worker:v1.0.0",
+  ].join("\n"));
+
+  await expect(page.locator("#notif")).toContainText("Compose files on enroll must contain a single service.");
+  await expect(page.locator("#submitBtn")).toBeDisabled();
 });
 
 test("order page creates an instance from the requested template", async ({ page }) => {

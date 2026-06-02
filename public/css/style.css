@@ -374,6 +374,48 @@ h2 {
   font: inherit;
 }
 
+.template-creator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.template-creator input {
+  width: 220px;
+  height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0 12px;
+  background: var(--field-bg);
+  color: var(--text);
+  font: inherit;
+  font-weight: 500;
+}
+
+.config-default {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.config-default input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+}
+
+.config-default:has(input:disabled) {
+  opacity: 0.55;
+}
+
 #orderTemplateBtn {
   margin-left: auto;
 }
@@ -1025,12 +1067,22 @@ h2 {
   padding: 0 16px;
   border-radius: 12px;
   font-weight: 800;
+  line-height: 1;
+  text-align: center;
+  text-decoration: none;
   cursor: pointer;
   transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
 }
 
-.btn:hover {
+.btn:hover:not(:disabled) {
   transform: translateY(-1px);
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+  box-shadow: none;
+  transform: none;
 }
 
 .btn-primary {
@@ -1039,7 +1091,7 @@ h2 {
   box-shadow: 0 8px 18px rgba(36, 107, 254, 0.22);
 }
 
-.btn-primary:hover {
+.btn-primary:hover:not(:disabled) {
   background: var(--primary-dark);
 }
 
@@ -1252,6 +1304,10 @@ body.order-page {
   background: var(--bg);
 }
 
+body.enroll-page {
+  background: var(--bg);
+}
+
 body.order-page .sidebar,
 body.order-page .page-header,
 body.order-page .notice,
@@ -1321,6 +1377,95 @@ body.order-page .form-actions {
 
 body.order-page .form-actions.hidden {
   display: none;
+}
+
+body.enroll-page .main {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 88px 24px 74px;
+}
+
+body.enroll-page .order-auth {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 10;
+}
+
+body.enroll-page .order-theme {
+  position: fixed;
+  top: 18px;
+  left: 18px;
+  z-index: 10;
+}
+
+body.enroll-page .order-footer {
+  position: fixed;
+  right: 24px;
+  bottom: 18px;
+  left: 24px;
+  margin: 0;
+}
+
+.enroll-card {
+  width: min(760px, 100%);
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.enroll-card .modal-field,
+.enroll-card .import-tabs,
+.enroll-card .modal-textarea,
+.enroll-summary {
+  margin-bottom: 14px;
+}
+
+.enroll-card .modal-textarea {
+  min-height: 240px;
+}
+
+.enroll-summary {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.enroll-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.enroll-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  min-width: 156px;
+  padding: 0 18px;
+}
+
+.enroll-home-btn {
+  border: 1px solid var(--border);
+  background: var(--panel-soft);
+  box-shadow: none;
+}
+
+.enroll-home-btn:hover {
+  background: var(--button-soft);
+  border-color: color-mix(in srgb, var(--primary) 24%, var(--border));
 }
 
 body.order-page .order-loading {

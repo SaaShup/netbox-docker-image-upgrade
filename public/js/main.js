@@ -1,6 +1,7 @@
 const urlParams = new URLSearchParams(window.location.search);
 const actionFromUrl = urlParams.get("action");
 const isOrderPage = document.body?.classList.contains("order-page");
+const isEnrollPage = document.body?.classList.contains("enroll-page");
 const orderTemplateName = urlParams.get("template") || "";
 
 const form = document.getElementById("instanceForm");
@@ -18,6 +19,10 @@ const importConfigFile = document.getElementById("importConfigFile");
 const clearBtn = document.getElementById("clearBtn");
 const dockerRunBtn = document.getElementById("dockerRunBtn");
 const templateSelect = document.getElementById("templateSelect");
+const templateCreatorEmailWrap = document.getElementById("templateCreatorEmailWrap");
+const templateCreatorEmail = document.getElementById("templateCreatorEmail");
+const configDefaultWrap = document.getElementById("configDefaultWrap");
+const configDefaultInput = document.getElementById("configDefaultInput");
 const loadTemplateBtn = document.getElementById("loadTemplateBtn");
 const orderTemplateBtn = document.getElementById("orderTemplateBtn");
 const saveTemplateBtn = document.getElementById("saveTemplateBtn");
@@ -28,6 +33,7 @@ const dockerRunInput = document.getElementById("dockerRunInput");
 const dockerComposeInput = document.getElementById("dockerComposeInput");
 const importProfileSelect = document.getElementById("importProfileSelect");
 const createWorkflowInput = document.getElementById("createWorkflowInput");
+const enrollSummary = document.getElementById("enrollSummary");
 const dockerRunApplyBtn = document.getElementById("dockerRunApplyBtn");
 const dockerRunCancelBtn = document.getElementById("dockerRunCancelBtn");
 const dockerRunCloseBtn = document.getElementById("dockerRunCloseBtn");
@@ -86,8 +92,10 @@ const workflowSummary = document.getElementById("workflowSummary");
 const workflowTableBody = document.getElementById("workflowTableBody");
 const runWorkflowBtn = document.getElementById("runWorkflowBtn");
 const deleteWorkflowBtn = document.getElementById("deleteWorkflowBtn");
+const enrollImportNotice = "Import a Docker run command or compose with a single service.";
+const enrollMultiComposeNotice = "Compose files on enroll must contain a single service.";
 
-let currentAction = isOrderPage ? "create" : (localStorage.getItem("current_action") || "config");
+let currentAction = (isOrderPage || isEnrollPage) ? "create" : (localStorage.getItem("current_action") || "config");
 let currentConfigProfile = localStorage.getItem("current_config_profile") || "";
 let noticeTimeout = null;
 let savedConfig = {};
@@ -735,6 +743,7 @@ function normalizedProfileForSync(profile = {}) {
     cloudflare_filter: checkboxValue(profile.cloudflare_filter, true),
     dockerhub_webhook_secret: profile.dockerhub_webhook_secret || "",
     smtp_config: smtpConfigValue(profile),
+    saashup_default: profile.saashup_default === true,
   };
 }
 
@@ -802,9 +811,9 @@ function parseStoredObject(key) {
   }
 }
 
-function loadCreateTemplates() {
-  createTemplates = normalizeCreateTemplates(parseStoredObject("create_templates"));
-  createWorkflows = normalizeCreateWorkflows(parseStoredObject("create_workflows"));
+function loadCreateTemplates({ useCache = true } = {}) {
+  createTemplates = useCache ? normalizeCreateTemplates(parseStoredObject("create_templates")) : {};
+  createWorkflows = useCache ? normalizeCreateWorkflows(parseStoredObject("create_workflows")) : {};
 
   return fetch("/templates", {
     headers: { Accept: "application/json" },
@@ -820,6 +829,12 @@ function loadCreateTemplates() {
       updateWorkflowOptions();
     })
     .catch(() => {
+      if (!useCache) {
+        createTemplates = {};
+        createWorkflows = {};
+        localStorage.removeItem("create_templates");
+        localStorage.removeItem("create_workflows");
+      }
       updateTemplateOptions();
       updateWorkflowOptions();
     });
@@ -1063,6 +1078,7 @@ function syncTemplateActions() {
   const selectedTemplate = hasTemplate ? createTemplates[templateSelect.value] : null;
   const orderEnabled = !selectedTemplate || selectedTemplate.saashup_enabled !== false;
 
+  updateTemplateCreatorEmail(selectedTemplate);
   if (loadTemplateBtn) loadTemplateBtn.disabled = !hasTemplate;
   if (deleteTemplateBtn) deleteTemplateBtn.disabled = !hasTemplate;
   if (!orderTemplateBtn) return;
@@ -1072,6 +1088,40 @@ function syncTemplateActions() {
   orderTemplateBtn.title = hasTemplate && !orderEnabled ? "This template is disabled for orders" : (hasTemplate ? "Open the order page for this template" : "Select a template before ordering");
   orderTemplateBtn.classList.toggle("btn-primary", hasTemplate && orderEnabled);
   orderTemplateBtn.classList.toggle("btn-danger-outline", !hasTemplate || !orderEnabled);
+}
+
+function defaultConfigProfileName(exceptName = "") {
+  return Object.entries(knownProfileEntries())
+    .find(([name, profile]) => name !== exceptName && profile?.saashup_default === true)?.[0] || "";
+}
+
+function updateTemplateCreatorEmail(template) {
+  if (!templateCreatorEmail || !templateCreatorEmailWrap) return;
+
+  const email = String(template?.creator_email || "").trim();
+  templateCreatorEmail.value = email;
+  templateCreatorEmail.title = email ? `Template creator: ${email}` : "Template creator email";
+  templateCreatorEmail.disabled = !template;
+  templateCreatorEmailWrap.classList.toggle("hidden", currentAction !== "create");
+}
+
+function updateConfigDefaultControl() {
+  if (!configDefaultInput || !configDefaultWrap) return;
+
+  const profileName = fieldValue("config_name") || fieldValue("config_profile") || currentConfigProfile || "";
+  const profile = profileName ? knownProfileEntries()[profileName] : null;
+  const otherDefault = defaultConfigProfileName(profileName);
+  configDefaultInput.checked = profile?.saashup_default === true;
+  configDefaultInput.disabled = Boolean(otherDefault);
+  configDefaultInput.title = otherDefault ? `Config "${profileLabel(otherDefault)}" is already default` : "";
+  configDefaultWrap.classList.toggle("hidden", currentAction !== "config");
+}
+
+function enforceSingleDefaultConfig(defaultName) {
+  Object.keys(configProfiles).forEach((name) => {
+    if (defaultName && name === defaultName) configProfiles[name].saashup_default = true;
+    else delete configProfiles[name].saashup_default;
+  });
 }
 
 function deletedProfiles() {
@@ -1168,6 +1218,7 @@ function updateProfileOptions() {
 
   configProfileSelect.value = currentConfigProfile;
   updateReportProfileOptions();
+  updateConfigDefaultControl();
 }
 
 function updateReportProfileOptions() {
@@ -1210,6 +1261,7 @@ function applyProfileToFields(name = currentConfigProfile) {
   syncCreateNetwork();
   updateProfileSyncWarning();
   updateTestEmailVisibility();
+  updateConfigDefaultControl();
 }
 
 function currentSmtpConfigValue() {
@@ -2057,6 +2109,9 @@ function setAction(actionName) {
   clearBtn?.classList.toggle("hidden", actionName === "config" || actionName === "report" || actionName === "workflow");
   dockerRunBtn?.classList.toggle("hidden", actionName !== "create");
   templateSelect?.classList.toggle("hidden", actionName !== "create");
+  if (actionName === "create") syncTemplateActions();
+  else updateTemplateCreatorEmail(null);
+  updateConfigDefaultControl();
   loadTemplateBtn?.classList.toggle("hidden", actionName !== "create");
   orderTemplateBtn?.classList.toggle("hidden", actionName !== "create");
   saveTemplateBtn?.classList.toggle("hidden", actionName !== "create");
@@ -2113,6 +2168,12 @@ function setAction(actionName) {
 }
 
 function updateRestartButtons() {
+  if (isEnrollPage) {
+    updateEnrollSubmitState({ notify: false });
+    if (restartInstanceBtn) restartInstanceBtn.disabled = true;
+    return;
+  }
+
   if (currentAction !== "restart") {
     submitBtn.disabled = false;
     if (restartInstanceBtn) restartInstanceBtn.disabled = true;
@@ -2179,6 +2240,133 @@ function closeDockerRunModal() {
   dockerRunModal?.classList.add("hidden");
 }
 
+function enrollSetImportedSummary(source) {
+  if (!isEnrollPage) return;
+
+  const image = fieldValue("image");
+  const version = fieldValue("version");
+  const instance = fieldValue("instance");
+  const network = fieldValue("network");
+  const port = fieldValue("port_value");
+  const parts = [
+    source,
+    instance ? `instance ${instance}` : "",
+    image ? `${image}${version ? `:${version}` : ""}` : "",
+    network ? `network ${network}` : "",
+    port ? `port ${port}` : "",
+  ].filter(Boolean);
+
+  if (enrollSummary) {
+    enrollSummary.textContent = parts.join(" - ");
+    enrollSummary.classList.remove("hidden");
+  }
+  if (submitBtn) submitBtn.disabled = !(image && port);
+}
+
+function validateEnrollComposeText(composeText, { notify = true } = {}) {
+  const serviceCount = dockerComposeServiceCount(composeText);
+  if (serviceCount > 1) {
+    if (notify) setNotice(enrollMultiComposeNotice, "error", false);
+    return false;
+  }
+
+  if (!composeText.trim()) {
+    if (notify) {
+      const notice = document.getElementById("notif");
+      if ([enrollMultiComposeNotice, "Compose services with images are required", "Compose service must expose one port."].includes(notice?.textContent || "")) {
+        setNotice(enrollImportNotice, "info", false);
+      }
+    }
+    return false;
+  }
+
+  const templates = parseDockerCompose(composeText);
+  if (serviceCount !== 1 || templates.length !== 1) {
+    if (notify) setNotice("Compose services with images are required", "error", false);
+    return false;
+  }
+
+  if (!templates[0].template.ports?.[0]?.value) {
+    if (notify) setNotice("Compose service must expose one port.", "error", false);
+    return false;
+  }
+
+  if (notify) {
+    const notice = document.getElementById("notif");
+    if ([enrollMultiComposeNotice, "Compose services with images are required", "Compose service must expose one port."].includes(notice?.textContent || "")) {
+      setNotice(enrollImportNotice, "info", false);
+    }
+  }
+  return true;
+}
+
+function validateEnrollRunText(runText, { notify = true } = {}) {
+  const serviceCount = dockerComposeServiceCount(runText);
+  if (serviceCount > 1) {
+    if (notify) setNotice(enrollMultiComposeNotice, "error", false);
+    return false;
+  }
+
+  if (serviceCount === 1) return validateEnrollComposeText(runText, { notify });
+
+  if (!runText.trim()) {
+    if (notify) {
+      const notice = document.getElementById("notif");
+      if ([enrollMultiComposeNotice, "Docker run image and port are required"].includes(notice?.textContent || "")) {
+        setNotice(enrollImportNotice, "info", false);
+      }
+    }
+    return false;
+  }
+
+  const parsed = parseDockerRun(runText);
+  const valid = Boolean(parsed.image && parsed.ports[0]?.value);
+  if (!valid && notify) {
+    setNotice("Docker run image and port are required", "error", false);
+  } else if (valid && notify) {
+    const notice = document.getElementById("notif");
+    if ([enrollMultiComposeNotice, "Docker run image and port are required"].includes(notice?.textContent || "")) {
+      setNotice(enrollImportNotice, "info", false);
+    }
+  }
+  return valid;
+}
+
+function updateEnrollSubmitState({ notify = true } = {}) {
+  if (!isEnrollPage) return true;
+
+  const valid = currentImportTab === "compose"
+    ? validateEnrollComposeText(dockerComposeInput?.value || "", { notify })
+    : validateEnrollRunText(dockerRunInput?.value || "", { notify });
+  if (submitBtn) submitBtn.disabled = !valid;
+  return valid;
+}
+
+function applyEnrollProfileSelection() {
+  if (!isEnrollPage || !importProfileSelect) return;
+  applyProfileToFields(importProfileSelect.value || currentConfigProfile);
+  updateEnrollSubmitState({ notify: false });
+}
+
+function configureEnrollDefaultConfig() {
+  if (!isEnrollPage) return false;
+
+  const profileName = defaultConfigProfileName();
+  form?.classList.remove("hidden");
+  updateImportProfileOptions();
+  if (importProfileSelect) importProfileSelect.value = profileName;
+  applyProfileToFields(profileName);
+
+  const credentials = selectedProfileCredentials();
+  if (!profileName || !credentials.netbox || !credentials.token) {
+    form?.classList.add("hidden");
+    setNotice("You cannot deploy a new SaaS yet. Ask an administrator to configure a config.", "error", false);
+    return false;
+  }
+
+  return true;
+}
+
 function setImportTab(tabName) {
   currentImportTab = tabName === "compose" ? "compose" : "run";
   importTabButtons.forEach((button) => {
@@ -2187,6 +2375,7 @@ function setImportTab(tabName) {
     button.setAttribute("aria-selected", active ? "true" : "false");
   });
   importPanels.forEach((panel) => panel.classList.toggle("hidden", panel.dataset.importPanel !== currentImportTab));
+  updateEnrollSubmitState();
   if (currentImportTab === "run") dockerRunInput?.focus();
   else dockerComposeInput?.focus();
 }
@@ -2676,6 +2865,28 @@ function parseDockerCompose(text) {
   return templates;
 }
 
+function dockerComposeServiceCount(text) {
+  const lines = String(text || "").replace(/\r\n/g, "\n").split("\n");
+  const servicesIndex = lines.findIndex((line) => stripYamlComment(line).trim() === "services:");
+  if (servicesIndex === -1) return 0;
+
+  const servicesIndent = yamlIndent(lines[servicesIndex]);
+  let serviceIndent = null;
+  let count = 0;
+  for (let i = servicesIndex + 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (!stripYamlComment(line).trim()) continue;
+    const indent = yamlIndent(line);
+    if (indent <= servicesIndent) break;
+    if (!line.trim().match(/^([A-Za-z0-9_.-]+):\s*$/)) continue;
+
+    if (serviceIndent === null) serviceIndent = indent;
+    if (indent === serviceIndent) count += 1;
+  }
+
+  return count;
+}
+
 function setRepeatRows(items, clearFn, addFn, selectors) {
   clearFn();
 
@@ -2772,6 +2983,9 @@ function currentCreateTemplate() {
     network: fieldValue("network"),
     image: fieldValue("image"),
     version: fieldValue("version"),
+    ...(templateCreatorEmailWrap && !templateCreatorEmailWrap.classList.contains("hidden") && !templateCreatorEmail?.disabled
+      ? { creator_email: templateCreatorEmail?.value.trim() || "" }
+      : {}),
     env: repeatValues(envList, ".env-row", "var_env_key", "var_env_value"),
     labels: repeatValues(labelList, ".repeat-row", "label_key", "label_value"),
     ports: portValues(),
@@ -2829,7 +3043,9 @@ async function saveCreateTemplate() {
   createTemplates[name] = currentCreateTemplate();
 
   try {
-    await persistCreateTemplates();
+    const savedTemplates = await persistCreateTemplates();
+    createTemplates = normalizeCreateTemplates(savedTemplates && typeof savedTemplates === "object" && !Array.isArray(savedTemplates) ? savedTemplates : createTemplates);
+    localStorage.setItem("create_templates", JSON.stringify(createTemplates));
     updateTemplateOptions(name);
     setNotice(`Template "${name}" saved`, "success");
   } catch {
@@ -2853,7 +3069,9 @@ async function deleteSelectedTemplate() {
   delete createTemplates[name];
 
   try {
-    await persistCreateTemplates();
+    const savedTemplates = await persistCreateTemplates();
+    createTemplates = normalizeCreateTemplates(savedTemplates && typeof savedTemplates === "object" && !Array.isArray(savedTemplates) ? savedTemplates : createTemplates);
+    localStorage.setItem("create_templates", JSON.stringify(createTemplates));
     updateTemplateOptions();
     setNotice(`Template "${name}" deleted`, "success");
   } catch {
@@ -2973,10 +3191,29 @@ async function applyOrderTemplate({ reveal = true } = {}) {
 
 async function applyDockerComposeFile(text) {
   const composeText = text ?? dockerComposeInput?.value ?? "";
+  if (isEnrollPage && dockerComposeServiceCount(composeText) > 1) {
+    setNotice(enrollMultiComposeNotice, "error");
+    return false;
+  }
+
   const templates = parseDockerCompose(composeText);
   if (!templates.length) {
     setNotice("Compose services with images are required", "error");
-    return;
+    return false;
+  }
+
+  if (isEnrollPage) {
+    const first = templates[0];
+    if (!first.template.ports?.[0]?.value) {
+      setNotice("Compose service must expose one port.", "error");
+      return false;
+    }
+    applyCreateTemplate(first.template);
+    if (!fieldValue("network")) syncCreateNetwork();
+    if (!fieldValue("version")) await ensureCreateVersion();
+    enrollSetImportedSummary(`Compose service ${first.name} imported`);
+    setNotice(`Compose service "${first.name}" imported`, "success");
+    return true;
   }
 
   const previousTemplates = { ...createTemplates };
@@ -3011,6 +3248,7 @@ async function applyDockerComposeFile(text) {
     }
     closeDockerRunModal();
     setNotice(`${templates.length} compose template${templates.length === 1 ? "" : "s"} imported`, "success");
+    return true;
   } catch {
     createTemplates = previousTemplates;
     createWorkflows = previousWorkflows;
@@ -3019,19 +3257,18 @@ async function applyDockerComposeFile(text) {
     updateTemplateOptions();
     updateWorkflowOptions();
     setNotice("Compose import failed", "error");
+    return false;
   }
 }
 
 async function applyDockerRunCommand() {
   if (currentImportTab === "compose") {
-    await applyDockerComposeFile();
-    return;
+    return applyDockerComposeFile();
   }
 
   const runText = dockerRunInput?.value || "";
-  if (parseDockerCompose(runText).length) {
-    await applyDockerComposeFile(runText);
-    return;
+  if (dockerComposeServiceCount(runText)) {
+    return applyDockerComposeFile(runText);
   }
 
   const parsed = parseDockerRun(runText);
@@ -3039,7 +3276,7 @@ async function applyDockerRunCommand() {
 
   if (!parsed.image) {
     setNotice("Docker run image is required", "error");
-    return;
+    return false;
   }
 
   if (currentAction !== "create") setAction("create");
@@ -3065,7 +3302,9 @@ async function applyDockerRunCommand() {
   setBindRows(parsed.binds);
 
   closeDockerRunModal();
+  enrollSetImportedSummary("Docker run imported");
   setNotice("Docker run imported", "success");
+  return true;
 }
 
 function loadSavedConfig() {
@@ -3075,7 +3314,7 @@ function loadSavedConfig() {
   })
     .then((response) => response.json())
     .then((data) => {
-      const localProfiles = applyDeletedProfileFilter(storedProfiles());
+      const localProfiles = isEnrollPage ? {} : applyDeletedProfileFilter(storedProfiles());
       if (!data) {
         serverConfigProfiles = {};
         configProfiles = localProfiles;
@@ -3103,6 +3342,7 @@ function loadSavedConfig() {
             cloudflare_filter: checkboxValue(data.cloudflare_filter, true),
             dockerhub_webhook_secret: data.dockerhub_webhook_secret || "",
             smtp_config: smtpConfigValue(data),
+            ...(serverProfiles[profile]?.saashup_default === true ? { saashup_default: true } : {}),
           };
           serverConfigProfiles[profile] = serverProfile;
           configProfiles[profile] = localProfiles[profile] || serverProfile;
@@ -3117,7 +3357,7 @@ function loadSavedConfig() {
     })
     .catch(() => {
       serverConfigProfiles = {};
-      configProfiles = applyDeletedProfileFilter(storedProfiles());
+      configProfiles = isEnrollPage ? {} : applyDeletedProfileFilter(storedProfiles());
       updateProfileOptions();
       applyProfileToFields(currentConfigProfile);
       ensureRandomCreateInstanceName();
@@ -3235,6 +3475,7 @@ async function saveConfig() {
   const cloudflare_filter = fieldChecked("cloudflare_filter", true);
   const dockerhub_webhook_secret = profileDockerhubSecretValue();
   const smtp_config = fieldValue("smtp_config");
+  const saashup_default = Boolean(configDefaultInput?.checked && !configDefaultInput.disabled);
 
   if (!profile) {
     setNotice("Profile name is required", "error");
@@ -3249,7 +3490,8 @@ async function saveConfig() {
   forgetDeletedProfile(profile);
   setFieldValue("max_instances", max_instances);
   setFieldValue("owner_env_var", owner_env_var);
-  configProfiles[profile] = { netbox, token, proxy, domain, tag, max_instances, owner_env_var, cloudflare_filter, dockerhub_webhook_secret, smtp_config };
+  configProfiles[profile] = { netbox, token, proxy, domain, tag, max_instances, owner_env_var, cloudflare_filter, dockerhub_webhook_secret, smtp_config, ...(saashup_default ? { saashup_default: true } : {}) };
+  if (saashup_default) enforceSingleDefaultConfig(profile);
   currentConfigProfile = profile;
   updateProfileOptions();
   persistProfiles();
@@ -3575,12 +3817,12 @@ async function submitAction(config, submitter) {
     request.body = body.toString();
   }
 
-  if (!isOrderPage) {
+  if (!isOrderPage && !isEnrollPage) {
     await clearLogs({ notify: false });
   }
 
   const endpoint = request.method === "GET" ? `${config.endpoint}?${body.toString()}` : config.endpoint;
-  if (isOrderPage) submitBtn.disabled = true;
+  if (isOrderPage || isEnrollPage) submitBtn.disabled = true;
 
   const response = await fetch(endpoint, request);
   if (isOrderPage) {
@@ -3601,6 +3843,26 @@ async function submitAction(config, submitter) {
 
       submitBtn.disabled = false;
       setOrderStatus(detail || `Installation request failed (${response.status})`, "error");
+    }
+    return;
+  }
+
+  if (isEnrollPage) {
+    if (response.status === 202) {
+      setNotice(`Creation requested for ${createdInstanceFqdn || fieldValue("instance")}.`, "success");
+    } else {
+      const text = await response.text();
+      let detail = "";
+
+      try {
+        const data = text ? JSON.parse(text) : {};
+        detail = data.detail || data.error || data.message || "";
+      } catch {
+        detail = text;
+      }
+
+      submitBtn.disabled = false;
+      setNotice(detail || `Creation request failed (${response.status})`, "error");
     }
     return;
   }
@@ -3989,6 +4251,11 @@ form.addEventListener("submit", async (event) => {
     return;
   }
 
+  if (isEnrollPage) {
+    const imported = await applyDockerRunCommand();
+    if (!imported) return;
+  }
+
   if (currentAction === "restart" && event.submitter?.value === "instance" && !fieldValue("instance")) {
     setNotice("Instance name is required", "error");
     return;
@@ -4040,9 +4307,10 @@ form.addEventListener("submit", async (event) => {
   }
 
   submitAction(config, event.submitter).catch(() => {
-    if (isOrderPage) {
+    if (isOrderPage || isEnrollPage) {
       submitBtn.disabled = false;
-      setOrderStatus("Installation request failed", "error");
+      if (isOrderPage) setOrderStatus("Installation request failed", "error");
+      else setNotice("Creation request failed", "error");
       return;
     }
 
@@ -4105,9 +4373,12 @@ templateSelect?.addEventListener("change", () => {
 dockerRunApplyBtn?.addEventListener("click", applyDockerRunCommand);
 dockerRunCancelBtn?.addEventListener("click", closeDockerRunModal);
 dockerRunCloseBtn?.addEventListener("click", closeDockerRunModal);
+dockerRunInput?.addEventListener("input", updateEnrollSubmitState);
+dockerComposeInput?.addEventListener("input", updateEnrollSubmitState);
 importTabButtons.forEach((button) => {
   button.addEventListener("click", () => setImportTab(button.dataset.importTab));
 });
+importProfileSelect?.addEventListener("change", applyEnrollProfileSelection);
 dockerRunModal?.addEventListener("click", (event) => {
   if (event.target === dockerRunModal) closeDockerRunModal();
 });
@@ -4156,6 +4427,7 @@ field("image")?.addEventListener("input", () => {
   templateVersionOverride = "";
   updateOldVersionOptions();
 });
+field("config_name")?.addEventListener("input", updateConfigDefaultControl);
 field("image")?.addEventListener("change", () => {
   templateVersionOverride = "";
   updateOldVersionOptions();
@@ -4203,6 +4475,9 @@ document.addEventListener("keydown", (event) => {
     closeProfileHelp();
   }
 });
+window.addEventListener("pageshow", () => {
+  if (isEnrollPage) updateEnrollSubmitState({ notify: false });
+});
 
 window.parseDockerRun = parseDockerRun;
 window.isFqdn = isFqdn;
@@ -4210,12 +4485,22 @@ window.instanceFqdn = instanceFqdn;
 
 async function initializePage() {
   initializeSidebar();
-  await loadMailSettings();
-  await loadCreateTemplates();
+  if (!isEnrollPage) await loadMailSettings();
+  if (!isEnrollPage) await loadCreateTemplates();
   updateTemplateOptions();
   setAction(currentAction);
   await loadSavedConfig();
-  if (!isOrderPage && currentAction === "report") refreshImageReport();
+  if (isEnrollPage) {
+    const canEnroll = configureEnrollDefaultConfig();
+    if (canEnroll) {
+      setImportTab("run");
+      if (submitBtn) {
+        submitBtn.textContent = "Submit creation";
+        updateEnrollSubmitState({ notify: false });
+      }
+    }
+  }
+  if (!isOrderPage && !isEnrollPage && currentAction === "report") refreshImageReport();
 
   if (isOrderPage) {
     hideOrderActions();
@@ -4235,7 +4520,7 @@ async function initializePage() {
 
   if (!isOrderPage) loadAuthUser();
 
-  if (!isOrderPage) {
+  if (!isOrderPage && !isEnrollPage) {
     getLogs();
     setInterval(getLogs, 3000);
   }

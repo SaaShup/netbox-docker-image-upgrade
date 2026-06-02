@@ -176,6 +176,31 @@ function validateOrderTemplate(req, res) {
   return true;
 }
 
+function templatesWithCreatorEmails(templates, existingTemplates, creatorEmail) {
+  const email = String(creatorEmail || "").trim();
+  return Object.fromEntries(
+    Object.entries(plainObject(templates)).map(([name, template]) => {
+      const entry = plainObject(template);
+      const existing = plainObject(existingTemplates[name]);
+      const creator_email = String(Object.hasOwn(entry, "creator_email") ? entry.creator_email : (existing.creator_email || email || "")).trim();
+      return [
+        name,
+        creator_email ? { ...entry, creator_email } : entry,
+      ];
+    }),
+  );
+}
+
+function profilesWithSingleDefault(profiles) {
+  const entries = Object.entries(plainObject(profiles));
+  const defaultName = entries.find(([, profile]) => plainObject(profile).saashup_default === true)?.[0] || "";
+  return Object.fromEntries(entries.map(([name, profile]) => {
+    const entry = plainObject(profile);
+    if (name !== defaultName || entry.saashup_default !== true) delete entry.saashup_default;
+    return [name, entry];
+  }));
+}
+
 function recordOrderInstance(req, profile, data) {
   writeState((state) => {
     const userKey = userOrderKey(req);
@@ -472,6 +497,14 @@ app.get("/metrics", (req, res) => {
 app.get("/admin", oidcAuth.loginRequired, requireAdmin, (req, res) => res.sendFile(path.join(publicPath, "admin.html")));
 app.get("/admin.html", oidcAuth.loginRequired, requireAdmin, (req, res) => res.sendFile(path.join(publicPath, "admin.html")));
 app.get("/order", oidcAuth.loginRequired, (req, res) => res.sendFile(path.join(publicPath, "order.html")));
+function sendNoCachePage(res, fileName) {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+  res.set("Pragma", "no-cache");
+  res.set("Expires", "0");
+  res.sendFile(path.join(publicPath, fileName));
+}
+app.get("/enroll", oidcAuth.loginRequired, (req, res) => sendNoCachePage(res, "enroll.html"));
+app.get("/enroll.html", oidcAuth.loginRequired, (req, res) => sendNoCachePage(res, "enroll.html"));
 app.use(express.static(publicPath));
 
 app.get("/config", (req, res) => res.json(readState().config || {}));
@@ -503,7 +536,7 @@ app.delete("/config", requireAdmin, (req, res) => {
   res.json({});
 });
 app.get("/webhook", requireAdmin, (req, res) => {
-  const profiles = parseProfiles(req.query.profiles);
+  const profiles = profilesWithSingleDefault(parseProfiles(req.query.profiles));
   const config = {
     customer_name: req.query.customer_name || "",
     netbox: req.query.netbox || "",
@@ -529,8 +562,10 @@ app.get("/webhook", requireAdmin, (req, res) => {
 
 app.get("/templates", (req, res) => res.json(readState().templates || {}));
 app.post("/templates", requireAdmin, (req, res) => {
-  const templates = plainObject(req.body);
+  let templates = {};
+  const creatorEmail = authUserFromRequest(req).email || "";
   writeState((state) => {
+    templates = templatesWithCreatorEmails(req.body, plainObject(state.templates), creatorEmail);
     state.templates = templates;
     return state;
   });
@@ -557,7 +592,7 @@ app.get("/portable-config", requireAdmin, (req, res) => {
     version: 1,
     app_version: packageJson.version,
     exported_at: new Date().toISOString(),
-    config: { ...config, profiles: parseProfiles(config.profiles) },
+    config: { ...config, profiles: profilesWithSingleDefault(parseProfiles(config.profiles)) },
     templates: plainObject(state.templates),
     order_counts: plainObject(state.order_counts),
     order_instances: plainObject(state.order_instances),
@@ -567,14 +602,14 @@ app.get("/portable-config", requireAdmin, (req, res) => {
 app.post("/portable-config", requireAdmin, (req, res) => {
   const payload = plainObject(req.body);
   const config = plainObject(payload.config);
-  const profiles = parseProfiles(payload.profiles || config.profiles);
+  const profiles = profilesWithSingleDefault(parseProfiles(payload.profiles || config.profiles));
   const names = Object.keys(profiles).sort((a, b) => a.localeCompare(b));
   const importedTemplates = plainObject(payload.templates);
   const importedOrderCounts = plainObject(payload.order_counts);
   const importedOrderInstances = plainObject(payload.order_instances);
   writeState((state) => {
     const existingConfig = plainObject(state.config);
-    const mergedProfiles = { ...parseProfiles(existingConfig.profiles), ...profiles };
+    const mergedProfiles = profilesWithSingleDefault({ ...parseProfiles(existingConfig.profiles), ...profiles });
     const selectedProfile = config.profile || config.config_profile || existingConfig.profile || existingConfig.config_profile || names[0] || "";
     const nextConfig = {
       ...existingConfig,
@@ -957,7 +992,7 @@ async function createInstance(req, data, { isOrderRequest, orderProfile, authUse
   return allReady;
 }
 
-app.post("/create", async (req, res) => {
+app.post("/create", oidcAuth.loginRequired, async (req, res) => {
   const data = { ...selectedProfileConfig(req.body), ...req.body };
   const authUser = authUserFromRequest(req);
   data.saashup_owner = authUser.email || "";
