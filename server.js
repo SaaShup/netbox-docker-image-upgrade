@@ -31,6 +31,7 @@ const { createMetrics, metricLabel, metricLine, operationLabel: operationLabelFo
 const { NetBoxClient, dockerHosts, hostIdQuery, setNetBoxFetchForTests } = require("./lib/netbox");
 const { createOidcAuth, setOidcFetchForTests } = require("./lib/oidc");
 const { createOperationHelpers, delay } = require("./lib/operations");
+const { checkRegistryImageExists, setRegistryFetchForTests } = require("./lib/registry");
 const { parseSmtpConfig, sendSmtpMail, smtpMessage, smtpSenderAddress, smtpTransportOptions } = require("./lib/smtp");
 const { createStateStore, parseProfiles, plainObject } = require("./lib/state");
 
@@ -51,11 +52,16 @@ const operationPollMs = Number(process.env.OPERATION_POLL_MS || 3000);
 const createConfigureDelayMs = Number(process.env.CREATE_CONFIGURE_DELAY_MS || 5000);
 const createRecreateDelayMs = Number(process.env.CREATE_RECREATE_DELAY_MS || 5000);
 const dockerhubWebhookSecret = String(process.env.DOCKERHUB_WEBHOOK_SECRET || "");
-const appOwnerEmail = String(process.env.SAASHUP_OWNER_EMAIL || process.env.APP_OWNER_EMAIL || "").trim();
+const appOwnerEmail = String(process.env.APP_OWNER_EMAIL || "").trim();
 const adminAllowedEmails = String(process.env.ADMIN_ALLOWED_EMAILS || "")
   .split(",")
   .map((email) => email.trim().toLowerCase())
   .filter(Boolean);
+const publicApiAllowedOrigins = String(process.env.PUBLIC_API_ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((origin) => origin.trim().replace(/\/+$/, ""))
+  .filter(Boolean);
+const publicApiSecret = String(process.env.PUBLIC_API_SECRET || "");
 const oidcAuth = createOidcAuth({
   clientId: process.env.OIDC_CLIENT_ID || process.env.SAASHUP_OIDC_CLIENT_ID,
   clientSecret: process.env.OIDC_CLIENT_SECRET || process.env.SAASHUP_OIDC_CLIENT_SECRET,
@@ -375,6 +381,93 @@ function smtpInfoText(info) {
   ].filter(Boolean).join(" ");
 }
 
+function contactProfileConfig(source) {
+  const profile = source?.profile || source?.config_profile || "";
+  return selectedProfileConfig(profile ? { profile, config_profile: profile } : {});
+}
+
+function cleanContactField(value, limit = 500) {
+  return String(value || "").replace(/\r/g, "").trim().slice(0, limit);
+}
+
+function contactEmailAddress(value) {
+  const email = cleanContactField(value, 320).toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "";
+}
+
+function contactFormEmail(data, smtpConfig) {
+  const name = cleanContactField(data.name, 120);
+  const email = contactEmailAddress(data.email);
+  const subject = cleanContactField(data.subject, 160) || "Website contact";
+  const message = cleanContactField(data.message, 5000);
+  const phone = cleanContactField(data.phone, 80);
+  const company = cleanContactField(data.company, 120);
+  const page = cleanContactField(data.page || data.url, 500);
+  const lines = [
+    "New website contact form message",
+    "",
+    name ? `Name: ${name}` : "",
+    email ? `Email: ${email}` : "",
+    phone ? `Phone: ${phone}` : "",
+    company ? `Company: ${company}` : "",
+    page ? `Page: ${page}` : "",
+    "",
+    message,
+  ].filter((line) => line !== "").join("\n");
+
+  return {
+    from: smtpSenderAddress(smtpConfig, appOwnerEmail),
+    to: appOwnerEmail,
+    replyTo: email || undefined,
+    subject: `Website contact: ${subject}`,
+    text: lines,
+    html: `<!doctype html>
+<html>
+  <body style="font-family:Arial,Helvetica,sans-serif;color:#172033;line-height:1.5;">
+    <h1 style="font-size:20px;margin:0 0 16px;">New website contact form message</h1>
+    <table role="presentation" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:0 0 20px;">
+      ${name ? `<tr><td style="padding:4px 16px 4px 0;color:#667085;">Name</td><td style="padding:4px 0;">${escapeHtml(name)}</td></tr>` : ""}
+      ${email ? `<tr><td style="padding:4px 16px 4px 0;color:#667085;">Email</td><td style="padding:4px 0;">${escapeHtml(email)}</td></tr>` : ""}
+      ${phone ? `<tr><td style="padding:4px 16px 4px 0;color:#667085;">Phone</td><td style="padding:4px 0;">${escapeHtml(phone)}</td></tr>` : ""}
+      ${company ? `<tr><td style="padding:4px 16px 4px 0;color:#667085;">Company</td><td style="padding:4px 0;">${escapeHtml(company)}</td></tr>` : ""}
+      ${page ? `<tr><td style="padding:4px 16px 4px 0;color:#667085;">Page</td><td style="padding:4px 0;">${escapeHtml(page)}</td></tr>` : ""}
+    </table>
+    <div style="white-space:pre-wrap;border-top:1px solid #e4e7ef;padding-top:16px;">${escapeHtml(message)}</div>
+  </body>
+</html>`,
+  };
+}
+
+async function sendContactEmail(data) {
+  if (cleanContactField(data.website || data.url_honeypot, 200)) return { skipped: true };
+  const config = contactProfileConfig(data);
+  const smtpConfig = parseSmtpConfig(config.smtp_config);
+  if (!appOwnerEmail) {
+    const error = new Error("owner email is not configured");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!smtpConfig) {
+    const error = new Error("smtp config is not configured");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!contactEmailAddress(data.email)) {
+    const error = new Error("valid email is required");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!cleanContactField(data.message, 5000)) {
+    const error = new Error("message is required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const info = await smtpSender(smtpConfig, contactFormEmail(data, smtpConfig));
+  logLine(`EMAIL : contact message sent from ${contactEmailAddress(data.email)} ${smtpInfoText(info)}`);
+  return info;
+}
+
 async function sendTestEmail(data) {
   const smtpConfig = parseSmtpConfig(data.smtp_config);
   if (!appOwnerEmail) {
@@ -410,6 +503,47 @@ function timingSafeStringEqual(left, right) {
   const leftBuffer = Buffer.from(String(left || ""));
   const rightBuffer = Buffer.from(String(right || ""));
   return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function requestOrigin(req) {
+  const origin = String(req.get("origin") || "").replace(/\/+$/, "");
+  if (origin) return origin;
+  const referer = String(req.get("referer") || "");
+  if (!referer) return "";
+  try {
+    const url = new URL(referer);
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return "";
+  }
+}
+
+function publicApiSecretAllowed(req) {
+  if (!publicApiSecret) return false;
+  const provided = req.get("x-public-api-secret") || req.query.public_api_secret || "";
+  return timingSafeStringEqual(provided, publicApiSecret);
+}
+
+function publicApiAllowed(req) {
+  if (publicApiSecretAllowed(req)) return true;
+  const origin = requestOrigin(req);
+  return Boolean(origin && publicApiAllowedOrigins.includes(origin));
+}
+
+function publicApiGuard(req, res, next) {
+  const origin = requestOrigin(req);
+  if (origin && publicApiAllowedOrigins.includes(origin)) {
+    res.set("Access-Control-Allow-Origin", origin);
+    res.set("Vary", "Origin");
+  }
+  res.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type, X-Public-Api-Secret");
+  if (!publicApiAllowedOrigins.length && !publicApiSecret) {
+    return res.status(401).json({ detail: "public api is not configured" });
+  }
+  if (!publicApiAllowed(req)) return res.status(403).json({ detail: "public api access denied" });
+  if (req.method === "OPTIONS") return res.status(204).send("");
+  return next();
 }
 
 function dockerhubSecretForProfile(profile) {
@@ -526,6 +660,22 @@ app.post("/test-email", requireAdmin, async (req, res) => {
     });
   } catch (error) {
     res.status(error.statusCode || 502).json({ detail: error.message || "email test failed" });
+  }
+});
+app.options(["/contact", "/registry/check"], publicApiGuard);
+app.post("/contact", publicApiGuard, async (req, res) => {
+  try {
+    const info = await sendContactEmail({ ...req.query, ...req.body });
+    res.json({
+      status: "sent",
+      skipped: Boolean(info?.skipped),
+      message_id: info?.messageId || "",
+      accepted: Array.isArray(info?.accepted) ? info.accepted : [],
+      rejected: Array.isArray(info?.rejected) ? info.rejected : [],
+      response: info?.response || "",
+    });
+  } catch (error) {
+    res.status(error.statusCode || 502).json({ detail: error.message || "contact email failed" });
   }
 });
 app.delete("/config", requireAdmin, (req, res) => {
@@ -689,6 +839,15 @@ app.get("/containers-count", async (req, res) => {
     res.json({ count: containers.length });
   } catch (error) {
     res.status(error.statusCode || 502).json({ detail: error.message });
+  }
+});
+
+app.get("/registry/check", publicApiGuard, async (req, res) => {
+  try {
+    const result = await checkRegistryImageExists(req.query.image || req.query.ref || "");
+    res.json(result);
+  } catch (error) {
+    res.status(error.statusCode || 502).json({ detail: error.message || "registry check failed" });
   }
 });
 
@@ -1190,6 +1349,7 @@ module.exports = {
   sendSmtpMail,
   setNetBoxFetchForTests,
   setOidcFetchForTests,
+  setRegistryFetchForTests,
   setSmtpSenderForTests: (sender) => {
     smtpSender = sender || sendSmtpMail;
   },

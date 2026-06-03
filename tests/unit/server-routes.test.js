@@ -7,7 +7,22 @@ const packageJson = require("../../package.json");
 function jsonResponse(payload, status = 200) {
   return {
     status,
+    ok: status >= 200 && status < 300,
+    headers: { get: () => "" },
+    json: async () => payload,
     text: async () => JSON.stringify(payload),
+  };
+}
+
+function registryChallengeResponse(challenge) {
+  return {
+    status: 401,
+    ok: false,
+    headers: {
+      get: (name) => String(name || "").toLowerCase() === "www-authenticate" ? challenge : "",
+    },
+    json: async () => ({}),
+    text: async () => "",
   };
 }
 
@@ -19,6 +34,8 @@ async function loadServer({
   oidc = false,
   operationTimeoutSeconds = "1",
   ownerEmail = "",
+  publicApiAllowedOrigins = "",
+  publicApiSecret = "",
   recreateDelayMs = "0",
 } = {}) {
   const dataPath = fs.mkdtempSync(path.join(os.tmpdir(), "saashup-test-"));
@@ -31,11 +48,14 @@ async function loadServer({
   process.env.CREATE_RECREATE_DELAY_MS = recreateDelayMs;
   if (dockerhubSecret) process.env.DOCKERHUB_WEBHOOK_SECRET = dockerhubSecret;
   else delete process.env.DOCKERHUB_WEBHOOK_SECRET;
-  if (ownerEmail) process.env.SAASHUP_OWNER_EMAIL = ownerEmail;
-  else delete process.env.SAASHUP_OWNER_EMAIL;
-  delete process.env.APP_OWNER_EMAIL;
+  if (ownerEmail) process.env.APP_OWNER_EMAIL = ownerEmail;
+  else delete process.env.APP_OWNER_EMAIL;
   if (adminEmails) process.env.ADMIN_ALLOWED_EMAILS = adminEmails;
   else delete process.env.ADMIN_ALLOWED_EMAILS;
+  if (publicApiAllowedOrigins) process.env.PUBLIC_API_ALLOWED_ORIGINS = publicApiAllowedOrigins;
+  else delete process.env.PUBLIC_API_ALLOWED_ORIGINS;
+  if (publicApiSecret) process.env.PUBLIC_API_SECRET = publicApiSecret;
+  else delete process.env.PUBLIC_API_SECRET;
   if (oidc) {
     process.env.OIDC_ISSUER_URL = "https://id.example.com/auth/realms/paashup";
     process.env.OIDC_CLIENT_ID = "saashup";
@@ -534,13 +554,14 @@ describe("server routes", () => {
     delete process.env.DATAPATH;
     delete process.env.APPPATH;
     delete process.env.ADMIN_ALLOWED_EMAILS;
+    delete process.env.PUBLIC_API_ALLOWED_ORIGINS;
+    delete process.env.PUBLIC_API_SECRET;
     delete process.env.ENABLE_EDITOR;
     delete process.env.OPERATION_TIMEOUT_SECONDS;
     delete process.env.OPERATION_POLL_MS;
     delete process.env.CREATE_CONFIGURE_DELAY_MS;
     delete process.env.CREATE_RECREATE_DELAY_MS;
     delete process.env.DOCKERHUB_WEBHOOK_SECRET;
-    delete process.env.SAASHUP_OWNER_EMAIL;
     delete process.env.APP_OWNER_EMAIL;
     delete process.env.LOCAL_DEV_EMAIL;
     delete process.env.OIDC_ISSUER_URL;
@@ -565,6 +586,196 @@ describe("server routes", () => {
       expect(res.text).toContain("saashup_app_info");
       expect(res.text).toContain('route="/admin"');
     });
+  });
+
+  test("checks Docker Hub registry image availability", async () => {
+    const { request, setRegistryFetchForTests } = await loadServer({ publicApiSecret: "test-secret" });
+    const registryFetch = vi.fn(async (url, options = {}) => {
+      const parsed = new URL(String(url));
+      if (parsed.hostname === "auth.docker.io") {
+        expect(parsed.searchParams.get("scope")).toBe("repository:saashup/netbox-docker-agent:pull");
+        return jsonResponse({ token: "registry-token" });
+      }
+      if (parsed.hostname === "registry-1.docker.io") {
+        expect(parsed.pathname).toBe("/v2/saashup/netbox-docker-agent/manifests/v1.24.0");
+        if (!options.headers.Authorization) {
+          return registryChallengeResponse('Bearer realm="https://auth.docker.io/token",service="registry.docker.io",scope="repository:saashup/netbox-docker-agent:pull"');
+        }
+        expect(options.headers.Authorization).toBe("Bearer registry-token");
+        return jsonResponse({ schemaVersion: 2 });
+      }
+      return jsonResponse({ detail: "not found" }, 404);
+    });
+    setRegistryFetchForTests(registryFetch);
+
+    await request.get("/registry/check")
+      .set("X-Public-Api-Secret", "test-secret")
+      .query({ image: "saashup/netbox-docker-agent:v1.24.0" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toMatchObject({
+          registry: "docker.io",
+          name: "saashup/netbox-docker-agent",
+          tag: "v1.24.0",
+          image: "saashup/netbox-docker-agent:v1.24.0",
+          exists: true,
+          status: 200,
+        });
+      });
+  });
+
+  test("checks GitHub, Quay, and GitLab registry image availability", async () => {
+    const { request, setRegistryFetchForTests } = await loadServer({ publicApiSecret: "test-secret" });
+    const registryFetch = vi.fn(async (url, options = {}) => {
+      const parsed = new URL(String(url));
+      if (["ghcr.io", "quay.io", "registry.gitlab.com"].includes(parsed.hostname) && parsed.pathname.startsWith("/v2/")) {
+        if (!options.headers.Authorization) {
+          return registryChallengeResponse(`Bearer realm="https://${parsed.hostname}/token",service="${parsed.hostname}",scope="repository:${parsed.pathname.split("/manifests/")[0].replace(/^\/v2\//, "")}:pull"`);
+        }
+        expect(options.headers.Authorization).toBe(`Bearer ${parsed.hostname}-token`);
+        return jsonResponse({ schemaVersion: 2 });
+      }
+      if (parsed.pathname === "/token") return jsonResponse({ token: `${parsed.hostname}-token` });
+      return jsonResponse({ detail: "not found" }, 404);
+    });
+    setRegistryFetchForTests(registryFetch);
+
+    await request.get("/registry/check")
+      .set("X-Public-Api-Secret", "test-secret")
+      .query({ image: "ghcr.io/saashup/netbox-docker-agent:v1.24.0" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toMatchObject({ registry: "ghcr.io", name: "saashup/netbox-docker-agent", tag: "v1.24.0", exists: true });
+      });
+    await request.get("/registry/check")
+      .set("X-Public-Api-Secret", "test-secret")
+      .query({ image: "quay.io/saashup/netbox-docker-agent:v1.24.0" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toMatchObject({ registry: "quay.io", name: "saashup/netbox-docker-agent", tag: "v1.24.0", exists: true });
+      });
+    await request.get("/registry/check")
+      .set("X-Public-Api-Secret", "test-secret")
+      .query({ image: "registry.gitlab.com/saashup/netbox-docker-agent:v1.24.0" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toMatchObject({ registry: "registry.gitlab.com", name: "saashup/netbox-docker-agent", tag: "v1.24.0", exists: true });
+      });
+  });
+
+  test("returns false when Docker Hub image tag is missing", async () => {
+    const { request, setRegistryFetchForTests } = await loadServer({ publicApiSecret: "test-secret" });
+    setRegistryFetchForTests(vi.fn(async (url, options = {}) => {
+      const parsed = new URL(String(url));
+      if (parsed.hostname === "auth.docker.io") return jsonResponse({ token: "registry-token" });
+      if (parsed.hostname === "registry-1.docker.io") return jsonResponse({ detail: "manifest unknown" }, 404);
+      return jsonResponse({}, 404);
+    }));
+
+    await request.get("/registry/check")
+      .set("X-Public-Api-Secret", "test-secret")
+      .query({ image: "nginx:no-such-tag" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toMatchObject({
+          name: "library/nginx",
+          tag: "no-such-tag",
+          image: "library/nginx:no-such-tag",
+          exists: false,
+          status: 404,
+        });
+      });
+  });
+
+  test("rejects unsupported registry hosts", async () => {
+    const { request } = await loadServer({ publicApiSecret: "test-secret" });
+
+    await request.get("/registry/check")
+      .set("X-Public-Api-Secret", "test-secret")
+      .query({ image: "registry.example.com/saashup/app:v1" })
+      .expect(400)
+      .expect((res) => {
+        expect(res.body.detail).toBe("unsupported registry host");
+      });
+  });
+
+  test("public APIs return 401 when no origin allowlist or secret is configured", async () => {
+    const { request } = await loadServer();
+
+    await request.get("/registry/check")
+      .query({ image: "saashup/netbox-docker-agent:v1.24.0" })
+      .expect(401)
+      .expect((res) => {
+        expect(res.body.detail).toBe("public api is not configured");
+      });
+    await request.post("/contact")
+      .send({ email: "ada@example.com", message: "Hello" })
+      .expect(401)
+      .expect((res) => {
+        expect(res.body.detail).toBe("public api is not configured");
+      });
+  });
+
+  test("public APIs allow configured Hugo origin and reject other origins", async () => {
+    const { request, setRegistryFetchForTests } = await loadServer({ publicApiAllowedOrigins: "https://www.saashup.com" });
+    setRegistryFetchForTests(vi.fn(async (url, options = {}) => {
+      const parsed = new URL(String(url));
+      if (parsed.hostname === "auth.docker.io") return jsonResponse({ token: "registry-token" });
+      if (parsed.hostname === "registry-1.docker.io") return options?.headers?.Authorization ? jsonResponse({ schemaVersion: 2 }) : registryChallengeResponse('Bearer realm="https://auth.docker.io/token",service="registry.docker.io",scope="repository:saashup/netbox-docker-agent:pull"');
+      return jsonResponse({}, 404);
+    }));
+
+    await request.options("/registry/check")
+      .set("Origin", "https://www.saashup.com")
+      .expect(204)
+      .expect((res) => {
+        expect(res.headers["access-control-allow-origin"]).toBe("https://www.saashup.com");
+        expect(res.headers["access-control-allow-headers"]).toContain("X-Public-Api-Secret");
+      });
+
+    await request.get("/registry/check")
+      .set("Origin", "https://www.saashup.com")
+      .query({ image: "saashup/netbox-docker-agent:v1.24.0" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.headers["access-control-allow-origin"]).toBe("https://www.saashup.com");
+        expect(res.body.exists).toBe(true);
+      });
+
+    await request.get("/registry/check")
+      .set("Origin", "https://evil.example.com")
+      .query({ image: "saashup/netbox-docker-agent:v1.24.0" })
+      .expect(403)
+      .expect((res) => {
+        expect(res.body.detail).toBe("public api access denied");
+      });
+
+    await request.get("/registry/check")
+      .query({ image: "saashup/netbox-docker-agent:v1.24.0" })
+      .expect(403);
+  });
+
+  test("public APIs allow server-side shared secret without browser origin", async () => {
+    const { request, setRegistryFetchForTests } = await loadServer({ publicApiAllowedOrigins: "https://www.saashup.com", publicApiSecret: "server-secret" });
+    setRegistryFetchForTests(vi.fn(async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.hostname === "auth.docker.io") return jsonResponse({ token: "registry-token" });
+      if (parsed.hostname === "registry-1.docker.io") return jsonResponse({ schemaVersion: 2 });
+      return jsonResponse({}, 404);
+    }));
+
+    await request.get("/registry/check")
+      .set("X-Public-Api-Secret", "server-secret")
+      .query({ image: "saashup/netbox-docker-agent:v1.24.0" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.exists).toBe(true);
+      });
+
+    await request.get("/registry/check")
+      .set("X-Public-Api-Secret", "wrong-secret")
+      .query({ image: "saashup/netbox-docker-agent:v1.24.0" })
+      .expect(403);
   });
 
   test("handles Keycloak OIDC login, session, admin access, and logout", async () => {
@@ -2055,6 +2266,103 @@ describe("server routes", () => {
     await ownerRequest.post("/test-email").send({ smtp_config: "" }).expect(400).expect((res) => {
       expect(res.body.detail).toBe("smtp config is not configured");
     });
+  });
+
+  test("contact form sends email to owner using stored profile smtp config", async () => {
+    const { dataPath, request, setSmtpSenderForTests } = await loadServer({ ownerEmail: "owner@example.com", publicApiSecret: "test-secret" });
+    const smtpSender = vi.fn().mockResolvedValue({ messageId: "contact-message", accepted: ["owner@example.com"], rejected: [], response: "250 queued" });
+    setSmtpSenderForTests(smtpSender);
+    writeState(dataPath, {
+      config: {
+        profiles: {
+          prod: { smtp_config: "mailer:smtp-secret@smtp.example.com:587" },
+        },
+      },
+      templates: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.post("/contact")
+      .set("X-Public-Api-Secret", "test-secret")
+      .send({
+        profile: "prod",
+        name: "Ada Lovelace",
+        email: "ada@example.com",
+        company: "Analytical Engines",
+        subject: "Demo request",
+        message: "Can we talk about NetBox Docker hosting?",
+        smtp_config: "attacker:secret@evil.example.com:25",
+      }).expect(200).expect((res) => {
+      expect(res.body).toMatchObject({ status: "sent", message_id: "contact-message", accepted: ["owner@example.com"] });
+    });
+
+    expect(smtpSender).toHaveBeenCalledWith(
+      expect.objectContaining({ user: "mailer", password: "smtp-secret", host: "smtp.example.com", port: 587 }),
+      expect.objectContaining({
+        to: "owner@example.com",
+        replyTo: "ada@example.com",
+        subject: "Website contact: Demo request",
+        text: expect.stringContaining("Ada Lovelace"),
+        html: expect.stringContaining("Can we talk about NetBox Docker hosting?"),
+      }),
+    );
+    expect(smtpSender.mock.calls[0][0].host).not.toBe("evil.example.com");
+    expect(readState(dataPath).logs).toContain("EMAIL : contact message sent from ada@example.com");
+  });
+
+  test("contact form validates required mail settings and visitor fields", async () => {
+    const { request } = await loadServer({ publicApiSecret: "test-secret" });
+
+    await request.post("/contact").set("X-Public-Api-Secret", "test-secret").send({ email: "ada@example.com", message: "Hello" }).expect(400).expect((res) => {
+      expect(res.body.detail).toBe("owner email is not configured");
+    });
+
+    const { request: ownerRequest } = await loadServer({ ownerEmail: "owner@example.com", publicApiSecret: "test-secret" });
+    await ownerRequest.post("/contact").set("X-Public-Api-Secret", "test-secret").send({ email: "ada@example.com", message: "Hello" }).expect(400).expect((res) => {
+      expect(res.body.detail).toBe("smtp config is not configured");
+    });
+
+    const { dataPath, request: configuredRequest } = await loadServer({ ownerEmail: "owner@example.com", publicApiSecret: "test-secret" });
+    writeState(dataPath, {
+      config: { smtp_config: "mailer:smtp-secret@smtp.example.com:587" },
+      templates: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+    await configuredRequest.post("/contact").set("X-Public-Api-Secret", "test-secret").send({ email: "not-an-email", message: "Hello" }).expect(400).expect((res) => {
+      expect(res.body.detail).toBe("valid email is required");
+    });
+    await configuredRequest.post("/contact").set("X-Public-Api-Secret", "test-secret").send({ email: "ada@example.com", message: "" }).expect(400).expect((res) => {
+      expect(res.body.detail).toBe("message is required");
+    });
+  });
+
+  test("contact form honeypot returns sent without sending email", async () => {
+    const { dataPath, request, setSmtpSenderForTests } = await loadServer({ ownerEmail: "owner@example.com", publicApiSecret: "test-secret" });
+    const smtpSender = vi.fn();
+    setSmtpSenderForTests(smtpSender);
+    writeState(dataPath, {
+      config: { smtp_config: "mailer:smtp-secret@smtp.example.com:587" },
+      templates: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.post("/contact")
+      .set("X-Public-Api-Secret", "test-secret")
+      .send({
+        name: "Spam",
+        email: "spam@example.com",
+        message: "Hello",
+        website: "https://spam.example.com",
+      }).expect(200).expect((res) => {
+      expect(res.body).toMatchObject({ status: "sent", skipped: true });
+    });
+    expect(smtpSender).not.toHaveBeenCalled();
   });
 
   test("test email still sends when the email logo asset is missing", async () => {
