@@ -864,7 +864,7 @@ describe("server routes", () => {
       .expect(200)
       .expect((res) => {
         expect(res.body.max_instances).toBe(3);
-        expect(res.body.dockerhub_webhook_secret).toBeUndefined();
+        expect(res.body.registry_webhook_secret).toBeUndefined();
         expect(res.body.smtp_config).toBe("mailer:smtp-secret@smtp.example.com:587");
       });
     await request.get("/webhook")
@@ -1860,8 +1860,8 @@ describe("server routes", () => {
         },
       },
       templates: {
-        Tile: { config_profile: "prod", image: "saashup/tile", dockerhub_webhook_secret: "template-secret" },
-        Other: { config_profile: "prod", image: "saashup/other", dockerhub_webhook_secret: "other-secret" },
+        Tile: { config_profile: "prod", image: "saashup/tile", registry_webhook_secret: "template-secret" },
+        Other: { config_profile: "prod", image: "saashup/other", registry_webhook_secret: "other-secret" },
       },
       order_counts: {},
       order_instances: {},
@@ -1964,7 +1964,7 @@ describe("server routes", () => {
         },
       },
       templates: {
-        GhcrTile: { config_profile: "prod", image: "ghcr.io/acme/tile", dockerhub_webhook_secret: "gh-secret" },
+        GhcrTile: { config_profile: "prod", image: "ghcr.io/acme/tile", registry_webhook_secret: "gh-secret" },
       },
       order_counts: {},
       order_instances: {},
@@ -2512,7 +2512,7 @@ describe("server routes", () => {
     rejectNextMatchingNetBoxFetch(
       fetchMock,
       (url, options) => url.pathname === "/api/plugins/docker/images/" && (options.method || "GET") === "GET" && url.searchParams.get("version") === "v9.0.0",
-      new Error("dockerhub exploded"),
+      new Error("registry webhook exploded"),
     );
     await request.post("/registry-webhook/prod").send({ push_data: { tag: "v9.0.0" }, repository: { repo_name: "saashup/tile" } }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("REGISTRY_WEBHOOK : failed"));

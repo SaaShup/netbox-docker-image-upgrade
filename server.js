@@ -564,7 +564,7 @@ function registrySecretForTemplate(name, image = "") {
   const entry = orderTemplateEntry(name);
   if (!entry) return registryWebhookSecret;
   if (image && !templateMatchesRegistryWebhook(entry.template, String(entry.template.config_profile || entry.template.profile || ""), imageNameFromRef(image))) return registryWebhookSecret;
-  return String(entry.template.dockerhub_webhook_secret || registryWebhookSecret || "");
+  return String(entry.template.registry_webhook_secret || entry.template.dockerhub_webhook_secret || registryWebhookSecret || "");
 }
 
 function addRegistryWebhookEvent(events, image, tag) {
@@ -632,7 +632,7 @@ function registryWebhookEvents(payload) {
 function registryWebhookAllowed(req, events = registryWebhookEvents(req.body)) {
   const profile = String(req.params.profile || "");
   const matchingSecrets = events.flatMap((event) => registryWebhookTemplates(profile, event.image)
-    .map((entry) => String(entry.template.dockerhub_webhook_secret || ""))
+    .map((entry) => String(entry.template.registry_webhook_secret || entry.template.dockerhub_webhook_secret || ""))
     .filter(Boolean));
   const secrets = matchingSecrets.length ? matchingSecrets : [registryWebhookSecret].filter(Boolean);
   if (!secrets.length) return true;

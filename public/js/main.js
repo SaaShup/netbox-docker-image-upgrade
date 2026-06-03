@@ -47,8 +47,8 @@ const profileHelpOkBtn = document.getElementById("profileHelpOkBtn");
 const formTitle = document.getElementById("form-title");
 const formDescription = document.getElementById("form-description");
 const tokenToggle = document.getElementById("tokenToggle");
-const dockerhubWebhookSecretInput = document.getElementById("dockerhub_webhook_secret");
-const dockerhubWebhookSecretToggle = document.getElementById("dockerhubWebhookSecretToggle");
+const registryWebhookSecretInput = document.getElementById("registry_webhook_secret");
+const registryWebhookSecretToggle = document.getElementById("registryWebhookSecretToggle");
 const smtpConfigToggle = document.getElementById("smtpConfigToggle");
 const envList = document.getElementById("envList");
 const addEnvBtn = document.getElementById("addEnvBtn");
@@ -118,8 +118,8 @@ let currentReportView = "images";
 let lastReportData = null;
 let orderStatusPollTimer = null;
 let mailSettings = { owner_email_configured: false };
-let dockerhubWebhookDefaultSecret = "";
-let dockerhubWebhookDefaultLoaded = false;
+let registryWebhookDefaultSecret = "";
+let registryWebhookDefaultLoaded = false;
 let currentImportTab = "run";
 let templateVersionOverride = "";
 let templateNetworkOverride = "";
@@ -171,7 +171,7 @@ const profileFieldHelp = {
     title: "Cloudflare IP restriction",
     body: "When enabled, created containers receive the Traefik IP allow-list label for Cloudflare source ranges. Disable it to create routes without that allow-list label.",
   },
-  dockerhub_webhook_secret: {
+  registry_webhook_secret: {
     title: "Registry webhook password",
     body: "Optional template-specific password for registry webhooks that target this template image. Leave it empty to use the REGISTRY_WEBHOOK_SECRET environment default.",
   },
@@ -246,7 +246,7 @@ const actions = {
     description: "Create a container, volume, optional DNS record and optional Traefik labels.",
     submitLabel: "Create instance",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "network", "traefik", "all_hosts", "saashup_enabled", "dockerhub_webhook_secret", "instance", "dns_name", "image", "version", "env_vars", "labels", "ports", "volumes", "binds"],
+    fields: ["config_profile", "network", "traefik", "all_hosts", "saashup_enabled", "registry_webhook_secret", "instance", "dns_name", "image", "version", "env_vars", "labels", "ports", "volumes", "binds"],
   },
   workflow: {
     endpoint: "",
@@ -336,7 +336,7 @@ const allFieldNames = [
   "clean_name",
   "remove_old_images",
   "cloudflare_filter",
-  "dockerhub_webhook_secret",
+  "registry_webhook_secret",
   "smtp_config",
   "var_env_key",
   "var_env_value",
@@ -1251,7 +1251,7 @@ function applyProfileToFields(name = currentConfigProfile) {
   setFieldValue("owner_env_var", credentials.owner_env_var);
   setFieldValue("cloudflare_filter", credentials.cloudflare_filter);
   setFieldValue("smtp_config", credentials.smtp_config);
-  if (currentAction === "create") applyDockerhubDefaultSecret();
+  if (currentAction === "create") applyRegistryDefaultSecret();
   persistProfiles();
   syncCreateNetwork();
   updateProfileSyncWarning();
@@ -1270,9 +1270,9 @@ function updateTestEmailVisibility() {
   testEmailBtn.classList.toggle("hidden", !visible);
 }
 
-async function loadDockerhubDefaultSecret() {
-  if (dockerhubWebhookDefaultLoaded) return;
-  dockerhubWebhookDefaultLoaded = true;
+async function loadRegistryDefaultSecret() {
+  if (registryWebhookDefaultLoaded) return;
+  registryWebhookDefaultLoaded = true;
 
   try {
     const response = await fetch("/registry-webhook-secret", {
@@ -1280,22 +1280,22 @@ async function loadDockerhubDefaultSecret() {
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
-    dockerhubWebhookDefaultSecret = data.default_secret || data.secret || "";
+    registryWebhookDefaultSecret = data.default_secret || data.secret || "";
   } catch {
-    dockerhubWebhookDefaultSecret = "";
+    registryWebhookDefaultSecret = "";
   }
 
-  applyDockerhubDefaultSecret();
+  applyRegistryDefaultSecret();
 }
 
-function applyDockerhubDefaultSecret() {
-  if (currentAction !== "create" || !dockerhubWebhookSecretInput || dockerhubWebhookSecretInput.value || !dockerhubWebhookDefaultSecret) return;
-  dockerhubWebhookSecretInput.value = dockerhubWebhookDefaultSecret;
+function applyRegistryDefaultSecret() {
+  if (currentAction !== "create" || !registryWebhookSecretInput || registryWebhookSecretInput.value || !registryWebhookDefaultSecret) return;
+  registryWebhookSecretInput.value = registryWebhookDefaultSecret;
 }
 
-function dockerhubWebhookSecretValue() {
-  const value = fieldValue("dockerhub_webhook_secret");
-  if (value === dockerhubWebhookDefaultSecret) return "";
+function registryWebhookSecretValue() {
+  const value = fieldValue("registry_webhook_secret");
+  if (value === registryWebhookDefaultSecret) return "";
   return value;
 }
 
@@ -2143,7 +2143,7 @@ function setAction(actionName) {
     refreshImages({ notify: false });
   }
   if (actionName === "create") {
-    loadDockerhubDefaultSecret();
+    loadRegistryDefaultSecret();
   }
   if (actionName === "report") {
     updateReportProfileOptions();
@@ -2379,16 +2379,16 @@ function openProfileHelp(key) {
   if (!help || !profileHelpModal || !profileHelpTitle || !profileHelpBody) return;
 
   profileHelpTitle.textContent = help.title;
-  profileHelpBody.textContent = key === "dockerhub_webhook_secret"
-    ? dockerhubWebhookHelpBody(help.body)
+  profileHelpBody.textContent = key === "registry_webhook_secret"
+    ? registryWebhookHelpBody(help.body)
     : help.body;
   profileHelpModal.classList.remove("hidden");
   profileHelpOkBtn?.focus();
 }
 
-function dockerhubWebhookHelpBody(body) {
+function registryWebhookHelpBody(body) {
   const profile = selectedProfileCredentials().profile || "";
-  const secret = fieldValue("dockerhub_webhook_secret") || dockerhubWebhookDefaultSecret || "";
+  const secret = fieldValue("registry_webhook_secret") || registryWebhookDefaultSecret || "";
   const profileSegment = profile ? encodeURIComponent(profile) : "<config-profile>";
   const secretSegment = secret ? `/${encodeURIComponent(secret)}` : "";
   const webhookUrl = `${window.location.origin}/registry-webhook/${profileSegment}${secretSegment}`;
@@ -2985,7 +2985,7 @@ function currentCreateTemplate() {
     traefik: fieldChecked("traefik", true),
     all_hosts: fieldChecked("all_hosts", false),
     saashup_enabled: fieldChecked("saashup_enabled", true),
-    dockerhub_webhook_secret: dockerhubWebhookSecretValue(),
+    registry_webhook_secret: registryWebhookSecretValue(),
     network: fieldValue("network"),
     image: fieldValue("image"),
     version: fieldValue("version"),
@@ -3020,8 +3020,8 @@ function applyCreateTemplate(template) {
   setFieldValue("traefik", template.traefik ?? true);
   setFieldValue("all_hosts", template.all_hosts ?? false);
   setFieldValue("saashup_enabled", template.saashup_enabled ?? true);
-  setFieldValue("dockerhub_webhook_secret", template.dockerhub_webhook_secret || "");
-  applyDockerhubDefaultSecret();
+  setFieldValue("registry_webhook_secret", template.registry_webhook_secret || template.dockerhub_webhook_secret || "");
+  applyRegistryDefaultSecret();
   templateNetworkOverride = template.network || "";
   templateVersionOverride = template.version || "";
   generatedCreateInstanceName = "";
@@ -4329,7 +4329,7 @@ importConfigFile?.addEventListener("change", importPortableConfig);
 clearBtn?.addEventListener("click", clearActionFields);
 dockerRunBtn?.addEventListener("click", openDockerRunModal);
 tokenToggle?.addEventListener("click", () => togglePasswordVisibility(field("token"), tokenToggle, "NetBox token"));
-dockerhubWebhookSecretToggle?.addEventListener("click", () => togglePasswordVisibility(dockerhubWebhookSecretInput, dockerhubWebhookSecretToggle, "registry webhook password"));
+registryWebhookSecretToggle?.addEventListener("click", () => togglePasswordVisibility(registryWebhookSecretInput, registryWebhookSecretToggle, "registry webhook password"));
 smtpConfigToggle?.addEventListener("click", () => togglePasswordVisibility(field("smtp_config"), smtpConfigToggle, "SMTP config"));
 form?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-profile-help]");
