@@ -1889,6 +1889,9 @@ describe("server routes", () => {
     await request.post("/registry-webhook/prod/env-secret").send(body).expect(403);
     await request.post("/registry-webhook/prod/other-secret").send(body).expect(403);
     await request.post("/registry-webhook/prod/template-secret").send(body).expect(202);
+    await request.post("/registry-webhook/prod/Tile/env-secret").send(body).expect(403);
+    await request.post("/registry-webhook/prod/Other/other-secret").send(body).expect(403);
+    await request.post("/registry-webhook/prod/Tile/template-secret").send(body).expect(202);
     await request.post("/registry-webhook/dev/env-secret").send(body).expect(202);
   });
 

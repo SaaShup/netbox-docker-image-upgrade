@@ -614,6 +614,16 @@ function registryWebhookTemplates(profile, image) {
     .filter((entry) => templateMatchesRegistryWebhook(entry.template, profile, image));
 }
 
+function registryWebhookTemplateSecret(profile, templateName, events = []) {
+  const entry = orderTemplateEntry(templateName);
+  if (!entry) return "";
+  const imageMatches = events.length
+    ? events.some((event) => templateMatchesRegistryWebhook(entry.template, profile, event.image))
+    : templateMatchesRegistryWebhook(entry.template, profile, "");
+  if (!imageMatches) return "";
+  return String(entry.template.registry_webhook_secret || entry.template.dockerhub_webhook_secret || "");
+}
+
 function registrySecretForTemplate(name, image = "") {
   const entry = orderTemplateEntry(name);
   if (!entry) return registryWebhookSecret;
@@ -685,9 +695,12 @@ function registryWebhookEvents(payload) {
 
 function registryWebhookAllowed(req, events = registryWebhookEvents(req.body)) {
   const profile = String(req.params.profile || "");
-  const matchingSecrets = events.flatMap((event) => registryWebhookTemplates(profile, event.image)
-    .map((entry) => String(entry.template.registry_webhook_secret || entry.template.dockerhub_webhook_secret || ""))
-    .filter(Boolean));
+  const template = String(req.params.template || "");
+  const matchingSecrets = template
+    ? [registryWebhookTemplateSecret(profile, template, events)].filter(Boolean)
+    : events.flatMap((event) => registryWebhookTemplates(profile, event.image)
+      .map((entry) => String(entry.template.registry_webhook_secret || entry.template.dockerhub_webhook_secret || ""))
+      .filter(Boolean));
   const secrets = matchingSecrets.length ? matchingSecrets : [registryWebhookSecret].filter(Boolean);
   if (!secrets.length) return true;
   const provided = req.params.secret || req.query.secret || req.get("x-saashup-webhook-secret") || "";
@@ -710,7 +723,11 @@ app.use((req, res, next) => {
   next();
 });
 
-app.post(["/registry-webhook/:profile", "/registry-webhook/:profile/:secret"], (req, res) => {
+app.post([
+  "/registry-webhook/:profile",
+  "/registry-webhook/:profile/:secret",
+  "/registry-webhook/:profile/:template/:secret",
+], (req, res) => {
   const events = registryWebhookEvents(req.body);
   if (!registryWebhookAllowed(req, events)) return res.status(403).json({ detail: "invalid webhook secret" });
   res.status(202).json({ status: "accepted" });
