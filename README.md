@@ -82,11 +82,20 @@ Content-Type: application/json
   "email": "ada@example.com",
   "subject": "Demo request",
   "message": "Can we talk?",
+  "turnstileToken": "cloudflare-turnstile-response-token",
   "website": ""
 }
 ```
 
 `profile` is optional when the default config has `smtp_config`. `website` is a honeypot field; keep it hidden and empty in the Hugo form.
+
+To require Cloudflare Turnstile verification only for this contact endpoint, set:
+
+```
+TURNSTILE_SECRET_KEY=0x...
+```
+
+When `TURNSTILE_SECRET_KEY` is set, `/contact` requires `turnstileToken` (or `cf-turnstile-response`) and verifies it with Cloudflare Siteverify before sending email.
 
 # Registry webhooks
 

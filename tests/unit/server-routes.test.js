@@ -37,6 +37,7 @@ async function loadServer({
   publicApiAllowedOrigins = "",
   publicApiSecret = "",
   recreateDelayMs = "0",
+  turnstileSecretKey = "",
 } = {}) {
   const dataPath = fs.mkdtempSync(path.join(os.tmpdir(), "saashup-test-"));
   process.env.DATAPATH = dataPath;
@@ -56,6 +57,8 @@ async function loadServer({
   else delete process.env.PUBLIC_API_ALLOWED_ORIGINS;
   if (publicApiSecret) process.env.PUBLIC_API_SECRET = publicApiSecret;
   else delete process.env.PUBLIC_API_SECRET;
+  if (turnstileSecretKey) process.env.TURNSTILE_SECRET_KEY = turnstileSecretKey;
+  else delete process.env.TURNSTILE_SECRET_KEY;
   if (oidc) {
     process.env.OIDC_ISSUER_URL = "https://id.example.com/auth/realms/paashup";
     process.env.OIDC_CLIENT_ID = "saashup";
@@ -556,6 +559,7 @@ describe("server routes", () => {
     delete process.env.ADMIN_ALLOWED_EMAILS;
     delete process.env.PUBLIC_API_ALLOWED_ORIGINS;
     delete process.env.PUBLIC_API_SECRET;
+    delete process.env.TURNSTILE_SECRET_KEY;
     delete process.env.ENABLE_EDITOR;
     delete process.env.OPERATION_TIMEOUT_SECONDS;
     delete process.env.OPERATION_POLL_MS;
@@ -2407,6 +2411,83 @@ describe("server routes", () => {
     );
     expect(smtpSender.mock.calls[0][0].host).not.toBe("evil.example.com");
     expect(readState(dataPath).logs).toContain("EMAIL : contact message sent from ada@example.com");
+  });
+
+  test("contact form verifies Cloudflare Turnstile before sending email", async () => {
+    const { dataPath, request, setSmtpSenderForTests, setTurnstileFetchForTests } = await loadServer({ ownerEmail: "owner@example.com", publicApiSecret: "test-secret", turnstileSecretKey: "turnstile-secret" });
+    const smtpSender = vi.fn().mockResolvedValue({ messageId: "contact-message", accepted: ["owner@example.com"], rejected: [], response: "250 queued" });
+    const turnstileFetch = vi.fn(async () => jsonResponse({ success: true }));
+    setSmtpSenderForTests(smtpSender);
+    setTurnstileFetchForTests(turnstileFetch);
+    writeState(dataPath, {
+      config: { smtp_config: "mailer:smtp-secret@smtp.example.com:587" },
+      templates: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.post("/contact")
+      .set("X-Public-Api-Secret", "test-secret")
+      .set("CF-Connecting-IP", "203.0.113.9")
+      .send({
+        name: "Ada Lovelace",
+        email: "ada@example.com",
+        subject: "Demo request",
+        message: "Can we talk about NetBox Docker hosting?",
+        turnstileToken: "visitor-token",
+      }).expect(200).expect((res) => {
+      expect(res.body).toMatchObject({ status: "sent", message_id: "contact-message" });
+    });
+
+    expect(turnstileFetch).toHaveBeenCalledWith(
+      "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: expect.any(URLSearchParams),
+      }),
+    );
+    const body = turnstileFetch.mock.calls[0][1].body;
+    expect(body.get("secret")).toBe("turnstile-secret");
+    expect(body.get("response")).toBe("visitor-token");
+    expect(body.get("remoteip")).toBe("203.0.113.9");
+    expect(smtpSender).toHaveBeenCalledTimes(1);
+  });
+
+  test("contact form rejects missing or failed Turnstile verification", async () => {
+    const { dataPath, request, setSmtpSenderForTests, setTurnstileFetchForTests } = await loadServer({ ownerEmail: "owner@example.com", publicApiSecret: "test-secret", turnstileSecretKey: "turnstile-secret" });
+    const smtpSender = vi.fn();
+    const turnstileFetch = vi.fn(async () => jsonResponse({ success: false, "error-codes": ["invalid-input-response"] }));
+    setSmtpSenderForTests(smtpSender);
+    setTurnstileFetchForTests(turnstileFetch);
+    writeState(dataPath, {
+      config: { smtp_config: "mailer:smtp-secret@smtp.example.com:587" },
+      templates: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.post("/contact")
+      .set("X-Public-Api-Secret", "test-secret")
+      .send({ email: "ada@example.com", message: "Hello" })
+      .expect(400)
+      .expect((res) => {
+        expect(res.body.detail).toBe("captcha verification is required");
+      });
+    expect(turnstileFetch).not.toHaveBeenCalled();
+
+    await request.post("/contact")
+      .set("X-Public-Api-Secret", "test-secret")
+      .send({ email: "ada@example.com", message: "Hello", turnstileToken: "bad-token" })
+      .expect(403)
+      .expect((res) => {
+        expect(res.body.detail).toBe("captcha verification failed");
+      });
+
+    expect(turnstileFetch).toHaveBeenCalledTimes(1);
+    expect(smtpSender).not.toHaveBeenCalled();
   });
 
   test("contact form validates required mail settings and visitor fields", async () => {

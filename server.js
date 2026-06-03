@@ -2,6 +2,7 @@ const path = require("path");
 const crypto = require("crypto");
 const fs = require("fs");
 const express = require("express");
+const { fetch: undiciFetch } = require("undici");
 const packageJson = require("./package.json");
 const { authUserFromRequest, createAuthHelpers, maxInstancesValue } = require("./lib/auth");
 const {
@@ -62,6 +63,7 @@ const publicApiAllowedOrigins = String(process.env.PUBLIC_API_ALLOWED_ORIGINS ||
   .map((origin) => origin.trim().replace(/\/+$/, ""))
   .filter(Boolean);
 const publicApiSecret = String(process.env.PUBLIC_API_SECRET || "");
+const turnstileSecretKey = String(process.env.TURNSTILE_SECRET_KEY || "");
 const oidcAuth = createOidcAuth({
   clientId: process.env.OIDC_CLIENT_ID || process.env.SAASHUP_OIDC_CLIENT_ID,
   clientSecret: process.env.OIDC_CLIENT_SECRET || process.env.SAASHUP_OIDC_CLIENT_SECRET,
@@ -75,6 +77,7 @@ const metrics = createMetrics();
 const { readState, writeState, logLine } = createStateStore(dataPath);
 const { isAdminAllowed, selectedProfileConfig, userOrderKey } = createAuthHelpers({ adminAllowedEmails, readState });
 let smtpSender = sendSmtpMail;
+let turnstileFetch = undiciFetch;
 const {
   createDnsRecord,
   deleteDnsRecord,
@@ -393,6 +396,57 @@ function cleanContactField(value, limit = 500) {
 function contactEmailAddress(value) {
   const email = cleanContactField(value, 320).toLowerCase();
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "";
+}
+
+function contactTurnstileToken(data) {
+  return cleanContactField(data.turnstileToken || data.turnstile_token || data["cf-turnstile-response"], 4096);
+}
+
+function requestIp(req) {
+  const forwarded = String(req.get("cf-connecting-ip") || req.get("x-forwarded-for") || "").split(",")[0].trim();
+  return forwarded || req.ip || req.socket?.remoteAddress || "";
+}
+
+async function verifyContactTurnstile(data, req) {
+  if (!turnstileSecretKey) return;
+  const token = contactTurnstileToken(data);
+  if (!token) {
+    const error = new Error("captcha verification is required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const form = new URLSearchParams();
+  form.set("secret", turnstileSecretKey);
+  form.set("response", token);
+  const ip = requestIp(req);
+  if (ip) form.set("remoteip", ip);
+
+  let response;
+  try {
+    response = await turnstileFetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: form,
+    });
+  } catch {
+    const error = new Error("captcha verification failed");
+    error.statusCode = 502;
+    throw error;
+  }
+
+  let payload = {};
+  try {
+    payload = await response.json();
+  } catch {
+    payload = {};
+  }
+
+  if (!response.ok || !payload.success) {
+    const error = new Error("captcha verification failed");
+    error.statusCode = 403;
+    throw error;
+  }
 }
 
 function contactFormEmail(data, smtpConfig) {
@@ -751,7 +805,9 @@ app.post("/test-email", requireAdmin, async (req, res) => {
 app.options(["/contact", "/registry/check"], publicApiGuard);
 app.post("/contact", publicApiGuard, async (req, res) => {
   try {
-    const info = await sendContactEmail({ ...req.query, ...req.body });
+    const data = { ...req.query, ...req.body };
+    await verifyContactTurnstile(data, req);
+    const info = await sendContactEmail(data);
     res.json({
       status: "sent",
       skipped: Boolean(info?.skipped),
@@ -1437,6 +1493,9 @@ module.exports = {
   setRegistryFetchForTests,
   setSmtpSenderForTests: (sender) => {
     smtpSender = sender || sendSmtpMail;
+  },
+  setTurnstileFetchForTests: (fetcher) => {
+    turnstileFetch = fetcher || undiciFetch;
   },
   smtpMessage,
   smtpSenderAddress,
