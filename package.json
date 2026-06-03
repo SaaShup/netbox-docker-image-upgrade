@@ -1,6 +1,6 @@
 {
     "name": "netbox-docker-image-upgrade",
-    "version": "3.2.0",
+    "version": "3.3.0",
     "description": "App to deploy new image to all containers",
     "author": "vincent@saashup.com",
     "homepage": "https://github.com/SaaShup/netbox-docker-image-upgrade",
@@ -13,7 +13,7 @@
         "test:unit": "vitest run",
         "coverage": "vitest run --coverage",
         "start": "node server.js",
-        "dev": "OPERATION_TIMEOUT_SECONDS=60 DOCKERHUB_WEBHOOK_SECRET=secret ENABLE_EDITOR=1 LOCAL_DEV_EMAIL=demo@local.test OIDC_ENABLED=false node server.js",
+        "dev": "OPERATION_TIMEOUT_SECONDS=60 REGISTRY_WEBHOOK_SECRET=secret ENABLE_EDITOR=1 LOCAL_DEV_EMAIL=demo@local.test OIDC_ENABLED=false node server.js",
         "test:e2e": "playwright test"
     },
     "license": "BSD-3-Clause",

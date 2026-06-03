@@ -51,11 +51,24 @@ const { createMetrics } = require("../../lib/metrics");
 const { NetBoxClient, dockerHosts, hostIdQuery, netboxAuthHeader, setNetBoxFetchForTests } = require("../../lib/netbox");
 const { cookie, createOidcAuth, parseCookies, setOidcFetchForTests, userFromClaims } = require("../../lib/oidc");
 const { createOperationHelpers } = require("../../lib/operations");
+const { checkRegistryImageExists, parseRegistryImageRef, setRegistryFetchForTests } = require("../../lib/registry");
 const { createStateStore, defaultState, readJson, writeJson } = require("../../lib/state");
 
 function jsonResponse(payload, status = 200) {
   return {
     status,
+    text: async () => JSON.stringify(payload),
+  };
+}
+
+function registryResponse(payload, status = 200, headers = {}) {
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    headers: {
+      get: (name) => headers[String(name || "").toLowerCase()] || "",
+    },
+    json: async () => payload,
     text: async () => JSON.stringify(payload),
   };
 }
@@ -216,6 +229,95 @@ describe("server helpers", () => {
     expect(imageNameFromRef()).toBe("");
     expect(imageNameFromRef("registry.example.com:5000/saashup/tile-api:v2.4.1")).toBe("registry.example.com:5000/saashup/tile-api");
     expect(imageNameFromRef("saashup/tile-api")).toBe("saashup/tile-api");
+  });
+
+  test("parses supported registry image references and rejects invalid repositories", () => {
+    expect(parseRegistryImageRef("nginx:1.27")).toMatchObject({
+      registry: "docker.io",
+      manifestHost: "registry-1.docker.io",
+      name: "library/nginx",
+      tag: "1.27",
+    });
+    expect(parseRegistryImageRef("index.docker.io/nginx")).toMatchObject({
+      registry: "docker.io",
+      manifestHost: "registry-1.docker.io",
+      name: "library/nginx",
+      tag: "latest",
+    });
+    expect(parseRegistryImageRef("ghcr.io/owner/image:latest")).toMatchObject({
+      registry: "ghcr.io",
+      manifestHost: "ghcr.io",
+      name: "owner/image",
+      tag: "latest",
+    });
+    expect(() => parseRegistryImageRef("")).toThrow("image is required");
+    expect(() => parseRegistryImageRef("ghcr.io/owner/image@sha256:abc")).toThrow("image digests are not supported");
+    expect(() => parseRegistryImageRef("ghcr.io/:latest")).toThrow("image must include a repository and tag");
+    expect(() => parseRegistryImageRef("ghcr.io/Owner/image:latest")).toThrow("image repository is invalid");
+    expect(() => parseRegistryImageRef("ghcr.io/owner/image:bad tag")).toThrow("image tag is invalid");
+  });
+
+  test("registry image checks report upstream token and manifest failures", async () => {
+    setRegistryFetchForTests(vi.fn(async () => registryResponse({}, 401)));
+    await expect(checkRegistryImageExists("ghcr.io/owner/image:latest")).rejects.toMatchObject({
+      message: "registry manifest request failed 401",
+      statusCode: 502,
+    });
+    setRegistryFetchForTests(vi.fn(async () => registryResponse({}, 401, {
+      "www-authenticate": 'Bearer service="ghcr.io"',
+    })));
+    await expect(checkRegistryImageExists("ghcr.io/owner/image:latest")).rejects.toMatchObject({
+      message: "registry manifest request failed 401",
+      statusCode: 502,
+    });
+
+    setRegistryFetchForTests(vi.fn(async (url, options = {}) => {
+      const parsed = new URL(String(url));
+      if (parsed.hostname === "quay.io" && parsed.pathname.startsWith("/v2/") && !options.headers.Authorization) {
+        return registryResponse({}, 401, { "www-authenticate": 'Bearer realm="https://quay.io/token"' });
+      }
+      if (parsed.hostname === "quay.io" && parsed.pathname === "/token") return registryResponse({ access_token: "access-token" });
+      if (parsed.hostname === "quay.io" && parsed.pathname.startsWith("/v2/") && options.headers.Authorization === "Bearer access-token") {
+        return registryResponse({ schemaVersion: 2 });
+      }
+      return registryResponse({}, 404);
+    }));
+    await expect(checkRegistryImageExists("quay.io/owner/image:latest")).resolves.toMatchObject({
+      registry: "quay.io",
+      name: "owner/image",
+      tag: "latest",
+      exists: true,
+    });
+
+    setRegistryFetchForTests(vi.fn(async (url, options = {}) => {
+      const parsed = new URL(String(url));
+      if (parsed.hostname === "ghcr.io" && parsed.pathname.startsWith("/v2/")) {
+        return registryResponse({}, 401, {
+          "www-authenticate": 'Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:owner/image:pull"',
+        });
+      }
+      if (parsed.hostname === "ghcr.io" && parsed.pathname === "/token") {
+        expect(options.headers.Accept).toBe("application/json");
+        return registryResponse({}, 503);
+      }
+      return registryResponse({}, 404);
+    }));
+    await expect(checkRegistryImageExists("ghcr.io/owner/image:latest")).rejects.toMatchObject({
+      message: "registry token request failed 503",
+      statusCode: 502,
+    });
+
+    setRegistryFetchForTests(vi.fn(async () => registryResponse({}, 429)));
+    await expect(checkRegistryImageExists("quay.io/owner/image:latest")).rejects.toMatchObject({
+      message: "registry manifest request failed 429",
+      statusCode: 429,
+    });
+    setRegistryFetchForTests(vi.fn(async () => registryResponse({}, 500)));
+    await expect(checkRegistryImageExists("quay.io/owner/image:latest")).rejects.toMatchObject({
+      message: "registry manifest request failed 500",
+      statusCode: 502,
+    });
+    setRegistryFetchForTests(null);
   });
 
   test("builds create and configure container payloads from repeatable form fields", () => {
@@ -406,8 +508,8 @@ describe("server helpers", () => {
     expect(routeLabel({ originalUrl: "/admin.html?x=1" })).toBe("/admin");
     expect(routeLabel({ originalUrl: "/order.html" }, metrics)).toBe("/order");
     expect(routeLabel({ originalUrl: "/missing" })).toBe("other");
-    expect(routeLabel({ originalUrl: "/dockerhub/prod" }, metrics)).toBe("/dockerhub");
-    expect(operationLabel({ originalUrl: "/dockerhub/prod" }, metrics)).toBe("upgrade");
+    expect(routeLabel({ originalUrl: "/registry-webhook/prod" }, metrics)).toBe("/registry-webhook");
+    expect(operationLabel({ originalUrl: "/registry-webhook/prod" }, metrics)).toBe("upgrade");
     expect(operationLabel({ originalUrl: "/missing" })).toBe("");
     expect(statusClass(201)).toBe("2xx");
     expect(statusClass("oops")).toBe("other");
