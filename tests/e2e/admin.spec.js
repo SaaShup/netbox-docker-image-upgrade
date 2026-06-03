@@ -54,7 +54,7 @@ async function openAdmin(page, config = {}, templates = {}, instances = [
     });
   });
 
-  await page.route("**/dockerhub-webhook-secret", async (route) => {
+  await page.route("**/registry-webhook-secret", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -123,14 +123,7 @@ test("config tab starts without a forced default profile", async ({ page }) => {
   await expect(page.locator("#tokenToggle")).toHaveAttribute("aria-label", "Hide NetBox token");
   await page.locator("#tokenToggle").click();
   await expect(page.locator("#token")).toHaveAttribute("type", "password");
-  await expect(page.locator("#dockerhub_webhook_secret")).toHaveValue("hook-secret");
-  await expect(page.locator("#dockerhub_webhook_secret")).toHaveAttribute("type", "password");
-  await expect(page.locator("#dockerhub_webhook_secret")).toHaveAttribute("placeholder", "Empty uses env default");
-  await page.locator("#profileDockerhubSecretToggle").click();
-  await expect(page.locator("#dockerhub_webhook_secret")).toHaveAttribute("type", "text");
-  await expect(page.locator("#profileDockerhubSecretToggle")).toHaveAttribute("aria-label", "Hide Docker Hub webhook password");
-  await page.locator("#profileDockerhubSecretToggle").click();
-  await expect(page.locator("#dockerhub_webhook_secret")).toHaveAttribute("type", "password");
+  await expect(page.locator('[data-field="dockerhub_webhook_secret"]')).toBeHidden();
   await expect(page.locator("#smtp_config")).toHaveAttribute("type", "password");
   await page.locator("#smtpConfigToggle").click();
   await expect(page.locator("#smtp_config")).toHaveAttribute("type", "text");
@@ -138,9 +131,22 @@ test("config tab starts without a forced default profile", async ({ page }) => {
   await page.locator("#smtpConfigToggle").click();
   await expect(page.locator("#smtp_config")).toHaveAttribute("type", "password");
   await page.getByRole("link", { name: "Create" }).click();
-  await expect(page.locator('[data-field="dockerhub_webhook_secret"]')).toBeHidden();
-  await page.getByRole("link", { name: "Config" }).click();
   await expect(page.locator('[data-field="dockerhub_webhook_secret"]')).toBeVisible();
+  await expect(page.locator("#dockerhub_webhook_secret")).toHaveValue("hook-secret");
+  await expect(page.locator("#dockerhub_webhook_secret")).toHaveAttribute("type", "password");
+  await expect(page.locator("#dockerhub_webhook_secret")).toHaveAttribute("placeholder", "Empty uses env default");
+  await page.locator("#dockerhubWebhookSecretToggle").click();
+  await expect(page.locator("#dockerhub_webhook_secret")).toHaveAttribute("type", "text");
+  await expect(page.locator("#dockerhubWebhookSecretToggle")).toHaveAttribute("aria-label", "Hide registry webhook password");
+  await page.locator("#dockerhubWebhookSecretToggle").click();
+  await expect(page.locator("#dockerhub_webhook_secret")).toHaveAttribute("type", "password");
+  await page.locator('[data-profile-help="dockerhub_webhook_secret"]').click();
+  await expect(page.locator("#profileHelpTitle")).toHaveText("Registry webhook password");
+  await expect(page.locator("#profileHelpBody")).toContainText("Registry webhook URL:");
+  await expect(page.locator("#profileHelpBody")).toContainText(`${new URL(page.url()).origin}/registry-webhook/<config-profile>/hook-secret`);
+  await page.locator("#profileHelpOkBtn").click();
+  await page.getByRole("link", { name: "Config" }).click();
+  await expect(page.locator('[data-field="dockerhub_webhook_secret"]')).toBeHidden();
   await expect(page.locator("#domain")).toHaveValue("");
   await expect(page.locator("#tag")).toHaveValue("");
   await expect(page.locator("#max_instances")).toHaveValue("1");

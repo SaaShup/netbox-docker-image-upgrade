@@ -51,7 +51,7 @@ const operationTimeoutSeconds = Number(process.env.OPERATION_TIMEOUT_SECONDS || 
 const operationPollMs = Number(process.env.OPERATION_POLL_MS || 3000);
 const createConfigureDelayMs = Number(process.env.CREATE_CONFIGURE_DELAY_MS || 5000);
 const createRecreateDelayMs = Number(process.env.CREATE_RECREATE_DELAY_MS || 5000);
-const dockerhubWebhookSecret = String(process.env.DOCKERHUB_WEBHOOK_SECRET || "");
+const registryWebhookSecret = String(process.env.REGISTRY_WEBHOOK_SECRET || "");
 const appOwnerEmail = String(process.env.APP_OWNER_EMAIL || "").trim();
 const adminAllowedEmails = String(process.env.ADMIN_ALLOWED_EMAILS || "")
   .split(",")
@@ -546,16 +546,98 @@ function publicApiGuard(req, res, next) {
   return next();
 }
 
-function dockerhubSecretForProfile(profile) {
-  const config = selectedProfileConfig({ profile, config_profile: profile });
-  return String(config.dockerhub_webhook_secret || dockerhubWebhookSecret || "");
+function templateMatchesRegistryWebhook(template, profile, image) {
+  const entry = plainObject(template);
+  const templateProfile = String(entry.config_profile || entry.profile || "").trim();
+  const templateImage = imageNameFromRef(entry.image || "");
+  return templateImage === image && (!templateProfile || templateProfile === profile);
 }
 
-function dockerhubWebhookAllowed(req) {
-  const secret = dockerhubSecretForProfile(req.params.profile);
-  if (!secret) return true;
+function registryWebhookTemplates(profile, image) {
+  const templates = plainObject(readState().templates);
+  return Object.entries(templates)
+    .map(([name, template]) => ({ name, template: plainObject(template) }))
+    .filter((entry) => templateMatchesRegistryWebhook(entry.template, profile, image));
+}
+
+function registrySecretForTemplate(name, image = "") {
+  const entry = orderTemplateEntry(name);
+  if (!entry) return registryWebhookSecret;
+  if (image && !templateMatchesRegistryWebhook(entry.template, String(entry.template.config_profile || entry.template.profile || ""), imageNameFromRef(image))) return registryWebhookSecret;
+  return String(entry.template.dockerhub_webhook_secret || registryWebhookSecret || "");
+}
+
+function addRegistryWebhookEvent(events, image, tag) {
+  const eventImage = imageNameFromRef(image || "");
+  const eventTag = String(tag || "").trim();
+  if (eventImage && eventTag) events.push({ image: eventImage, tag: eventTag });
+}
+
+function imageFromDistributionTarget(target) {
+  const entry = plainObject(target);
+  const url = String(entry.url || "");
+  if (url) {
+    try {
+      const parsed = new URL(url);
+      const match = parsed.pathname.match(/^\/v2\/(.+)\/manifests\/[^/]+$/);
+      if (match) return `${parsed.host}/${match[1]}`;
+    } catch {
+      // Fall back to the repository field below.
+    }
+  }
+  return entry.repository || "";
+}
+
+function githubPackageImage(payload) {
+  const root = plainObject(payload);
+  const registryPackage = plainObject(root.registry_package || root.package);
+  const packageName = String(registryPackage.name || root.name || "").trim();
+  if (!packageName) return "";
+  if (packageName.includes("/") || packageName.startsWith("ghcr.io/")) return packageName;
+  const owner = plainObject(registryPackage.owner || root.organization || root.repository?.owner || root.sender);
+  const login = String(owner.login || owner.name || "").trim();
+  return login ? `ghcr.io/${login}/${packageName}` : packageName;
+}
+
+function githubPackageTag(payload) {
+  const root = plainObject(payload);
+  const version = plainObject(root.package_version || root.registry_package?.package_version);
+  const metadata = plainObject(version.container_metadata);
+  const tag = plainObject(metadata.tag);
+  return tag.name || version.name || root.package_version_name || "";
+}
+
+function registryWebhookEvents(payload) {
+  const body = plainObject(payload);
+  const events = [];
+
+  addRegistryWebhookEvent(events, body.repository?.repo_name, body.push_data?.tag);
+
+  const quayTags = Array.isArray(body.updated_tags) ? body.updated_tags : Array.isArray(body.docker_tags) ? body.docker_tags : [];
+  quayTags.forEach((tag) => addRegistryWebhookEvent(events, body.docker_url || body.repository, tag));
+
+  const distributionEvents = Array.isArray(body.events) ? body.events : [];
+  distributionEvents
+    .filter((event) => !event.action || event.action === "push")
+    .forEach((event) => {
+      const target = plainObject(event.target);
+      addRegistryWebhookEvent(events, imageFromDistributionTarget(target), target.tag);
+    });
+
+  addRegistryWebhookEvent(events, githubPackageImage(body), githubPackageTag(body));
+
+  return events;
+}
+
+function registryWebhookAllowed(req, events = registryWebhookEvents(req.body)) {
+  const profile = String(req.params.profile || "");
+  const matchingSecrets = events.flatMap((event) => registryWebhookTemplates(profile, event.image)
+    .map((entry) => String(entry.template.dockerhub_webhook_secret || ""))
+    .filter(Boolean));
+  const secrets = matchingSecrets.length ? matchingSecrets : [registryWebhookSecret].filter(Boolean);
+  if (!secrets.length) return true;
   const provided = req.params.secret || req.query.secret || req.get("x-saashup-webhook-secret") || "";
-  return timingSafeStringEqual(provided, secret);
+  return secrets.some((secret) => timingSafeStringEqual(provided, secret));
 }
 
 app.disable("x-powered-by");
@@ -574,17 +656,20 @@ app.use((req, res, next) => {
   next();
 });
 
-app.post(["/dockerhub/:profile", "/dockerhub/:profile/:secret"], (req, res) => {
-  if (!dockerhubWebhookAllowed(req)) return res.status(403).json({ detail: "invalid webhook secret" });
+app.post(["/registry-webhook/:profile", "/registry-webhook/:profile/:secret"], (req, res) => {
+  const events = registryWebhookEvents(req.body);
+  if (!registryWebhookAllowed(req, events)) return res.status(403).json({ detail: "invalid webhook secret" });
   res.status(202).json({ status: "accepted" });
-  const tag = req.body?.push_data?.tag;
-  if (!tag || tag === "latest") return;
-  const image = req.body?.repository?.repo_name;
+  const upgradeEvents = events.filter((event) => event.tag !== "latest");
+  if (!upgradeEvents.length) return;
   const config = selectedProfileConfig({ profile: req.params.profile });
-  const body = { ...config, image, version: tag, clean_name: false };
   Promise.resolve()
-    .then(() => recreateContainers(body))
-    .catch((error) => logLine(`DOCKERHUB : failed ${error.message}`));
+    .then(async () => {
+      for (const event of upgradeEvents) {
+        await recreateContainers({ ...config, image: event.image, version: event.tag, clean_name: false });
+      }
+    })
+    .catch((error) => logLine(`REGISTRY_WEBHOOK : failed ${error.message}`));
 });
 
 app.use(oidcAuth.attachUser);
@@ -643,9 +728,10 @@ app.use(express.static(publicPath));
 
 app.get("/config", (req, res) => res.json(readState().config || {}));
 app.get("/mail-settings", requireAdmin, (req, res) => res.json({ owner_email_configured: Boolean(appOwnerEmail) }));
-app.get("/dockerhub-webhook-secret", requireAdmin, (req, res) => {
-  const profile = req.query.profile || req.query.config_profile || "";
-  res.json({ secret: profile ? dockerhubSecretForProfile(profile) : dockerhubWebhookSecret, default_secret: dockerhubWebhookSecret });
+app.get("/registry-webhook-secret", requireAdmin, (req, res) => {
+  const template = req.query.template || "";
+  const image = req.query.image || "";
+  res.json({ secret: template ? registrySecretForTemplate(template, image) : registryWebhookSecret, default_secret: registryWebhookSecret });
 });
 app.post("/test-email", requireAdmin, async (req, res) => {
   try {
@@ -697,7 +783,6 @@ app.get("/webhook", requireAdmin, (req, res) => {
     max_instances: maxInstancesValue(req.query.max_instances),
     owner_env_var: String(req.query.owner_env_var || "SAASHUP_OWNER").trim() || "SAASHUP_OWNER",
     cloudflare_filter: req.query.cloudflare_filter !== "false",
-    dockerhub_webhook_secret: req.query.dockerhub_webhook_secret || "",
     smtp_config: req.query.smtp_config || "",
     profile: req.query.profile || req.query.config_profile || "",
     config_profile: req.query.config_profile || req.query.profile || "",

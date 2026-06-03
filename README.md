@@ -41,7 +41,7 @@ APP_OWNER_EMAIL=owner@example.com
 
 # Config profiles
 
-The admin UI supports multiple named NetBox configs. In the Config menu, choose or enter a profile name, fill the NetBox URL, token, optional proxy URL, optional domain, optional host tag slug, optional Docker Hub webhook password and optional SMTP config in `user:pwd@host:port` format, then save. NetBox v1 tokens and v2 tokens are both supported: v1 tokens are sent as `Authorization: Token <token>`, while tokens starting with `nbt_` and containing a dot are sent as `Authorization: Bearer <token>`. Create, Upgrade, Operate, Delete, host refresh, instance refresh and image refresh all use the selected profile. When a domain is set, Create turns a short instance name into an FQDN by appending that domain. When a tag is set, Create, Upgrade, Operate and refresh lists first load hosts with that tag. Create selects the matching host with the fewest containers.
+The admin UI supports multiple named NetBox configs. In the Config menu, choose or enter a profile name, fill the NetBox URL, token, optional proxy URL, optional domain, optional host tag slug and optional SMTP config in `user:pwd@host:port` format, then save. NetBox v1 tokens and v2 tokens are both supported: v1 tokens are sent as `Authorization: Token <token>`, while tokens starting with `nbt_` and containing a dot are sent as `Authorization: Bearer <token>`. Create, Upgrade, Operate, Delete, host refresh, instance refresh and image refresh all use the selected profile. When a domain is set, Create turns a short instance name into an FQDN by appending that domain. When a tag is set, Create, Upgrade, Operate and refresh lists first load hosts with that tag. Create selects the matching host with the fewest containers.
 
 Each config also has a `Max instances` value from 0 to 10, defaulting to 1. Orders are limited per signed-in user and config profile. The limit and usage counters are persisted in `app-state.json` under `DATAPATH` (`/data` in the Docker image). When a profile has SMTP config and `APP_OWNER_EMAIL` is set, ready emails are sent to the requester with the owner address copied.
 
@@ -88,21 +88,23 @@ Content-Type: application/json
 
 `profile` is optional when the default config has `smtp_config`. `website` is a honeypot field; keep it hidden and empty in the Hugo form.
 
-# Docker Hub webhooks
+# Registry webhooks
 
-Docker Hub webhooks must target a config profile explicitly:
-
-```
-https://your-domain.example/dockerhub/<config-profile>
-```
-
-For example, `/dockerhub/curioocity-guide` uses the `curioocity-guide` config profile and only processes Docker hosts matching that profile's host tag. The profile-less `/dockerhub` endpoint is not enabled.
-
-Set `DOCKERHUB_WEBHOOK_SECRET` to require a shared secret by default. A config profile can override this with its own Docker Hub webhook password. Docker Hub can include it in the webhook URL:
+Registry webhooks must target a config profile explicitly:
 
 ```
-https://your-domain.example/dockerhub/<config-profile>/<secret>
-https://your-domain.example/dockerhub/<config-profile>?secret=<secret>
+https://your-domain.example/registry-webhook/<config-profile>
+```
+
+For example, `/registry-webhook/curioocity-guide` uses the `curioocity-guide` config profile and only processes Docker hosts matching that profile's host tag. The profile-less `/registry-webhook` endpoint is not enabled.
+
+The webhook accepts Docker Hub, GitHub Container Registry package events, Quay tag updates, and GitLab/CNCF distribution notification payloads when the payload includes an image repository and tag.
+
+Set `REGISTRY_WEBHOOK_SECRET` to require a shared secret by default. A saved create template can override this with its own registry webhook password. For template-specific passwords, the webhook matches templates by config profile and image repository. Providers can include the password in the webhook URL:
+
+```
+https://your-domain.example/registry-webhook/<config-profile>/<secret>
+https://your-domain.example/registry-webhook/<config-profile>?secret=<secret>
 ```
 
 # Refresh hosts

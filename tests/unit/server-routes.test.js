@@ -30,7 +30,7 @@ async function loadServer({
   adminEmails = "",
   appPath = path.resolve(__dirname, "../.."),
   configureDelayMs = "0",
-  dockerhubSecret = "",
+  registrySecret = "",
   oidc = false,
   operationTimeoutSeconds = "1",
   ownerEmail = "",
@@ -46,8 +46,8 @@ async function loadServer({
   process.env.OPERATION_POLL_MS = "10";
   process.env.CREATE_CONFIGURE_DELAY_MS = configureDelayMs;
   process.env.CREATE_RECREATE_DELAY_MS = recreateDelayMs;
-  if (dockerhubSecret) process.env.DOCKERHUB_WEBHOOK_SECRET = dockerhubSecret;
-  else delete process.env.DOCKERHUB_WEBHOOK_SECRET;
+  if (registrySecret) process.env.REGISTRY_WEBHOOK_SECRET = registrySecret;
+  else delete process.env.REGISTRY_WEBHOOK_SECRET;
   if (ownerEmail) process.env.APP_OWNER_EMAIL = ownerEmail;
   else delete process.env.APP_OWNER_EMAIL;
   if (adminEmails) process.env.ADMIN_ALLOWED_EMAILS = adminEmails;
@@ -561,7 +561,7 @@ describe("server routes", () => {
     delete process.env.OPERATION_POLL_MS;
     delete process.env.CREATE_CONFIGURE_DELAY_MS;
     delete process.env.CREATE_RECREATE_DELAY_MS;
-    delete process.env.DOCKERHUB_WEBHOOK_SECRET;
+    delete process.env.REGISTRY_WEBHOOK_SECRET;
     delete process.env.APP_OWNER_EMAIL;
     delete process.env.LOCAL_DEV_EMAIL;
     delete process.env.OIDC_ISSUER_URL;
@@ -857,7 +857,6 @@ describe("server routes", () => {
         domain: "example.com",
         tag: "tile",
         max_instances: "3",
-        dockerhub_webhook_secret: "profile-hook",
         smtp_config: "mailer:smtp-secret@smtp.example.com:587",
         profile: "prod",
         profiles: JSON.stringify({ prod: { tag: "tile" } }),
@@ -865,7 +864,7 @@ describe("server routes", () => {
       .expect(200)
       .expect((res) => {
         expect(res.body.max_instances).toBe(3);
-        expect(res.body.dockerhub_webhook_secret).toBe("profile-hook");
+        expect(res.body.dockerhub_webhook_secret).toBeUndefined();
         expect(res.body.smtp_config).toBe("mailer:smtp-secret@smtp.example.com:587");
       });
     await request.get("/webhook")
@@ -1759,7 +1758,7 @@ describe("server routes", () => {
       });
   });
 
-  test("dockerhub webhook requires and uses the profile path", async () => {
+  test("registry webhook requires and uses the profile path", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock);
     writeState(dataPath, {
@@ -1778,8 +1777,9 @@ describe("server routes", () => {
       logs: "",
     });
 
-    await request.post("/dockerhub").send({ push_data: { tag: "v2.0.0" }, repository: { repo_name: "saashup/tile" } }).expect(404);
-    await request.post("/dockerhub/curioocity-guide").send({ push_data: { tag: "v2.0.0" }, repository: { repo_name: "saashup/tile" } }).expect(202);
+    await request.post("/registry-webhook").send({ push_data: { tag: "v2.0.0" }, repository: { repo_name: "saashup/tile" } }).expect(404);
+    await request.post("/dockerhub/curioocity-guide").send({ push_data: { tag: "v2.0.0" }, repository: { repo_name: "saashup/tile" } }).expect(404);
+    await request.post("/registry-webhook/curioocity-guide").send({ push_data: { tag: "v2.0.0" }, repository: { repo_name: "saashup/tile" } }).expect(202);
 
     await vi.waitFor(() => {
       const imageCalls = fetchMock.mock.calls
@@ -1789,7 +1789,7 @@ describe("server routes", () => {
     });
   });
 
-  test("dockerhub webhook stays public when OIDC is enabled", async () => {
+  test("registry webhook stays public when OIDC is enabled", async () => {
     const { dataPath, fetchMock, request } = await loadServer({ oidc: true });
     setupNetBoxFetch(fetchMock);
     writeState(dataPath, {
@@ -1816,7 +1816,7 @@ describe("server routes", () => {
       .expect((res) => {
         expect(res.body.detail).toBe("login required");
       });
-    await request.post("/dockerhub/prod")
+    await request.post("/registry-webhook/prod")
       .send({ push_data: { tag: "v2.0.0" }, repository: { repo_name: "saashup/tile" } })
       .expect(202)
       .expect((res) => {
@@ -1824,8 +1824,8 @@ describe("server routes", () => {
       });
   });
 
-  test("dockerhub webhook can require a shared secret", async () => {
-    const { dataPath, request } = await loadServer({ dockerhubSecret: "hook-secret" });
+  test("registry webhook can require a shared secret", async () => {
+    const { dataPath, request } = await loadServer({ registrySecret: "hook-secret" });
     writeState(dataPath, {
       config: {
         netbox: "https://netbox.example.com",
@@ -1841,22 +1841,62 @@ describe("server routes", () => {
     });
 
     const body = { push_data: { tag: "latest" }, repository: { repo_name: "saashup/tile" } };
-    await request.post("/dockerhub/prod").send(body).expect(403);
-    await request.post("/dockerhub/prod/bad-secret").send(body).expect(403);
-    await request.post("/dockerhub/prod/hook-secret").send(body).expect(202);
-    await request.post("/dockerhub/prod").query({ secret: "hook-secret" }).send(body).expect(202);
-    await request.post("/dockerhub/prod").set("x-saashup-webhook-secret", "hook-secret").send(body).expect(202);
+    await request.post("/registry-webhook/prod").send(body).expect(403);
+    await request.post("/registry-webhook/prod/bad-secret").send(body).expect(403);
+    await request.post("/registry-webhook/prod/hook-secret").send(body).expect(202);
+    await request.post("/registry-webhook/prod").query({ secret: "hook-secret" }).send(body).expect(202);
+    await request.post("/registry-webhook/prod").set("x-saashup-webhook-secret", "hook-secret").send(body).expect(202);
   });
 
-  test("dockerhub webhook can use a profile-specific shared secret", async () => {
-    const { dataPath, request } = await loadServer({ dockerhubSecret: "env-secret" });
+  test("registry webhook can use a template-specific shared secret", async () => {
+    const { dataPath, request } = await loadServer({ registrySecret: "env-secret" });
     writeState(dataPath, {
       config: {
         netbox: "https://netbox.example.com",
         token: "secret",
         profiles: {
-          prod: { tag: "tile", dockerhub_webhook_secret: "profile-secret" },
+          prod: { tag: "tile" },
           dev: { tag: "dev" },
+        },
+      },
+      templates: {
+        Tile: { config_profile: "prod", image: "saashup/tile", dockerhub_webhook_secret: "template-secret" },
+        Other: { config_profile: "prod", image: "saashup/other", dockerhub_webhook_secret: "other-secret" },
+      },
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.get("/registry-webhook-secret")
+      .query({ template: "Tile" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toEqual({ secret: "template-secret", default_secret: "env-secret" });
+      });
+    await request.get("/registry-webhook-secret")
+      .query({ template: "Missing" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toEqual({ secret: "env-secret", default_secret: "env-secret" });
+      });
+
+    const body = { push_data: { tag: "latest" }, repository: { repo_name: "saashup/tile" } };
+    await request.post("/registry-webhook/prod/env-secret").send(body).expect(403);
+    await request.post("/registry-webhook/prod/other-secret").send(body).expect(403);
+    await request.post("/registry-webhook/prod/template-secret").send(body).expect(202);
+    await request.post("/registry-webhook/dev/env-secret").send(body).expect(202);
+  });
+
+  test("registry webhook accepts Quay tag update payloads", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock);
+    writeState(dataPath, {
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        profiles: {
+          prod: { tag: "tile" },
         },
       },
       templates: {},
@@ -1865,23 +1905,79 @@ describe("server routes", () => {
       logs: "",
     });
 
-    await request.get("/dockerhub-webhook-secret")
-      .query({ profile: "prod" })
-      .expect(200)
-      .expect((res) => {
-        expect(res.body).toEqual({ secret: "profile-secret", default_secret: "env-secret" });
-      });
-    await request.get("/dockerhub-webhook-secret")
-      .query({ config_profile: "dev" })
-      .expect(200)
-      .expect((res) => {
-        expect(res.body).toEqual({ secret: "env-secret", default_secret: "env-secret" });
-      });
+    await request.post("/registry-webhook/prod")
+      .send({ docker_url: "quay.io/acme/tile", updated_tags: ["latest", "v2.0.0"] })
+      .expect(202);
 
-    const body = { push_data: { tag: "latest" }, repository: { repo_name: "saashup/tile" } };
-    await request.post("/dockerhub/prod/env-secret").send(body).expect(403);
-    await request.post("/dockerhub/prod/profile-secret").send(body).expect(202);
-    await request.post("/dockerhub/dev/env-secret").send(body).expect(202);
+    await vi.waitFor(() => {
+      const imageCalls = fetchMock.mock.calls
+        .map(([url]) => new URL(String(url)))
+        .filter((url) => url.pathname === "/api/plugins/docker/images/" && url.searchParams.get("version") === "v2.0.0");
+      expect(imageCalls.some((url) => url.searchParams.get("name") === "quay.io/acme/tile")).toBe(true);
+    });
+  });
+
+  test("registry webhook accepts GitLab distribution notification payloads", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock);
+    writeState(dataPath, {
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        profiles: {
+          prod: { tag: "tile" },
+        },
+      },
+      templates: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.post("/registry-webhook/prod").send({
+      events: [{
+        action: "push",
+        target: {
+          repository: "acme/tile",
+          tag: "v2.0.0",
+          url: "https://registry.gitlab.com/v2/acme/tile/manifests/v2.0.0",
+        },
+      }],
+    }).expect(202);
+
+    await vi.waitFor(() => {
+      const imageCalls = fetchMock.mock.calls
+        .map(([url]) => new URL(String(url)))
+        .filter((url) => url.pathname === "/api/plugins/docker/images/" && url.searchParams.get("version") === "v2.0.0");
+      expect(imageCalls.some((url) => url.searchParams.get("name") === "registry.gitlab.com/acme/tile")).toBe(true);
+    });
+  });
+
+  test("registry webhook can use a template-specific secret for GitHub package events", async () => {
+    const { dataPath, request } = await loadServer({ registrySecret: "env-secret" });
+    writeState(dataPath, {
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        profiles: {
+          prod: { tag: "tile" },
+        },
+      },
+      templates: {
+        GhcrTile: { config_profile: "prod", image: "ghcr.io/acme/tile", dockerhub_webhook_secret: "gh-secret" },
+      },
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    const body = {
+      action: "published",
+      registry_package: { name: "tile", owner: { login: "acme" } },
+      package_version: { container_metadata: { tag: { name: "latest" } } },
+    };
+    await request.post("/registry-webhook/prod/env-secret").send(body).expect(403);
+    await request.post("/registry-webhook/prod/gh-secret").send(body).expect(202);
   });
 
   test("skips Traefik labels and Cloudflare DNS when Traefik is disabled", async () => {
@@ -2178,9 +2274,10 @@ describe("server routes", () => {
     await request.post("/refresh-hosts").send({}).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("REFRESH_HOST : finished"));
 
-    await request.post("/dockerhub").send({ push_data: { tag: "v2.0.0" }, repository: { repo_name: "saashup/tile" } }).expect(404);
-    await request.post("/dockerhub/prod").send({ push_data: { tag: "latest" }, repository: { repo_name: "saashup/tile" } }).expect(202);
-    await request.post("/dockerhub/prod").send({ push_data: { tag: "v2.0.0" }, repository: { repo_name: "saashup/tile" } }).expect(202);
+    await request.post("/registry-webhook").send({ push_data: { tag: "v2.0.0" }, repository: { repo_name: "saashup/tile" } }).expect(404);
+    await request.post("/dockerhub/prod").send({ push_data: { tag: "v2.0.0" }, repository: { repo_name: "saashup/tile" } }).expect(404);
+    await request.post("/registry-webhook/prod").send({ push_data: { tag: "latest" }, repository: { repo_name: "saashup/tile" } }).expect(202);
+    await request.post("/registry-webhook/prod").send({ push_data: { tag: "v2.0.0" }, repository: { repo_name: "saashup/tile" } }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("v2.0.0"));
   });
 
@@ -2417,8 +2514,8 @@ describe("server routes", () => {
       (url, options) => url.pathname === "/api/plugins/docker/images/" && (options.method || "GET") === "GET" && url.searchParams.get("version") === "v9.0.0",
       new Error("dockerhub exploded"),
     );
-    await request.post("/dockerhub/prod").send({ push_data: { tag: "v9.0.0" }, repository: { repo_name: "saashup/tile" } }).expect(202);
-    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DOCKERHUB : failed"));
+    await request.post("/registry-webhook/prod").send({ push_data: { tag: "v9.0.0" }, repository: { repo_name: "saashup/tile" } }).expect(202);
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("REGISTRY_WEBHOOK : failed"));
 
     rejectNextMatchingNetBoxFetch(
       fetchMock,

@@ -508,8 +508,8 @@ describe("server helpers", () => {
     expect(routeLabel({ originalUrl: "/admin.html?x=1" })).toBe("/admin");
     expect(routeLabel({ originalUrl: "/order.html" }, metrics)).toBe("/order");
     expect(routeLabel({ originalUrl: "/missing" })).toBe("other");
-    expect(routeLabel({ originalUrl: "/dockerhub/prod" }, metrics)).toBe("/dockerhub");
-    expect(operationLabel({ originalUrl: "/dockerhub/prod" }, metrics)).toBe("upgrade");
+    expect(routeLabel({ originalUrl: "/registry-webhook/prod" }, metrics)).toBe("/registry-webhook");
+    expect(operationLabel({ originalUrl: "/registry-webhook/prod" }, metrics)).toBe("upgrade");
     expect(operationLabel({ originalUrl: "/missing" })).toBe("");
     expect(statusClass(201)).toBe("2xx");
     expect(statusClass("oops")).toBe("other");

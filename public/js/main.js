@@ -47,8 +47,8 @@ const profileHelpOkBtn = document.getElementById("profileHelpOkBtn");
 const formTitle = document.getElementById("form-title");
 const formDescription = document.getElementById("form-description");
 const tokenToggle = document.getElementById("tokenToggle");
-const profileDockerhubSecret = document.getElementById("dockerhub_webhook_secret");
-const profileDockerhubSecretToggle = document.getElementById("profileDockerhubSecretToggle");
+const dockerhubWebhookSecretInput = document.getElementById("dockerhub_webhook_secret");
+const dockerhubWebhookSecretToggle = document.getElementById("dockerhubWebhookSecretToggle");
 const smtpConfigToggle = document.getElementById("smtpConfigToggle");
 const envList = document.getElementById("envList");
 const addEnvBtn = document.getElementById("addEnvBtn");
@@ -172,8 +172,8 @@ const profileFieldHelp = {
     body: "When enabled, created containers receive the Traefik IP allow-list label for Cloudflare source ranges. Disable it to create routes without that allow-list label.",
   },
   dockerhub_webhook_secret: {
-    title: "Docker Hub webhook password",
-    body: "Optional profile-specific password for Docker Hub webhooks. Leave it empty to use the DOCKERHUB_WEBHOOK_SECRET environment default.",
+    title: "Registry webhook password",
+    body: "Optional template-specific password for registry webhooks that target this template image. Leave it empty to use the REGISTRY_WEBHOOK_SECRET environment default.",
   },
   smtp_config: {
     title: "SMTP config",
@@ -225,7 +225,7 @@ const profileFieldHelp = {
   },
 };
 
-const configFields = ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_instances", "owner_env_var", "cloudflare_filter", "dockerhub_webhook_secret", "smtp_config"];
+const configFields = ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_instances", "owner_env_var", "cloudflare_filter", "smtp_config"];
 
 const actions = {
   config: {
@@ -236,7 +236,7 @@ const actions = {
     description: "Save the NetBox URL, token, optional proxy, domain and host tag used by the automation.",
     submitLabel: "Save config",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_instances", "owner_env_var", "cloudflare_filter", "dockerhub_webhook_secret", "smtp_config"],
+    fields: ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_instances", "owner_env_var", "cloudflare_filter", "smtp_config"],
   },
   create: {
     endpoint: "/create",
@@ -246,7 +246,7 @@ const actions = {
     description: "Create a container, volume, optional DNS record and optional Traefik labels.",
     submitLabel: "Create instance",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "network", "traefik", "all_hosts", "saashup_enabled", "instance", "dns_name", "image", "version", "env_vars", "labels", "ports", "volumes", "binds"],
+    fields: ["config_profile", "network", "traefik", "all_hosts", "saashup_enabled", "dockerhub_webhook_secret", "instance", "dns_name", "image", "version", "env_vars", "labels", "ports", "volumes", "binds"],
   },
   workflow: {
     endpoint: "",
@@ -685,7 +685,6 @@ function knownProfileEntries() {
       max_instances: normalizeMaxInstances(savedConfig.max_instances),
       owner_env_var: ownerEnvVarValue(savedConfig.owner_env_var),
       cloudflare_filter: checkboxValue(savedConfig.cloudflare_filter, true),
-      dockerhub_webhook_secret: savedConfig.dockerhub_webhook_secret || "",
       smtp_config: smtpConfigValue(savedConfig),
     };
   }
@@ -741,7 +740,6 @@ function normalizedProfileForSync(profile = {}) {
     max_instances: normalizeMaxInstances(profile.max_instances),
     owner_env_var: ownerEnvVarValue(profile.owner_env_var),
     cloudflare_filter: checkboxValue(profile.cloudflare_filter, true),
-    dockerhub_webhook_secret: profile.dockerhub_webhook_secret || "",
     smtp_config: smtpConfigValue(profile),
     saashup_default: profile.saashup_default === true,
   };
@@ -757,7 +755,6 @@ function currentProfileFieldValues() {
     max_instances: fieldValue("max_instances"),
     owner_env_var: fieldValue("owner_env_var"),
     cloudflare_filter: fieldChecked("cloudflare_filter", true),
-    dockerhub_webhook_secret: profileDockerhubSecretValue(),
     smtp_config: fieldValue("smtp_config"),
   };
 }
@@ -1171,7 +1168,6 @@ function profileCredentials(name = currentConfigProfile) {
     max_instances: normalizeMaxInstances(profile.max_instances),
     owner_env_var: ownerEnvVarValue(profile.owner_env_var),
     cloudflare_filter: checkboxValue(profile.cloudflare_filter, true),
-    dockerhub_webhook_secret: profile.dockerhub_webhook_secret || "",
     smtp_config: smtpConfigValue(profile),
   };
 }
@@ -1254,9 +1250,8 @@ function applyProfileToFields(name = currentConfigProfile) {
   setFieldValue("max_instances", credentials.max_instances);
   setFieldValue("owner_env_var", credentials.owner_env_var);
   setFieldValue("cloudflare_filter", credentials.cloudflare_filter);
-  setFieldValue("dockerhub_webhook_secret", credentials.dockerhub_webhook_secret);
   setFieldValue("smtp_config", credentials.smtp_config);
-  applyDockerhubDefaultSecret();
+  if (currentAction === "create") applyDockerhubDefaultSecret();
   persistProfiles();
   syncCreateNetwork();
   updateProfileSyncWarning();
@@ -1280,7 +1275,7 @@ async function loadDockerhubDefaultSecret() {
   dockerhubWebhookDefaultLoaded = true;
 
   try {
-    const response = await fetch("/dockerhub-webhook-secret", {
+    const response = await fetch("/registry-webhook-secret", {
       headers: { Accept: "application/json" },
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -1294,14 +1289,13 @@ async function loadDockerhubDefaultSecret() {
 }
 
 function applyDockerhubDefaultSecret() {
-  if (!profileDockerhubSecret || profileDockerhubSecret.value || !dockerhubWebhookDefaultSecret) return;
-  profileDockerhubSecret.value = dockerhubWebhookDefaultSecret;
+  if (currentAction !== "create" || !dockerhubWebhookSecretInput || dockerhubWebhookSecretInput.value || !dockerhubWebhookDefaultSecret) return;
+  dockerhubWebhookSecretInput.value = dockerhubWebhookDefaultSecret;
 }
 
-function profileDockerhubSecretValue() {
+function dockerhubWebhookSecretValue() {
   const value = fieldValue("dockerhub_webhook_secret");
-  const stored = configProfiles[currentConfigProfile]?.dockerhub_webhook_secret || "";
-  if (!stored && value === dockerhubWebhookDefaultSecret) return "";
+  if (value === dockerhubWebhookDefaultSecret) return "";
   return value;
 }
 
@@ -2148,7 +2142,7 @@ function setAction(actionName) {
   if (actionName === "create" && imageRecords.length === 0) {
     refreshImages({ notify: false });
   }
-  if (actionName === "config") {
+  if (actionName === "create") {
     loadDockerhubDefaultSecret();
   }
   if (actionName === "report") {
@@ -2385,9 +2379,20 @@ function openProfileHelp(key) {
   if (!help || !profileHelpModal || !profileHelpTitle || !profileHelpBody) return;
 
   profileHelpTitle.textContent = help.title;
-  profileHelpBody.textContent = help.body;
+  profileHelpBody.textContent = key === "dockerhub_webhook_secret"
+    ? dockerhubWebhookHelpBody(help.body)
+    : help.body;
   profileHelpModal.classList.remove("hidden");
   profileHelpOkBtn?.focus();
+}
+
+function dockerhubWebhookHelpBody(body) {
+  const profile = selectedProfileCredentials().profile || "";
+  const secret = fieldValue("dockerhub_webhook_secret") || dockerhubWebhookDefaultSecret || "";
+  const profileSegment = profile ? encodeURIComponent(profile) : "<config-profile>";
+  const secretSegment = secret ? `/${encodeURIComponent(secret)}` : "";
+  const webhookUrl = `${window.location.origin}/registry-webhook/${profileSegment}${secretSegment}`;
+  return `${body}\n\nRegistry webhook URL:\n${webhookUrl}`;
 }
 
 function closeProfileHelp() {
@@ -2980,6 +2985,7 @@ function currentCreateTemplate() {
     traefik: fieldChecked("traefik", true),
     all_hosts: fieldChecked("all_hosts", false),
     saashup_enabled: fieldChecked("saashup_enabled", true),
+    dockerhub_webhook_secret: dockerhubWebhookSecretValue(),
     network: fieldValue("network"),
     image: fieldValue("image"),
     version: fieldValue("version"),
@@ -3014,6 +3020,8 @@ function applyCreateTemplate(template) {
   setFieldValue("traefik", template.traefik ?? true);
   setFieldValue("all_hosts", template.all_hosts ?? false);
   setFieldValue("saashup_enabled", template.saashup_enabled ?? true);
+  setFieldValue("dockerhub_webhook_secret", template.dockerhub_webhook_secret || "");
+  applyDockerhubDefaultSecret();
   templateNetworkOverride = template.network || "";
   templateVersionOverride = template.version || "";
   generatedCreateInstanceName = "";
@@ -3340,7 +3348,6 @@ function loadSavedConfig() {
             max_instances: normalizeMaxInstances(data.max_instances),
             owner_env_var: ownerEnvVarValue(data.owner_env_var),
             cloudflare_filter: checkboxValue(data.cloudflare_filter, true),
-            dockerhub_webhook_secret: data.dockerhub_webhook_secret || "",
             smtp_config: smtpConfigValue(data),
             ...(serverProfiles[profile]?.saashup_default === true ? { saashup_default: true } : {}),
           };
@@ -3473,7 +3480,6 @@ async function saveConfig() {
   const max_instances = normalizeMaxInstances(fieldValue("max_instances"));
   const owner_env_var = ownerEnvVarValue(fieldValue("owner_env_var"));
   const cloudflare_filter = fieldChecked("cloudflare_filter", true);
-  const dockerhub_webhook_secret = profileDockerhubSecretValue();
   const smtp_config = fieldValue("smtp_config");
   const saashup_default = Boolean(configDefaultInput?.checked && !configDefaultInput.disabled);
 
@@ -3490,7 +3496,7 @@ async function saveConfig() {
   forgetDeletedProfile(profile);
   setFieldValue("max_instances", max_instances);
   setFieldValue("owner_env_var", owner_env_var);
-  configProfiles[profile] = { netbox, token, proxy, domain, tag, max_instances, owner_env_var, cloudflare_filter, dockerhub_webhook_secret, smtp_config, ...(saashup_default ? { saashup_default: true } : {}) };
+  configProfiles[profile] = { netbox, token, proxy, domain, tag, max_instances, owner_env_var, cloudflare_filter, smtp_config, ...(saashup_default ? { saashup_default: true } : {}) };
   if (saashup_default) enforceSingleDefaultConfig(profile);
   currentConfigProfile = profile;
   updateProfileOptions();
@@ -3506,7 +3512,6 @@ async function saveConfig() {
     max_instances: String(max_instances),
     owner_env_var,
     cloudflare_filter: cloudflare_filter ? "true" : "false",
-    dockerhub_webhook_secret,
     smtp_config,
     profile,
     config_profile: profile,
@@ -3521,7 +3526,7 @@ async function saveConfig() {
 
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-    savedConfig = { customer_name, netbox, token, proxy, domain, tag, max_instances, owner_env_var, cloudflare_filter, dockerhub_webhook_secret, smtp_config, profile, profiles: configProfiles };
+    savedConfig = { customer_name, netbox, token, proxy, domain, tag, max_instances, owner_env_var, cloudflare_filter, smtp_config, profile, profiles: configProfiles };
     serverConfigProfiles = { ...configProfiles };
     applyProfileToFields(profile);
     setNotice(`Config "${profileLabel(profile)}" saved (${response.status})`, "success");
@@ -3563,7 +3568,6 @@ async function deleteConfig() {
       setFieldValue("max_instances", "1");
       setFieldValue("owner_env_var", "SAASHUP_OWNER");
       setFieldValue("cloudflare_filter", true);
-      setFieldValue("dockerhub_webhook_secret", "");
       setFieldValue("smtp_config", "");
 
       const params = new URLSearchParams({
@@ -3576,7 +3580,6 @@ async function deleteConfig() {
         max_instances: "1",
         owner_env_var: "SAASHUP_OWNER",
         cloudflare_filter: "true",
-        dockerhub_webhook_secret: "",
         smtp_config: "",
         profile: "",
         config_profile: "",
@@ -3611,7 +3614,6 @@ async function deleteConfig() {
       max_instances: String(credentials.max_instances),
       owner_env_var: credentials.owner_env_var,
       cloudflare_filter: credentials.cloudflare_filter ? "true" : "false",
-      dockerhub_webhook_secret: credentials.dockerhub_webhook_secret,
       smtp_config: credentials.smtp_config,
       profile: currentConfigProfile,
       config_profile: currentConfigProfile,
@@ -4327,7 +4329,7 @@ importConfigFile?.addEventListener("change", importPortableConfig);
 clearBtn?.addEventListener("click", clearActionFields);
 dockerRunBtn?.addEventListener("click", openDockerRunModal);
 tokenToggle?.addEventListener("click", () => togglePasswordVisibility(field("token"), tokenToggle, "NetBox token"));
-profileDockerhubSecretToggle?.addEventListener("click", () => togglePasswordVisibility(profileDockerhubSecret, profileDockerhubSecretToggle, "Docker Hub webhook password"));
+dockerhubWebhookSecretToggle?.addEventListener("click", () => togglePasswordVisibility(dockerhubWebhookSecretInput, dockerhubWebhookSecretToggle, "registry webhook password"));
 smtpConfigToggle?.addEventListener("click", () => togglePasswordVisibility(field("smtp_config"), smtpConfigToggle, "SMTP config"));
 form?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-profile-help]");
