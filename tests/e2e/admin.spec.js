@@ -143,7 +143,7 @@ test("config tab starts without a forced default profile", async ({ page }) => {
   await page.locator('[data-profile-help="registry_webhook_secret"]').click();
   await expect(page.locator("#profileHelpTitle")).toHaveText("Registry webhook password");
   await expect(page.locator("#profileHelpBody")).toContainText("Registry webhook URL:");
-  await expect(page.locator("#profileHelpBody")).toContainText(`${new URL(page.url()).origin}/registry-webhook/<config-profile>/hook-secret`);
+  await expect(page.locator("#profileHelpBody")).toContainText(`${new URL(page.url()).origin}/registry-webhook/<config-profile>/<template>/hook-secret`);
   await page.locator("#profileHelpOkBtn").click();
   await page.getByRole("link", { name: "Config" }).click();
   await expect(page.locator('[data-field="registry_webhook_secret"]')).toBeHidden();
