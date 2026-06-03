@@ -82,11 +82,20 @@ Content-Type: application/json
   "email": "ada@example.com",
   "subject": "Demo request",
   "message": "Can we talk?",
+  "turnstileToken": "cloudflare-turnstile-response-token",
   "website": ""
 }
 ```
 
 `profile` is optional when the default config has `smtp_config`. `website` is a honeypot field; keep it hidden and empty in the Hugo form.
+
+To require Cloudflare Turnstile verification only for this contact endpoint, set:
+
+```
+TURNSTILE_SECRET_KEY=0x...
+```
+
+When `TURNSTILE_SECRET_KEY` is set, `/contact` requires `turnstileToken` (or `cf-turnstile-response`) and verifies it with Cloudflare Siteverify before sending email.
 
 # Registry webhooks
 
@@ -100,12 +109,14 @@ For example, `/registry-webhook/curioocity-guide` uses the `curioocity-guide` co
 
 The webhook accepts Docker Hub, GitHub Container Registry package events, Quay tag updates, and GitLab/CNCF distribution notification payloads when the payload includes an image repository and tag.
 
-Set `REGISTRY_WEBHOOK_SECRET` to require a shared secret by default. A saved create template can override this with its own registry webhook password. For template-specific passwords, the webhook matches templates by config profile and image repository. Providers can include the password in the webhook URL:
+Set `REGISTRY_WEBHOOK_SECRET` to require a shared secret by default. A saved create template can override this with its own registry webhook password. For template-specific passwords, include the template name in the webhook URL so the password is checked against that template:
 
 ```
-https://your-domain.example/registry-webhook/<config-profile>/<secret>
+https://your-domain.example/registry-webhook/<config-profile>/<template>/<secret>
 https://your-domain.example/registry-webhook/<config-profile>?secret=<secret>
 ```
+
+The explicit template URL still verifies that the named template matches both the config profile and the pushed image repository.
 
 # Refresh hosts
 

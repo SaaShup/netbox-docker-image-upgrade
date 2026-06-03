@@ -2388,10 +2388,12 @@ function openProfileHelp(key) {
 
 function registryWebhookHelpBody(body) {
   const profile = selectedProfileCredentials().profile || "";
+  const template = templateSelect?.value || "";
   const secret = fieldValue("registry_webhook_secret") || registryWebhookDefaultSecret || "";
   const profileSegment = profile ? encodeURIComponent(profile) : "<config-profile>";
+  const templateSegment = template ? encodeURIComponent(template) : "<template>";
   const secretSegment = secret ? `/${encodeURIComponent(secret)}` : "";
-  const webhookUrl = `${window.location.origin}/registry-webhook/${profileSegment}${secretSegment}`;
+  const webhookUrl = `${window.location.origin}/registry-webhook/${profileSegment}/${templateSegment}${secretSegment}`;
   return `${body}\n\nRegistry webhook URL:\n${webhookUrl}`;
 }
 
