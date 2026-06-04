@@ -4,6 +4,12 @@ const fs = require("fs");
 const express = require("express");
 const { fetch: undiciFetch } = require("undici");
 const packageJson = require("./package.json");
+const { registerConfigRoutes } = require("./api/config");
+const { registerLimitRoutes } = require("./api/limits");
+const { registerNetBoxRoutes } = require("./api/netbox");
+const { registerOperationRoutes } = require("./api/operations");
+const { registerRegistryWebhookRoutes } = require("./api/registry-webhooks");
+const { registerSystemRoutes } = require("./api/system");
 const { authUserFromRequest, createAuthHelpers, maxInstancesValue } = require("./lib/auth");
 const {
   asArray,
@@ -170,7 +176,7 @@ function currentEnrollmentUsage(req, profile) {
   const instances = enrollmentTemplatesForUser(req, profile);
   const used = instances.length;
   const config = selectedProfileConfig({ profile, config_profile: profile });
-  const max = maxInstancesValue(config.max_templates ?? config.max_instances ?? config.enrollment_limit);
+  const max = maxInstancesValue(config.max_templates ?? config.enrollment_limit);
   return { profile, used, max, remaining: Math.max(0, max - used), reached: used >= max, instances };
 }
 
@@ -830,163 +836,25 @@ app.use((req, res, next) => {
   next();
 });
 
-app.post([
-  "/registry-webhook/:profile",
-  "/registry-webhook/:profile/:secret",
-  "/registry-webhook/:profile/:template/:secret",
-], (req, res) => {
-  const events = registryWebhookEvents(req.body);
-  if (!registryWebhookAllowed(req, events)) return res.status(403).json({ detail: "invalid webhook secret" });
-  res.status(202).json({ status: "accepted" });
-  const upgradeEvents = events.filter((event) => event.tag !== "latest");
-  if (!upgradeEvents.length) return;
-  const config = selectedProfileConfig({ profile: req.params.profile });
-  Promise.resolve()
-    .then(async () => {
-      for (const event of upgradeEvents) {
-        await recreateContainers({ ...config, image: event.image, version: event.tag, clean_name: false });
-      }
-    })
-    .catch((error) => logLine(`REGISTRY_WEBHOOK : failed ${error.message}`));
+registerRegistryWebhookRoutes(app, {
+  logLine,
+  recreateContainers,
+  registryWebhookAllowed,
+  registryWebhookEvents,
+  selectedProfileConfig,
 });
 
-app.use(oidcAuth.attachUser);
-
-app.get("/session/user", (req, res) => res.json(authUserFromRequest(req)));
-app.get("/login", (req, res, next) => Promise.resolve(oidcAuth.login(req, res)).catch(next));
-app.get("/oidc/callback", oidcAuth.callback);
-app.get("/logout", oidcAuth.logout);
-app.get("/version", (req, res) => res.json({ name: packageJson.name, version: packageJson.version }));
-app.get("/metrics", (req, res) => {
-  const memory = process.memoryUsage();
-  const cpu = process.cpuUsage();
-  const lines = [
-    "# HELP saashup_app_info Application build information.",
-    "# TYPE saashup_app_info gauge",
-    metricLine("saashup_app_info", 1, { name: packageJson.name, version: packageJson.version, node_version: process.version }),
-    "# HELP saashup_process_start_time_seconds Unix start time of this process.",
-    "# TYPE saashup_process_start_time_seconds gauge",
-    metricLine("saashup_process_start_time_seconds", Math.floor(startedAt / 1000)),
-    "# HELP saashup_process_uptime_seconds Process uptime in seconds.",
-    "# TYPE saashup_process_uptime_seconds gauge",
-    metricLine("saashup_process_uptime_seconds", process.uptime().toFixed(3)),
-    "# HELP saashup_process_memory_bytes Process memory usage by type.",
-    "# TYPE saashup_process_memory_bytes gauge",
-    ...Object.entries(memory).map(([type, value]) => metricLine("saashup_process_memory_bytes", value, { type })),
-    "# HELP saashup_process_cpu_seconds_total Process CPU time in seconds.",
-    "# TYPE saashup_process_cpu_seconds_total counter",
-    metricLine("saashup_process_cpu_seconds_total", (cpu.user / 1e6).toFixed(6), { mode: "user" }),
-    metricLine("saashup_process_cpu_seconds_total", (cpu.system / 1e6).toFixed(6), { mode: "system" }),
-    "# HELP saashup_admin_forbidden_total Total denied admin requests.",
-    "# TYPE saashup_admin_forbidden_total counter",
-    metricLine("saashup_admin_forbidden_total", metrics.adminForbidden),
-    "# HELP saashup_http_requests_total Total HTTP requests.",
-    "# TYPE saashup_http_requests_total counter",
-    ...Object.entries(metrics.httpRequests).map(([route, value]) => metricLine("saashup_http_requests_total", value, { route })),
-    "# HELP saashup_operation_requests_total Total operation requests by operation and response status class.",
-    "# TYPE saashup_operation_requests_total counter",
-    ...Object.entries(metrics.operationRequests).flatMap(([operation, values]) => Object.entries(values).map(([status_class, value]) => metricLine("saashup_operation_requests_total", value, { operation, status_class }))),
-    "",
-  ];
-  res.type("text/plain; version=0.0.4").send(lines.join("\n"));
+registerSystemRoutes(app, {
+  authUserFromRequest,
+  metricLine,
+  metrics,
+  oidcAuth,
+  packageJson,
+  publicPath,
+  requireAdmin,
+  startedAt,
 });
-
-app.get("/admin", oidcAuth.loginRequired, requireAdmin, (req, res) => res.sendFile(path.join(publicPath, "admin.html")));
-app.get("/admin.html", oidcAuth.loginRequired, requireAdmin, (req, res) => res.sendFile(path.join(publicPath, "admin.html")));
-app.get("/order", oidcAuth.loginRequired, (req, res) => res.sendFile(path.join(publicPath, "order.html")));
-function sendNoCachePage(res, fileName) {
-  res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
-  res.set("Pragma", "no-cache");
-  res.set("Expires", "0");
-  res.sendFile(path.join(publicPath, fileName));
-}
-app.get("/enroll", oidcAuth.loginRequired, (req, res) => sendNoCachePage(res, "enroll.html"));
-app.get("/enroll.html", oidcAuth.loginRequired, (req, res) => sendNoCachePage(res, "enroll.html"));
 app.use(express.static(publicPath));
-
-app.get("/config", (req, res) => res.json(readState().config || {}));
-app.get("/mail-settings", requireAdmin, (req, res) => res.json({ owner_email_configured: Boolean(appOwnerEmail) }));
-app.get("/registry-webhook-secret", requireAdmin, (req, res) => {
-  const template = req.query.template || "";
-  const image = req.query.image || "";
-  res.json({ secret: template ? registrySecretForTemplate(template, image) : registryWebhookSecret, default_secret: registryWebhookSecret });
-});
-app.post("/test-email", requireAdmin, async (req, res) => {
-  try {
-    const data = { ...selectedProfileConfig(req.body), ...req.body };
-    const info = await sendTestEmail(data);
-    res.json({
-      status: "sent",
-      message_id: info?.messageId || "",
-      accepted: Array.isArray(info?.accepted) ? info.accepted : [],
-      rejected: Array.isArray(info?.rejected) ? info.rejected : [],
-      response: info?.response || "",
-    });
-  } catch (error) {
-    res.status(error.statusCode || 502).json({ detail: error.message || "email test failed" });
-  }
-});
-app.options(["/contact", "/registry/check"], publicApiGuard);
-app.post("/contact", publicApiGuard, async (req, res) => {
-  try {
-    const data = { ...req.query, ...req.body };
-    await verifyContactTurnstile(data, req);
-    const info = await sendContactEmail(data);
-    res.json({
-      status: "sent",
-      skipped: Boolean(info?.skipped),
-      message_id: info?.messageId || "",
-      accepted: Array.isArray(info?.accepted) ? info.accepted : [],
-      rejected: Array.isArray(info?.rejected) ? info.rejected : [],
-      response: info?.response || "",
-    });
-  } catch (error) {
-    res.status(error.statusCode || 502).json({ detail: error.message || "contact email failed" });
-  }
-});
-app.delete("/config", requireAdmin, (req, res) => {
-  writeState((state) => {
-    state.config = {};
-    return state;
-  });
-  res.json({});
-});
-app.get("/webhook", requireAdmin, (req, res) => {
-  const profiles = profilesWithSingleDefault(parseProfiles(req.query.profiles));
-  const config = {
-    customer_name: req.query.customer_name || "",
-    netbox: req.query.netbox || "",
-    token: req.query.token || "",
-    proxy: req.query.proxy || "",
-    domain: req.query.domain || "",
-    tag: req.query.tag || "",
-    max_templates: maxInstancesValue(req.query.max_templates ?? req.query.max_instances ?? req.query.enrollment_limit),
-    enrollment_limit: maxInstancesValue(req.query.enrollment_limit),
-    owner_env_var: String(req.query.owner_env_var || "SAASHUP_OWNER").trim() || "SAASHUP_OWNER",
-    cloudflare_filter: req.query.cloudflare_filter !== "false",
-    smtp_config: req.query.smtp_config || "",
-    profile: req.query.profile || req.query.config_profile || "",
-    config_profile: req.query.config_profile || req.query.profile || "",
-    profiles: JSON.stringify(profiles),
-  };
-  writeState((state) => {
-    state.config = config;
-    return state;
-  });
-  res.json(config);
-});
-
-app.get("/templates", (req, res) => res.json(readState().templates || {}));
-app.post("/templates", requireAdmin, (req, res) => {
-  let templates = {};
-  const creatorEmail = authUserFromRequest(req).email || "";
-  writeState((state) => {
-    templates = templatesWithCreatorEmails(req.body, plainObject(state.templates), creatorEmail);
-    state.templates = templates;
-    return state;
-  });
-  res.json(templates);
-});
 
 function mergeProfileMaps(existing, imported) {
   return {
@@ -1000,64 +868,26 @@ function mergeProfileMaps(existing, imported) {
   };
 }
 
-app.get("/portable-config", requireAdmin, (req, res) => {
-  const state = readState();
-  const config = plainObject(state.config);
-  const payload = {
-    type: "saashup-config-export",
-    version: 1,
-    app_version: packageJson.version,
-    exported_at: new Date().toISOString(),
-    config: { ...config, profiles: profilesWithSingleDefault(parseProfiles(config.profiles)) },
-    templates: plainObject(state.templates),
-    order_counts: plainObject(state.order_counts),
-    enrollment_counts: plainObject(state.enrollment_counts),
-    order_instances: plainObject(state.order_instances),
-    enrollment_instances: plainObject(state.enrollment_instances),
-  };
-  res.attachment(`saashup-config-${new Date().toISOString().slice(0, 10)}.json`).json(payload);
-});
-app.post("/portable-config", requireAdmin, (req, res) => {
-  const payload = plainObject(req.body);
-  const config = plainObject(payload.config);
-  const profiles = profilesWithSingleDefault(parseProfiles(payload.profiles || config.profiles));
-  const names = Object.keys(profiles).sort((a, b) => a.localeCompare(b));
-  const importedTemplates = plainObject(payload.templates);
-  const importedOrderCounts = plainObject(payload.order_counts);
-  const importedEnrollmentCounts = plainObject(payload.enrollment_counts);
-  const importedOrderInstances = plainObject(payload.order_instances);
-  const importedEnrollmentInstances = plainObject(payload.enrollment_instances);
-  writeState((state) => {
-    const existingConfig = plainObject(state.config);
-    const mergedProfiles = profilesWithSingleDefault({ ...parseProfiles(existingConfig.profiles), ...profiles });
-    const selectedProfile = config.profile || config.config_profile || existingConfig.profile || existingConfig.config_profile || names[0] || "";
-    const nextConfig = {
-      ...existingConfig,
-      ...config,
-      profiles: JSON.stringify(mergedProfiles),
-    };
-    if (selectedProfile) {
-      nextConfig.profile = selectedProfile;
-      nextConfig.config_profile = selectedProfile;
-    }
-    state.config = nextConfig;
-    state.templates = { ...plainObject(state.templates), ...importedTemplates };
-    state.order_counts = mergeProfileMaps(plainObject(state.order_counts), importedOrderCounts);
-    state.enrollment_counts = mergeProfileMaps(plainObject(state.enrollment_counts), importedEnrollmentCounts);
-    state.order_instances = mergeProfileMaps(plainObject(state.order_instances), importedOrderInstances);
-    state.enrollment_instances = mergeProfileMaps(plainObject(state.enrollment_instances), importedEnrollmentInstances);
-    return state;
-  });
-  res.json({ status: "imported", profiles: names.length, templates: Object.keys(importedTemplates).length });
-});
-
-app.get("/logs", (req, res) => res.type("text/html").send(readState().logs || "&nbsp;<br>"));
-app.delete("/logs", requireAdmin, (req, res) => {
-  writeState((state) => {
-    state.logs = "";
-    return state;
-  });
-  res.json({ status: "cleared" });
+registerConfigRoutes(app, {
+  appOwnerEmail,
+  authUserFromRequest,
+  maxInstancesValue,
+  mergeProfileMaps,
+  packageJson,
+  parseProfiles,
+  plainObject,
+  profilesWithSingleDefault,
+  publicApiGuard,
+  readState,
+  registrySecretForTemplate,
+  registryWebhookSecret,
+  requireAdmin,
+  selectedProfileConfig,
+  sendContactEmail,
+  sendTestEmail,
+  templatesWithCreatorEmails,
+  verifyContactTurnstile,
+  writeState,
 });
 
 async function testConnection(req, res) {
@@ -1069,59 +899,6 @@ async function testConnection(req, res) {
     res.status(error.statusCode || 502).json({ detail: error.message, payload: error.payload });
   }
 }
-
-app.get("/test", requireAdmin, testConnection);
-app.post("/test", requireAdmin, testConnection);
-
-app.get("/instances", async (req, res) => {
-  try {
-    const config = selectedProfileConfig(req.query);
-    const client = new NetBoxClient(config);
-    const hostFilter = await hostIdQuery(client, req.query.tag || config.tag);
-    if (hostFilter.host_id === "__none__") return res.json([]);
-    const containers = await client.list("/api/plugins/docker/containers/", { limit: 1000, ...hostFilter });
-    res.json(containers.map((item) => ({ ...item, instance: item.display || item.name, networks: containerNetworkNames(item) })));
-  } catch (error) {
-    res.status(error.statusCode || 502).json({ detail: error.message });
-  }
-});
-
-app.get("/images", async (req, res) => {
-  try {
-    const config = selectedProfileConfig(req.query);
-    const client = new NetBoxClient(config);
-    const hostFilter = await hostIdQuery(client, req.query.tag || config.tag);
-    if (hostFilter.host_id === "__none__") return res.json([]);
-    const images = await client.list("/api/plugins/docker/images/", { limit: 1000, ...hostFilter });
-    res.json(images);
-  } catch (error) {
-    res.status(error.statusCode || 502).json({ detail: error.message });
-  }
-});
-
-app.get("/containers-count", async (req, res) => {
-  try {
-    const config = selectedProfileConfig(req.query);
-    const client = new NetBoxClient(config);
-    const hostFilter = await hostIdQuery(client, req.query.tag || config.tag);
-    if (hostFilter.host_id === "__none__") return res.json({ count: 0 });
-    const images = await client.list("/api/plugins/docker/images/", { limit: 1000, name: req.query.image, version: req.query.version, ...hostFilter });
-    if (!images.length) return res.json({ count: 0 });
-    const containers = await client.list("/api/plugins/docker/containers/", { limit: 1, image_id: images.map((image) => image.id) });
-    res.json({ count: containers.length });
-  } catch (error) {
-    res.status(error.statusCode || 502).json({ detail: error.message });
-  }
-});
-
-app.get("/registry/check", publicApiGuard, async (req, res) => {
-  try {
-    const result = await checkRegistryImageExists(req.query.image || req.query.ref || "");
-    res.json(result);
-  } catch (error) {
-    res.status(error.statusCode || 502).json({ detail: error.message || "registry check failed" });
-  }
-});
 
 function reportProfiles(source) {
   const state = readState();
@@ -1295,7 +1072,7 @@ async function imageReportForProfile(name, config) {
   return { hosts: hosts.length, rows, owners: [...owners], users };
 }
 
-app.get("/report/images", requireAdmin, async (req, res) => {
+async function reportImages(req, res) {
   try {
     const profiles = reportProfiles(req.query);
     const requestedProfile = req.query.profile || req.query.config_profile || "";
@@ -1355,10 +1132,24 @@ app.get("/report/images", requireAdmin, async (req, res) => {
     logLine(`REPORT_IMAGE : failed ${error.message || "report error"}`);
     res.status(error.statusCode || 502).json({ detail: error.message, payload: error.payload });
   }
+}
+
+registerNetBoxRoutes(app, {
+  checkRegistryImageExists,
+  containerNetworkNames,
+  hostIdQuery,
+  NetBoxClient,
+  publicApiGuard,
+  reportImages,
+  requireAdmin,
+  selectedProfileConfig,
+  testConnection,
 });
 
-app.get("/order/limit", (req, res) => res.json(currentUsage(req, req.query.profile || "")));
-app.get("/enroll/limit", (req, res) => res.json(currentEnrollmentUsage(req, req.query.profile || "")));
+registerLimitRoutes(app, {
+  currentEnrollmentUsage,
+  currentUsage,
+});
 
 async function createInstance(req, data, { isOrderRequest, isEnrollRequest, orderProfile, authUser }) {
   data = normalizedSaashupLabelConfig(data);
@@ -1427,49 +1218,6 @@ async function createInstance(req, data, { isOrderRequest, isEnrollRequest, orde
   if (allHostsEnabled(data)) logLine(`CREATE : finished all hosts ready=${readyCount}/${targetHosts.length}`);
   return allReady;
 }
-
-app.post("/create", oidcAuth.loginRequired, async (req, res) => {
-  const data = { ...selectedProfileConfig(req.body), ...req.body };
-  const authUser = authUserFromRequest(req);
-  data.saashup_owner = authUser.email || "";
-  const orderProfile = data.profile || data.config_profile || "";
-  const usage = currentUsage(req, orderProfile);
-  const isOrderRequest = req.body.order_request === "true";
-  const enrollUsage = currentEnrollmentUsage(req, orderProfile);
-  const isEnrollRequest = req.body.enroll_request === "true";
-  if (isOrderRequest && !validateOrderTemplate(req, res)) return;
-  if (isOrderRequest && usage.reached) {
-    return res.status(429).json({ code: "max_instances_reached", detail: `You have reached your maximum of ${usage.max} instance${usage.max === 1 ? "" : "s"} for this config.`, max_instances: usage.max, used_instances: usage.used });
-  }
-  if (isEnrollRequest && enrollUsage.reached) {
-    return res.status(429).json({ code: "max_templates_reached", detail: `You have reached your maximum of ${enrollUsage.max} template${enrollUsage.max === 1 ? "" : "s"} for this config.`, max_templates: enrollUsage.max, used_templates: enrollUsage.used });
-  }
-  if (isOrderRequest) recordOrderInstance(req, orderProfile, data);
-  if (isEnrollRequest) recordEnrollment(req, orderProfile, data);
-
-  const operationContext = { isOrderRequest, isEnrollRequest, orderProfile, authUser };
-  if (waitForRequest(data)) {
-    try {
-      const ready = await createInstance(req, data, operationContext);
-      return res.status(ready ? 200 : 422).json({ status: ready ? "finished" : "failed" });
-    } catch (error) {
-      if (isOrderRequest) updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
-      if (isEnrollRequest) updateEnrollmentInstanceStatus(req, orderProfile, data.instance || "", "failed");
-      logLine(`ERROR : ${error.message || "operation failed"} payload=${JSON.stringify(error.payload || {}).slice(0, 240)}`);
-      return res.status(error.statusCode || 502).json({ detail: error.message || "operation failed", payload: error.payload });
-    }
-  }
-
-  asyncOperation(res, async () => {
-    try {
-      await createInstance(req, data, operationContext);
-    } catch (error) {
-      if (isOrderRequest) updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
-      if (isEnrollRequest) updateEnrollmentInstanceStatus(req, orderProfile, data.instance || "", "failed");
-      throw error;
-    }
-  });
-});
 
 async function recreateContainers(data) {
   const client = new NetBoxClient(data);
@@ -1540,64 +1288,37 @@ async function deleteContainerVolumes(client, container) {
   }
 }
 
-app.post("/recreate", (req, res) => {
-  const data = { ...selectedProfileConfig(req.body), ...req.body };
-  asyncOperation(res, () => recreateContainers(data));
-});
-
-app.post("/restart", (req, res) => {
-  const data = { ...selectedProfileConfig(req.body), ...req.body };
-  asyncOperation(res, async () => {
-    const operation = ["start", "stop", "restart", "kill"].includes(data.operate_action) ? data.operate_action : "restart";
-    const logPrefix = operation.toUpperCase();
-    const client = new NetBoxClient(data);
-    const hostFilter = await hostIdQuery(client, data.tag);
-    if (hostFilter.host_id === "__none__") return logLine(`${logPrefix} : no Docker hosts found with tag ${data.tag}`);
-    let containers = [];
-    if (data.restart_mode === "instance") {
-      containers = exactContainerNameMatches(await client.list("/api/plugins/docker/containers/", { name: instanceShort(data.instance), ...hostFilter }), data.instance);
-    } else {
-      const images = await client.list("/api/plugins/docker/images/", { name: data.image, version: data.restart_version, limit: 200, ...hostFilter });
-      for (const image of images) containers.push(...await client.list("/api/plugins/docker/containers/", { image_id: image.id, limit: 200 }));
-    }
-    for (const container of containers) await requestContainerOperation(client, container, operation, logPrefix);
-    logLine(`${logPrefix} : finished ${operation} loop`);
-  });
-});
-
-app.post("/delete", (req, res) => {
-  const data = { ...selectedProfileConfig(req.body), ...req.body };
-  asyncOperation(res, async () => {
-    const client = new NetBoxClient(data);
-    const hostFilter = await hostIdQuery(client, data.tag);
-    const matches = exactContainerNameMatches(await client.list("/api/plugins/docker/containers/", { name: instanceShort(data.instance), ...hostFilter }), data.instance);
-    if (matches.length !== 1) return logLine(`DELETE : cannot delete ${instanceShort(data.instance)}, expected 1 container got ${matches.length}`);
-    const container = matches[0];
-    if (isContainerRunning(container)) {
-      await client.request("PATCH", "/api/plugins/docker/containers/", { body: [{ id: container.id, operation: "stop" }] });
-      logLine(`DELETE : container ${instanceShort(data.instance)} stop requested id=${container.id}`);
-      await waitForContainerStopped(client, container.id, `${hostName(container)}/${valueText(container.display || container.name)}`);
-    }
-    await client.request("DELETE", `/api/plugins/docker/containers/${container.id}/`, { expected: [200, 202, 204] });
-    logLine(`DELETE : container ${instanceShort(data.instance)} deleted id=${container.id}`);
-    if (deleteVolumesEnabled(data)) await deleteContainerVolumes(client, container);
-    await deleteDnsRecord(client, data);
-    if (req.body.order_request === "true") removeOrderInstance(req, data.profile || data.config_profile || "", data.instance || "");
-  });
-});
-
-app.post("/refresh-hosts", (req, res) => {
-  const data = { ...selectedProfileConfig(req.body), ...req.body };
-  asyncOperation(res, async () => {
-    const client = new NetBoxClient(data);
-    const hosts = await dockerHosts(client, data.tag);
-    for (const host of hosts) {
-      await client.request("PATCH", `/api/plugins/docker/hosts/${host.id}/`, { body: { operation: "refresh" } });
-      logLine(`REFRESH_HOST : ${valueText(host.display || host.name)} refresh requested`);
-      await waitForHostReady(client, host.id, valueText(host.display || host.name));
-    }
-    logLine("REFRESH_HOST : finished host refresh loop");
-  });
+registerOperationRoutes(app, {
+  asyncOperation,
+  authUserFromRequest,
+  createInstance,
+  currentEnrollmentUsage,
+  currentUsage,
+  deleteContainerVolumes,
+  deleteDnsRecord,
+  deleteVolumesEnabled,
+  dockerHosts,
+  exactContainerNameMatches,
+  hostIdQuery,
+  hostName,
+  instanceShort,
+  isContainerRunning,
+  logLine,
+  NetBoxClient,
+  oidcAuth,
+  recordEnrollment,
+  recordOrderInstance,
+  recreateContainers,
+  removeOrderInstance,
+  requestContainerOperation,
+  selectedProfileConfig,
+  updateEnrollmentInstanceStatus,
+  updateOrderInstanceStatus,
+  validateOrderTemplate,
+  valueText,
+  waitForContainerStopped,
+  waitForHostReady,
+  waitForRequest,
 });
 
 /* v8 ignore next 6 */

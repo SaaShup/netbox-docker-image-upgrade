@@ -780,6 +780,7 @@ test("create form preloads a profile-based random instance name on page load", a
     proxy: "",
     domain: "example.com",
     tag: "production",
+    max_templates: 10,
     max_instances: 1,
     profiles: JSON.stringify({
       production: {
@@ -1854,6 +1855,13 @@ test("enroll page keeps submit disabled before import content", async ({ page })
       body: JSON.stringify({ email: "ada@example.com", user: "ada", name: "Ada Lovelace" }),
     });
   });
+  await page.route("**/enroll/limit?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ profile: "production", used: 0, max: 10, remaining: 10, reached: false, instances: [] }),
+    });
+  });
 
   await openAdmin(page, {
     profile: "production",
@@ -1871,6 +1879,7 @@ test("enroll page keeps submit disabled before import content", async ({ page })
         proxy: "",
         domain: "example.com",
         tag: "production",
+        max_templates: 10,
         saashup_default: true,
       },
     }),
@@ -2023,6 +2032,13 @@ test("enroll page blocks docker compose files with multiple services", async ({ 
       body: "{}",
     });
   });
+  await page.route("**/enroll/limit?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ profile: "production", used: 0, max: 10, remaining: 10, reached: false, instances: [] }),
+    });
+  });
 
   await openAdmin(page, {
     profile: "production",
@@ -2032,6 +2048,7 @@ test("enroll page blocks docker compose files with multiple services", async ({ 
     proxy: "",
     domain: "example.com",
     tag: "production",
+    max_templates: 10,
     max_instances: 1,
     profiles: JSON.stringify({
       production: {
@@ -2040,6 +2057,7 @@ test("enroll page blocks docker compose files with multiple services", async ({ 
         proxy: "",
         domain: "example.com",
         tag: "production",
+        max_templates: 10,
         saashup_default: true,
       },
     }),
@@ -2089,6 +2107,13 @@ test("enroll page flags multi-service compose pasted in run input", async ({ pag
       body: JSON.stringify({ email: "ada@example.com", user: "ada", name: "Ada Lovelace" }),
     });
   });
+  await page.route("**/enroll/limit?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ profile: "production", used: 0, max: 10, remaining: 10, reached: false, instances: [] }),
+    });
+  });
 
   await openAdmin(page, {
     profile: "production",
@@ -2098,6 +2123,7 @@ test("enroll page flags multi-service compose pasted in run input", async ({ pag
     proxy: "",
     domain: "example.com",
     tag: "production",
+    max_templates: 10,
     max_instances: 1,
     profiles: JSON.stringify({
       production: {
@@ -2106,6 +2132,7 @@ test("enroll page flags multi-service compose pasted in run input", async ({ pag
         proxy: "",
         domain: "example.com",
         tag: "production",
+        max_templates: 10,
         saashup_default: true,
       },
     }),

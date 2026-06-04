@@ -942,7 +942,7 @@ async function importPortableConfig(event) {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
     const importedConfig = plainObject(data.config);
-    const importedProfiles = parseProfiles(data.profiles || importedConfig.profiles);
+    const importedProfiles = normalizeImportedProfiles(parseProfiles(data.profiles || importedConfig.profiles));
     const importedTemplates = normalizeCreateTemplates(plainObject(data.templates));
     const importedWorkflows = normalizeCreateWorkflows(plainObject(data.workflows));
     const mergedProfiles = { ...configProfiles, ...importedProfiles };
@@ -1198,7 +1198,20 @@ function normalizeMaxInstances(value) {
 }
 
 function maxTemplatesValue(profile = {}) {
-  return normalizeMaxInstances(profile.max_templates ?? profile.max_instances ?? profile.enrollment_limit);
+  return normalizeMaxInstances(profile.max_templates ?? profile.enrollment_limit);
+}
+
+function normalizeImportedProfiles(profiles = {}) {
+  return Object.fromEntries(Object.entries(plainObject(profiles)).map(([name, profile]) => {
+    const normalized = plainObject(profile);
+    if (normalized.max_templates === undefined && normalized.max_instances !== undefined) {
+      normalized.max_templates = normalizeMaxInstances(normalized.max_instances);
+    }
+    if (normalized.enrollment_limit === undefined && normalized.max_templates !== undefined) {
+      normalized.enrollment_limit = normalizeMaxInstances(normalized.max_templates);
+    }
+    return [name, normalized];
+  }));
 }
 
 function templateMaxInstancesValue(template = {}) {
