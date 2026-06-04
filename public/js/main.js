@@ -166,7 +166,7 @@ const profileFieldHelp = {
     title: "Max templates",
     body: "Limits how many enroll-page templates a user can create for this profile. Set it to 0 to block new enrollments for the profile.",
   },
-  template_max_instances: {
+  max_instances: {
     title: "Max instances",
     body: "Limits how many order-page containers a user can request from this template. Set it to 0 to block new orders for the template.",
   },
@@ -257,7 +257,7 @@ const actions = {
     description: "Create a container, volume, optional DNS record and optional Traefik labels.",
     submitLabel: "Create instance",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "network", "traefik", "all_hosts", "saashup_enabled", "template_url", "template_max_instances", "registry_webhook_secret", "instance", "dns_name", "image", "version", "env_vars", "labels", "ports", "volumes", "binds"],
+    fields: ["config_profile", "network", "traefik", "all_hosts", "saashup_enabled", "template_url", "max_instances", "registry_webhook_secret", "instance", "dns_name", "image", "version", "env_vars", "labels", "ports", "volumes", "binds"],
   },
   workflow: {
     endpoint: "",
@@ -330,7 +330,6 @@ const allFieldNames = [
   "tag",
   "max_templates",
   "max_instances",
-  "template_max_instances",
   "enrollment_limit",
   "owner_env_var",
   "config_profile",
@@ -1927,7 +1926,14 @@ function orderInstanceStatusControl(item, index) {
     return '<span class="order-instance-status order-instance-status-failed" title="Instance creation failed" aria-label="Instance creation failed">!</span>';
   }
 
-  return `<button type="button" class="icon-btn icon-btn-danger order-instance-delete" data-order-instance-delete="${index}" title="Delete ${instance}" aria-label="Delete ${instance}">×</button>`;
+  return `
+    <span class="order-instance-actions">
+      ${orderInstanceOpenButton(item)}
+      <button type="button" class="icon-btn icon-btn-danger order-instance-delete" data-order-instance-delete="${index}" title="Delete ${instance}" aria-label="Delete ${instance}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>
+      </button>
+    </span>
+  `;
 }
 
 function orderInstanceStatusText(item) {
@@ -1993,6 +1999,7 @@ function renderOrderInstances(instances = orderInstanceCards, limit = orderInsta
   orderInstanceLimit = {
     max: Number(limit?.max || 0),
     used: Number(limit?.used ?? orderInstanceCards.length),
+    totalUsed: Number(limit?.total_used ?? orderInstanceCards.length),
   };
 
   if (!orderInstanceCards.length) {
@@ -2002,13 +2009,13 @@ function renderOrderInstances(instances = orderInstanceCards, limit = orderInsta
     return;
   }
 
-  const maxText = orderInstanceLimit.max > 0 ? ` / ${orderInstanceLimit.max}` : "";
+  const maxText = orderTemplateName && orderInstanceLimit.max > 0 ? ` / ${orderInstanceLimit.max}` : "";
   orderInstances.classList.remove("hidden");
   orderInstances.innerHTML = `
     <div class="order-instances-header">
       <div>
         <p class="eyebrow">Your instances</p>
-        <h2>${orderInstanceLimit.used || orderInstanceCards.length}${maxText}</h2>
+        <h2>${orderTemplateName ? (orderInstanceLimit.used || orderInstanceCards.length) : (orderInstanceLimit.totalUsed || orderInstanceCards.length)}${maxText}</h2>
       </div>
     </div>
     <div class="order-instance-grid">
@@ -2016,8 +2023,8 @@ function renderOrderInstances(instances = orderInstanceCards, limit = orderInsta
         <article class="order-instance-card" data-order-instance-card="${index}">
           <span class="order-instance-icon" aria-hidden="true">${reportStatIcon("containers")}</span>
           <span class="order-instance-copy">
-            ${orderInstanceNameLink(item.instance, item.dns_name)}
-            <small>${escapeHtml(item.template || item.image || "SaaShup instance")}</small>
+            <strong>${escapeHtml(item.template || item.image || "SaaShup instance")}</strong>
+            <small>${escapeHtml(item.instance || "Instance requested")}</small>
             <small class="${orderInstanceStatusTextClass(item)}">${orderInstanceStatusText(item)}</small>
           </span>
           ${orderInstanceStatusControl(item, index)}
@@ -2086,6 +2093,25 @@ function orderInstanceNameLink(instance, hrefTarget = "") {
   const href = `https://${host}`;
 
   return `<a class="order-instance-link" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(name)}</a>`;
+}
+
+function orderInstanceHref(item) {
+  const target = String(item?.dns_name || item?.instance || "").trim();
+  if (!target) return "";
+  const host = target.replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
+  return host ? `https://${host}` : "";
+}
+
+function orderInstanceOpenButton(item) {
+  const href = orderInstanceHref(item);
+  if (!href) return "";
+  const label = escapeHtml(`Open ${item.instance || "instance"}`);
+  return `
+    <a class="icon-btn order-instance-open" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" title="${label}" aria-label="${label}">
+      <span>Open</span>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17L17 7"></path><path d="M9 7h8v8"></path><path d="M5 5v14h14"></path></svg>
+    </a>
+  `;
 }
 
 function addOrderInstanceCard(instance) {
@@ -3140,7 +3166,7 @@ function currentCreateTemplate() {
     all_hosts: fieldChecked("all_hosts", false),
     saashup_enabled: fieldChecked("saashup_enabled", true),
     template_url: fieldValue("template_url").trim(),
-    max_instances: normalizeMaxInstances(fieldValue("template_max_instances")),
+    max_instances: normalizeMaxInstances(fieldValue("max_instances")),
     registry_webhook_secret: registryWebhookSecretValue(),
     network: fieldValue("network"),
     image: fieldValue("image"),
@@ -3177,7 +3203,7 @@ function applyCreateTemplate(template) {
   setFieldValue("all_hosts", template.all_hosts ?? false);
   setFieldValue("saashup_enabled", template.saashup_enabled ?? true);
   setFieldValue("template_url", template.template_url || "");
-  setFieldValue("template_max_instances", templateMaxInstancesValue(template));
+  setFieldValue("max_instances", templateMaxInstancesValue(template));
   setFieldValue("registry_webhook_secret", template.registry_webhook_secret || template.dockerhub_webhook_secret || "");
   applyRegistryDefaultSecret();
   templateNetworkOverride = template.network || "";
@@ -3293,10 +3319,18 @@ async function applyOrderTemplate({ reveal = true } = {}) {
 
   const entry = createTemplateEntry(orderTemplateName);
   if (!entry) {
+    if (!orderTemplateName) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Yes";
+      hideOrderActions();
+      await refreshOrderInstanceStatuses();
+      if (!orderInstanceCards.length) setOrderBlockedStatus("No instances found", "template-unavailable");
+      return false;
+    }
     submitBtn.disabled = true;
     submitBtn.textContent = "Yes";
     hideOrderActions();
-    setOrderBlockedStatus(orderTemplateName ? `Template "${orderTemplateName}" not found` : "Template is required", "template-unavailable");
+    setOrderBlockedStatus(`Template "${orderTemplateName}" not found`, "template-unavailable");
     return false;
   }
 
@@ -3950,8 +3984,7 @@ async function submitAction(config, submitter) {
   body.set("domain", credentials.domain);
   body.set("tag", credentials.tag);
   body.set("max_templates", String(credentials.max_templates));
-  body.set("max_instances", String(normalizeMaxInstances(body.get("template_max_instances") || body.get("max_instances"))));
-  body.delete("template_max_instances");
+  body.set("max_instances", String(normalizeMaxInstances(body.get("max_instances"))));
   body.set("enrollment_limit", String(credentials.enrollment_limit));
   body.set("owner_env_var", credentials.owner_env_var);
   body.set("profile", credentials.profile);

@@ -1612,7 +1612,7 @@ test("create form can save and load templates", async ({ page }) => {
   await page.locator("#var_env_value").fill("production");
   await page.locator("#label_key").fill("traefik.enable");
   await page.locator("#label_value").fill("true");
-  await page.locator("#template_max_instances").fill("2");
+  await page.locator("#max_instances").fill("2");
   await page.locator("#port_value").fill("3000");
   await page.locator("#volume_source").fill("/app/data");
   await expect(page.locator("#volume_name")).toHaveValue("guide-app-data");
@@ -1652,7 +1652,7 @@ test("create form can save and load templates", async ({ page }) => {
   await expect(page.locator("#image")).toHaveValue("saashup/guide");
   await expect(page.locator("#version")).toHaveValue("v1.10.0");
   await expect(page.locator("#saashup_enabled")).toBeChecked();
-  await expect(page.locator("#template_max_instances")).toHaveValue("2");
+  await expect(page.locator("#max_instances")).toHaveValue("2");
   await expect(page.locator("#var_env_key")).toHaveValue("APP_ENV");
   await expect(page.locator("#label_key")).toHaveValue("traefik.enable");
   await expect(page.locator("#port_value")).toHaveValue("3000");
@@ -2252,8 +2252,9 @@ test("order page creates an instance from the requested template", async ({ page
   await expect(page.locator("#orderActions")).toBeVisible();
   await expect(page.locator("#instance")).not.toHaveValue(generatedName);
   const orderCard = page.locator(".order-instance-card").first();
-  await expect(orderCard.locator(".order-instance-link")).toHaveText(generatedName);
-  await expect(orderCard.locator(".order-instance-link")).toHaveAttribute("href", `https://${generatedName}.daily.paashup.cloud`);
+  await expect(orderCard.locator(".order-instance-copy strong")).toHaveText("curiootiles");
+  await expect(orderCard.locator(".order-instance-copy small").first()).toHaveText(generatedName);
+  await expect(orderCard.locator(".order-instance-open")).toHaveAttribute("href", `https://${generatedName}.daily.paashup.cloud`);
   await expect(orderCard.locator(".order-instance-state")).toHaveText("Ready");
   await expect(orderCard.locator(".order-instance-delete")).toBeVisible();
   page.on("dialog", (dialog) => dialog.accept());
@@ -2357,7 +2358,8 @@ test("order page informs the user when the max instance limit is reached", async
   await expect(page.locator("#orderInstances")).toBeVisible();
   await expect(page.locator("#orderInstances")).toContainText("3 / 3");
   await expect(page.locator("#orderInstances")).toContainText("demo-1.daily.paashup.cloud");
-  await expect(page.locator(".order-instance-card").first().locator(".order-instance-link")).toHaveAttribute("href", "https://demo-1.daily.paashup.cloud");
+  await expect(page.locator(".order-instance-card").first().locator(".order-instance-copy strong")).toHaveText("demo");
+  await expect(page.locator(".order-instance-card").first().locator(".order-instance-open")).toHaveAttribute("href", "https://demo-1.daily.paashup.cloud");
   await expect(page.locator(".order-instance-card").first().locator(".order-instance-delete")).toBeVisible();
   await expect(page.locator(".order-instance-card").first().locator(".order-instance-state")).toHaveText("Ready");
   await expect(page.locator(".order-instance-card").nth(1).locator(".order-instance-delete")).toBeHidden();
@@ -2526,6 +2528,46 @@ test("order page hides the order form when the requested template is missing", a
   await expect(page.locator("#orderStatus")).toHaveClass(/error/);
   await expect(page.locator("#orderStatus")).toHaveText('Template "missing" not foundBack to home');
   await expect(page.locator("#orderStatus .order-status-home")).toHaveAttribute("href", "/");
+});
+
+test("order page without a template lists all owned containers", async ({ page }) => {
+  await page.route("**/order/limit?**", async (route) => {
+    const url = new URL(route.request().url());
+    expect(url.searchParams.get("template")).toBe("");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        instances: [
+          { instance: "tile.daily.paashup.cloud", template: "curiootiles", status: "ready" },
+          { instance: "guide.daily.paashup.cloud", template: "guide", status: "ready" },
+        ],
+        max: 1,
+        profile: "prod",
+        remaining: 0,
+        reached: true,
+        used: 0,
+        total_used: 2,
+      }),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "prod",
+    profiles: JSON.stringify({
+      prod: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        domain: "daily.paashup.cloud",
+        saashup_default: true,
+      },
+    }),
+  }, {}, [], undefined, "/order");
+
+  await expect(page.locator("#orderActions")).toBeHidden();
+  await expect(page.locator("#orderInstances")).toContainText("2");
+  await expect(page.locator("#orderInstances")).toContainText("tile.daily.paashup.cloud");
+  await expect(page.locator("#orderInstances")).toContainText("guide.daily.paashup.cloud");
 });
 
 test("order page hides the order form when the requested template is disabled", async ({ page }) => {

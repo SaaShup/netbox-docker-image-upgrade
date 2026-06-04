@@ -1393,14 +1393,28 @@ describe("server routes", () => {
     writeState(dataPath, {
       config: { max_templates: 4, profile: "prod", config_profile: "prod" },
       templates: { Tiles: { max_instances: 1 } },
-      order_counts: { "buyer@example.com": { prod: 1 } },
-      order_instances: { "buyer@example.com": { prod: [{ instance: "tiles.example.com", template: "Tiles" }] } },
+      order_counts: { "buyer@example.com": { prod: 2 } },
+      order_instances: { "buyer@example.com": { prod: [
+        { instance: "tiles.example.com", template: "Tiles" },
+        { instance: "guide.example.com", template: "Guide" },
+      ] } },
       logs: "",
     });
 
     await request.get("/order/limit").set("x-auth-request-email", "buyer@example.com").query({ profile: "prod", template: "Tiles" }).expect(200).expect((res) => {
       expect(res.body.reached).toBe(true);
-      expect(res.body.instances).toEqual([expect.objectContaining({ instance: "tiles.example.com" })]);
+      expect(res.body.used).toBe(1);
+      expect(res.body.total_used).toBe(1);
+      expect(res.body.instances).toEqual([
+        expect.objectContaining({ instance: "tiles.example.com" }),
+      ]);
+    });
+    await request.get("/order/limit").set("x-auth-request-email", "buyer@example.com").query({ profile: "prod" }).expect(200).expect((res) => {
+      expect(res.body.instances).toEqual([
+        expect.objectContaining({ instance: "tiles.example.com" }),
+        expect.objectContaining({ instance: "guide.example.com" }),
+      ]);
+      expect(res.body.total_used).toBe(2);
     });
     await request.get("/order/limit").expect(200).expect((res) => {
       expect(res.body.profile).toBe("");
@@ -1515,6 +1529,7 @@ describe("server routes", () => {
       templates: {
         Tile: { config_profile: "prod", image: "saashup/tile", version: "v1", creator_email: "owner@example.com" },
         Guide: { config_profile: "prod", image: "saashup/guide", version: "v2", creator_email: "other@example.com" },
+        Install: { config_profile: "install", image: "saashup/install", version: "v4", creator_email: "owner@example.com" },
         Shared: { image: "saashup/shared", version: "v3", creator_email: "owner@example.com" },
       },
       enrollment_counts: {},
@@ -1527,9 +1542,10 @@ describe("server routes", () => {
       .query({ profile: "prod" })
       .expect(200)
       .expect((res) => {
-        expect(res.body).toMatchObject({ used: 2, max: 2, remaining: 0, reached: true });
+        expect(res.body).toMatchObject({ used: 3, max: 2, remaining: 0, reached: true });
         expect(res.body.instances).toEqual([
           expect.objectContaining({ instance: "Tile", image: "saashup/tile", source: "template", status: "ready" }),
+          expect.objectContaining({ instance: "Install", image: "saashup/install", source: "template", status: "ready" }),
           expect.objectContaining({ instance: "Shared", image: "saashup/shared", source: "template", status: "ready" }),
         ]);
       });

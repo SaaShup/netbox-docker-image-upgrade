@@ -144,12 +144,26 @@ function currentUsage(req, profile) {
   const instances = plainObject(state.order_instances);
   const userKey = userOrderKey(req);
   const emailKey = String(authUserFromRequest(req).email || "").trim().toLowerCase();
-  const used = Number(counts[userKey]?.[profile] || 0);
   const body = plainObject(req.body);
-  const template = orderTemplateEntry(req.query.template || body.order_template)?.template || {};
+  const requestedTemplate = String(req.query.template || body.order_template || "").trim();
+  const template = orderTemplateEntry(requestedTemplate)?.template || {};
   const max = maxInstancesValue(template.max_instances ?? body.max_instances ?? 1);
   const userInstances = emailKey && Array.isArray(instances[emailKey]?.[profile]) ? instances[emailKey][profile] : [];
-  return { profile, used, max, remaining: Math.max(0, max - used), reached: used >= max, instances: userInstances };
+  const templateInstances = requestedTemplate
+    ? userInstances.filter((item) => String(item?.template || "").trim().toLowerCase() === requestedTemplate.toLowerCase())
+    : userInstances;
+  const used = templateInstances.length || (userInstances.length ? 0 : Number(counts[userKey]?.[profile] || 0));
+  const visibleInstances = requestedTemplate ? templateInstances : userInstances;
+  return {
+    profile,
+    template: requestedTemplate,
+    used,
+    total_used: visibleInstances.length || used,
+    max,
+    remaining: Math.max(0, max - used),
+    reached: used >= max,
+    instances: visibleInstances,
+  };
 }
 
 function currentEnrollmentUsage(req, profile) {
@@ -163,16 +177,11 @@ function currentEnrollmentUsage(req, profile) {
 function enrollmentTemplatesForUser(req, profile) {
   const user = authUserFromRequest(req);
   const creator = String(user.email || user.user || "").trim().toLowerCase();
-  const profileName = String(profile || "").trim();
   if (!creator) return [];
 
   return Object.entries(plainObject(readState().templates))
     .map(([name, template]) => ({ name, template: plainObject(template) }))
     .filter(({ template }) => String(template.creator_email || "").trim().toLowerCase() === creator)
-    .filter(({ template }) => {
-      const templateProfile = String(template.config_profile || template.profile || "").trim();
-      return !profileName || !templateProfile || templateProfile === profileName;
-    })
     .map(({ name, template }) => ({
       instance: name,
       dns_name: "",
