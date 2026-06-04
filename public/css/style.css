@@ -1554,7 +1554,8 @@ body.order-page .order-status.hidden {
   display: none;
 }
 
-body.order-page .order-instances {
+body.order-page .order-instances,
+body.enroll-page .order-instances {
   width: min(760px, 100%);
   margin: 0 0 18px;
   padding: 18px;
@@ -1564,7 +1565,8 @@ body.order-page .order-instances {
   box-shadow: var(--shadow);
 }
 
-body.order-page .order-instances.hidden {
+body.order-page .order-instances.hidden,
+body.enroll-page .order-instances.hidden {
   display: none;
 }
 
@@ -1657,6 +1659,11 @@ body.order-page .order-instances.hidden {
 .order-instance-state-ready {
   color: #166534;
   background: var(--success-soft);
+}
+
+.order-instance-state-recorded {
+  color: var(--muted);
+  background: var(--button-soft);
 }
 
 .order-instance-delete {

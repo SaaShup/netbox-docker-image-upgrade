@@ -149,7 +149,8 @@ test("config tab starts without a forced default profile", async ({ page }) => {
   await expect(page.locator('[data-field="registry_webhook_secret"]')).toBeHidden();
   await expect(page.locator("#domain")).toHaveValue("");
   await expect(page.locator("#tag")).toHaveValue("");
-  await expect(page.locator("#max_instances")).toHaveValue("1");
+  await expect(page.locator("#max_templates")).toHaveValue("1");
+  await expect(page.locator("#enrollment_limit")).toHaveValue("1");
   await expect(page.locator("#owner_env_var")).toHaveValue("SAASHUP_OWNER");
   await expect(page.locator("#cloudflare_filter")).toBeChecked();
   await page.locator('[data-field="netbox"] .field-label').click({ position: { x: 4, y: 8 } });
@@ -417,7 +418,7 @@ test("config page imports config profiles and templates", async ({ page }) => {
   await expect(page.locator("#notif")).toContainText("Config import complete");
   await expect(page.locator("#config_profile")).toHaveValue("production");
   await expect(page.locator("#netbox")).toHaveValue("https://netbox.example.com");
-  await expect(page.locator("#max_instances")).toHaveValue("3");
+  await expect(page.locator("#max_templates")).toHaveValue("3");
   await expect(page.locator("#owner_env_var")).toHaveValue("OWNER");
   await expect(page.locator("#cloudflare_filter")).not.toBeChecked();
 
@@ -1611,6 +1612,7 @@ test("create form can save and load templates", async ({ page }) => {
   await page.locator("#var_env_value").fill("production");
   await page.locator("#label_key").fill("traefik.enable");
   await page.locator("#label_value").fill("true");
+  await page.locator("#template_max_instances").fill("2");
   await page.locator("#port_value").fill("3000");
   await page.locator("#volume_source").fill("/app/data");
   await expect(page.locator("#volume_name")).toHaveValue("guide-app-data");
@@ -1626,6 +1628,7 @@ test("create form can save and load templates", async ({ page }) => {
   const savedTemplate = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")).Guide);
   expect(savedTemplate.instance).toBe("guide-app");
   expect(savedTemplate.saashup_enabled).toBe(true);
+  expect(savedTemplate.max_instances).toBe(2);
   expect(savedTemplate.volumes).toEqual([{ key: "/app/data" }]);
 
   await page.evaluate(() => localStorage.removeItem("create_templates"));
@@ -1649,6 +1652,7 @@ test("create form can save and load templates", async ({ page }) => {
   await expect(page.locator("#image")).toHaveValue("saashup/guide");
   await expect(page.locator("#version")).toHaveValue("v1.10.0");
   await expect(page.locator("#saashup_enabled")).toBeChecked();
+  await expect(page.locator("#template_max_instances")).toHaveValue("2");
   await expect(page.locator("#var_env_key")).toHaveValue("APP_ENV");
   await expect(page.locator("#label_key")).toHaveValue("traefik.enable");
   await expect(page.locator("#port_value")).toHaveValue("3000");
@@ -1765,6 +1769,28 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
       body: "{}",
     });
   });
+  await page.route("**/enroll/limit?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        profile: "production",
+        used: 1,
+        max: 2,
+        remaining: 1,
+        reached: false,
+        instances: [
+          {
+            instance: "existing-guide.example.com",
+            dns_name: "existing-guide.example.com",
+            image: "saashup/guide",
+            version: "v1.0.0",
+            status: "ready",
+          },
+        ],
+      }),
+    });
+  });
 
   await openAdmin(page, {
     profile: "production",
@@ -1775,6 +1801,7 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
         proxy: "",
         domain: "example.com",
         tag: "production",
+        enrollment_limit: 2,
         saashup_default: true,
       },
     }),
@@ -1790,6 +1817,11 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
   await expect(page.locator("#submitBtn")).toBeDisabled();
   await expect(page.locator("#importProfileSelect")).toBeHidden();
   await expect(page.locator("#config_profile")).toHaveValue("production");
+  await expect(page.locator("#enrollInstances")).toBeVisible();
+  await expect(page.locator("#enrollInstances")).toContainText("Your enrolled templates");
+  await expect(page.locator("#enrollInstances")).toContainText("1 / 2");
+  await expect(page.locator("#enrollInstances")).toContainText("existing-guide.example.com");
+  await expect(page.locator("#enrollInstances .order-instance-state")).toHaveText("Ready");
 
   await page.locator("#dockerRunInput").fill([
     "docker run -d --name guide-app --network mgmt",
@@ -1809,6 +1841,8 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
   expect(createBody).toContain("var_env_value=production");
   expect(createBody).toContain("port_value=3000");
   expect(createBody).toContain("profile=production");
+  expect(createBody).toContain("enroll_request=true");
+  expect(createBody).toContain("enrollment_limit=2");
   await expect(page.locator("#notif")).toContainText("Creation requested for guide-app.example.com.");
 });
 
@@ -1846,6 +1880,103 @@ test("enroll page keeps submit disabled before import content", async ({ page })
   await expect(page.locator("#instanceForm")).toBeVisible();
   await expect(page.locator("#dockerRunInput")).toHaveValue("");
   await expect(page.locator("#submitBtn")).toBeDisabled();
+});
+
+test("enroll page shows enrollment count when prior details are unavailable", async ({ page }) => {
+  await page.route("**/session/user", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ email: "ada@example.com", user: "ada", name: "Ada Lovelace" }),
+    });
+  });
+  await page.route("**/enroll/limit?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        profile: "production",
+        used: 1,
+        max: 1,
+        remaining: 0,
+        reached: true,
+        instances: [],
+      }),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "production",
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "example.com",
+        tag: "production",
+        enrollment_limit: 1,
+        saashup_default: true,
+      },
+    }),
+  }, {}, [], undefined, "/enroll.html");
+
+  await expect(page.locator("#enrollInstances")).toBeVisible();
+  await expect(page.locator("#enrollInstances")).toContainText("1 / 1");
+  await expect(page.locator("#enrollInstances")).toContainText("Enrollment recorded");
+  await expect(page.locator("#enrollInstances")).toContainText("Details unavailable for earlier template");
+  await expect(page.locator("#enrollInstances .order-instance-state")).toHaveText("Recorded");
+  await expect(page.locator("#notif")).toContainText("You have reached your maximum of 1 template for this config.");
+  await expect(page.locator("#instanceForm")).toBeHidden();
+});
+
+test("enroll page shows templates created by the user", async ({ page }) => {
+  await page.route("**/session/user", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ email: "ada@example.com", user: "ada", name: "Ada Lovelace" }),
+    });
+  });
+  await page.route("**/enroll/limit?**", async (route) => {
+    const instances = [
+      { instance: "guide-template", image: "saashup/guide", version: "v1.2.3", status: "ready", source: "template" },
+    ];
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        profile: "production",
+        used: instances.length,
+        max: 1,
+        remaining: 0,
+        reached: true,
+        instances,
+      }),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "production",
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "example.com",
+        tag: "production",
+        enrollment_limit: 1,
+        saashup_default: true,
+      },
+    }),
+  }, {}, [], undefined, "/enroll.html");
+
+  await expect(page.locator("#enrollInstances")).toBeVisible();
+  await expect(page.locator("#enrollInstances")).toContainText("1 / 1");
+  await expect(page.locator("#enrollInstances")).toContainText("guide-template");
+  await expect(page.locator("#enrollInstances")).toContainText("saashup/guide");
+  await expect(page.locator("#enrollInstances .order-instance-state")).toHaveText("Ready");
+  await expect(page.locator("#enrollInstances .order-instance-delete")).toBeDisabled();
+  await expect(page.locator("#instanceForm")).toBeHidden();
 });
 
 test("enroll page hides deploy panel without a default config", async ({ page }) => {

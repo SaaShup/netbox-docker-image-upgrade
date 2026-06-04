@@ -145,10 +145,93 @@ function currentUsage(req, profile) {
   const userKey = userOrderKey(req);
   const emailKey = String(authUserFromRequest(req).email || "").trim().toLowerCase();
   const used = Number(counts[userKey]?.[profile] || 0);
-  const config = selectedProfileConfig({ profile, config_profile: profile });
-  const max = maxInstancesValue(config.max_instances);
+  const body = plainObject(req.body);
+  const template = orderTemplateEntry(req.query.template || body.order_template)?.template || {};
+  const max = maxInstancesValue(template.max_instances ?? body.max_instances ?? 1);
   const userInstances = emailKey && Array.isArray(instances[emailKey]?.[profile]) ? instances[emailKey][profile] : [];
   return { profile, used, max, remaining: Math.max(0, max - used), reached: used >= max, instances: userInstances };
+}
+
+function currentEnrollmentUsage(req, profile) {
+  const instances = enrollmentTemplatesForUser(req, profile);
+  const used = instances.length;
+  const config = selectedProfileConfig({ profile, config_profile: profile });
+  const max = maxInstancesValue(config.max_templates ?? config.max_instances ?? config.enrollment_limit);
+  return { profile, used, max, remaining: Math.max(0, max - used), reached: used >= max, instances };
+}
+
+function enrollmentTemplatesForUser(req, profile) {
+  const user = authUserFromRequest(req);
+  const creator = String(user.email || user.user || "").trim().toLowerCase();
+  const profileName = String(profile || "").trim();
+  if (!creator) return [];
+
+  return Object.entries(plainObject(readState().templates))
+    .map(([name, template]) => ({ name, template: plainObject(template) }))
+    .filter(({ template }) => String(template.creator_email || "").trim().toLowerCase() === creator)
+    .filter(({ template }) => {
+      const templateProfile = String(template.config_profile || template.profile || "").trim();
+      return !profileName || !templateProfile || templateProfile === profileName;
+    })
+    .map(({ name, template }) => ({
+      instance: name,
+      dns_name: "",
+      image: template.image || "",
+      version: template.version || "",
+      template_url: template.template_url || template.saashup_template_url || "",
+      status: "ready",
+      source: "template",
+    }))
+    .filter((item) => item.instance);
+}
+
+function recordEnrollment(req, profile, data) {
+  writeState((state) => {
+    const userKey = userOrderKey(req);
+    const user = authUserFromRequest(req);
+    const creatorEmail = String(user.email || user.user || "").trim();
+    const templateName = String(data.order_template || data.template_name || data.instance || data.image || "").trim();
+    if (templateName) {
+      state.templates = plainObject(state.templates);
+      const existing = plainObject(state.templates[templateName]);
+      state.templates[templateName] = {
+        ...existing,
+        config_profile: profile || data.config_profile || data.profile || existing.config_profile || existing.profile || "",
+        instance: data.instance || existing.instance || "",
+        dns_name: data.dns_name || existing.dns_name || "",
+        image: data.image || existing.image || "",
+        version: data.version || existing.version || "",
+        max_instances: maxInstancesValue(data.max_instances ?? existing.max_instances),
+        template_url: data.template_url || data.saashup_template_url || existing.template_url || existing.saashup_template_url || "",
+        network: data.network || existing.network || "",
+        traefik: data.traefik ?? existing.traefik ?? true,
+        all_hosts: data.all_hosts ?? existing.all_hosts ?? false,
+        creator_email: existing.creator_email || creatorEmail,
+        env: asArray(data.var_env_key).map((key, index) => ({ key, value: asArray(data.var_env_value)[index] || "" })).filter((item) => item.key),
+        labels: asArray(data.label_key).map((key, index) => ({ key, value: asArray(data.label_value)[index] || "" })).filter((item) => item.key),
+        ports: asArray(data.port_value).filter(Boolean).map((value) => ({ value })),
+      };
+    }
+
+    state.enrollment_counts = plainObject(state.enrollment_counts);
+    if (!state.enrollment_counts[userKey]) state.enrollment_counts[userKey] = {};
+    state.enrollment_counts[userKey][profile] = Number(state.enrollment_counts[userKey][profile] || 0) + 1;
+
+    state.enrollment_instances = plainObject(state.enrollment_instances);
+    if (!state.enrollment_instances[userKey]) state.enrollment_instances[userKey] = {};
+    const instances = Array.isArray(state.enrollment_instances[userKey][profile]) ? state.enrollment_instances[userKey][profile] : [];
+    instances.push({
+      instance: data.instance || "",
+      dns_name: data.dns_name || "",
+      image: data.image || "",
+      version: data.version || "",
+      template_url: data.template_url || data.saashup_template_url || "",
+      status: "creating",
+      created_at: new Date().toISOString(),
+    });
+    state.enrollment_instances[userKey][profile] = instances;
+    return state;
+  });
 }
 
 function orderTemplateEnabled(value, defaultValue = true) {
@@ -244,6 +327,21 @@ function updateOrderInstanceStatus(req, profile, instance, status) {
   writeState((state) => {
     state.order_instances = plainObject(state.order_instances);
     const instances = Array.isArray(state.order_instances[emailKey]?.[profile]) ? state.order_instances[emailKey][profile] : [];
+    const target = instances.find((item) => item.instance === instance);
+    if (target) {
+      target.status = status;
+      target.updated_at = new Date().toISOString();
+    }
+    return state;
+  });
+}
+
+function updateEnrollmentInstanceStatus(req, profile, instance, status) {
+  const userKey = userOrderKey(req);
+
+  writeState((state) => {
+    state.enrollment_instances = plainObject(state.enrollment_instances);
+    const instances = Array.isArray(state.enrollment_instances[userKey]?.[profile]) ? state.enrollment_instances[userKey][profile] : [];
     const target = instances.find((item) => item.instance === instance);
     if (target) {
       target.status = status;
@@ -853,7 +951,8 @@ app.get("/webhook", requireAdmin, (req, res) => {
     proxy: req.query.proxy || "",
     domain: req.query.domain || "",
     tag: req.query.tag || "",
-    max_instances: maxInstancesValue(req.query.max_instances),
+    max_templates: maxInstancesValue(req.query.max_templates ?? req.query.max_instances ?? req.query.enrollment_limit),
+    enrollment_limit: maxInstancesValue(req.query.enrollment_limit),
     owner_env_var: String(req.query.owner_env_var || "SAASHUP_OWNER").trim() || "SAASHUP_OWNER",
     cloudflare_filter: req.query.cloudflare_filter !== "false",
     smtp_config: req.query.smtp_config || "",
@@ -903,7 +1002,9 @@ app.get("/portable-config", requireAdmin, (req, res) => {
     config: { ...config, profiles: profilesWithSingleDefault(parseProfiles(config.profiles)) },
     templates: plainObject(state.templates),
     order_counts: plainObject(state.order_counts),
+    enrollment_counts: plainObject(state.enrollment_counts),
     order_instances: plainObject(state.order_instances),
+    enrollment_instances: plainObject(state.enrollment_instances),
   };
   res.attachment(`saashup-config-${new Date().toISOString().slice(0, 10)}.json`).json(payload);
 });
@@ -914,7 +1015,9 @@ app.post("/portable-config", requireAdmin, (req, res) => {
   const names = Object.keys(profiles).sort((a, b) => a.localeCompare(b));
   const importedTemplates = plainObject(payload.templates);
   const importedOrderCounts = plainObject(payload.order_counts);
+  const importedEnrollmentCounts = plainObject(payload.enrollment_counts);
   const importedOrderInstances = plainObject(payload.order_instances);
+  const importedEnrollmentInstances = plainObject(payload.enrollment_instances);
   writeState((state) => {
     const existingConfig = plainObject(state.config);
     const mergedProfiles = profilesWithSingleDefault({ ...parseProfiles(existingConfig.profiles), ...profiles });
@@ -931,7 +1034,9 @@ app.post("/portable-config", requireAdmin, (req, res) => {
     state.config = nextConfig;
     state.templates = { ...plainObject(state.templates), ...importedTemplates };
     state.order_counts = mergeProfileMaps(plainObject(state.order_counts), importedOrderCounts);
+    state.enrollment_counts = mergeProfileMaps(plainObject(state.enrollment_counts), importedEnrollmentCounts);
     state.order_instances = mergeProfileMaps(plainObject(state.order_instances), importedOrderInstances);
+    state.enrollment_instances = mergeProfileMaps(plainObject(state.enrollment_instances), importedEnrollmentInstances);
     return state;
   });
   res.json({ status: "imported", profiles: names.length, templates: Object.keys(importedTemplates).length });
@@ -1244,14 +1349,16 @@ app.get("/report/images", requireAdmin, async (req, res) => {
 });
 
 app.get("/order/limit", (req, res) => res.json(currentUsage(req, req.query.profile || "")));
+app.get("/enroll/limit", (req, res) => res.json(currentEnrollmentUsage(req, req.query.profile || "")));
 
-async function createInstance(req, data, { isOrderRequest, orderProfile, authUser }) {
+async function createInstance(req, data, { isOrderRequest, isEnrollRequest, orderProfile, authUser }) {
   data = normalizedSaashupLabelConfig(data);
   const client = new NetBoxClient(data);
   const hosts = await dockerHosts(client, data.tag);
   if (!hosts.length) {
     logLine(`CREATE : no Docker hosts found${data.tag ? ` with tag ${data.tag}` : ""}`);
     if (isOrderRequest) updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
+    if (isEnrollRequest) updateEnrollmentInstanceStatus(req, orderProfile, data.instance || "", "failed");
     return false;
   }
   let targetHosts = hosts;
@@ -1305,6 +1412,9 @@ async function createInstance(req, data, { isOrderRequest, orderProfile, authUse
   } else if (isOrderRequest) {
     updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
   }
+  if (isEnrollRequest) {
+    updateEnrollmentInstanceStatus(req, orderProfile, data.instance || "", allReady ? "ready" : "failed");
+  }
   if (allHostsEnabled(data)) logLine(`CREATE : finished all hosts ready=${readyCount}/${targetHosts.length}`);
   return allReady;
 }
@@ -1316,19 +1426,26 @@ app.post("/create", oidcAuth.loginRequired, async (req, res) => {
   const orderProfile = data.profile || data.config_profile || "";
   const usage = currentUsage(req, orderProfile);
   const isOrderRequest = req.body.order_request === "true";
+  const enrollUsage = currentEnrollmentUsage(req, orderProfile);
+  const isEnrollRequest = req.body.enroll_request === "true";
   if (isOrderRequest && !validateOrderTemplate(req, res)) return;
   if (isOrderRequest && usage.reached) {
     return res.status(429).json({ code: "max_instances_reached", detail: `You have reached your maximum of ${usage.max} instance${usage.max === 1 ? "" : "s"} for this config.`, max_instances: usage.max, used_instances: usage.used });
   }
+  if (isEnrollRequest && enrollUsage.reached) {
+    return res.status(429).json({ code: "max_templates_reached", detail: `You have reached your maximum of ${enrollUsage.max} template${enrollUsage.max === 1 ? "" : "s"} for this config.`, max_templates: enrollUsage.max, used_templates: enrollUsage.used });
+  }
   if (isOrderRequest) recordOrderInstance(req, orderProfile, data);
+  if (isEnrollRequest) recordEnrollment(req, orderProfile, data);
 
-  const operationContext = { isOrderRequest, orderProfile, authUser };
+  const operationContext = { isOrderRequest, isEnrollRequest, orderProfile, authUser };
   if (waitForRequest(data)) {
     try {
       const ready = await createInstance(req, data, operationContext);
       return res.status(ready ? 200 : 422).json({ status: ready ? "finished" : "failed" });
     } catch (error) {
       if (isOrderRequest) updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
+      if (isEnrollRequest) updateEnrollmentInstanceStatus(req, orderProfile, data.instance || "", "failed");
       logLine(`ERROR : ${error.message || "operation failed"} payload=${JSON.stringify(error.payload || {}).slice(0, 240)}`);
       return res.status(error.statusCode || 502).json({ detail: error.message || "operation failed", payload: error.payload });
     }
@@ -1339,6 +1456,7 @@ app.post("/create", oidcAuth.loginRequired, async (req, res) => {
       await createInstance(req, data, operationContext);
     } catch (error) {
       if (isOrderRequest) updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
+      if (isEnrollRequest) updateEnrollmentInstanceStatus(req, orderProfile, data.instance || "", "failed");
       throw error;
     }
   });
