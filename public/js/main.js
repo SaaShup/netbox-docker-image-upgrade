@@ -246,7 +246,7 @@ const actions = {
     description: "Create a container, volume, optional DNS record and optional Traefik labels.",
     submitLabel: "Create instance",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "network", "traefik", "all_hosts", "saashup_enabled", "registry_webhook_secret", "instance", "dns_name", "image", "version", "env_vars", "labels", "ports", "volumes", "binds"],
+    fields: ["config_profile", "network", "traefik", "all_hosts", "saashup_enabled", "template_url", "registry_webhook_secret", "instance", "dns_name", "image", "version", "env_vars", "labels", "ports", "volumes", "binds"],
   },
   workflow: {
     endpoint: "",
@@ -327,6 +327,7 @@ const allFieldNames = [
   "traefik",
   "all_hosts",
   "saashup_enabled",
+  "template_url",
   "instance",
   "dns_name",
   "image",
@@ -1788,9 +1789,28 @@ function clearOrderStatus(reason = "") {
   orderStatus.replaceChildren();
 }
 
+function safeNavigationUrl(value, fallback = "/") {
+  const url = String(value || "").trim();
+  if (!url) return fallback;
+  if (url.startsWith("/")) return url;
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") return url;
+  } catch {
+    return fallback;
+  }
+
+  return fallback;
+}
+
+function orderHomeUrl() {
+  return safeNavigationUrl(createTemplateEntry(orderTemplateName)?.template?.template_url);
+}
+
 function orderHomeLink() {
   const homeLink = document.createElement("a");
-  homeLink.href = "/";
+  homeLink.href = orderHomeUrl();
   homeLink.className = "btn btn-secondary order-status-home";
   homeLink.textContent = "Back to home";
   return homeLink;
@@ -2668,6 +2688,7 @@ function labelBoolean(value, defaultValue = false) {
 
 function applySaashupTemplateLabels(template) {
   const runtimeLabels = [];
+  const runtimeEnv = [];
 
   (template.labels || []).forEach((label) => {
     const key = String(label.key || "").trim();
@@ -2689,10 +2710,26 @@ function applySaashupTemplateLabels(template) {
       return;
     }
 
+    if (normalized === "saashup_template_url") {
+      template.template_url = value;
+      return;
+    }
+
     runtimeLabels.push(label);
   });
 
+  (template.env || []).forEach((entry) => {
+    const key = String(entry.key || "").trim();
+    const value = String(entry.value ?? "").trim();
+    if (key.toLowerCase() === "saashup_template_url") {
+      template.template_url = value;
+      return;
+    }
+    runtimeEnv.push(entry);
+  });
+
   template.labels = runtimeLabels;
+  if (Array.isArray(template.env)) template.env = runtimeEnv;
   return template;
 }
 
@@ -2700,6 +2737,7 @@ function normalizeCreateTemplate(template) {
   const normalized = { ...plainObject(template) };
   normalized.labels = Array.isArray(normalized.labels) ? normalized.labels.map((label) => ({ ...plainObject(label) })) : [];
   normalized.saashup_enabled = checkboxValue(normalized.saashup_enabled, true);
+  normalized.template_url = String(normalized.template_url || normalized.saashup_template_url || "").trim();
   return applySaashupTemplateLabels(normalized);
 }
 
@@ -2987,6 +3025,7 @@ function currentCreateTemplate() {
     traefik: fieldChecked("traefik", true),
     all_hosts: fieldChecked("all_hosts", false),
     saashup_enabled: fieldChecked("saashup_enabled", true),
+    template_url: fieldValue("template_url").trim(),
     registry_webhook_secret: registryWebhookSecretValue(),
     network: fieldValue("network"),
     image: fieldValue("image"),
@@ -3022,6 +3061,7 @@ function applyCreateTemplate(template) {
   setFieldValue("traefik", template.traefik ?? true);
   setFieldValue("all_hosts", template.all_hosts ?? false);
   setFieldValue("saashup_enabled", template.saashup_enabled ?? true);
+  setFieldValue("template_url", template.template_url || "");
   setFieldValue("registry_webhook_secret", template.registry_webhook_secret || template.dockerhub_webhook_secret || "");
   applyRegistryDefaultSecret();
   templateNetworkOverride = template.network || "";
@@ -3295,6 +3335,7 @@ async function applyDockerRunCommand() {
   generatedCreateDnsName = "";
   setFieldValue("network", currentNetwork);
   if (parsed.traefik !== undefined) setFieldValue("traefik", parsed.traefik);
+  setFieldValue("template_url", parsed.template_url || "");
   if (parsed.instance) setFieldValue("instance", parsed.instance);
   syncCreateDnsName({ force: true });
   if (parsed.dns_name) {
@@ -4461,7 +4502,7 @@ logsFullscreenBtn?.addEventListener("click", () => {
 });
 clearLogsBtn?.addEventListener("click", clearLogs);
 orderCancelBtn?.addEventListener("click", () => {
-  window.location.href = "/";
+  window.location.href = orderHomeUrl();
 });
 orderInstances?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-order-instance-delete]");

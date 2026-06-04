@@ -1214,7 +1214,7 @@ test("create form can import a docker run command", async ({ page }) => {
 
   await page.locator("#dockerRunInput").fill([
     "docker run -d --name guide-app --network mgmt",
-    "-e APP_ENV=production --label traefik.enable=true -p 8080:3000",
+    "-e APP_ENV=production -e saashup_template_url=https://templates.example.com/guide --label traefik.enable=true -p 8080:3000",
     "-v guide-data:/app/data -v /var/run/docker.sock:/var/run/docker.sock:ro saashup/guide:v1.2.3",
   ].join(" "));
   await page.locator("#dockerRunApplyBtn").click();
@@ -1225,6 +1225,7 @@ test("create form can import a docker run command", async ({ page }) => {
   expect(instanceRequestCount).toBe(requestsBeforeImport);
   await expect(page.locator("#image")).toHaveValue("saashup/guide");
   await expect(page.locator("#version")).toHaveValue("v1.2.3");
+  await expect(page.locator("#template_url")).toHaveValue("https://templates.example.com/guide");
   await expect(page.locator("#var_env_key")).toHaveValue("APP_ENV");
   await expect(page.locator("#var_env_value")).toHaveValue("production");
   await expect(page.locator("#label_key")).toHaveValue("traefik.enable");
@@ -1299,6 +1300,7 @@ test("create import can save docker compose services as templates", async ({ pag
     "      saashup_traefik: \"true\"",
     "      saashup_dns: \"web.staging.example.com/dashboard\"",
     "      saashup_enabled: false;",
+    "      saashup_template_url: https://templates.example.com/web",
     "    volumes:",
     "      - web-data:/app/data",
     "      - /var/run/docker.sock:/var/run/docker.sock:ro",
@@ -1337,6 +1339,7 @@ test("create import can save docker compose services as templates", async ({ pag
     ],
     labels: [{ key: "traefik.enable", value: "true" }],
     saashup_enabled: false,
+    template_url: "https://templates.example.com/web",
     ports: [{ value: "3000" }],
     volumes: [{ name: "web-data", source: "/app/data" }],
     binds: [{ host_path: "/var/run/docker.sock", container_path: "/var/run/docker.sock", read_only: true }],
@@ -1503,6 +1506,7 @@ test("saved templates are normalized from SaaShup labels", async ({ page }) => {
         { key: "saashup_traefik", value: "false" },
         { key: "saashup_dns", value: "https://daily.paashup.cloud" },
         { key: "saashup_enabled", value: "false;" },
+        { key: "saashup_template_url", value: "https://templates.example.com/legacy" },
       ],
     },
   });
@@ -1512,12 +1516,14 @@ test("saved templates are normalized from SaaShup labels", async ({ page }) => {
   await expect(page.locator("#traefik")).not.toBeChecked();
   await expect(page.locator("#saashup_enabled")).not.toBeChecked();
   await expect(page.locator("#dns_name")).toHaveValue("https://daily.paashup.cloud");
+  await expect(page.locator("#template_url")).toHaveValue("https://templates.example.com/legacy");
 
   const templates = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")));
   expect(templates.legacy).toMatchObject({
     traefik: false,
     dns_name: "https://daily.paashup.cloud",
     saashup_enabled: false,
+    template_url: "https://templates.example.com/legacy",
     labels: [],
   });
 });
@@ -2210,6 +2216,7 @@ test("order page informs the user when the max instance limit is reached", async
       config_profile: "demo",
       network: "traefik-public",
       image: "saashup/demo",
+      template_url: "/demo-home",
       ports: [{ value: "3000" }],
     },
   }, [], undefined, "/order?template=demo");
@@ -2231,6 +2238,7 @@ test("order page informs the user when the max instance limit is reached", async
   await expect(page.locator("#orderStatus")).toHaveClass(/error/);
   await expect(page.locator("#orderStatus")).toContainText("You have reached your maximum of 3 instances for this config.");
   await expect(page.locator("#orderStatus .order-status-home")).toHaveText("Back to home");
+  await expect(page.locator("#orderStatus .order-status-home")).toHaveAttribute("href", "/demo-home");
   expect(createCalled).toBe(false);
 
   page.on("dialog", (dialog) => dialog.accept());
@@ -2243,7 +2251,7 @@ test("order page informs the user when the max instance limit is reached", async
   await expect(page.locator("#orderStatus")).toContainText("Delete requested for demo-1.daily.paashup.cloud.");
   await expect(page.locator("#orderStatus .order-status-home")).toHaveText("Back to home");
   await page.locator("#orderStatus .order-status-home").click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL(/\/demo-home$/);
 });
 
 test("order page shows oauth user and logs out through app auth", async ({ page }) => {
@@ -2406,6 +2414,7 @@ test("order page hides the order form when the requested template is disabled", 
       config_profile: "tile",
       network: "traefik-public",
       image: "saashup/test",
+      template_url: "https://templates.example.com/test",
       ports: [{ value: "3000" }],
       saashup_enabled: false,
     },
@@ -2414,7 +2423,7 @@ test("order page hides the order form when the requested template is disabled", 
   await expect(page.locator("#orderActions")).toBeHidden();
   await expect(page.locator("#orderStatus")).toHaveClass(/error/);
   await expect(page.locator("#orderStatus")).toHaveText('Template "test" is disabled for ordersBack to home');
-  await expect(page.locator("#orderStatus .order-status-home")).toHaveAttribute("href", "/");
+  await expect(page.locator("#orderStatus .order-status-home")).toHaveAttribute("href", "https://templates.example.com/test");
 });
 
 test("order page displays an error when create is not accepted", async ({ page }) => {
@@ -2477,6 +2486,7 @@ test("order page no button redirects to home", async ({ page }) => {
       network: "traefik-public",
       instance: "curiootiles",
       image: "saashup/curiootiles",
+      template_url: "/curiootiles-home",
       env: [],
       labels: [],
       ports: [{ value: "3000" }],
@@ -2506,7 +2516,7 @@ test("order page no button redirects to home", async ({ page }) => {
   }, templates, [], undefined, "/order?template=curiootiles");
 
   await page.locator("#orderCancelBtn").click();
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/curiootiles-home$/);
 });
 
 test("upgrade can submit the clean name option", async ({ page }) => {
