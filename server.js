@@ -854,7 +854,6 @@ registerSystemRoutes(app, {
   requireAdmin,
   startedAt,
 });
-app.use(express.static(publicPath));
 
 function mergeProfileMaps(existing, imported) {
   return {
@@ -1320,6 +1319,8 @@ registerOperationRoutes(app, {
   waitForHostReady,
   waitForRequest,
 });
+
+app.use(express.static(publicPath));
 
 /* v8 ignore next 6 */
 if (require.main === module) {
