@@ -123,6 +123,8 @@ function setupNetBoxFetch(fetchMock, {
   expectTraefikConfig = true,
   fuzzyContainerNameMatches = false,
   createHostSelectionContainers,
+  fuzzyImageNameMatches = false,
+  existingVolumes = [],
 } = {}) {
   let deleteContainerGetCount = 0;
   let stopRequested = false;
@@ -181,9 +183,17 @@ function setupNetBoxFetch(fetchMock, {
       }
       const version = parsed.searchParams.get("version");
       const hostId = parsed.searchParams.get("host_id");
-      if (version === "v2.0.0") return jsonResponse({ results: [{ id: 20, name: "saashup/tile", version, host: { id: Number(hostId || 1) } }] });
+      if (version === "v2.0.0") return jsonResponse({ results: [{ id: 20, name: "saashup/tile", version, host: { id: Number(hostId || 1) }, registry: { id: 7 } }] });
       if (version === "v3.0.0") return jsonResponse({});
-      return jsonResponse({ results: [{ id: 10, name: "saashup/tile", version: "v1.0.0", host: { id: Number(hostId || 1), display: "host-a" } }] });
+      if (fuzzyImageNameMatches && parsed.searchParams.get("name") === "saashup/tile") {
+        return jsonResponse({
+          results: [
+            { id: 10, name: "saashup/tile", version: "v1.0.0", host: { id: Number(hostId || 1), display: "host-a" }, registry: { id: 7 } },
+            { id: 99, name: "saashup/netbox-docker-agent", version: "v1.0.0", host: { id: Number(hostId || 1), display: "host-a" }, registry: { id: 7 } },
+          ],
+        });
+      }
+      return jsonResponse({ results: [{ id: 10, name: "saashup/tile", version: "v1.0.0", host: { id: Number(hostId || 1), display: "host-a" }, registry: { id: 7 } }] });
     }
 
     if (pathname === "/api/plugins/docker/images/" && method === "POST") {
@@ -204,6 +214,15 @@ function setupNetBoxFetch(fetchMock, {
     }
 
     if (pathname === "/api/plugins/docker/volumes/" && method === "GET") {
+      if (parsed.searchParams.has("host_id") && parsed.searchParams.get("limit") === "10") {
+        const hostIds = parsed.searchParams.getAll("host_id");
+        const name = parsed.searchParams.get("name") || "";
+        const matches = existingVolumes.filter((volume) => (
+          (!name || volume.name === name)
+          && (!hostIds.length || hostIds.includes(String(volume.host?.id || volume.host || "")))
+        ));
+        return jsonResponse({ results: matches });
+      }
       return jsonResponse({ results: [{ id: 41, name: parsed.searchParams.get("name") || "tiles-data" }] });
     }
 
@@ -213,6 +232,19 @@ function setupNetBoxFetch(fetchMock, {
 
     if (pathname === "/api/plugins/docker/containers/" && method === "GET") {
       if (parsed.searchParams.get("limit") === "1") return jsonResponse({ results: [{ id: 30 }] });
+      if (parsed.searchParams.get("image_id") === "99") {
+        return jsonResponse({
+          results: [{
+            id: 99,
+            name: "netbox-docker-agent",
+            display: "netbox-docker-agent",
+            host: { id: 1, display: "host-a" },
+            image: { id: 99 },
+            state: "running",
+            status: "running",
+          }],
+        });
+      }
       if (parsed.searchParams.get("name") === emptyContainersForName) return jsonResponse({ results: [] });
       if (createHostSelectionContainers && parsed.searchParams.get("limit") === "1000" && parsed.searchParams.has("host_id")) {
         return jsonResponse({ results: createHostSelectionContainers });
@@ -468,6 +500,10 @@ function setupOrderWorkflowNetBoxFetch(fetchMock) {
     if (parsed.pathname === "/api/plugins/docker/volumes/" && method === "POST") {
       expect(body).toEqual({ host: 1, name: "tiles-order-data" });
       return jsonResponse({ id: 41, ...body }, 201);
+    }
+
+    if (parsed.pathname === "/api/plugins/docker/volumes/" && method === "GET") {
+      return jsonResponse({ results: [] });
     }
 
     if (parsed.pathname === "/api/plugins/docker/containers/" && method === "POST") {
@@ -1677,6 +1713,7 @@ describe("server routes", () => {
       "GET /api/plugins/docker/images/",
       "GET /api/plugins/cloudflare/dns/accounts/",
       "POST /api/plugins/cloudflare/dns/records/",
+      "GET /api/plugins/docker/volumes/",
       "POST /api/plugins/docker/volumes/",
       "POST /api/plugins/docker/containers/",
       "PATCH /api/plugins/docker/containers/",
@@ -1735,15 +1772,9 @@ describe("server routes", () => {
       .expect(200);
 
     const calls = parsedFetchCalls(fetchMock);
-    const dnsCreate = calls.find((call) => call.url.pathname === "/api/plugins/cloudflare/dns/records/" && call.method === "POST");
-    expect(dnsCreate.body).toMatchObject({
-      zone: 51,
-      name: "payload-check.example.com",
-      type: "CNAME",
-      content: "host-a.example.com",
-      ttl: 60,
-      proxied: true,
-    });
+    const dnsCreates = calls.filter((call) => call.url.pathname === "/api/plugins/cloudflare/dns/records/" && call.method === "POST");
+    expect(dnsCreates).toHaveLength(0);
+    expect(readState(dataPath).logs).toContain("CREATE : Cloudflare DNS record skipped for payload-check.example.com/app because it includes path info");
 
     const volumeCreate = calls.find((call) => call.url.pathname === "/api/plugins/docker/volumes/" && call.method === "POST");
     expect(volumeCreate.body).toEqual({ host: 1, name: "payload-data" });
@@ -1781,6 +1812,102 @@ describe("server routes", () => {
       { key: "custom.label", value: "custom-value" },
     ]));
     expect(containerConfig.labels.some((label) => label.key === "traefik.http.middlewares.payload-check.ipallowlist.sourcerange")).toBe(true);
+  });
+
+  test("reuses existing Docker volumes before creating missing ones", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, {
+      existingVolumes: [{ id: 41, host: { id: 1 }, name: "payload-data" }],
+      expectTraefikConfig: false,
+    });
+    writeState(dataPath, {
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        tag: "tile",
+      },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/create")
+      .send({
+        instance: "payload-check.example.com",
+        image: "saashup/tile",
+        version: "v2.0.0",
+        volume_source: ["/data", "/cache"],
+        volume_name: ["payload-data", "payload-cache"],
+        traefik: "false",
+        wait: "true",
+      })
+      .expect(200);
+
+    const calls = parsedFetchCalls(fetchMock);
+    const volumeLookups = calls.filter((call) => call.url.pathname === "/api/plugins/docker/volumes/" && call.method === "GET" && call.url.searchParams.has("host_id"));
+    expect(volumeLookups.map((call) => call.url.searchParams.get("name"))).toEqual(["payload-data", "payload-cache"]);
+
+    const volumeCreates = calls.filter((call) => call.url.pathname === "/api/plugins/docker/volumes/" && call.method === "POST");
+    expect(volumeCreates).toHaveLength(1);
+    expect(volumeCreates[0].body).toEqual({ host: 1, name: "payload-cache" });
+
+    const containerConfig = calls.find((call) => (
+      call.url.pathname === "/api/plugins/docker/containers/"
+      && call.method === "PATCH"
+      && Array.isArray(call.body)
+      && call.body.some((item) => item.id === 31 && !item.operation)
+    )).body[0];
+    expect(containerConfig.mounts).toEqual([
+      { source: "/data", volume: { host: 1, name: "payload-data" }, read_only: false },
+      { source: "/cache", volume: { host: 1, name: "payload-cache" }, read_only: false },
+    ]);
+    expect(readState(dataPath).logs).toContain("CREATE : 2 volumes prepared on host-a (1 reused, 1 created)");
+  });
+
+  test("pulls a missing image before creating an instance", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, {
+      expectTraefikConfig: false,
+    });
+    writeState(dataPath, {
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        tag: "tile",
+      },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/create")
+      .send({
+        instance: "missing-image.example.com",
+        image: "saashup/missing",
+        version: "v3.0.0",
+        traefik: "false",
+        wait: "true",
+      })
+      .expect(200);
+
+    const calls = parsedFetchCalls(fetchMock);
+    const imageLookup = calls.find((call) => call.url.pathname === "/api/plugins/docker/images/" && call.method === "GET" && call.url.searchParams.get("name") === "saashup/missing");
+    expect(imageLookup.url.searchParams.get("version")).toBe("v3.0.0");
+    expect(imageLookup.url.searchParams.get("host_id")).toBe("1");
+
+    const registryLookup = calls.find((call) => call.url.pathname === "/api/plugins/docker/images/" && call.method === "GET" && call.url.searchParams.get("name") === "saashup/missing" && !call.url.searchParams.has("version"));
+    expect(registryLookup.url.searchParams.get("limit")).toBe("1");
+
+    const imageCreate = calls.find((call) => call.url.pathname === "/api/plugins/docker/images/" && call.method === "POST");
+    expect(imageCreate.body).toEqual({ host: 1, name: "saashup/missing", version: "v3.0.0", registry: 7 });
+
+    const imagePoll = calls.find((call) => call.url.pathname === "/api/plugins/docker/images/20/" && call.method === "GET");
+    expect(imagePoll).toBeTruthy();
+
+    const containerCreate = calls.find((call) => call.url.pathname === "/api/plugins/docker/containers/" && call.method === "POST");
+    expect(containerCreate.body).toMatchObject({ name: "missing-image", image: 20 });
+    expect(readState(dataPath).logs).toContain("CREATE : created image saashup/missing:v3.0.0 on host-a status=201");
+    expect(readState(dataPath).logs).toContain("CREATE : image saashup/missing:v3.0.0 on host-a pulled identifier=sha256:20");
   });
 
   test("reserves order slots immediately when create is accepted", async () => {
@@ -2885,6 +3012,14 @@ describe("server routes", () => {
 
     await request.post("/delete").send({ instance: "missing.example.com" }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : cannot delete missing, expected 1 container got 0"));
+
+    await request.post("/delete")
+      .send({ instance: "tiles.example.com", wait: "true" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toEqual({ status: "finished" });
+      });
+    expect(readState(dataPath).logs).toContain("DELETE : container tiles deleted");
   });
 
   test("deletes the exact container when NetBox returns fuzzy name matches", async () => {
@@ -3001,8 +3136,13 @@ describe("server routes", () => {
       image: "saashup/tile",
       version: "v3.0.0",
       port_value: "8080",
+      var_env_key: ["APP_ENV"],
+      var_env_value: ["production"],
+      label_key: ["custom.label"],
+      label_value: ["custom-value"],
     }).expect(202);
-    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("CREATE : image saashup/tile:v3.0.0 not found on host-a"));
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("CREATE : created image saashup/tile:v3.0.0 on host-a status=201"));
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("CREATE : container missing-image configured on host-a"));
 
     await request.post("/create")
       .set("x-auth-request-email", "missing-image@example.com")
@@ -3011,12 +3151,16 @@ describe("server routes", () => {
         image: "saashup/tile",
         version: "v3.0.0",
         port_value: "8080",
+        var_env_key: ["APP_ENV"],
+        var_env_value: ["production"],
+        label_key: ["custom.label"],
+        label_value: ["custom-value"],
         order_request: "true",
         profile: "prod",
       })
       .expect(202);
     await vi.waitFor(() => expect(readState(dataPath).order_instances["missing-image@example.com"]?.prod?.[0]).toEqual(
-      expect.objectContaining({ instance: "missing-order.example.com", status: "failed" }),
+      expect.objectContaining({ instance: "missing-order.example.com", status: "ready" }),
     ));
   });
 
@@ -3134,6 +3278,47 @@ describe("server routes", () => {
     await request.post("/delete").send({ instance: "tiles.example.com", delete_volumes: "true" }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : volume 40 deleted"));
     expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/docker/volumes/40/") && options?.method === "DELETE")).toBe(true);
+  });
+
+  test("deletes containers by image and removes the image after success", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock);
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/delete")
+      .send({ image: "saashup/tile", delete_mode: "image", remove_image: "true" })
+      .expect(202);
+
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : container tiles deleted id=30"));
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : 1 container deleted for image saashup/tile"));
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : image saashup/tile:v1.0.0 deleted id=10"));
+  });
+
+  test("delete by image ignores fuzzy image matches returned by NetBox", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, { fuzzyImageNameMatches: true });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/delete")
+      .send({ image: "saashup/tile", delete_mode: "image" })
+      .expect(202);
+
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : container tiles deleted id=30"));
+    expect(readState(dataPath).logs).not.toContain("netbox-docker-agent");
+    expect(fetchMock.mock.calls.some(([url]) => {
+      const parsed = new URL(String(url));
+      return parsed.pathname === "/api/plugins/docker/containers/" && parsed.searchParams.get("image_id") === "99";
+    })).toBe(false);
   });
 
   test("create wait mode blocks until recreate finishes", async () => {

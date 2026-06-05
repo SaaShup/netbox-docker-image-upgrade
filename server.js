@@ -144,6 +144,32 @@ function hostLoadSummary(stats) {
   return stats.map((item) => `${hostName(item.host)}=${item.count}`).join(",");
 }
 
+function dockerVolumeHostId(volume) {
+  const host = volume?.host;
+  return String(host?.id || host || "");
+}
+
+async function existingDockerVolume(client, volume) {
+  const volumes = await client.list("/api/plugins/docker/volumes/", { host_id: volume.host, name: volume.name, limit: 10 });
+  return volumes.find((item) => (
+    String(item?.name || "") === String(volume.name || "")
+    && (!volume.host || dockerVolumeHostId(item) === String(volume.host))
+  ));
+}
+
+async function missingDockerVolumes(client, volumes) {
+  const missing = [];
+  let reused = 0;
+  for (const volume of volumes) {
+    if (await existingDockerVolume(client, volume)) {
+      reused += 1;
+    } else {
+      missing.push(volume);
+    }
+  }
+  return { missing, reused };
+}
+
 function currentUsage(req, profile) {
   const state = readState();
   const counts = plainObject(state.order_counts);
@@ -1175,18 +1201,18 @@ async function createInstance(req, data, { isOrderRequest, isEnrollRequest, orde
 
   for (const [index, selectedHost] of targetHosts.entries()) {
     data.host_id = selectedHost.id;
-    const images = await client.list("/api/plugins/docker/images/", { name: data.image, version: data.version, host_id: data.host_id });
-    if (!images[0]) {
-      logLine(`CREATE : image ${data.image}:${data.version} not found on ${hostName(selectedHost)}`);
-      continue;
-    }
+    const image = await ensureImageOnHost(client, selectedHost, data.image, data.version, "CREATE");
     if (traefikEnabled(data) && index === 0) await createDnsRecord(client, data, selectedHost);
     const volumes = volumePayloadsFromForm(data);
     if (volumes.length) {
-      await client.request("POST", "/api/plugins/docker/volumes/", { body: volumes.length === 1 ? volumes[0] : volumes, expected: [200, 201, 202] });
-      logLine(`CREATE : ${volumes.length} volume${volumes.length === 1 ? "" : "s"} prepared on ${hostName(selectedHost)}`);
+      const { missing, reused } = await missingDockerVolumes(client, volumes);
+      if (missing.length) {
+        await client.request("POST", "/api/plugins/docker/volumes/", { body: missing.length === 1 ? missing[0] : missing, expected: [200, 201, 202] });
+      }
+      const details = reused ? ` (${reused} reused, ${missing.length} created)` : "";
+      logLine(`CREATE : ${volumes.length} volume${volumes.length === 1 ? "" : "s"} prepared on ${hostName(selectedHost)}${details}`);
     }
-    const containerPayload = containerCreatePayloadFromForm(data, images[0].id);
+    const containerPayload = containerCreatePayloadFromForm(data, image.id);
     const { payload } = await client.request("POST", "/api/plugins/docker/containers/", { body: containerPayload, expected: [200, 201, 202] });
     const container = Array.isArray(payload) ? payload[0] : payload;
     logLine(`CREATE : container ${containerPayload.name} created on ${hostName(selectedHost)}`);

@@ -118,10 +118,19 @@
 
           <form id="instanceForm" action="/webhook" method="get">
             <div class="form-grid">
-              <label class="field" data-field="config_profile">
-                <span class="field-label">Config profile <span class="profile-help-btn" data-profile-help="config_profile" role="button" tabindex="0" aria-label="Explain Config profile">?</span><span class="profile-sync-indicator hidden" id="profileSyncWarning" role="status" aria-label=""></span></span>
-                <select id="config_profile" name="config_profile"></select>
-              </label>
+              <div class="delete-form-section" data-delete-section="options">
+                <h4>Options</h4>
+
+                <label class="field" data-field="config_profile">
+                  <span class="field-label">Config profile <span class="profile-help-btn" data-profile-help="config_profile" role="button" tabindex="0" aria-label="Explain Config profile">?</span><span class="profile-sync-indicator hidden" id="profileSyncWarning" role="status" aria-label=""></span></span>
+                  <select id="config_profile" name="config_profile"></select>
+                </label>
+
+                <label class="field checkbox-field" data-field="delete_volumes">
+                  <input type="checkbox" id="delete_volumes" name="delete_volumes" value="true">
+                  <span class="field-label">Delete volumes <span class="profile-help-btn" data-profile-help="delete_volumes" role="button" tabindex="0" aria-label="Explain Delete volumes">?</span></span>
+                </label>
+              </div>
 
               <label class="field" data-field="operate_action">
                 <span class="field-label">Action <span class="profile-help-btn" data-profile-help="operate_action" role="button" tabindex="0" aria-label="Explain Action">?</span></span>
@@ -243,23 +252,27 @@
                 </div>
               </label>
 
-              <label class="field" data-field="instance">
-                <span class="field-label">Instance name <span class="profile-help-btn" data-profile-help="instance" role="button" tabindex="0" aria-label="Explain Instance name">?</span></span>
-                <div class="input-action">
-                  <input type="text" id="instance" name="instance" list="instanceOptions" placeholder="app">
-                  <button type="button" class="icon-btn" id="refreshInstancesBtn" title="Refresh instances" aria-label="Refresh instances">↻</button>
+              <div class="delete-form-section" data-delete-section="instance">
+                <h4>Delete Instance</h4>
+
+                <label class="field" data-field="instance">
+                  <span class="field-label">Instance name <span class="profile-help-btn" data-profile-help="instance" role="button" tabindex="0" aria-label="Explain Instance name">?</span></span>
+                  <div class="input-action">
+                    <input type="text" id="instance" name="instance" list="instanceOptions" placeholder="app">
+                    <button type="button" class="icon-btn" id="refreshInstancesBtn" title="Refresh instances" aria-label="Refresh instances">↻</button>
+                  </div>
+                  <datalist id="instanceOptions"></datalist>
+                </label>
+
+                <div class="field delete-instance-action" data-field="delete_instance_action">
+                  <span aria-hidden="true">&nbsp;</span>
+                  <button type="submit" class="btn btn-danger hidden" id="deleteInstanceBtn" name="delete_mode" value="instance">Delete instance</button>
                 </div>
-                <datalist id="instanceOptions"></datalist>
-              </label>
+              </div>
 
               <label class="field" data-field="dns_name">
                 <span>DNS name</span>
                 <input type="text" id="dns_name" name="dns_name" placeholder="app.paashup.cloud">
-              </label>
-
-              <label class="field checkbox-field" data-field="delete_volumes">
-                <input type="checkbox" id="delete_volumes" name="delete_volumes" value="true">
-                <span class="field-label">Delete volumes <span class="profile-help-btn" data-profile-help="delete_volumes" role="button" tabindex="0" aria-label="Explain Delete volumes">?</span></span>
               </label>
 
               <div class="field operate-instance-action" data-field="operate_instance_action">
@@ -267,14 +280,28 @@
                 <button type="submit" class="btn btn-primary hidden" id="restartInstanceBtn" name="restart_mode" value="instance">Operate instance</button>
               </div>
 
-              <label class="field" data-field="image">
-                <span class="field-label">Image name <span class="profile-help-btn" data-profile-help="image" role="button" tabindex="0" aria-label="Explain Image name">?</span></span>
-                <div class="input-action">
-                  <input type="text" id="image" name="image" list="imageOptions" placeholder="saashup/app">
-                  <button type="button" class="icon-btn" id="refreshImagesBtn" title="Refresh images" aria-label="Refresh images">↻</button>
+              <div class="delete-form-section" data-delete-section="image">
+                <h4>Delete By Image</h4>
+
+                <label class="field" data-field="image">
+                  <span class="field-label">Image name <span class="profile-help-btn" data-profile-help="image" role="button" tabindex="0" aria-label="Explain Image name">?</span></span>
+                  <div class="input-action">
+                    <input type="text" id="image" name="image" list="imageOptions" placeholder="saashup/app">
+                    <button type="button" class="icon-btn" id="refreshImagesBtn" title="Refresh images" aria-label="Refresh images">↻</button>
+                  </div>
+                  <datalist id="imageOptions"></datalist>
+                </label>
+
+                <label class="field checkbox-field" data-field="remove_image">
+                  <input type="checkbox" id="remove_image" name="remove_image" value="true">
+                  <span class="field-label">Remove image <span class="profile-help-btn" data-profile-help="remove_image" role="button" tabindex="0" aria-label="Explain Remove image">?</span></span>
+                </label>
+
+                <div class="field delete-image-action" data-field="delete_image_action">
+                  <span aria-hidden="true">&nbsp;</span>
+                  <button type="submit" class="btn btn-danger hidden" id="deleteImageBtn" name="delete_mode" value="image">Delete by image</button>
                 </div>
-                <datalist id="imageOptions"></datalist>
-              </label>
+              </div>
 
               <label class="field" data-field="oldversion">
                 <span class="field-label">Old version <span class="profile-help-btn" data-profile-help="oldversion" role="button" tabindex="0" aria-label="Explain Old version">?</span></span>
@@ -431,8 +458,19 @@
 
           <div class="report-toolbar">
             <label class="field">
+              <span>Action</span>
+              <select id="workflowActionSelect" aria-label="Workflow action">
+                <option value="create" selected>Create</option>
+                <option value="delete">Delete</option>
+              </select>
+            </label>
+            <label class="field">
               <span>Workflow</span>
               <select id="workflowSelect" aria-label="Workflow"></select>
+            </label>
+            <label class="field checkbox-field hidden" id="workflowDeleteVolumesField">
+              <input type="checkbox" id="workflowDeleteVolumesInput" value="true">
+              <span>Delete volumes</span>
             </label>
             <div class="report-summary" id="workflowSummary">No workflow selected</div>
           </div>
@@ -442,14 +480,16 @@
               <thead>
                 <tr>
                   <th>Status</th>
+                  <th>Enabled</th>
                   <th>Template</th>
                   <th>Instance</th>
                   <th>Image</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody id="workflowTableBody">
                 <tr>
-                  <td colspan="4">Import a compose file with workflow enabled.</td>
+                  <td colspan="6">Import a compose file with workflow enabled.</td>
                 </tr>
               </tbody>
             </table>

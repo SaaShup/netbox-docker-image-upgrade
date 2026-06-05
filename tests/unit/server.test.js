@@ -948,6 +948,7 @@ describe("server helpers", () => {
     await expect(helpers.createDnsRecord(readyClient, { instance: "app.example.com" }, { name: "host" })).resolves.toBeUndefined();
     await expect(helpers.createDnsRecord(readyClient, { instance: "app", dns_name: "app.example.com" }, { name: "host" })).resolves.toBeUndefined();
     await expect(helpers.createDnsRecord(readyClient, { instance: "app", dns_name: "app.example.com/dashboard" }, { name: "host" })).resolves.toBeUndefined();
+    expect(logs).toContain("CREATE : Cloudflare DNS record skipped for app.example.com/dashboard because it includes path info");
     expect(readyClient.request).toHaveBeenCalledWith("POST", "/api/plugins/cloudflare/dns/records/", expect.objectContaining({
       body: expect.objectContaining({ name: "app.example.com" }),
     }));
@@ -989,7 +990,10 @@ describe("server helpers", () => {
     }, { id: 102 }, "app:v7 on host-d")).resolves.toEqual({ id: 102, repoDigest: ["app@sha256:def"] });
 
     const pendingImageClient = {
-      list: vi.fn(async () => []),
+      list: vi.fn(async (apiPath, query = {}) => {
+        if (apiPath.includes("/images/") && !query.version) return [{ id: 9, registry: { id: 4 } }];
+        return [];
+      }),
       request: vi.fn(async (method, apiPath) => {
         if (method === "GET" && apiPath === "/api/plugins/docker/images/100/") return { payload: { id: 100, Digest: "" }, statusCode: 200 };
         return { payload: { id: 100 }, statusCode: 202 };

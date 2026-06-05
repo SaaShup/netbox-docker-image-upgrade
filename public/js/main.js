@@ -10,6 +10,8 @@ const sidebarToggle = document.getElementById("sidebarToggle");
 const formCard = document.querySelector(".form-card");
 const submitBtn = document.getElementById("submitBtn");
 const restartInstanceBtn = document.getElementById("restartInstanceBtn");
+const deleteInstanceBtn = document.getElementById("deleteInstanceBtn");
+const deleteImageBtn = document.getElementById("deleteImageBtn");
 const testBtn = document.getElementById("testBtn");
 const testEmailBtn = document.getElementById("testEmailBtn");
 const deleteConfigBtn = document.getElementById("deleteConfigBtn");
@@ -88,6 +90,9 @@ const reportTableHead = document.getElementById("reportTableHead");
 const reportTableBody = document.getElementById("reportTableBody");
 const reportViewButtons = Array.from(document.querySelectorAll("[data-report-view]"));
 const workflowCard = document.getElementById("workflowCard");
+const workflowActionSelect = document.getElementById("workflowActionSelect");
+const workflowDeleteVolumesField = document.getElementById("workflowDeleteVolumesField");
+const workflowDeleteVolumesInput = document.getElementById("workflowDeleteVolumesInput");
 const workflowSelect = document.getElementById("workflowSelect");
 const workflowSummary = document.getElementById("workflowSummary");
 const workflowTableBody = document.getElementById("workflowTableBody");
@@ -206,6 +211,10 @@ const profileFieldHelp = {
     title: "Delete volumes",
     body: "When enabled, deleting the instance also deletes the Docker volumes mounted on that container. Leave it off to keep data volumes.",
   },
+  remove_image: {
+    title: "Remove image",
+    body: "When deleting by image, remove the matching Docker image records only after all matching containers have been deleted successfully.",
+  },
   image: {
     title: "Image name",
     body: "The Docker image name used to find containers or available versions in NetBox, for example saashup/app.",
@@ -317,7 +326,7 @@ const actions = {
     description: "Delete one instance. A confirmation will be requested before submitting.",
     submitLabel: "Delete instance",
     buttonClass: "btn btn-danger",
-    fields: ["config_profile", "instance", "delete_volumes"],
+    fields: ["config_profile", "delete_volumes", "instance", "delete_instance_action", "image", "remove_image", "delete_image_action"],
     confirm: "Delete this instance?",
   },
 };
@@ -349,6 +358,7 @@ const allFieldNames = [
   "version",
   "clean_name",
   "remove_old_images",
+  "remove_image",
   "cloudflare_filter",
   "registry_webhook_secret",
   "smtp_config",
@@ -1025,7 +1035,21 @@ function workflowStepName(step) {
 function workflowStepTemplate(step) {
   const templateName = workflowStepName(step);
   const embeddedTemplate = plainObject(step?.template_data || step?.data);
-  return Object.keys(embeddedTemplate).length ? embeddedTemplate : (createTemplates[templateName] || {});
+  return createTemplates[templateName] || (Object.keys(embeddedTemplate).length ? embeddedTemplate : {});
+}
+
+function workflowStepEnabled(step) {
+  return typeof step === "string" || step?.enabled !== false;
+}
+
+function selectedWorkflowKey() {
+  return workflowSelect?.value || "";
+}
+
+function persistSelectedWorkflow() {
+  const key = selectedWorkflowKey();
+  if (!key || !createWorkflows[key]) return;
+  localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
 }
 
 function workflowStepStatusIcon(status = "pending") {
@@ -1050,29 +1074,37 @@ function renderWorkflow() {
   if (!workflowSummary || !workflowTableBody) return;
 
   const steps = Array.isArray(workflow?.steps) ? workflow.steps : [];
+  const enabledSteps = steps.filter(workflowStepEnabled);
   const profile = workflowProfile(workflow);
+  const action = workflowActionSelect?.value === "delete" ? "delete" : "create";
   workflowSummary.textContent = workflow
-    ? `${steps.length} step${steps.length === 1 ? "" : "s"}${profile ? ` - ${profileLabel(profile)}` : ""}`
+    ? `${enabledSteps.length}/${steps.length} enabled - ${action}${profile ? ` - ${profileLabel(profile)}` : ""}`
     : "No workflow selected";
-  if (runWorkflowBtn) runWorkflowBtn.disabled = !steps.length;
+  if (runWorkflowBtn) runWorkflowBtn.disabled = !enabledSteps.length;
+  if (runWorkflowBtn) runWorkflowBtn.textContent = action === "delete" ? "Run delete" : "Run create";
   if (deleteWorkflowBtn) deleteWorkflowBtn.disabled = !workflow;
+  workflowDeleteVolumesField?.classList.toggle("hidden", action !== "delete");
 
   if (!steps.length) {
-    workflowTableBody.innerHTML = '<tr><td colspan="4">Import a compose file with workflow enabled.</td></tr>';
+    workflowTableBody.innerHTML = '<tr><td colspan="6">Import a compose file with workflow enabled.</td></tr>';
     return;
   }
 
   workflowTableBody.replaceChildren(...steps.map((step, index) => {
     const templateName = workflowStepName(step);
     const template = workflowStepTemplate(step);
+    const enabled = workflowStepEnabled(step);
     const status = workflowStepStatuses[index] || "pending";
     const row = document.createElement("tr");
     row.dataset.workflowStepStatus = status;
+    row.classList.toggle("workflow-step-disabled", !enabled);
     row.innerHTML = `
       <td>${workflowStepStatusIcon(status)}</td>
+      <td><input type="checkbox" data-workflow-step-enabled="${index}" aria-label="Enable ${escapeHtml(templateName || "workflow step")}" ${enabled ? "checked" : ""}></td>
       <td>${escapeHtml(templateName || "")}</td>
       <td>${escapeHtml(template.instance || "")}</td>
       <td>${escapeHtml(template.image || "")}:${escapeHtml(template.version || "")}</td>
+      <td><button type="button" class="icon-btn icon-btn-danger workflow-step-delete" data-workflow-step-delete="${index}" title="Remove ${escapeHtml(templateName || "workflow step")}" aria-label="Remove ${escapeHtml(templateName || "workflow step")}">×</button></td>
     `;
     return row;
   }));
@@ -2232,11 +2264,13 @@ function setAction(actionName) {
   form.action = config.endpoint;
   form.method = config.method;
   form.classList.toggle("operate-form", actionName === "restart");
+  form.classList.toggle("delete-form", actionName === "delete");
 
   if (formTitle) formTitle.textContent = config.title;
   if (formDescription) formDescription.textContent = config.description;
   submitBtn.textContent = config.submitLabel;
   submitBtn.className = config.buttonClass;
+  submitBtn.classList.toggle("hidden", actionName === "delete");
   submitBtn.name = actionName === "restart" ? "restart_mode" : "";
   submitBtn.value = actionName === "restart" ? "image" : "";
 
@@ -2256,6 +2290,8 @@ function setAction(actionName) {
   deleteTemplateBtn?.classList.toggle("hidden", actionName !== "create");
   restartInstanceBtn?.classList.toggle("hidden", actionName !== "restart");
   if (restartInstanceBtn) restartInstanceBtn.disabled = actionName !== "restart";
+  deleteInstanceBtn?.classList.toggle("hidden", actionName !== "delete");
+  deleteImageBtn?.classList.toggle("hidden", actionName !== "delete");
   refreshInstancesBtn?.classList.toggle("hidden", actionName === "create");
   if (refreshInstancesBtn && actionName === "create") refreshInstancesBtn.disabled = true;
   formCard?.classList.toggle("hidden", actionName === "report" || actionName === "workflow");
@@ -2277,6 +2313,9 @@ function setAction(actionName) {
   if (refreshInstancesBtn && visibleFields.has("instance") && actionName !== "create") {
     refreshInstancesBtn.disabled = false;
   }
+  if (refreshImagesBtn && visibleFields.has("image")) {
+    refreshImagesBtn.disabled = false;
+  }
 
   syncCreateNetwork();
   syncCreateVersion();
@@ -2284,6 +2323,9 @@ function setAction(actionName) {
   ensureRandomCreateInstanceName();
   syncCreateDnsName();
   if (actionName === "create" && imageRecords.length === 0) {
+    refreshImages({ notify: false });
+  }
+  if (actionName === "delete" && imageRecords.length === 0) {
     refreshImages({ notify: false });
   }
   if (actionName === "create") {
@@ -2907,7 +2949,9 @@ function normalizeCreateWorkflows(workflows) {
       const normalized = { ...plainObject(workflow) };
       normalized.steps = Array.isArray(normalized.steps)
         ? normalized.steps.map((step) => {
+          if (typeof step === "string") return { template: step, enabled: true };
           const normalizedStep = { ...plainObject(step) };
+          normalizedStep.enabled = normalizedStep.enabled !== false;
           if (normalizedStep.template_data) normalizedStep.template_data = normalizeCreateTemplate(normalizedStep.template_data);
           return normalizedStep;
         })
@@ -3444,6 +3488,7 @@ async function applyDockerComposeFile(text) {
       steps: templates.map(({ name, template }) => ({
         template: name,
         template_data: template,
+        enabled: true,
       })),
       created_at: new Date().toISOString(),
     };
@@ -3914,11 +3959,44 @@ function workflowCreateBody(template, templateName) {
   return body;
 }
 
+function workflowDeleteBody(template, templateName) {
+  template = normalizeCreateTemplate(template);
+  const profileName = template.config_profile || template.profile || currentConfigProfile || "";
+  const credentials = profileCredentials(profileName);
+  if (!credentials.netbox || !credentials.token) throw new Error(`Config "${profileLabel(profileName)}" is missing NetBox URL or token`);
+
+  const image = String(template.image || "").trim();
+  if (!image) throw new Error(`Template "${templateName}" is missing an image name for delete`);
+  return new URLSearchParams({
+    config_profile: profileName,
+    netbox: credentials.netbox,
+    token: credentials.token,
+    proxy: credentials.proxy,
+    domain: credentials.domain,
+    tag: credentials.tag,
+    profile: credentials.profile,
+    image,
+    delete_mode: "image",
+    delete_volumes: workflowDeleteVolumesInput?.checked ? "true" : "false",
+  });
+}
+
+function workflowPaintFrame() {
+  return new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
+}
+
+function workflowMinimumStatusDelay(action) {
+  return action === "delete" ? new Promise((resolve) => window.setTimeout(resolve, 350)) : Promise.resolve();
+}
+
 async function runWorkflow() {
   const workflowName = workflowSelect?.value || "";
+  const action = workflowActionSelect?.value === "delete" ? "delete" : "create";
   const workflow = selectedWorkflow();
   const steps = Array.isArray(workflow?.steps) ? workflow.steps : [];
-  if (!steps.length) {
+  const enabledSteps = steps.map((step, index) => ({ step, index })).filter(({ step }) => workflowStepEnabled(step));
+  const runSteps = action === "delete" ? [...enabledSteps].reverse() : enabledSteps;
+  if (!steps.length || !enabledSteps.length) {
     setNotice("Select a workflow first", "error");
     return;
   }
@@ -3930,27 +4008,32 @@ async function runWorkflow() {
   renderWorkflow();
 
   try {
-    for (let index = 0; index < steps.length; index += 1) {
-      const templateName = workflowStepName(steps[index]);
-      const template = workflowStepTemplate(steps[index]);
-      if (!template.image) throw new Error(`Template "${templateName}" is missing`);
+    for (let runIndex = 0; runIndex < runSteps.length; runIndex += 1) {
+      const { step, index } = runSteps[runIndex];
+      const templateName = workflowStepName(step);
+      const template = workflowStepTemplate(step);
+      if (action === "create" && !template.image) throw new Error(`Template "${templateName}" is missing`);
+      if (action === "delete" && !Object.keys(template).length) throw new Error(`Template "${templateName}" is missing`);
 
       workflowStepStatuses[index] = "running";
       renderWorkflow();
-      workflowSummary.textContent = `Running ${index + 1}/${steps.length}: ${templateName}`;
-      const body = workflowCreateBody(template, templateName);
+      workflowSummary.textContent = `${action === "delete" ? "Deleting" : "Running"} ${runIndex + 1}/${enabledSteps.length}: ${templateName}`;
+      await workflowPaintFrame();
+      const minimumStatusDelay = workflowMinimumStatusDelay(action);
+      const body = action === "delete" ? workflowDeleteBody(template, templateName) : workflowCreateBody(template, templateName);
       body.set("wait", "true");
-      const response = await fetch("/create", {
+      const response = await fetch(action === "delete" ? "/delete" : "/create", {
         method: "POST",
         headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
         body: body.toString(),
       });
+      await minimumStatusDelay;
       if (!response.ok) throw new Error(`Template "${templateName}" failed (${response.status})`);
       workflowStepStatuses[index] = "done";
       renderWorkflow();
     }
-    setNotice(`Workflow "${workflowOptionLabel(workflowName)}" requested`, "success");
-    workflowSummary.textContent = `${steps.length} step${steps.length === 1 ? "" : "s"} requested`;
+    setNotice(action === "delete" ? `Workflow "${workflowOptionLabel(workflowName)}" delete requested` : `Workflow "${workflowOptionLabel(workflowName)}" requested`, "success");
+    workflowSummary.textContent = `${enabledSteps.length} ${action} step${enabledSteps.length === 1 ? "" : "s"} requested`;
   } catch (error) {
     const failedIndex = steps.findIndex((_, index) => workflowStepStatuses[index] === "running");
     if (failedIndex !== -1) workflowStepStatuses[failedIndex] = "failed";
@@ -3975,6 +4058,29 @@ function deleteWorkflow() {
   localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
   updateWorkflowOptions();
   setNotice(`Workflow "${label}" deleted`, "success");
+}
+
+function setWorkflowStepEnabled(index, enabled) {
+  const workflow = selectedWorkflow();
+  const steps = Array.isArray(workflow?.steps) ? workflow.steps : [];
+  if (!steps[index]) return;
+  if (typeof steps[index] === "string") steps[index] = { template: steps[index] };
+  steps[index].enabled = enabled;
+  workflowStepStatuses = {};
+  persistSelectedWorkflow();
+  renderWorkflow();
+}
+
+function removeWorkflowStep(index) {
+  const workflow = selectedWorkflow();
+  const steps = Array.isArray(workflow?.steps) ? workflow.steps : [];
+  if (!steps[index]) return;
+  const name = workflowStepName(steps[index]) || "workflow step";
+  workflow.steps = steps.filter((_, stepIndex) => stepIndex !== index);
+  workflowStepStatuses = {};
+  persistSelectedWorkflow();
+  renderWorkflow();
+  setNotice(`Workflow task "${name}" removed`, "success");
 }
 
 async function submitAction(config, submitter) {
@@ -4245,7 +4351,8 @@ function syncCreateVersion() {
   const version = field("version");
   if (!version) return;
 
-  version.readOnly = currentAction === "create";
+  const templateSelected = Boolean(templateSelect?.value);
+  version.readOnly = currentAction === "create" && !templateSelected;
   if (currentAction !== "create") return;
 
   if (templateVersionOverride) {
@@ -4510,6 +4617,16 @@ form.addEventListener("submit", async (event) => {
     }
   }
 
+  if (currentAction === "delete" && event.submitter?.value === "image" && !fieldValue("image")) {
+    setNotice("Image name is required", "error");
+    return;
+  }
+
+  if (currentAction === "delete" && event.submitter?.value !== "image" && !fieldValue("instance")) {
+    setNotice("Instance name is required", "error");
+    return;
+  }
+
   if (currentAction === "create" && !fieldValue("network")) {
     setNotice("Network is required", "error");
     return;
@@ -4539,7 +4656,10 @@ form.addEventListener("submit", async (event) => {
     }
   }
 
-  if (config?.confirm && !confirm(config.confirm)) {
+  const confirmMessage = currentAction === "delete" && event.submitter?.value === "image"
+    ? "Delete all instances using this image?"
+    : config?.confirm;
+  if (confirmMessage && !confirm(confirmMessage)) {
     return;
   }
 
@@ -4597,6 +4717,22 @@ reportProfileSelect?.addEventListener("change", refreshImageReport);
 workflowSelect?.addEventListener("change", () => {
   workflowStepStatuses = {};
   renderWorkflow();
+});
+workflowActionSelect?.addEventListener("change", () => {
+  workflowStepStatuses = {};
+  renderWorkflow();
+});
+workflowTableBody?.addEventListener("change", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const checkbox = target?.closest("[data-workflow-step-enabled]");
+  if (!checkbox) return;
+  setWorkflowStepEnabled(Number(checkbox.dataset.workflowStepEnabled), checkbox.checked);
+});
+workflowTableBody?.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const button = target?.closest("[data-workflow-step-delete]");
+  if (!button) return;
+  removeWorkflowStep(Number(button.dataset.workflowStepDelete));
 });
 runWorkflowBtn?.addEventListener("click", runWorkflow);
 deleteWorkflowBtn?.addEventListener("click", deleteWorkflow);
@@ -4676,7 +4812,10 @@ field("oldversion")?.addEventListener("input", () => {
   updateSelectedVersionContainerNotice();
   updateRemoveOldImagesState();
 });
-field("version")?.addEventListener("input", updateRemoveOldImagesState);
+field("version")?.addEventListener("input", () => {
+  if (currentAction === "create" && templateSelect?.value) templateVersionOverride = fieldValue("version");
+  updateRemoveOldImagesState();
+});
 field("restart_version")?.addEventListener("input", updateRestartButtons);
 field("restart_version")?.addEventListener("input", updateSelectedVersionContainerNotice);
 field("operate_action")?.addEventListener("change", updateOperateControls);

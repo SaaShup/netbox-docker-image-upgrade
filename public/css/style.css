@@ -493,6 +493,25 @@ h2 {
   text-align: center;
 }
 
+.workflow-card .report-table th:nth-child(2),
+.workflow-card .report-table td:nth-child(2),
+.workflow-card .report-table th:last-child,
+.workflow-card .report-table td:last-child {
+  width: 84px;
+  text-align: center;
+}
+
+.workflow-card .workflow-step-delete {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  font-size: 1.1rem;
+}
+
+.workflow-step-disabled {
+  opacity: 0.55;
+}
+
 .workflow-step-status {
   display: inline-grid;
   place-items: center;
@@ -781,6 +800,47 @@ h2 {
   gap: 16px;
 }
 
+.delete-form-section {
+  display: contents;
+}
+
+.delete-form-section h4 {
+  display: none;
+}
+
+.delete-form .delete-form-section {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--field-bg);
+}
+
+.delete-form .delete-form-section h4 {
+  grid-column: 1 / -1;
+  display: block;
+  margin: 0;
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.delete-form .form-actions {
+  display: none;
+}
+
+.delete-form .delete-instance-action,
+.delete-form .delete-image-action {
+  grid-column: 2;
+}
+
+.delete-instance-action .btn,
+.delete-image-action .btn {
+  justify-self: end;
+}
+
 .field {
   display: grid;
   gap: 7px;
@@ -929,8 +989,55 @@ h2 {
 }
 
 .checkbox-field input {
+  width: 42px;
+  height: 24px;
+}
+
+input[type="checkbox"] {
+  appearance: none;
+  position: relative;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 24px;
+  min-width: 42px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0;
+  background: var(--button-soft);
+  cursor: pointer;
+  outline: none;
+  transition: background 0.18s ease, border-color 0.18s ease, opacity 0.18s ease;
+}
+
+input[type="checkbox"]::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
   width: 18px;
   height: 18px;
+  border-radius: 999px;
+  background: var(--panel);
+  box-shadow: 0 1px 3px rgba(21, 32, 51, 0.22);
+  transition: transform 0.18s ease;
+}
+
+input[type="checkbox"]:checked {
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
+input[type="checkbox"]:checked::before {
+  transform: translateX(18px);
+}
+
+input[type="checkbox"]:focus-visible {
+  box-shadow: 0 0 0 4px rgba(36, 107, 254, 0.12);
+}
+
+input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .input-action {
@@ -989,41 +1096,31 @@ h2 {
 }
 
 .mini-toggle {
-  position: relative;
-  min-width: 58px;
-  padding: 0 10px 0 30px;
+  min-width: 72px;
+  padding: 0 8px;
   cursor: pointer;
   user-select: none;
 }
 
 .mini-toggle input {
-  position: absolute;
-  inline-size: 1px;
-  block-size: 1px;
-  opacity: 0;
+  width: 34px;
+  height: 20px;
+  min-width: 34px;
 }
 
-.mini-toggle::before {
-  content: "";
-  position: absolute;
-  left: 10px;
-  width: 12px;
-  height: 12px;
-  border: 2px solid var(--border);
-  border-radius: 999px;
-  background: var(--panel);
+.mini-toggle input::before {
+  width: 14px;
+  height: 14px;
+}
+
+.mini-toggle input:checked::before {
+  transform: translateX(14px);
 }
 
 .mini-toggle:has(input:checked) {
   color: var(--primary);
   border-color: rgba(36, 107, 254, 0.28);
   background: rgba(36, 107, 254, 0.08);
-}
-
-.mini-toggle:has(input:checked)::before {
-  border-color: var(--primary);
-  background: var(--primary);
-  box-shadow: inset 0 0 0 3px var(--panel);
 }
 
 .icon-btn {
@@ -1916,6 +2013,15 @@ body.order-page #orderCancelBtn {
 
   .form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .delete-form .delete-form-section {
+    grid-template-columns: 1fr;
+  }
+
+  .delete-form .delete-instance-action,
+  .delete-form .delete-image-action {
+    grid-column: 1;
   }
 
   .report-toolbar {

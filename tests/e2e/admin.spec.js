@@ -1242,6 +1242,7 @@ test("create form can import a docker run command", async ({ page }) => {
 
 test("create import can save docker compose services as templates", async ({ page }) => {
   const createBodies = [];
+  const deleteBodies = [];
 
   await page.route("**/images?**", async (route) => {
     await route.fulfill({
@@ -1254,6 +1255,14 @@ test("create import can save docker compose services as templates", async ({ pag
   });
   await page.route("**/create", async (route) => {
     createBodies.push(route.request().postData() || "");
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+  await page.route("**/delete", async (route) => {
+    deleteBodies.push(route.request().postData() || "");
     await route.fulfill({
       status: 202,
       contentType: "application/json",
@@ -1307,6 +1316,7 @@ test("create import can save docker compose services as templates", async ({ pag
     "      - web-data:/app/data",
     "      - /var/run/docker.sock:/var/run/docker.sock:ro",
     "  worker:",
+    "    container_name: worker",
     "    image: saashup/worker:latest",
     "    environment:",
     "      - QUEUE=default",
@@ -1355,17 +1365,32 @@ test("create import can save docker compose services as templates", async ({ pag
     labels: [],
   });
 
+  await page.locator("#templateSelect").selectOption("web");
+  await expect(page.locator("#version")).toHaveValue("v1.2.3");
+  await page.locator("#instance").fill("web-container");
+  await page.locator("#version").fill("v2.0.0");
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toBe("Template name");
+    expect(dialog.defaultValue()).toBe("web");
+    await dialog.accept("web");
+  });
+  await page.locator("#saveTemplateBtn").click();
+  await expect(page.locator("#notif")).toContainText('Template "web" saved');
+
   await page.getByRole("link", { name: "Workflow" }).click();
   await expect(page.locator("#workflowSelect")).toHaveValue("staging::stack");
   await expect(page.locator("#workflowSelect option:checked")).toHaveText("staging / stack");
   await expect(page.locator("#workflowSummary")).toContainText("staging");
   await expect(page.locator("#workflowTableBody")).toContainText("web");
+  await expect(page.locator("#workflowTableBody")).toContainText("v2.0.0");
   await expect(page.locator("#workflowTableBody")).toContainText("worker");
   await expect(page.locator(".workflow-step-status-pending")).toHaveCount(2);
+  await expect(page.locator("#runWorkflowBtn")).toHaveText("Run create");
   await page.locator("#runWorkflowBtn").click();
   await expect.poll(() => createBodies.length).toBe(2);
   expect(createBodies[0]).toContain("instance=web-container");
   expect(createBodies[0]).toContain("image=registry.example.com%3A5000%2Fsaashup%2Fweb");
+  expect(createBodies[0]).toContain("version=v2.0.0");
   expect(createBodies[0]).toContain("dns_name=web.staging.example.com%2Fdashboard");
   expect(createBodies[0]).toContain("traefik=true");
   expect(createBodies[0]).toContain("wait=true");
@@ -1379,6 +1404,38 @@ test("create import can save docker compose services as templates", async ({ pag
   expect(createBodies[1]).toContain("wait=true");
   await expect(page.locator(".workflow-step-status-done")).toHaveCount(2);
   await expect(page.locator("#notif")).toContainText('Workflow "staging / stack" requested');
+
+  await expect(page.locator("#workflowDeleteVolumesField")).toBeHidden();
+  await page.locator("#workflowActionSelect").selectOption("delete");
+  await expect(page.locator("#runWorkflowBtn")).toHaveText("Run delete");
+  await expect(page.locator("#workflowDeleteVolumesField")).toBeVisible();
+  await page.locator("#workflowDeleteVolumesInput").check();
+  await page.locator("#runWorkflowBtn").click();
+  await expect(page.locator(".workflow-step-status-running")).toHaveCount(1);
+  await expect.poll(() => deleteBodies.length).toBe(2);
+  expect(deleteBodies[0]).toContain("delete_mode=image");
+  expect(deleteBodies[0]).toContain("image=saashup%2Fworker");
+  expect(deleteBodies[0]).toContain("delete_volumes=true");
+  expect(deleteBodies[0]).toContain("wait=true");
+  expect(deleteBodies[1]).toContain("delete_mode=image");
+  expect(deleteBodies[1]).toContain("image=registry.example.com%3A5000%2Fsaashup%2Fweb");
+  expect(deleteBodies[1]).toContain("delete_volumes=true");
+  expect(deleteBodies[1]).toContain("wait=true");
+  await expect(page.locator(".workflow-step-status-done")).toHaveCount(2);
+  await expect(page.locator("#notif")).toContainText('Workflow "staging / stack" delete requested');
+
+  deleteBodies.length = 0;
+  await page.locator('[data-workflow-step-enabled="1"]').uncheck();
+  await expect(page.locator("#workflowSummary")).toContainText("1/2 enabled");
+  await page.locator("#runWorkflowBtn").click();
+  await expect.poll(() => deleteBodies.length).toBe(1);
+  expect(deleteBodies[0]).toContain("image=registry.example.com%3A5000%2Fsaashup%2Fweb");
+  expect(deleteBodies[0]).not.toContain("image=saashup%2Fworker");
+
+  await page.locator('[data-workflow-step-delete="1"]').click();
+  await expect(page.locator("#workflowTableBody")).not.toContainText("worker");
+  const workflowAfterTaskDelete = await page.evaluate(() => JSON.parse(localStorage.getItem("create_workflows"))["staging::stack"]);
+  expect(workflowAfterTaskDelete.steps.map((step) => step.template)).toEqual(["web"]);
 
   await page.getByRole("link", { name: "Create" }).click();
   await page.locator("#dockerRunBtn").click();
@@ -1426,6 +1483,66 @@ test("create import can save docker compose services as templates", async ({ pag
   await page.locator("#image").fill("saashup/guide");
   await page.locator("#image").dispatchEvent("input");
   await expect(page.locator("#version")).toHaveValue("v2.0.0");
+});
+
+test("workflow delete uses image mode without an explicit instance name", async ({ page }) => {
+  const deleteBodies = [];
+
+  await page.route("**/delete", async (route) => {
+    deleteBodies.push(route.request().postData() || "");
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+
+  await page.addInitScript(() => {
+    localStorage.setItem("create_templates", JSON.stringify({
+      daily: {
+        config_profile: "staging",
+        traefik: false,
+        image: "saashup/daily",
+        version: "latest",
+      },
+    }));
+    localStorage.setItem("create_workflows", JSON.stringify({
+      "staging::stack": {
+        name: "stack",
+        config_profile: "staging",
+        steps: [{ template: "daily", enabled: true }],
+      },
+    }));
+  });
+
+  await openAdmin(page, {
+    profile: "staging",
+    profiles: JSON.stringify({
+      staging: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        tag: "staging",
+      },
+    }),
+  }, {
+    daily: {
+      config_profile: "staging",
+      traefik: false,
+      image: "saashup/daily",
+      version: "latest",
+    },
+  });
+
+  await page.getByRole("link", { name: "Workflow" }).click();
+  await page.locator("#workflowSelect").selectOption("staging::stack");
+  await page.locator("#workflowActionSelect").selectOption("delete");
+  await page.locator("#runWorkflowBtn").click();
+
+  await expect.poll(() => deleteBodies.length).toBe(1);
+  expect(deleteBodies[0]).toContain("delete_mode=image");
+  expect(deleteBodies[0]).toContain("image=saashup%2Fdaily");
+  await expect(page.locator("#notif")).toContainText('Workflow "staging / stack" delete requested');
 });
 
 test("compose import reads SaaShup labels from map labels", async ({ page }) => {
@@ -1652,6 +1769,9 @@ test("create form can save and load templates", async ({ page }) => {
   await expect(page.locator("#instance")).toHaveValue("guide-app");
   await expect(page.locator("#image")).toHaveValue("saashup/guide");
   await expect(page.locator("#version")).toHaveValue("v1.10.0");
+  await expect(page.locator("#version")).not.toHaveAttribute("readonly", "");
+  await page.locator("#version").fill("v1.2.3");
+  await expect(page.locator("#version")).toHaveValue("v1.2.3");
   await expect(page.locator("#saashup_enabled")).toBeChecked();
   await expect(page.locator("#max_instances")).toHaveValue("2");
   await expect(page.locator("#var_env_key")).toHaveValue("APP_ENV");
@@ -1671,6 +1791,7 @@ test("create form can save and load templates", async ({ page }) => {
   await expect(page.locator("#notif")).toContainText('Template "Guide" saved');
   const updatedTemplate = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")).Guide);
   expect(updatedTemplate.creator_email).toBe("creator@example.com");
+  expect(updatedTemplate.version).toBe("v1.2.3");
 
   page.once("dialog", async (dialog) => {
     expect(dialog.message()).toBe("Template name");
@@ -2836,13 +2957,26 @@ test("refresh hosts submits the configured tag", async ({ page }) => {
 test("delete instance refresh submits the configured tag", async ({ page }) => {
   let instancesUrl = "";
   let deleteBody = "";
+  let imagesUrl = "";
+  const deleteBodies = [];
 
   await page.route("**/delete", async (route) => {
     deleteBody = route.request().postData() || "";
+    deleteBodies.push(deleteBody);
     await route.fulfill({
       status: 202,
       contentType: "application/json",
       body: "{}",
+    });
+  });
+  await page.route("**/images?**", async (route) => {
+    imagesUrl = route.request().url();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        { name: "saashup/tile", version: "v1.0.0" },
+      ]),
     });
   });
 
@@ -2863,7 +2997,14 @@ test("delete instance refresh submits the configured tag", async ({ page }) => {
   });
 
   await page.getByRole("link", { name: "Delete" }).click();
+  await expect(page.locator('[data-delete-section="options"] h4')).toHaveText("Options");
+  await expect(page.locator('[data-delete-section="instance"] h4')).toHaveText("Delete Instance");
+  await expect(page.locator('[data-delete-section="image"] h4')).toHaveText("Delete By Image");
   await expect(page.locator("[data-field='delete_volumes']")).toBeVisible();
+  await expect(page.locator("[data-field='image']")).toBeVisible();
+  await expect(page.locator("[data-field='remove_image']")).toBeVisible();
+  await expect(page.locator("#deleteInstanceBtn")).toBeVisible();
+  await expect(page.locator("#deleteImageBtn")).toBeVisible();
   await expect(page.locator("#delete_volumes")).not.toBeChecked();
   await page.locator("#instance").fill("old-filter");
   await page.locator("#refreshInstancesBtn").click();
@@ -2876,9 +3017,22 @@ test("delete instance refresh submits the configured tag", async ({ page }) => {
   await page.locator("#instance").fill("tiles.example.com");
   await page.locator("#delete_volumes").check();
   await page.on("dialog", (dialog) => dialog.accept());
-  await page.locator("#submitBtn").click();
+  await page.locator("#deleteInstanceBtn").click();
   await expect.poll(() => deleteBody).toContain("delete_volumes=true");
   expect(deleteBody).toContain("tag=TILE");
+
+  await page.locator("#refreshImagesBtn").click();
+  await expect(page.locator("#notif")).toContainText("Loaded 1 images");
+  await expect.poll(() => page.locator("#imageOptions option").evaluateAll((options) => options.map((option) => option.value))).toEqual(["saashup/tile"]);
+  expect(new URL(imagesUrl).searchParams.get("tag")).toBe("TILE");
+
+  await page.locator("#image").fill("saashup/tile");
+  await page.locator("#remove_image").check();
+  await page.locator("#deleteImageBtn").click();
+  await expect.poll(() => deleteBodies.at(-1) || "").toContain("delete_mode=image");
+  expect(deleteBodies.at(-1)).toContain("image=saashup%2Ftile");
+  expect(deleteBodies.at(-1)).toContain("remove_image=true");
+  expect(deleteBodies.at(-1)).toContain("tag=TILE");
 });
 
 test("restart instance refresh clears the instance input before showing choices", async ({ page }) => {
