@@ -149,7 +149,8 @@ test("config tab starts without a forced default profile", async ({ page }) => {
   await expect(page.locator('[data-field="registry_webhook_secret"]')).toBeHidden();
   await expect(page.locator("#domain")).toHaveValue("");
   await expect(page.locator("#tag")).toHaveValue("");
-  await expect(page.locator("#max_instances")).toHaveValue("1");
+  await expect(page.locator("#max_templates")).toHaveValue("1");
+  await expect(page.locator("#enrollment_limit")).toHaveValue("1");
   await expect(page.locator("#owner_env_var")).toHaveValue("SAASHUP_OWNER");
   await expect(page.locator("#cloudflare_filter")).toBeChecked();
   await page.locator('[data-field="netbox"] .field-label').click({ position: { x: 4, y: 8 } });
@@ -417,7 +418,7 @@ test("config page imports config profiles and templates", async ({ page }) => {
   await expect(page.locator("#notif")).toContainText("Config import complete");
   await expect(page.locator("#config_profile")).toHaveValue("production");
   await expect(page.locator("#netbox")).toHaveValue("https://netbox.example.com");
-  await expect(page.locator("#max_instances")).toHaveValue("3");
+  await expect(page.locator("#max_templates")).toHaveValue("3");
   await expect(page.locator("#owner_env_var")).toHaveValue("OWNER");
   await expect(page.locator("#cloudflare_filter")).not.toBeChecked();
 
@@ -779,6 +780,7 @@ test("create form preloads a profile-based random instance name on page load", a
     proxy: "",
     domain: "example.com",
     tag: "production",
+    max_templates: 10,
     max_instances: 1,
     profiles: JSON.stringify({
       production: {
@@ -1214,7 +1216,7 @@ test("create form can import a docker run command", async ({ page }) => {
 
   await page.locator("#dockerRunInput").fill([
     "docker run -d --name guide-app --network mgmt",
-    "-e APP_ENV=production --label traefik.enable=true -p 8080:3000",
+    "-e APP_ENV=production -e saashup_template_url=https://templates.example.com/guide --label traefik.enable=true -p 8080:3000",
     "-v guide-data:/app/data -v /var/run/docker.sock:/var/run/docker.sock:ro saashup/guide:v1.2.3",
   ].join(" "));
   await page.locator("#dockerRunApplyBtn").click();
@@ -1225,6 +1227,7 @@ test("create form can import a docker run command", async ({ page }) => {
   expect(instanceRequestCount).toBe(requestsBeforeImport);
   await expect(page.locator("#image")).toHaveValue("saashup/guide");
   await expect(page.locator("#version")).toHaveValue("v1.2.3");
+  await expect(page.locator("#template_url")).toHaveValue("https://templates.example.com/guide");
   await expect(page.locator("#var_env_key")).toHaveValue("APP_ENV");
   await expect(page.locator("#var_env_value")).toHaveValue("production");
   await expect(page.locator("#label_key")).toHaveValue("traefik.enable");
@@ -1299,6 +1302,7 @@ test("create import can save docker compose services as templates", async ({ pag
     "      saashup_traefik: \"true\"",
     "      saashup_dns: \"web.staging.example.com/dashboard\"",
     "      saashup_enabled: false;",
+    "      saashup_template_url: https://templates.example.com/web",
     "    volumes:",
     "      - web-data:/app/data",
     "      - /var/run/docker.sock:/var/run/docker.sock:ro",
@@ -1337,6 +1341,7 @@ test("create import can save docker compose services as templates", async ({ pag
     ],
     labels: [{ key: "traefik.enable", value: "true" }],
     saashup_enabled: false,
+    template_url: "https://templates.example.com/web",
     ports: [{ value: "3000" }],
     volumes: [{ name: "web-data", source: "/app/data" }],
     binds: [{ host_path: "/var/run/docker.sock", container_path: "/var/run/docker.sock", read_only: true }],
@@ -1503,6 +1508,7 @@ test("saved templates are normalized from SaaShup labels", async ({ page }) => {
         { key: "saashup_traefik", value: "false" },
         { key: "saashup_dns", value: "https://daily.paashup.cloud" },
         { key: "saashup_enabled", value: "false;" },
+        { key: "saashup_template_url", value: "https://templates.example.com/legacy" },
       ],
     },
   });
@@ -1512,12 +1518,14 @@ test("saved templates are normalized from SaaShup labels", async ({ page }) => {
   await expect(page.locator("#traefik")).not.toBeChecked();
   await expect(page.locator("#saashup_enabled")).not.toBeChecked();
   await expect(page.locator("#dns_name")).toHaveValue("https://daily.paashup.cloud");
+  await expect(page.locator("#template_url")).toHaveValue("https://templates.example.com/legacy");
 
   const templates = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")));
   expect(templates.legacy).toMatchObject({
     traefik: false,
     dns_name: "https://daily.paashup.cloud",
     saashup_enabled: false,
+    template_url: "https://templates.example.com/legacy",
     labels: [],
   });
 });
@@ -1605,6 +1613,7 @@ test("create form can save and load templates", async ({ page }) => {
   await page.locator("#var_env_value").fill("production");
   await page.locator("#label_key").fill("traefik.enable");
   await page.locator("#label_value").fill("true");
+  await page.locator("#max_instances").fill("2");
   await page.locator("#port_value").fill("3000");
   await page.locator("#volume_source").fill("/app/data");
   await expect(page.locator("#volume_name")).toHaveValue("guide-app-data");
@@ -1620,6 +1629,7 @@ test("create form can save and load templates", async ({ page }) => {
   const savedTemplate = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")).Guide);
   expect(savedTemplate.instance).toBe("guide-app");
   expect(savedTemplate.saashup_enabled).toBe(true);
+  expect(savedTemplate.max_instances).toBe(2);
   expect(savedTemplate.volumes).toEqual([{ key: "/app/data" }]);
 
   await page.evaluate(() => localStorage.removeItem("create_templates"));
@@ -1643,6 +1653,7 @@ test("create form can save and load templates", async ({ page }) => {
   await expect(page.locator("#image")).toHaveValue("saashup/guide");
   await expect(page.locator("#version")).toHaveValue("v1.10.0");
   await expect(page.locator("#saashup_enabled")).toBeChecked();
+  await expect(page.locator("#max_instances")).toHaveValue("2");
   await expect(page.locator("#var_env_key")).toHaveValue("APP_ENV");
   await expect(page.locator("#label_key")).toHaveValue("traefik.enable");
   await expect(page.locator("#port_value")).toHaveValue("3000");
@@ -1759,6 +1770,28 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
       body: "{}",
     });
   });
+  await page.route("**/enroll/limit?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        profile: "production",
+        used: 1,
+        max: 2,
+        remaining: 1,
+        reached: false,
+        instances: [
+          {
+            instance: "existing-guide.example.com",
+            dns_name: "existing-guide.example.com",
+            image: "saashup/guide",
+            version: "v1.0.0",
+            status: "ready",
+          },
+        ],
+      }),
+    });
+  });
 
   await openAdmin(page, {
     profile: "production",
@@ -1769,6 +1802,7 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
         proxy: "",
         domain: "example.com",
         tag: "production",
+        enrollment_limit: 2,
         saashup_default: true,
       },
     }),
@@ -1784,6 +1818,11 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
   await expect(page.locator("#submitBtn")).toBeDisabled();
   await expect(page.locator("#importProfileSelect")).toBeHidden();
   await expect(page.locator("#config_profile")).toHaveValue("production");
+  await expect(page.locator("#enrollInstances")).toBeVisible();
+  await expect(page.locator("#enrollInstances")).toContainText("Your enrolled templates");
+  await expect(page.locator("#enrollInstances")).toContainText("1 / 2");
+  await expect(page.locator("#enrollInstances")).toContainText("existing-guide.example.com");
+  await expect(page.locator("#enrollInstances .order-instance-state")).toHaveText("Ready");
 
   await page.locator("#dockerRunInput").fill([
     "docker run -d --name guide-app --network mgmt",
@@ -1803,6 +1842,8 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
   expect(createBody).toContain("var_env_value=production");
   expect(createBody).toContain("port_value=3000");
   expect(createBody).toContain("profile=production");
+  expect(createBody).toContain("enroll_request=true");
+  expect(createBody).toContain("enrollment_limit=2");
   await expect(page.locator("#notif")).toContainText("Creation requested for guide-app.example.com.");
 });
 
@@ -1812,6 +1853,13 @@ test("enroll page keeps submit disabled before import content", async ({ page })
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ email: "ada@example.com", user: "ada", name: "Ada Lovelace" }),
+    });
+  });
+  await page.route("**/enroll/limit?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ profile: "production", used: 0, max: 10, remaining: 10, reached: false, instances: [] }),
     });
   });
 
@@ -1831,6 +1879,7 @@ test("enroll page keeps submit disabled before import content", async ({ page })
         proxy: "",
         domain: "example.com",
         tag: "production",
+        max_templates: 10,
         saashup_default: true,
       },
     }),
@@ -1840,6 +1889,103 @@ test("enroll page keeps submit disabled before import content", async ({ page })
   await expect(page.locator("#instanceForm")).toBeVisible();
   await expect(page.locator("#dockerRunInput")).toHaveValue("");
   await expect(page.locator("#submitBtn")).toBeDisabled();
+});
+
+test("enroll page shows enrollment count when prior details are unavailable", async ({ page }) => {
+  await page.route("**/session/user", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ email: "ada@example.com", user: "ada", name: "Ada Lovelace" }),
+    });
+  });
+  await page.route("**/enroll/limit?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        profile: "production",
+        used: 1,
+        max: 1,
+        remaining: 0,
+        reached: true,
+        instances: [],
+      }),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "production",
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "example.com",
+        tag: "production",
+        enrollment_limit: 1,
+        saashup_default: true,
+      },
+    }),
+  }, {}, [], undefined, "/enroll.html");
+
+  await expect(page.locator("#enrollInstances")).toBeVisible();
+  await expect(page.locator("#enrollInstances")).toContainText("1 / 1");
+  await expect(page.locator("#enrollInstances")).toContainText("Enrollment recorded");
+  await expect(page.locator("#enrollInstances")).toContainText("Details unavailable for earlier template");
+  await expect(page.locator("#enrollInstances .order-instance-state")).toHaveText("Recorded");
+  await expect(page.locator("#notif")).toContainText("You have reached your maximum of 1 template for this config.");
+  await expect(page.locator("#instanceForm")).toBeHidden();
+});
+
+test("enroll page shows templates created by the user", async ({ page }) => {
+  await page.route("**/session/user", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ email: "ada@example.com", user: "ada", name: "Ada Lovelace" }),
+    });
+  });
+  await page.route("**/enroll/limit?**", async (route) => {
+    const instances = [
+      { instance: "guide-template", image: "saashup/guide", version: "v1.2.3", status: "ready", source: "template" },
+    ];
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        profile: "production",
+        used: instances.length,
+        max: 1,
+        remaining: 0,
+        reached: true,
+        instances,
+      }),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "production",
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "example.com",
+        tag: "production",
+        enrollment_limit: 1,
+        saashup_default: true,
+      },
+    }),
+  }, {}, [], undefined, "/enroll.html");
+
+  await expect(page.locator("#enrollInstances")).toBeVisible();
+  await expect(page.locator("#enrollInstances")).toContainText("1 / 1");
+  await expect(page.locator("#enrollInstances")).toContainText("guide-template");
+  await expect(page.locator("#enrollInstances")).toContainText("saashup/guide");
+  await expect(page.locator("#enrollInstances .order-instance-state")).toHaveText("Ready");
+  await expect(page.locator("#enrollInstances .order-instance-delete")).toBeDisabled();
+  await expect(page.locator("#instanceForm")).toBeHidden();
 });
 
 test("enroll page hides deploy panel without a default config", async ({ page }) => {
@@ -1886,6 +2032,13 @@ test("enroll page blocks docker compose files with multiple services", async ({ 
       body: "{}",
     });
   });
+  await page.route("**/enroll/limit?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ profile: "production", used: 0, max: 10, remaining: 10, reached: false, instances: [] }),
+    });
+  });
 
   await openAdmin(page, {
     profile: "production",
@@ -1895,6 +2048,7 @@ test("enroll page blocks docker compose files with multiple services", async ({ 
     proxy: "",
     domain: "example.com",
     tag: "production",
+    max_templates: 10,
     max_instances: 1,
     profiles: JSON.stringify({
       production: {
@@ -1903,6 +2057,7 @@ test("enroll page blocks docker compose files with multiple services", async ({ 
         proxy: "",
         domain: "example.com",
         tag: "production",
+        max_templates: 10,
         saashup_default: true,
       },
     }),
@@ -1952,6 +2107,13 @@ test("enroll page flags multi-service compose pasted in run input", async ({ pag
       body: JSON.stringify({ email: "ada@example.com", user: "ada", name: "Ada Lovelace" }),
     });
   });
+  await page.route("**/enroll/limit?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ profile: "production", used: 0, max: 10, remaining: 10, reached: false, instances: [] }),
+    });
+  });
 
   await openAdmin(page, {
     profile: "production",
@@ -1961,6 +2123,7 @@ test("enroll page flags multi-service compose pasted in run input", async ({ pag
     proxy: "",
     domain: "example.com",
     tag: "production",
+    max_templates: 10,
     max_instances: 1,
     profiles: JSON.stringify({
       production: {
@@ -1969,6 +2132,7 @@ test("enroll page flags multi-service compose pasted in run input", async ({ pag
         proxy: "",
         domain: "example.com",
         tag: "production",
+        max_templates: 10,
         saashup_default: true,
       },
     }),
@@ -2115,8 +2279,9 @@ test("order page creates an instance from the requested template", async ({ page
   await expect(page.locator("#orderActions")).toBeVisible();
   await expect(page.locator("#instance")).not.toHaveValue(generatedName);
   const orderCard = page.locator(".order-instance-card").first();
-  await expect(orderCard.locator(".order-instance-link")).toHaveText(generatedName);
-  await expect(orderCard.locator(".order-instance-link")).toHaveAttribute("href", `https://${generatedName}.daily.paashup.cloud`);
+  await expect(orderCard.locator(".order-instance-copy strong")).toHaveText("curiootiles");
+  await expect(orderCard.locator(".order-instance-copy small").first()).toHaveText(generatedName);
+  await expect(orderCard.locator(".order-instance-open")).toHaveAttribute("href", `https://${generatedName}.daily.paashup.cloud`);
   await expect(orderCard.locator(".order-instance-state")).toHaveText("Ready");
   await expect(orderCard.locator(".order-instance-delete")).toBeVisible();
   page.on("dialog", (dialog) => dialog.accept());
@@ -2210,6 +2375,7 @@ test("order page informs the user when the max instance limit is reached", async
       config_profile: "demo",
       network: "traefik-public",
       image: "saashup/demo",
+      template_url: "/demo-home",
       ports: [{ value: "3000" }],
     },
   }, [], undefined, "/order?template=demo");
@@ -2219,7 +2385,8 @@ test("order page informs the user when the max instance limit is reached", async
   await expect(page.locator("#orderInstances")).toBeVisible();
   await expect(page.locator("#orderInstances")).toContainText("3 / 3");
   await expect(page.locator("#orderInstances")).toContainText("demo-1.daily.paashup.cloud");
-  await expect(page.locator(".order-instance-card").first().locator(".order-instance-link")).toHaveAttribute("href", "https://demo-1.daily.paashup.cloud");
+  await expect(page.locator(".order-instance-card").first().locator(".order-instance-copy strong")).toHaveText("demo");
+  await expect(page.locator(".order-instance-card").first().locator(".order-instance-open")).toHaveAttribute("href", "https://demo-1.daily.paashup.cloud");
   await expect(page.locator(".order-instance-card").first().locator(".order-instance-delete")).toBeVisible();
   await expect(page.locator(".order-instance-card").first().locator(".order-instance-state")).toHaveText("Ready");
   await expect(page.locator(".order-instance-card").nth(1).locator(".order-instance-delete")).toBeHidden();
@@ -2231,6 +2398,7 @@ test("order page informs the user when the max instance limit is reached", async
   await expect(page.locator("#orderStatus")).toHaveClass(/error/);
   await expect(page.locator("#orderStatus")).toContainText("You have reached your maximum of 3 instances for this config.");
   await expect(page.locator("#orderStatus .order-status-home")).toHaveText("Back to home");
+  await expect(page.locator("#orderStatus .order-status-home")).toHaveAttribute("href", "/demo-home");
   expect(createCalled).toBe(false);
 
   page.on("dialog", (dialog) => dialog.accept());
@@ -2243,7 +2411,7 @@ test("order page informs the user when the max instance limit is reached", async
   await expect(page.locator("#orderStatus")).toContainText("Delete requested for demo-1.daily.paashup.cloud.");
   await expect(page.locator("#orderStatus .order-status-home")).toHaveText("Back to home");
   await page.locator("#orderStatus .order-status-home").click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL(/\/demo-home$/);
 });
 
 test("order page shows oauth user and logs out through app auth", async ({ page }) => {
@@ -2389,6 +2557,46 @@ test("order page hides the order form when the requested template is missing", a
   await expect(page.locator("#orderStatus .order-status-home")).toHaveAttribute("href", "/");
 });
 
+test("order page without a template lists all owned containers", async ({ page }) => {
+  await page.route("**/order/limit?**", async (route) => {
+    const url = new URL(route.request().url());
+    expect(url.searchParams.get("template")).toBe("");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        instances: [
+          { instance: "tile.daily.paashup.cloud", template: "curiootiles", status: "ready" },
+          { instance: "guide.daily.paashup.cloud", template: "guide", status: "ready" },
+        ],
+        max: 1,
+        profile: "prod",
+        remaining: 0,
+        reached: true,
+        used: 0,
+        total_used: 2,
+      }),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "prod",
+    profiles: JSON.stringify({
+      prod: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        domain: "daily.paashup.cloud",
+        saashup_default: true,
+      },
+    }),
+  }, {}, [], undefined, "/order");
+
+  await expect(page.locator("#orderActions")).toBeHidden();
+  await expect(page.locator("#orderInstances")).toContainText("2");
+  await expect(page.locator("#orderInstances")).toContainText("tile.daily.paashup.cloud");
+  await expect(page.locator("#orderInstances")).toContainText("guide.daily.paashup.cloud");
+});
+
 test("order page hides the order form when the requested template is disabled", async ({ page }) => {
   await openAdmin(page, {
     profile: "tile",
@@ -2406,6 +2614,7 @@ test("order page hides the order form when the requested template is disabled", 
       config_profile: "tile",
       network: "traefik-public",
       image: "saashup/test",
+      template_url: "https://templates.example.com/test",
       ports: [{ value: "3000" }],
       saashup_enabled: false,
     },
@@ -2414,7 +2623,7 @@ test("order page hides the order form when the requested template is disabled", 
   await expect(page.locator("#orderActions")).toBeHidden();
   await expect(page.locator("#orderStatus")).toHaveClass(/error/);
   await expect(page.locator("#orderStatus")).toHaveText('Template "test" is disabled for ordersBack to home');
-  await expect(page.locator("#orderStatus .order-status-home")).toHaveAttribute("href", "/");
+  await expect(page.locator("#orderStatus .order-status-home")).toHaveAttribute("href", "https://templates.example.com/test");
 });
 
 test("order page displays an error when create is not accepted", async ({ page }) => {
@@ -2477,6 +2686,7 @@ test("order page no button redirects to home", async ({ page }) => {
       network: "traefik-public",
       instance: "curiootiles",
       image: "saashup/curiootiles",
+      template_url: "/curiootiles-home",
       env: [],
       labels: [],
       ports: [{ value: "3000" }],
@@ -2506,7 +2716,7 @@ test("order page no button redirects to home", async ({ page }) => {
   }, templates, [], undefined, "/order?template=curiootiles");
 
   await page.locator("#orderCancelBtn").click();
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/curiootiles-home$/);
 });
 
 test("upgrade can submit the clean name option", async ({ page }) => {

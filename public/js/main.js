@@ -74,6 +74,7 @@ const orderActions = document.getElementById("orderActions");
 const orderLoading = document.getElementById("orderLoading");
 const orderStatus = document.getElementById("orderStatus");
 const orderInstances = document.getElementById("orderInstances");
+const enrollInstances = document.getElementById("enrollInstances");
 const authUser = document.getElementById("authUser");
 const authAvatar = document.getElementById("authAvatar");
 const authName = document.getElementById("authName");
@@ -113,6 +114,8 @@ let generatedCreateInstanceName = "";
 let generatedCreateDnsName = "";
 let orderInstanceCards = [];
 let orderInstanceLimit = { max: 0, used: 0 };
+let enrollmentCards = [];
+let enrollmentLimit = { max: 0, used: 0, reached: false };
 const orderDeletingInstances = new Set();
 let currentReportView = "images";
 let lastReportData = null;
@@ -159,9 +162,17 @@ const profileFieldHelp = {
     title: "Tag",
     body: "Filters Docker hosts and image lookups to the matching NetBox tag, so each profile can target a specific environment or host group.",
   },
+  max_templates: {
+    title: "Max templates",
+    body: "Limits how many enroll-page templates a user can create for this profile. Set it to 0 to block new enrollments for the profile.",
+  },
   max_instances: {
     title: "Max instances",
-    body: "Limits how many order-page instances a user can request for this profile. Set it to 0 to block new orders for the profile.",
+    body: "Limits how many order-page containers a user can request from this template. Set it to 0 to block new orders for the template.",
+  },
+  enrollment_limit: {
+    title: "Enrollment limit",
+    body: "Limits how many enroll-page creation requests each user can submit for this profile. The default is 1.",
   },
   owner_env_var: {
     title: "Owner env var",
@@ -225,7 +236,7 @@ const profileFieldHelp = {
   },
 };
 
-const configFields = ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_instances", "owner_env_var", "cloudflare_filter", "smtp_config"];
+const configFields = ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_templates", "owner_env_var", "cloudflare_filter", "smtp_config"];
 
 const actions = {
   config: {
@@ -236,7 +247,7 @@ const actions = {
     description: "Save the NetBox URL, token, optional proxy, domain and host tag used by the automation.",
     submitLabel: "Save config",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_instances", "owner_env_var", "cloudflare_filter", "smtp_config"],
+    fields: ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_templates", "owner_env_var", "cloudflare_filter", "smtp_config"],
   },
   create: {
     endpoint: "/create",
@@ -246,7 +257,7 @@ const actions = {
     description: "Create a container, volume, optional DNS record and optional Traefik labels.",
     submitLabel: "Create instance",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "network", "traefik", "all_hosts", "saashup_enabled", "registry_webhook_secret", "instance", "dns_name", "image", "version", "env_vars", "labels", "ports", "volumes", "binds"],
+    fields: ["config_profile", "network", "traefik", "all_hosts", "saashup_enabled", "template_url", "max_instances", "registry_webhook_secret", "instance", "dns_name", "image", "version", "env_vars", "labels", "ports", "volumes", "binds"],
   },
   workflow: {
     endpoint: "",
@@ -317,7 +328,9 @@ const allFieldNames = [
   "proxy",
   "domain",
   "tag",
+  "max_templates",
   "max_instances",
+  "enrollment_limit",
   "owner_env_var",
   "config_profile",
   "operate_action",
@@ -327,6 +340,7 @@ const allFieldNames = [
   "traefik",
   "all_hosts",
   "saashup_enabled",
+  "template_url",
   "instance",
   "dns_name",
   "image",
@@ -682,7 +696,8 @@ function knownProfileEntries() {
       proxy: savedConfig.proxy || "",
       domain: savedConfig.domain || "",
       tag: savedConfig.tag || "",
-      max_instances: normalizeMaxInstances(savedConfig.max_instances),
+      max_templates: maxTemplatesValue(savedConfig),
+      enrollment_limit: normalizeMaxInstances(savedConfig.enrollment_limit),
       owner_env_var: ownerEnvVarValue(savedConfig.owner_env_var),
       cloudflare_filter: checkboxValue(savedConfig.cloudflare_filter, true),
       smtp_config: smtpConfigValue(savedConfig),
@@ -737,7 +752,8 @@ function normalizedProfileForSync(profile = {}) {
     proxy: profile.proxy || "",
     domain: normalizeDomain(profile.domain || ""),
     tag: profile.tag || "",
-    max_instances: normalizeMaxInstances(profile.max_instances),
+    max_templates: maxTemplatesValue(profile),
+    enrollment_limit: normalizeMaxInstances(profile.enrollment_limit),
     owner_env_var: ownerEnvVarValue(profile.owner_env_var),
     cloudflare_filter: checkboxValue(profile.cloudflare_filter, true),
     smtp_config: smtpConfigValue(profile),
@@ -752,7 +768,8 @@ function currentProfileFieldValues() {
     proxy: fieldValue("proxy"),
     domain: fieldValue("domain"),
     tag: fieldValue("tag"),
-    max_instances: fieldValue("max_instances"),
+    max_templates: fieldValue("max_templates"),
+    enrollment_limit: fieldValue("enrollment_limit"),
     owner_env_var: fieldValue("owner_env_var"),
     cloudflare_filter: fieldChecked("cloudflare_filter", true),
     smtp_config: fieldValue("smtp_config"),
@@ -925,7 +942,7 @@ async function importPortableConfig(event) {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
     const importedConfig = plainObject(data.config);
-    const importedProfiles = parseProfiles(data.profiles || importedConfig.profiles);
+    const importedProfiles = normalizeImportedProfiles(parseProfiles(data.profiles || importedConfig.profiles));
     const importedTemplates = normalizeCreateTemplates(plainObject(data.templates));
     const importedWorkflows = normalizeCreateWorkflows(plainObject(data.workflows));
     const mergedProfiles = { ...configProfiles, ...importedProfiles };
@@ -1165,7 +1182,8 @@ function profileCredentials(name = currentConfigProfile) {
     proxy: profile.proxy || "",
     domain: profile.domain || "",
     tag: profile.tag || "",
-    max_instances: normalizeMaxInstances(profile.max_instances),
+    max_templates: maxTemplatesValue(profile),
+    enrollment_limit: normalizeMaxInstances(profile.enrollment_limit),
     owner_env_var: ownerEnvVarValue(profile.owner_env_var),
     cloudflare_filter: checkboxValue(profile.cloudflare_filter, true),
     smtp_config: smtpConfigValue(profile),
@@ -1179,9 +1197,40 @@ function normalizeMaxInstances(value) {
   return Math.min(10, Math.max(0, Math.floor(number)));
 }
 
+function maxTemplatesValue(profile = {}) {
+  return normalizeMaxInstances(profile.max_templates ?? profile.enrollment_limit);
+}
+
+function normalizeImportedProfiles(profiles = {}) {
+  return Object.fromEntries(Object.entries(plainObject(profiles)).map(([name, profile]) => {
+    const normalized = plainObject(profile);
+    if (normalized.max_templates === undefined && normalized.max_instances !== undefined) {
+      normalized.max_templates = normalizeMaxInstances(normalized.max_instances);
+    }
+    if (normalized.enrollment_limit === undefined && normalized.max_templates !== undefined) {
+      normalized.enrollment_limit = normalizeMaxInstances(normalized.max_templates);
+    }
+    return [name, normalized];
+  }));
+}
+
+function templateMaxInstancesValue(template = {}) {
+  return normalizeMaxInstances(template.max_instances);
+}
+
 async function orderLimitForProfile(profile) {
-  const query = new URLSearchParams({ profile: profile || "" });
+  const query = new URLSearchParams({ profile: profile || "", template: orderTemplateName || "" });
   const response = await fetch(`/order/limit?${query.toString()}`, {
+    headers: { Accept: "application/json" },
+  });
+
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.json();
+}
+
+async function enrollLimitForProfile(profile) {
+  const query = new URLSearchParams({ profile: profile || "" });
+  const response = await fetch(`/enroll/limit?${query.toString()}`, {
     headers: { Accept: "application/json" },
   });
 
@@ -1247,7 +1296,9 @@ function applyProfileToFields(name = currentConfigProfile) {
   setFieldValue("proxy", credentials.proxy);
   setFieldValue("domain", credentials.domain);
   setFieldValue("tag", credentials.tag);
-  setFieldValue("max_instances", credentials.max_instances);
+  setFieldValue("max_templates", credentials.max_templates);
+  setFieldValue("max_instances", "1");
+  setFieldValue("enrollment_limit", credentials.enrollment_limit);
   setFieldValue("owner_env_var", credentials.owner_env_var);
   setFieldValue("cloudflare_filter", credentials.cloudflare_filter);
   setFieldValue("smtp_config", credentials.smtp_config);
@@ -1788,9 +1839,28 @@ function clearOrderStatus(reason = "") {
   orderStatus.replaceChildren();
 }
 
+function safeNavigationUrl(value, fallback = "/") {
+  const url = String(value || "").trim();
+  if (!url) return fallback;
+  if (url.startsWith("/")) return url;
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") return url;
+  } catch {
+    return fallback;
+  }
+
+  return fallback;
+}
+
+function orderHomeUrl() {
+  return safeNavigationUrl(createTemplateEntry(orderTemplateName)?.template?.template_url);
+}
+
 function orderHomeLink() {
   const homeLink = document.createElement("a");
-  homeLink.href = "/";
+  homeLink.href = orderHomeUrl();
   homeLink.className = "btn btn-secondary order-status-home";
   homeLink.textContent = "Back to home";
   return homeLink;
@@ -1849,7 +1919,7 @@ function prepareNextOrderRequest() {
 
 function normalizedOrderInstanceStatus(item) {
   const status = String(item?.status || "ready").toLowerCase();
-  return ["creating", "deleting", "failed", "ready"].includes(status) ? status : "ready";
+  return ["creating", "deleting", "failed", "ready", "recorded"].includes(status) ? status : "ready";
 }
 
 function isPendingOrderInstance(item) {
@@ -1869,7 +1939,14 @@ function orderInstanceStatusControl(item, index) {
     return '<span class="order-instance-status order-instance-status-failed" title="Instance creation failed" aria-label="Instance creation failed">!</span>';
   }
 
-  return `<button type="button" class="icon-btn icon-btn-danger order-instance-delete" data-order-instance-delete="${index}" title="Delete ${instance}" aria-label="Delete ${instance}">×</button>`;
+  return `
+    <span class="order-instance-actions">
+      ${orderInstanceOpenButton(item)}
+      <button type="button" class="icon-btn icon-btn-danger order-instance-delete" data-order-instance-delete="${index}" title="Delete ${instance}" aria-label="Delete ${instance}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>
+      </button>
+    </span>
+  `;
 }
 
 function orderInstanceStatusText(item) {
@@ -1877,6 +1954,7 @@ function orderInstanceStatusText(item) {
   if (status === "creating") return "Creating";
   if (status === "deleting") return "Deleting";
   if (status === "failed") return "Failed";
+  if (status === "recorded") return "Recorded";
   return "Ready";
 }
 
@@ -1934,6 +2012,7 @@ function renderOrderInstances(instances = orderInstanceCards, limit = orderInsta
   orderInstanceLimit = {
     max: Number(limit?.max || 0),
     used: Number(limit?.used ?? orderInstanceCards.length),
+    totalUsed: Number(limit?.total_used ?? orderInstanceCards.length),
   };
 
   if (!orderInstanceCards.length) {
@@ -1943,13 +2022,13 @@ function renderOrderInstances(instances = orderInstanceCards, limit = orderInsta
     return;
   }
 
-  const maxText = orderInstanceLimit.max > 0 ? ` / ${orderInstanceLimit.max}` : "";
+  const maxText = orderTemplateName && orderInstanceLimit.max > 0 ? ` / ${orderInstanceLimit.max}` : "";
   orderInstances.classList.remove("hidden");
   orderInstances.innerHTML = `
     <div class="order-instances-header">
       <div>
         <p class="eyebrow">Your instances</p>
-        <h2>${orderInstanceLimit.used || orderInstanceCards.length}${maxText}</h2>
+        <h2>${orderTemplateName ? (orderInstanceLimit.used || orderInstanceCards.length) : (orderInstanceLimit.totalUsed || orderInstanceCards.length)}${maxText}</h2>
       </div>
     </div>
     <div class="order-instance-grid">
@@ -1957,8 +2036,8 @@ function renderOrderInstances(instances = orderInstanceCards, limit = orderInsta
         <article class="order-instance-card" data-order-instance-card="${index}">
           <span class="order-instance-icon" aria-hidden="true">${reportStatIcon("containers")}</span>
           <span class="order-instance-copy">
-            ${orderInstanceNameLink(item.instance, item.dns_name)}
-            <small>${escapeHtml(item.template || item.image || "SaaShup instance")}</small>
+            <strong>${escapeHtml(item.template || item.image || "SaaShup instance")}</strong>
+            <small>${escapeHtml(item.instance || "Instance requested")}</small>
             <small class="${orderInstanceStatusTextClass(item)}">${orderInstanceStatusText(item)}</small>
           </span>
           ${orderInstanceStatusControl(item, index)}
@@ -1967,6 +2046,52 @@ function renderOrderInstances(instances = orderInstanceCards, limit = orderInsta
     </div>
   `;
   syncOrderStatusPolling();
+}
+
+function renderEnrollmentInstances(instances = enrollmentCards, limit = enrollmentLimit) {
+  if (!enrollInstances) return;
+
+  enrollmentCards = Array.isArray(instances) ? instances : [];
+  enrollmentLimit = {
+    max: Number(limit?.max || 0),
+    used: Number(limit?.used ?? enrollmentCards.length),
+    reached: Boolean(limit?.reached),
+  };
+
+  if (!enrollmentCards.length && enrollmentLimit.used <= 0) {
+    enrollInstances.classList.add("hidden");
+    enrollInstances.replaceChildren();
+    return;
+  }
+
+  const displayCards = enrollmentCards.length ? enrollmentCards : [{
+    instance: "Enrollment recorded",
+    image: "Details unavailable for earlier template",
+    status: "recorded",
+  }];
+  const maxText = enrollmentLimit.max > 0 ? ` / ${enrollmentLimit.max}` : "";
+  enrollInstances.classList.remove("hidden");
+  enrollInstances.innerHTML = `
+    <div class="order-instances-header">
+      <div>
+        <p class="eyebrow">Your enrolled templates</p>
+        <h2>${enrollmentLimit.used || enrollmentCards.length}${maxText}</h2>
+      </div>
+    </div>
+    <div class="order-instance-grid">
+      ${displayCards.map((item, index) => `
+        <article class="order-instance-card" data-enroll-instance-card="${index}">
+          <span class="order-instance-icon" aria-hidden="true">${reportStatIcon("containers")}</span>
+          <span class="order-instance-copy">
+            ${orderInstanceNameLink(item.instance, item.dns_name)}
+            <small>${escapeHtml(item.template_url || item.image || "SaaShup template")}</small>
+            <small class="${orderInstanceStatusTextClass(item)}">${orderInstanceStatusText(item)}</small>
+          </span>
+          ${item.source === "template" ? `<button type="button" class="icon-btn icon-btn-danger order-instance-delete" title="Remove disabled" aria-label="Remove disabled" disabled>×</button>` : ""}
+        </article>
+      `).join("")}
+    </div>
+  `;
 }
 
 function orderInstanceNameLink(instance, hrefTarget = "") {
@@ -1981,6 +2106,25 @@ function orderInstanceNameLink(instance, hrefTarget = "") {
   const href = `https://${host}`;
 
   return `<a class="order-instance-link" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(name)}</a>`;
+}
+
+function orderInstanceHref(item) {
+  const target = String(item?.dns_name || item?.instance || "").trim();
+  if (!target) return "";
+  const host = target.replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
+  return host ? `https://${host}` : "";
+}
+
+function orderInstanceOpenButton(item) {
+  const href = orderInstanceHref(item);
+  if (!href) return "";
+  const label = escapeHtml(`Open ${item.instance || "instance"}`);
+  return `
+    <a class="icon-btn order-instance-open" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" title="${label}" aria-label="${label}">
+      <span>Open</span>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17L17 7"></path><path d="M9 7h8v8"></path><path d="M5 5v14h14"></path></svg>
+    </a>
+  `;
 }
 
 function addOrderInstanceCard(instance) {
@@ -2332,14 +2476,42 @@ function updateEnrollSubmitState({ notify = true } = {}) {
   const valid = currentImportTab === "compose"
     ? validateEnrollComposeText(dockerComposeInput?.value || "", { notify })
     : validateEnrollRunText(dockerRunInput?.value || "", { notify });
-  if (submitBtn) submitBtn.disabled = !valid;
-  return valid;
+  const available = !enrollmentLimit.reached;
+  if (submitBtn) submitBtn.disabled = !valid || !available;
+  if (dockerRunInput) dockerRunInput.disabled = !available;
+  if (dockerComposeInput) dockerComposeInput.disabled = !available;
+  importTabButtons.forEach((button) => {
+    button.disabled = !available;
+  });
+  return valid && available;
+}
+
+function enrollmentLimitMessage(limit) {
+  const max = Number(limit?.max || 0);
+  return `You have reached your maximum of ${max} template${max === 1 ? "" : "s"} for this config.`;
+}
+
+async function refreshEnrollLimit() {
+  if (!isEnrollPage) return null;
+
+  try {
+    const limit = await enrollLimitForProfile(selectedProfileCredentials().profile);
+    renderEnrollmentInstances(limit.instances, limit);
+    form?.classList.toggle("hidden", Boolean(limit.reached));
+    if (limit.reached) setNotice(enrollmentLimitMessage(limit), "error", false);
+    else if (!dockerRunInput?.value && !dockerComposeInput?.value) setNotice(enrollImportNotice, "info", false);
+    updateEnrollSubmitState({ notify: false });
+    return limit;
+  } catch {
+    updateEnrollSubmitState({ notify: false });
+    return null;
+  }
 }
 
 function applyEnrollProfileSelection() {
   if (!isEnrollPage || !importProfileSelect) return;
   applyProfileToFields(importProfileSelect.value || currentConfigProfile);
-  updateEnrollSubmitState({ notify: false });
+  refreshEnrollLimit();
 }
 
 function configureEnrollDefaultConfig() {
@@ -2668,6 +2840,7 @@ function labelBoolean(value, defaultValue = false) {
 
 function applySaashupTemplateLabels(template) {
   const runtimeLabels = [];
+  const runtimeEnv = [];
 
   (template.labels || []).forEach((label) => {
     const key = String(label.key || "").trim();
@@ -2689,10 +2862,26 @@ function applySaashupTemplateLabels(template) {
       return;
     }
 
+    if (normalized === "saashup_template_url") {
+      template.template_url = value;
+      return;
+    }
+
     runtimeLabels.push(label);
   });
 
+  (template.env || []).forEach((entry) => {
+    const key = String(entry.key || "").trim();
+    const value = String(entry.value ?? "").trim();
+    if (key.toLowerCase() === "saashup_template_url") {
+      template.template_url = value;
+      return;
+    }
+    runtimeEnv.push(entry);
+  });
+
   template.labels = runtimeLabels;
+  if (Array.isArray(template.env)) template.env = runtimeEnv;
   return template;
 }
 
@@ -2700,6 +2889,8 @@ function normalizeCreateTemplate(template) {
   const normalized = { ...plainObject(template) };
   normalized.labels = Array.isArray(normalized.labels) ? normalized.labels.map((label) => ({ ...plainObject(label) })) : [];
   normalized.saashup_enabled = checkboxValue(normalized.saashup_enabled, true);
+  normalized.template_url = String(normalized.template_url || normalized.saashup_template_url || "").trim();
+  normalized.max_instances = templateMaxInstancesValue(normalized);
   return applySaashupTemplateLabels(normalized);
 }
 
@@ -2987,6 +3178,8 @@ function currentCreateTemplate() {
     traefik: fieldChecked("traefik", true),
     all_hosts: fieldChecked("all_hosts", false),
     saashup_enabled: fieldChecked("saashup_enabled", true),
+    template_url: fieldValue("template_url").trim(),
+    max_instances: normalizeMaxInstances(fieldValue("max_instances")),
     registry_webhook_secret: registryWebhookSecretValue(),
     network: fieldValue("network"),
     image: fieldValue("image"),
@@ -3022,6 +3215,8 @@ function applyCreateTemplate(template) {
   setFieldValue("traefik", template.traefik ?? true);
   setFieldValue("all_hosts", template.all_hosts ?? false);
   setFieldValue("saashup_enabled", template.saashup_enabled ?? true);
+  setFieldValue("template_url", template.template_url || "");
+  setFieldValue("max_instances", templateMaxInstancesValue(template));
   setFieldValue("registry_webhook_secret", template.registry_webhook_secret || template.dockerhub_webhook_secret || "");
   applyRegistryDefaultSecret();
   templateNetworkOverride = template.network || "";
@@ -3137,10 +3332,18 @@ async function applyOrderTemplate({ reveal = true } = {}) {
 
   const entry = createTemplateEntry(orderTemplateName);
   if (!entry) {
+    if (!orderTemplateName) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Yes";
+      hideOrderActions();
+      await refreshOrderInstanceStatuses();
+      if (!orderInstanceCards.length) setOrderBlockedStatus("No instances found", "template-unavailable");
+      return false;
+    }
     submitBtn.disabled = true;
     submitBtn.textContent = "Yes";
     hideOrderActions();
-    setOrderBlockedStatus(orderTemplateName ? `Template "${orderTemplateName}" not found` : "Template is required", "template-unavailable");
+    setOrderBlockedStatus(`Template "${orderTemplateName}" not found`, "template-unavailable");
     return false;
   }
 
@@ -3295,6 +3498,7 @@ async function applyDockerRunCommand() {
   generatedCreateDnsName = "";
   setFieldValue("network", currentNetwork);
   if (parsed.traefik !== undefined) setFieldValue("traefik", parsed.traefik);
+  setFieldValue("template_url", parsed.template_url || "");
   if (parsed.instance) setFieldValue("instance", parsed.instance);
   syncCreateDnsName({ force: true });
   if (parsed.dns_name) {
@@ -3347,8 +3551,8 @@ function loadSavedConfig() {
             proxy: data.proxy || "",
             domain: data.domain || "",
             tag: data.tag || "",
-            max_instances: normalizeMaxInstances(data.max_instances),
-            owner_env_var: ownerEnvVarValue(data.owner_env_var),
+            max_templates: maxTemplatesValue(data),
+            enrollment_limit: normalizeMaxInstances(data.enrollment_limit),
             cloudflare_filter: checkboxValue(data.cloudflare_filter, true),
             smtp_config: smtpConfigValue(data),
             ...(serverProfiles[profile]?.saashup_default === true ? { saashup_default: true } : {}),
@@ -3479,7 +3683,8 @@ async function saveConfig() {
   const proxy = fieldValue("proxy");
   const domain = normalizeDomain(fieldValue("domain"));
   const tag = fieldValue("tag");
-  const max_instances = normalizeMaxInstances(fieldValue("max_instances"));
+  const max_templates = normalizeMaxInstances(fieldValue("max_templates"));
+  const enrollment_limit = max_templates;
   const owner_env_var = ownerEnvVarValue(fieldValue("owner_env_var"));
   const cloudflare_filter = fieldChecked("cloudflare_filter", true);
   const smtp_config = fieldValue("smtp_config");
@@ -3496,9 +3701,10 @@ async function saveConfig() {
   }
 
   forgetDeletedProfile(profile);
-  setFieldValue("max_instances", max_instances);
+  setFieldValue("max_templates", max_templates);
+  setFieldValue("enrollment_limit", enrollment_limit);
   setFieldValue("owner_env_var", owner_env_var);
-  configProfiles[profile] = { netbox, token, proxy, domain, tag, max_instances, owner_env_var, cloudflare_filter, smtp_config, ...(saashup_default ? { saashup_default: true } : {}) };
+  configProfiles[profile] = { netbox, token, proxy, domain, tag, max_templates, enrollment_limit, owner_env_var, cloudflare_filter, smtp_config, ...(saashup_default ? { saashup_default: true } : {}) };
   if (saashup_default) enforceSingleDefaultConfig(profile);
   currentConfigProfile = profile;
   updateProfileOptions();
@@ -3511,7 +3717,8 @@ async function saveConfig() {
     customer_name,
     domain,
     tag,
-    max_instances: String(max_instances),
+    max_templates: String(max_templates),
+    enrollment_limit: String(enrollment_limit),
     owner_env_var,
     cloudflare_filter: cloudflare_filter ? "true" : "false",
     smtp_config,
@@ -3528,7 +3735,7 @@ async function saveConfig() {
 
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-    savedConfig = { customer_name, netbox, token, proxy, domain, tag, max_instances, owner_env_var, cloudflare_filter, smtp_config, profile, profiles: configProfiles };
+    savedConfig = { customer_name, netbox, token, proxy, domain, tag, max_templates, enrollment_limit, owner_env_var, cloudflare_filter, smtp_config, profile, profiles: configProfiles };
     serverConfigProfiles = { ...configProfiles };
     applyProfileToFields(profile);
     setNotice(`Config "${profileLabel(profile)}" saved (${response.status})`, "success");
@@ -3567,7 +3774,9 @@ async function deleteConfig() {
       setFieldValue("proxy", "");
       setFieldValue("domain", "");
       setFieldValue("tag", "");
+      setFieldValue("max_templates", "1");
       setFieldValue("max_instances", "1");
+      setFieldValue("enrollment_limit", "1");
       setFieldValue("owner_env_var", "SAASHUP_OWNER");
       setFieldValue("cloudflare_filter", true);
       setFieldValue("smtp_config", "");
@@ -3579,7 +3788,8 @@ async function deleteConfig() {
         customer_name,
         domain: "",
         tag: "",
-        max_instances: "1",
+        max_templates: "1",
+        enrollment_limit: "1",
         owner_env_var: "SAASHUP_OWNER",
         cloudflare_filter: "true",
         smtp_config: "",
@@ -3613,7 +3823,8 @@ async function deleteConfig() {
       customer_name,
       domain: credentials.domain,
       tag: credentials.tag,
-      max_instances: String(credentials.max_instances),
+      max_templates: String(credentials.max_templates),
+      enrollment_limit: String(credentials.enrollment_limit),
       owner_env_var: credentials.owner_env_var,
       cloudflare_filter: credentials.cloudflare_filter ? "true" : "false",
       smtp_config: credentials.smtp_config,
@@ -3668,7 +3879,9 @@ function workflowCreateBody(template, templateName) {
     proxy: credentials.proxy,
     domain: credentials.domain,
     tag: credentials.tag,
-    max_instances: String(credentials.max_instances),
+    max_templates: String(credentials.max_templates),
+    max_instances: String(templateMaxInstancesValue(template)),
+    enrollment_limit: String(credentials.enrollment_limit),
     owner_env_var: credentials.owner_env_var,
     profile: credentials.profile,
     network: template.network || "",
@@ -3783,12 +3996,17 @@ async function submitAction(config, submitter) {
   body.set("proxy", credentials.proxy);
   body.set("domain", credentials.domain);
   body.set("tag", credentials.tag);
-  body.set("max_instances", String(credentials.max_instances));
+  body.set("max_templates", String(credentials.max_templates));
+  body.set("max_instances", String(normalizeMaxInstances(body.get("max_instances"))));
+  body.set("enrollment_limit", String(credentials.enrollment_limit));
   body.set("owner_env_var", credentials.owner_env_var);
   body.set("profile", credentials.profile);
   if (isOrderPage) {
     body.set("order_request", "true");
     body.set("order_template", orderTemplateName);
+  }
+  if (isEnrollPage) {
+    body.set("enroll_request", "true");
   }
 
   if (currentAction === "create") {
@@ -3853,6 +4071,21 @@ async function submitAction(config, submitter) {
 
   if (isEnrollPage) {
     if (response.status === 202) {
+      renderEnrollmentInstances([
+        ...enrollmentCards,
+        {
+          instance: createdInstanceFqdn || fieldValue("instance"),
+          dns_name: createdInstanceFqdn,
+          image: fieldValue("image"),
+          version: fieldValue("version"),
+          template_url: fieldValue("template_url"),
+          status: "creating",
+        },
+      ], {
+        ...enrollmentLimit,
+        used: Math.max(Number(enrollmentLimit.used || 0) + 1, enrollmentCards.length + 1),
+      });
+      window.setTimeout(refreshEnrollLimit, 250);
       setNotice(`Creation requested for ${createdInstanceFqdn || fieldValue("instance")}.`, "success");
     } else {
       const text = await response.text();
@@ -4461,7 +4694,7 @@ logsFullscreenBtn?.addEventListener("click", () => {
 });
 clearLogsBtn?.addEventListener("click", clearLogs);
 orderCancelBtn?.addEventListener("click", () => {
-  window.location.href = "/";
+  window.location.href = orderHomeUrl();
 });
 orderInstances?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-order-instance-delete]");
@@ -4470,7 +4703,6 @@ orderInstances?.addEventListener("click", (event) => {
     setOrderStatus("Delete request failed", "error");
   });
 });
-
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !dockerRunModal?.classList.contains("hidden")) {
     closeDockerRunModal();
@@ -4498,6 +4730,7 @@ async function initializePage() {
     const canEnroll = configureEnrollDefaultConfig();
     if (canEnroll) {
       setImportTab("run");
+      await refreshEnrollLimit();
       if (submitBtn) {
         submitBtn.textContent = "Submit creation";
         updateEnrollSubmitState({ notify: false });

@@ -860,14 +860,16 @@ describe("server routes", () => {
         proxy: "",
         domain: "example.com",
         tag: "tile",
-        max_instances: "3",
+        max_templates: "3",
+        enrollment_limit: "2",
         smtp_config: "mailer:smtp-secret@smtp.example.com:587",
         profile: "prod",
         profiles: JSON.stringify({ prod: { tag: "tile" } }),
       })
       .expect(200)
       .expect((res) => {
-        expect(res.body.max_instances).toBe(3);
+        expect(res.body.max_templates).toBe(3);
+        expect(res.body.enrollment_limit).toBe(2);
         expect(res.body.registry_webhook_secret).toBeUndefined();
         expect(res.body.smtp_config).toBe("mailer:smtp-secret@smtp.example.com:587");
       });
@@ -1389,40 +1391,163 @@ describe("server routes", () => {
   test("enforces order limits before create", async () => {
     const { dataPath, request } = await loadServer();
     writeState(dataPath, {
-      config: { max_instances: 1, profile: "prod", config_profile: "prod" },
-      templates: {},
-      order_counts: { "buyer@example.com": { prod: 1 } },
-      order_instances: { "buyer@example.com": { prod: [{ instance: "tiles.example.com", template: "Tiles" }] } },
+      config: { max_templates: 4, profile: "prod", config_profile: "prod" },
+      templates: { Tiles: { max_instances: 1 } },
+      order_counts: { "buyer@example.com": { prod: 2 } },
+      order_instances: { "buyer@example.com": { prod: [
+        { instance: "tiles.example.com", template: "Tiles" },
+        { instance: "guide.example.com", template: "Guide" },
+      ] } },
       logs: "",
     });
 
-    await request.get("/order/limit").set("x-auth-request-email", "buyer@example.com").query({ profile: "prod" }).expect(200).expect((res) => {
+    await request.get("/order/limit").set("x-auth-request-email", "buyer@example.com").query({ profile: "prod", template: "Tiles" }).expect(200).expect((res) => {
       expect(res.body.reached).toBe(true);
-      expect(res.body.instances).toEqual([expect.objectContaining({ instance: "tiles.example.com" })]);
+      expect(res.body.used).toBe(1);
+      expect(res.body.total_used).toBe(1);
+      expect(res.body.instances).toEqual([
+        expect.objectContaining({ instance: "tiles.example.com" }),
+      ]);
+    });
+    await request.get("/order/limit").set("x-auth-request-email", "buyer@example.com").query({ profile: "prod" }).expect(200).expect((res) => {
+      expect(res.body.instances).toEqual([
+        expect.objectContaining({ instance: "tiles.example.com" }),
+        expect.objectContaining({ instance: "guide.example.com" }),
+      ]);
+      expect(res.body.total_used).toBe(2);
     });
     await request.get("/order/limit").expect(200).expect((res) => {
       expect(res.body.profile).toBe("");
     });
     await request.post("/create")
       .set("x-auth-request-email", "buyer@example.com")
-      .send({ order_request: "true", profile: "prod" })
+      .send({ order_request: "true", order_template: "Tiles", profile: "prod" })
       .expect(429)
       .expect((res) => {
         expect(res.body.code).toBe("max_instances_reached");
       });
 
     writeState(dataPath, {
-      config: { max_instances: 2, profile: "prod", config_profile: "prod" },
-      templates: {},
+      config: { max_templates: 4, profile: "prod", config_profile: "prod" },
+      templates: { Tiles: { max_instances: 2 } },
       order_counts: { "buyer@example.com": { prod: 2 } },
       logs: "",
     });
     await request.post("/create")
       .set("x-auth-request-email", "buyer@example.com")
-      .send({ order_request: "true", profile: "prod" })
+      .send({ order_request: "true", order_template: "Tiles", profile: "prod" })
       .expect(429)
       .expect((res) => {
         expect(res.body.detail).toContain("maximum of 2 instances");
+      });
+  });
+
+  test("enforces enrollment limits separately from order requests", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock);
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", max_templates: 1, profile: "prod", config_profile: "prod" },
+      templates: {},
+      order_counts: {},
+      enrollment_counts: {},
+      enrollment_instances: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.post("/create")
+      .set("x-auth-request-email", "buyer@example.com")
+      .send({
+        instance: "enroll-one.example.com",
+        image: "saashup/tile",
+        version: "v2.0.0",
+        port_value: "8080",
+        enroll_request: "true",
+        profile: "prod",
+      })
+      .expect(202);
+
+    expect(readState(dataPath).enrollment_counts["buyer@example.com"]?.prod).toBe(1);
+    expect(readState(dataPath).enrollment_instances["buyer@example.com"]?.prod).toEqual([
+      expect.objectContaining({ instance: "enroll-one.example.com", image: "saashup/tile", version: "v2.0.0" }),
+    ]);
+    expect(readState(dataPath).templates["enroll-one.example.com"]).toMatchObject({
+      creator_email: "buyer@example.com",
+      config_profile: "prod",
+      image: "saashup/tile",
+      version: "v2.0.0",
+    });
+    expect(readState(dataPath).order_counts["buyer@example.com"]?.prod).toBeUndefined();
+
+    await request.get("/enroll/limit")
+      .set("x-auth-request-email", "buyer@example.com")
+      .query({ profile: "prod", template: "Tiles" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toMatchObject({ used: 1, max: 1, remaining: 0, reached: true });
+        expect(res.body.instances).toEqual([
+          expect.objectContaining({ instance: "enroll-one.example.com", image: "saashup/tile", source: "template" }),
+        ]);
+      });
+
+    await request.post("/create")
+      .set("x-auth-request-email", "buyer@example.com")
+      .send({
+        instance: "enroll-two.example.com",
+        image: "saashup/tile",
+        version: "v2.0.0",
+        port_value: "8080",
+        enroll_request: "true",
+        profile: "prod",
+      })
+      .expect(429)
+      .expect((res) => {
+        expect(res.body.code).toBe("max_templates_reached");
+        expect(res.body.max_templates).toBe(1);
+        expect(res.body.used_templates).toBe(1);
+      });
+
+    writeState(dataPath, {
+      config: { enrollment_limit: 1, profile: "prod", config_profile: "prod" },
+      enrollment_counts: { "legacy@example.com": { prod: 1 } },
+      enrollment_instances: {},
+      logs: "",
+    });
+    await request.get("/enroll/limit")
+      .set("x-auth-request-email", "legacy@example.com")
+      .query({ profile: "prod", template: "Tiles" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toMatchObject({ used: 0, max: 1, remaining: 1, reached: false, instances: [] });
+      });
+  });
+
+  test("enroll limit lists templates created by the user", async () => {
+    const { dataPath, request } = await loadServer();
+    writeState(dataPath, {
+      config: { enrollment_limit: 2, profile: "prod", config_profile: "prod" },
+      templates: {
+        Tile: { config_profile: "prod", image: "saashup/tile", version: "v1", creator_email: "owner@example.com" },
+        Guide: { config_profile: "prod", image: "saashup/guide", version: "v2", creator_email: "other@example.com" },
+        Install: { config_profile: "install", image: "saashup/install", version: "v4", creator_email: "owner@example.com" },
+        Shared: { image: "saashup/shared", version: "v3", creator_email: "owner@example.com" },
+      },
+      enrollment_counts: {},
+      enrollment_instances: {},
+      logs: "",
+    });
+
+    await request.get("/enroll/limit")
+      .set("x-auth-request-email", "owner@example.com")
+      .query({ profile: "prod" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toMatchObject({ used: 3, max: 2, remaining: 0, reached: true });
+        expect(res.body.instances).toEqual([
+          expect.objectContaining({ instance: "Tile", image: "saashup/tile", source: "template", status: "ready" }),
+          expect.objectContaining({ instance: "Install", image: "saashup/install", source: "template", status: "ready" }),
+          expect.objectContaining({ instance: "Shared", image: "saashup/shared", source: "template", status: "ready" }),
+        ]);
       });
   });
 
@@ -1435,7 +1560,7 @@ describe("server routes", () => {
         token: "secret",
         domain: "example.com",
         tag: "prod",
-        max_instances: 2,
+        max_templates: 4,
         profile: "prod",
         config_profile: "prod",
         owner_env_var: "SAASHUP_OWNER",
@@ -1446,6 +1571,7 @@ describe("server routes", () => {
           dns_name: "tiles-order.example.com",
           image: "saashup/tile",
           version: "v2.0.0",
+          max_instances: 2,
           network: "traefik-public",
           port_value: "8080",
         },
@@ -1466,7 +1592,7 @@ describe("server routes", () => {
 
     await request.get("/order/limit")
       .set("x-auth-request-email", "buyer@example.com")
-      .query({ profile: "prod" })
+      .query({ profile: "prod", template: "Tiles" })
       .expect(200)
       .expect((res) => {
         expect(res.body).toMatchObject({ profile: "prod", used: 0, max: 2, remaining: 2, reached: false, instances: [] });
@@ -1508,7 +1634,7 @@ describe("server routes", () => {
 
     await request.get("/order/limit")
       .set("x-auth-request-email", "buyer@example.com")
-      .query({ profile: "prod" })
+      .query({ profile: "prod", template: "Tiles" })
       .expect(200)
       .expect((res) => {
         expect(res.body).toMatchObject({ used: 1, max: 2, remaining: 1, reached: false });

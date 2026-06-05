@@ -1554,7 +1554,8 @@ body.order-page .order-status.hidden {
   display: none;
 }
 
-body.order-page .order-instances {
+body.order-page .order-instances,
+body.enroll-page .order-instances {
   width: min(760px, 100%);
   margin: 0 0 18px;
   padding: 18px;
@@ -1564,7 +1565,8 @@ body.order-page .order-instances {
   box-shadow: var(--shadow);
 }
 
-body.order-page .order-instances.hidden {
+body.order-page .order-instances.hidden,
+body.enroll-page .order-instances.hidden {
   display: none;
 }
 
@@ -1659,12 +1661,63 @@ body.order-page .order-instances.hidden {
   background: var(--success-soft);
 }
 
+.order-instance-state-recorded {
+  color: var(--muted);
+  background: var(--button-soft);
+}
+
+.order-instance-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
 .order-instance-delete {
+  display: grid;
+  place-items: center;
   flex: 0 0 34px;
   width: 34px;
   height: 34px;
-  margin-left: auto;
   border-radius: 10px;
+}
+
+.order-instance-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 54px;
+  height: 34px;
+  padding: 0 12px;
+  border-color: var(--primary);
+  border-radius: 10px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.order-instance-delete svg,
+.order-instance-open svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.order-instance-open {
+  text-decoration: none;
+}
+
+.order-instance-open:hover {
+  color: #fff;
+  filter: brightness(0.96);
 }
 
 .order-instance-status {

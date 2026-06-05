@@ -23,6 +23,8 @@
 
     <section class="notice" id="notif">Import a Docker run command or compose with a single service.</section>
 
+    <section class="order-instances hidden" id="enrollInstances" aria-live="polite"></section>
+
     <form id="instanceForm" action="/create" method="post" class="enroll-card" novalidate>
       <div class="card-header">
         <h3>Enroll instance</h3>
@@ -69,7 +71,9 @@
         <input type="url" id="proxy" name="proxy">
         <input type="text" id="domain" name="domain">
         <input type="text" id="tag" name="tag">
+        <input type="number" id="max_templates" name="max_templates" min="0" max="10" value="1">
         <input type="number" id="max_instances" name="max_instances" min="0" max="10" value="1">
+        <input type="number" id="enrollment_limit" name="enrollment_limit" min="0" max="10" value="1">
         <input type="text" id="owner_env_var" name="owner_env_var" value="SAASHUP_OWNER">
         <input type="checkbox" id="cloudflare_filter" name="cloudflare_filter" value="true" checked>
         <input type="text" id="network" name="network">

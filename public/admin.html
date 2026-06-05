@@ -173,9 +173,14 @@
                 <input type="text" id="tag" name="tag" placeholder="production">
               </label>
 
-              <label class="field" data-field="max_instances">
-                <span class="field-label">Max instances <span class="profile-help-btn" data-profile-help="max_instances" role="button" tabindex="0" aria-label="Explain Max instances">?</span></span>
-                <input type="number" id="max_instances" name="max_instances" min="0" max="10" value="1">
+              <label class="field" data-field="max_templates">
+                <span class="field-label">Max templates <span class="profile-help-btn" data-profile-help="max_templates" role="button" tabindex="0" aria-label="Explain Max templates">?</span></span>
+                <input type="number" id="max_templates" name="max_templates" min="0" max="10" value="1">
+              </label>
+
+              <label class="field" data-field="enrollment_limit">
+                <span class="field-label">Enrollment limit per user <span class="profile-help-btn" data-profile-help="enrollment_limit" role="button" tabindex="0" aria-label="Explain Enrollment limit">?</span></span>
+                <input type="number" id="enrollment_limit" name="enrollment_limit" min="0" max="10" value="1">
               </label>
 
               <label class="field" data-field="owner_env_var">
@@ -216,6 +221,16 @@
               <label class="field checkbox-field" data-field="saashup_enabled">
                 <input type="checkbox" id="saashup_enabled" name="saashup_enabled" value="true" checked>
                 <span class="field-label">Enable template orders</span>
+              </label>
+
+              <label class="field" data-field="template_url">
+                <span class="field-label">Template URL</span>
+                <input type="url" id="template_url" name="template_url" placeholder="https://example.com/template">
+              </label>
+
+              <label class="field" data-field="max_instances">
+                <span class="field-label">Max instances <span class="profile-help-btn" data-profile-help="max_instances" role="button" tabindex="0" aria-label="Explain max instances">?</span></span>
+                <input type="number" id="max_instances" name="max_instances" min="0" max="10" value="1">
               </label>
 
               <label class="field" data-field="registry_webhook_secret">
