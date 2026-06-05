@@ -1599,7 +1599,7 @@ body.enroll-page .main {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 18px;
   padding: 96px 28px 82px;
 }
@@ -1626,9 +1626,30 @@ body.enroll-page .order-footer {
   margin: 0;
 }
 
+body.enroll-page .notice {
+  width: min(1420px, 100%);
+}
+
+.enroll-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(390px, 440px);
+  align-items: start;
+  gap: 20px;
+  width: min(1420px, 100%);
+}
+
+.enroll-workspace:has(.order-instances.hidden) {
+  grid-template-columns: minmax(520px, 860px);
+  justify-content: center;
+}
+
 .enroll-card {
-  width: min(940px, 100%);
-  padding: 34px;
+  position: sticky;
+  top: 92px;
+  width: 100%;
+  max-height: calc(100vh - 174px);
+  overflow: auto;
+  padding: 28px;
   border: 1px solid var(--border);
   border-radius: 18px;
   background: var(--panel);
@@ -1655,10 +1676,10 @@ body.enroll-page .order-footer {
 }
 
 .enroll-card .modal-textarea {
-  min-height: 320px;
-  padding: 18px;
-  font-size: 1rem;
-  line-height: 1.55;
+  min-height: 240px;
+  padding: 16px;
+  font-size: 0.96rem;
+  line-height: 1.5;
 }
 
 .enroll-summary {
@@ -1700,7 +1721,8 @@ body.enroll-page .order-footer {
   border-color: color-mix(in srgb, var(--primary) 24%, var(--border));
 }
 
-body.order-page .order-loading {
+body.order-page .order-loading,
+body.enroll-page .order-loading {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1714,11 +1736,13 @@ body.order-page .order-loading {
   font-weight: 800;
 }
 
-body.order-page .order-loading.hidden {
+body.order-page .order-loading.hidden,
+body.enroll-page .order-loading.hidden {
   display: none;
 }
 
-body.order-page .order-spinner {
+body.order-page .order-spinner,
+body.enroll-page .order-spinner {
   width: 22px;
   height: 22px;
   border: 3px solid #c7d2fe;
@@ -1798,9 +1822,11 @@ body.enroll-page .order-instances {
 }
 
 body.enroll-page .order-instances {
-  width: min(1040px, 100%);
+  width: 100%;
+  max-height: calc(100vh - 174px);
   margin-bottom: 0;
-  padding: 24px;
+  overflow: auto;
+  padding: 20px;
 }
 
 body.order-page .order-instances.hidden,
@@ -2064,13 +2090,13 @@ body.enroll-page .order-instances-header h2 {
 }
 
 body.enroll-page .order-instance-grid {
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
 }
 
 body.enroll-page .order-instance-card {
-  gap: 14px;
-  padding: 18px;
+  gap: 12px;
+  padding: 14px;
 }
 
 body.enroll-page .order-instance-icon,
@@ -2200,6 +2226,21 @@ body.order-page #orderCancelBtn {
 
   .content-grid {
     grid-template-columns: 1fr;
+  }
+
+  .enroll-workspace,
+  .enroll-workspace:has(.order-instances.hidden) {
+    grid-template-columns: minmax(0, 1fr);
+    width: min(860px, 100%);
+  }
+
+  .enroll-card {
+    position: static;
+    max-height: none;
+  }
+
+  body.enroll-page .order-instances {
+    max-height: none;
   }
 }
 

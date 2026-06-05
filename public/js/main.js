@@ -1284,7 +1284,7 @@ function normalizeMaxInstances(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 1;
 
-  return Math.min(10, Math.max(0, Math.floor(number)));
+  return Math.min(100, Math.max(0, Math.floor(number)));
 }
 
 function maxTemplatesValue(profile = {}) {
@@ -1888,6 +1888,7 @@ function setNotice(message, type = "info", autoClear = true) {
 
   notif.textContent = message;
   notif.className = "notice";
+  notif.classList.remove("hidden");
 
   if (type === "success") {
     notif.style.backgroundColor = "#dcfce7";
@@ -1910,6 +1911,12 @@ function setNotice(message, type = "info", autoClear = true) {
       setNotice("Welcome !", "info", false);
     }, 4000);
   }
+}
+
+function hideNotice() {
+  const notif = document.getElementById("notif");
+  if (!notif) return;
+  notif.classList.add("hidden");
 }
 
 function setOrderStatus(message, type = "success", reason = "") {
@@ -2318,6 +2325,19 @@ function hideOrderLoading() {
   orderLoading?.classList.add("hidden");
 }
 
+function showEnrollLoading() {
+  if (!isEnrollPage) return;
+  hideNotice();
+  orderLoading?.classList.remove("hidden");
+  form?.classList.add("hidden");
+  enrollInstances?.classList.add("hidden");
+}
+
+function hideEnrollLoading() {
+  if (!isEnrollPage) return;
+  orderLoading?.classList.add("hidden");
+}
+
 function setLogsExpanded(expanded) {
   logsCard?.classList.toggle("fullscreen", expanded);
 
@@ -2623,8 +2643,10 @@ function enrollmentLimitMessage(limit) {
   return `You have reached your maximum of ${max} template${max === 1 ? "" : "s"} for this config.`;
 }
 
-async function refreshEnrollLimit() {
+async function refreshEnrollLimit({ showLoading = true } = {}) {
   if (!isEnrollPage) return null;
+
+  if (showLoading) showEnrollLoading();
 
   try {
     const limit = await enrollLimitForProfile(selectedProfileCredentials().profile);
@@ -2633,8 +2655,11 @@ async function refreshEnrollLimit() {
     if (limit.reached) setNotice(enrollmentLimitMessage(limit), "error", false);
     else if (!dockerRunInput?.value && !dockerComposeInput?.value) setNotice(enrollImportNotice, "info", false);
     updateEnrollSubmitState({ notify: false });
+    hideEnrollLoading();
     return limit;
   } catch {
+    hideEnrollLoading();
+    form?.classList.remove("hidden");
     updateEnrollSubmitState({ notify: false });
     return null;
   }
@@ -2650,13 +2675,13 @@ function configureEnrollDefaultConfig() {
   if (!isEnrollPage) return false;
 
   const profileName = defaultConfigProfileName();
-  form?.classList.remove("hidden");
   updateImportProfileOptions();
   if (importProfileSelect) importProfileSelect.value = profileName;
   applyProfileToFields(profileName);
 
   const credentials = selectedProfileCredentials();
   if (!profileName || !credentials.netbox || !credentials.token) {
+    hideEnrollLoading();
     form?.classList.add("hidden");
     setNotice("You cannot deploy a new SaaS yet. Ask an administrator to configure a config.", "error", false);
     return false;
@@ -3274,14 +3299,14 @@ function composeWorkflowName(text) {
   return match ? yamlScalar(match[1]) : "compose";
 }
 
-function workflowFromTemplateEntries(templates, profileName = selectedProfileCredentials().profile || "", name = "templates", enableTemplateOrders = true) {
+function workflowFromTemplateEntries(templates, profileName = selectedProfileCredentials().profile || "", name = "templates", enableTemplateOrders = true, order = []) {
   const workflowKey = workflowStorageKey(profileName, name);
   return {
     key: workflowKey,
     workflow: {
       name,
       config_profile: profileName,
-      steps: Object.entries(normalizeCreateTemplates(templates)).map(([templateName, template]) => ({
+      steps: orderedTemplateEntries(templates, order).map(([templateName, template]) => ({
         template: templateName,
         template_data: { ...template, saashup_enabled: enableTemplateOrders },
         enabled: true,
@@ -3289,6 +3314,32 @@ function workflowFromTemplateEntries(templates, profileName = selectedProfileCre
       created_at: new Date().toISOString(),
     },
   };
+}
+
+function templateOrderFromPayload(payload) {
+  const data = plainObject(payload);
+  const order = data.template_order || data.templateOrder || data.order;
+  return Array.isArray(order) ? order.map((item) => String(item || "").trim()).filter(Boolean) : [];
+}
+
+function orderedTemplateEntries(templates, order = []) {
+  const normalized = normalizeCreateTemplates(templates);
+  const seen = new Set();
+  const entries = [];
+
+  order.forEach((name) => {
+    if (!Object.hasOwn(normalized, name) || seen.has(name)) return;
+    seen.add(name);
+    entries.push([name, normalized[name]]);
+  });
+
+  Object.entries(normalized).forEach(([name, template]) => {
+    if (seen.has(name)) return;
+    seen.add(name);
+    entries.push([name, template]);
+  });
+
+  return entries;
 }
 
 function parseDockerCompose(text) {
@@ -3530,6 +3581,7 @@ function templateExportPayload() {
     version: 1,
     exported_at: new Date().toISOString(),
     templates: normalizeCreateTemplates(createTemplates),
+    template_order: Object.keys(normalizeCreateTemplates(createTemplates)),
     workflows: normalizeCreateWorkflows(createWorkflows),
   };
 }
@@ -3817,6 +3869,7 @@ async function applyTemplateExportFile() {
   try {
     const payload = JSON.parse(await file.text());
     const { templates: importedTemplates, workflows: importedWorkflows } = templateCatalogFromExportPayload(payload);
+    const importedTemplateOrder = templateOrderFromPayload(payload);
     const count = Object.keys(importedTemplates).length;
     const workflowCount = Object.keys(importedWorkflows).length;
     let effectiveWorkflowCount = shouldCreateWorkflow ? workflowCount : 0;
@@ -3837,7 +3890,7 @@ async function applyTemplateExportFile() {
     if (shouldCreateWorkflow) {
       const workflowEntries = Object.entries(importedWorkflows);
       if (!workflowEntries.length && count) {
-        const generated = workflowFromTemplateEntries(importedTemplates, selectedProfileCredentials().profile || "", "templates", enableTemplateOrders);
+        const generated = workflowFromTemplateEntries(importedTemplates, selectedProfileCredentials().profile || "", "templates", enableTemplateOrders, importedTemplateOrder);
         workflowEntries.push([generated.key, generated.workflow]);
         effectiveWorkflowCount = 1;
       }

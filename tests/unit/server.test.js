@@ -120,7 +120,8 @@ describe("server helpers", () => {
     expect(maxInstancesValue(undefined)).toBe(1);
     expect(maxInstancesValue("-3")).toBe(0);
     expect(maxInstancesValue("4.9")).toBe(4);
-    expect(maxInstancesValue("99")).toBe(10);
+    expect(maxInstancesValue("99")).toBe(99);
+    expect(maxInstancesValue("101")).toBe(100);
   });
 
   test("parses simple smtp config strings", () => {

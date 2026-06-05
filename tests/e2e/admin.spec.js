@@ -1824,22 +1824,30 @@ test("template export import creates a workflow when the export only has templat
     buffer: Buffer.from(JSON.stringify({
       type: "saashup-template-export",
       version: 1,
+      template_order: ["Worker", "Guide"],
       templates: {
         Guide: {
           image: "saashup/guide",
           version: "v1.2.3",
+        },
+        Worker: {
+          image: "saashup/worker",
+          version: "v4.5.6",
         },
       },
     })),
   });
   await page.locator("#dockerRunApplyBtn").click();
 
-  await expect(page.locator("#notif")).toContainText("1 template and 1 workflow imported from export");
+  await expect(page.locator("#notif")).toContainText("2 templates and 1 workflow imported from export");
   const workflows = await page.evaluate(() => JSON.parse(localStorage.getItem("create_workflows")));
   expect(workflows["production::templates"]).toMatchObject({
     name: "templates",
     config_profile: "production",
-    steps: [{ template: "Guide", enabled: true, template_data: expect.objectContaining({ image: "saashup/guide" }) }],
+    steps: [
+      { template: "Worker", enabled: true, template_data: expect.objectContaining({ image: "saashup/worker" }) },
+      { template: "Guide", enabled: true, template_data: expect.objectContaining({ image: "saashup/guide" }) },
+    ],
   });
 });
 
@@ -2252,6 +2260,64 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
   expect(createBody).toContain("enroll_request=true");
   expect(createBody).toContain("enrollment_limit=2");
   await expect(page.locator("#notif")).toContainText("Creation requested for guide-app.");
+});
+
+test("enroll page waits for limit before showing create panel or cards", async ({ page }) => {
+  let resolveLimit;
+  const limitPending = new Promise((resolve) => {
+    resolveLimit = resolve;
+  });
+
+  await page.route("**/enroll/limit?**", async (route) => {
+    await limitPending;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        profile: "production",
+        used: 1,
+        max: 1,
+        remaining: 0,
+        reached: true,
+        instances: [
+          {
+            instance: "guide-template",
+            image: "saashup/guide",
+            status: "ready",
+            source: "netbox-template",
+          },
+        ],
+      }),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "production",
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        tag: "production",
+        enrollment_limit: 1,
+        saashup_default: true,
+      },
+    }),
+  }, {}, [], undefined, "/enroll.html");
+
+  await expect(page.locator("#orderLoading")).toBeVisible();
+  await expect(page.locator("#notif")).toBeHidden();
+  await expect(page.locator("#instanceForm")).toBeHidden();
+  await expect(page.locator("#enrollInstances")).toBeHidden();
+
+  resolveLimit();
+
+  await expect(page.locator("#orderLoading")).toBeHidden();
+  await expect(page.locator("#notif")).toBeVisible();
+  await expect(page.locator("#notif")).toContainText("You have reached your maximum of 1 template for this config.");
+  await expect(page.locator("#instanceForm")).toBeHidden();
+  await expect(page.locator("#enrollInstances")).toBeVisible();
+  await expect(page.locator("#enrollInstances")).toContainText("1 / 1");
+  await expect(page.locator("#enrollInstances")).toContainText("guide-template");
 });
 
 test("enroll page keeps submit disabled before import content", async ({ page }) => {

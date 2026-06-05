@@ -484,6 +484,76 @@ function netboxTemplateEntryFromContainer(container, labels, ownerEnvNameValue, 
   };
 }
 
+function templateImageKey(template) {
+  return imageKeyFromRefAndVersion(template?.image, template?.version);
+}
+
+function templateImageNameKey(template) {
+  return imageNameKey(template?.image);
+}
+
+function imageNameKey(ref) {
+  const imageRef = String(ref || "").trim();
+  return imageRef ? imageNameFromRef(imageRef) : "";
+}
+
+function imageKeyFromRefAndVersion(ref, versionValue = "") {
+  const imageRef = String(ref || "").trim();
+  if (!imageRef) return "";
+
+  const image = imageNameFromRef(imageRef);
+  const refTag = imageRef.lastIndexOf(":") > imageRef.lastIndexOf("/") ? imageRef.slice(imageRef.lastIndexOf(":") + 1) : "";
+  const version = String(versionValue || refTag || "").trim();
+  return image && version ? `${image}\u0000${version}` : "";
+}
+
+function imageKeyFromImageObject(image) {
+  const data = plainObject(image);
+  return imageKeyFromRefAndVersion(data.name || data.display || data.label || data.value || image, data.version || data.tag);
+}
+
+function imageNameKeyFromImageObject(image) {
+  const data = plainObject(image);
+  return imageNameKey(data.name || data.display || data.label || data.value || image);
+}
+
+async function imageContainerCountsByImage(client, hostFilter, containers = []) {
+  const images = await client.list("/api/plugins/docker/images/", { limit: 1000, ...hostFilter });
+  const imageKeyById = new Map();
+  const imageNameById = new Map();
+  const counts = new Map();
+  const imageCounts = new Map();
+
+  images.forEach((image) => {
+    const key = imageKeyFromImageObject(image);
+    const imageName = imageNameKeyFromImageObject(image);
+    if (!image.id) return;
+    if (key) {
+      imageKeyById.set(String(image.id), key);
+      if (!counts.has(key)) counts.set(key, 0);
+    }
+    if (imageName) {
+      imageNameById.set(String(image.id), imageName);
+      if (!imageCounts.has(imageName)) imageCounts.set(imageName, 0);
+    }
+  });
+
+  containers.forEach((container) => {
+    const image = plainObject(container?.image);
+    const imageId = valueText(image.id || container?.image_id);
+    const key = imageKeyById.get(imageId)
+      || imageKeyFromImageObject(container?.image)
+      || imageKeyFromRefAndVersion(container?.image_name || container?.image_display, container?.image_version || container?.image_tag);
+    const imageName = imageNameById.get(imageId)
+      || imageNameKeyFromImageObject(container?.image)
+      || imageNameKey(container?.image_name || container?.image_display);
+    if (key) counts.set(key, Number(counts.get(key) || 0) + 1);
+    if (imageName) imageCounts.set(imageName, Number(imageCounts.get(imageName) || 0) + 1);
+  });
+
+  return { exact: counts, image: imageCounts };
+}
+
 async function netboxTemplateEntriesForUser(req, profile, state, creator) {
   const config = selectedProfileConfig({ profile, config_profile: profile });
   if (!config.netbox || !config.token) return [];
@@ -498,6 +568,7 @@ async function netboxTemplateEntriesForUser(req, profile, state, creator) {
     const hostFilter = await hostIdQuery(client, config.tag);
     if (hostFilter.host_id === "__none__") return [...templates.values()];
     const containers = await client.list("/api/plugins/docker/containers/", { limit: 1000, ...hostFilter });
+    const imageCounts = await imageContainerCountsByImage(client, hostFilter, containers);
 
     containers.forEach((container) => {
       const labels = labelMapFromContainer(container);
@@ -515,13 +586,18 @@ async function netboxTemplateEntriesForUser(req, profile, state, creator) {
       templates.set(key, existing);
     });
 
-    return [...templates.values()]
-      .map((entry) => ({
-        ...entry,
-        template: {
-          ...entry.template,
-          instance_count: Math.max(Number(entry.instance_count || 0), orderInstanceCountForTemplate(state, entry.name)),
-        },
+    return Promise.all([...templates.values()]
+      .map(async (entry) => {
+        const imageCount = imageCounts.exact.get(templateImageKey(entry.template))
+          || imageCounts.image.get(templateImageNameKey(entry.template))
+          || 0;
+        return {
+          ...entry,
+          template: {
+            ...entry.template,
+            instance_count: Math.max(Number(entry.instance_count || 0), imageCount, orderInstanceCountForTemplate(state, entry.name)),
+          },
+        };
       }));
   } catch (error) {
     logLine(`ENROLL : NetBox template discovery failed ${error.message || "unknown error"}`);

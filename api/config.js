@@ -11,6 +11,31 @@ function normalizeImportedProfiles(profiles, maxInstancesValue, plainObject) {
   }));
 }
 
+function cleanStoredConfig(config, parseProfiles, profilesWithSingleDefault, plainObject) {
+  const data = plainObject(config);
+  const profiles = profilesWithSingleDefault(parseProfiles(data.profiles));
+  const profile = data.profile || data.config_profile || Object.keys(profiles).sort((a, b) => a.localeCompare(b))[0] || "";
+  return {
+    customer_name: data.customer_name || "",
+    profile,
+    config_profile: profile,
+    profiles,
+  };
+}
+
+function expandedConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject) {
+  const stored = cleanStoredConfig(config, parseProfiles, profilesWithSingleDefault, plainObject);
+  const selected = stored.profile ? selectedProfileConfig({ profile: stored.profile, config_profile: stored.profile }) : {};
+  return {
+    ...stored,
+    ...selected,
+    customer_name: stored.customer_name,
+    profile: stored.profile,
+    config_profile: stored.config_profile,
+    profiles: stored.profiles,
+  };
+}
+
 function registerConfigRoutes(app, {
   appOwnerEmail,
   authUserFromRequest,
@@ -33,7 +58,14 @@ function registerConfigRoutes(app, {
   writeState,
   workflowsForRequest,
 }) {
-  app.get("/config", (req, res) => res.json(readState().config || {}));
+  app.get("/config", (req, res) => {
+    const config = readState().config || {};
+    if (!Object.keys(plainObject(config)).length) {
+      res.json({});
+      return;
+    }
+    res.json(expandedConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject));
+  });
   app.get("/mail-settings", requireAdmin, (req, res) => res.json({ owner_email_configured: Boolean(appOwnerEmail) }));
   app.get("/registry-webhook-secret", requireAdmin, (req, res) => {
     const template = req.query.template || "";
@@ -81,25 +113,56 @@ function registerConfigRoutes(app, {
     res.json({});
   });
   app.get("/webhook", requireAdmin, (req, res) => {
-    const profiles = profilesWithSingleDefault(parseProfiles(req.query.profiles));
+    const profileName = req.query.profile || req.query.config_profile || "";
+    const configProfileName = req.query.config_profile || req.query.profile || "";
+    const parsedProfiles = profilesWithSingleDefault(parseProfiles(req.query.profiles));
+    const selectedInputProfile = plainObject(parsedProfiles[profileName]);
+    const selectedProfileMax = selectedInputProfile.max_templates
+      ?? selectedInputProfile.max_instances
+      ?? selectedInputProfile.enrollment_limit;
+    const maxTemplates = maxInstancesValue(selectedProfileMax ?? req.query.max_templates ?? req.query.max_instances ?? req.query.enrollment_limit);
+    const enrollmentLimit = maxInstancesValue(selectedInputProfile.enrollment_limit ?? selectedProfileMax ?? req.query.enrollment_limit ?? maxTemplates);
+    const ownerEnvVar = String(req.query.owner_env_var ?? selectedInputProfile.owner_env_var ?? "SAASHUP_OWNER").trim() || "SAASHUP_OWNER";
+    const cloudflareFilter = req.query.cloudflare_filter !== undefined
+      ? req.query.cloudflare_filter !== "false"
+      : selectedInputProfile.cloudflare_filter !== false;
+    if (profileName) {
+      parsedProfiles[profileName] = {
+        ...selectedInputProfile,
+        netbox: req.query.netbox ?? selectedInputProfile.netbox ?? "",
+        token: req.query.token ?? selectedInputProfile.token ?? "",
+        proxy: req.query.proxy ?? selectedInputProfile.proxy ?? "",
+        domain: req.query.domain ?? selectedInputProfile.domain ?? "",
+        tag: req.query.tag ?? selectedInputProfile.tag ?? "",
+        max_templates: maxTemplates,
+        enrollment_limit: enrollmentLimit,
+        owner_env_var: ownerEnvVar,
+        cloudflare_filter: cloudflareFilter,
+        smtp_config: req.query.smtp_config ?? selectedInputProfile.smtp_config ?? "",
+      };
+    }
+    const profiles = profilesWithSingleDefault(parsedProfiles);
+    const selectedProfile = plainObject(profiles[profileName]);
+    const profileValue = (key, fallback = "") => (profileName && selectedProfile[key] !== undefined ? selectedProfile[key] : fallback);
     const config = {
       customer_name: req.query.customer_name || "",
-      netbox: req.query.netbox || "",
-      token: req.query.token || "",
-      proxy: req.query.proxy || "",
-      domain: req.query.domain || "",
-      tag: req.query.tag || "",
-      max_templates: maxInstancesValue(req.query.max_templates ?? req.query.max_instances ?? req.query.enrollment_limit),
-      enrollment_limit: maxInstancesValue(req.query.enrollment_limit),
-      owner_env_var: String(req.query.owner_env_var || "SAASHUP_OWNER").trim() || "SAASHUP_OWNER",
-      cloudflare_filter: req.query.cloudflare_filter !== "false",
-      smtp_config: req.query.smtp_config || "",
-      profile: req.query.profile || req.query.config_profile || "",
-      config_profile: req.query.config_profile || req.query.profile || "",
-      profiles: JSON.stringify(profiles),
+      netbox: profileValue("netbox", req.query.netbox || ""),
+      token: profileValue("token", req.query.token || ""),
+      proxy: profileValue("proxy", req.query.proxy || ""),
+      domain: profileValue("domain", req.query.domain || ""),
+      tag: profileValue("tag", req.query.tag || ""),
+      max_templates: maxInstancesValue(profileValue("max_templates", maxTemplates)),
+      enrollment_limit: maxInstancesValue(profileValue("enrollment_limit", enrollmentLimit)),
+      owner_env_var: String(profileValue("owner_env_var", ownerEnvVar)).trim() || "SAASHUP_OWNER",
+      cloudflare_filter: profileValue("cloudflare_filter", cloudflareFilter) !== false,
+      smtp_config: profileValue("smtp_config", req.query.smtp_config || ""),
+      profile: profileName,
+      config_profile: configProfileName,
+      profiles,
     };
+    const storedConfig = cleanStoredConfig(config, parseProfiles, profilesWithSingleDefault, plainObject);
     writeState((state) => {
-      state.config = config;
+      state.config = storedConfig;
       return state;
     });
     res.json(config);
@@ -147,8 +210,8 @@ function registerConfigRoutes(app, {
 
   app.get("/portable-config", requireAdmin, (req, res) => {
     const state = readState();
-    const config = plainObject(state.config);
-    const payload = { config: { ...config, profiles: profilesWithSingleDefault(parseProfiles(config.profiles)) } };
+    const config = cleanStoredConfig(plainObject(state.config), parseProfiles, profilesWithSingleDefault, plainObject);
+    const payload = { config };
     res.attachment(`saashup-config-${new Date().toISOString().slice(0, 10)}.json`).json(payload);
   });
   app.post("/portable-config", requireAdmin, async (req, res) => {
@@ -162,15 +225,12 @@ function registerConfigRoutes(app, {
       const mergedProfiles = profilesWithSingleDefault({ ...parseProfiles(existingConfig.profiles), ...profiles });
       selectedProfile = config.profile || config.config_profile || existingConfig.profile || existingConfig.config_profile || names[0] || "";
       const nextConfig = {
-        ...existingConfig,
-        ...config,
-        profiles: JSON.stringify(mergedProfiles),
+        customer_name: config.customer_name ?? existingConfig.customer_name ?? "",
+        profile: selectedProfile,
+        config_profile: selectedProfile,
+        profiles: mergedProfiles,
       };
-      if (selectedProfile) {
-        nextConfig.profile = selectedProfile;
-        nextConfig.config_profile = selectedProfile;
-      }
-      state.config = nextConfig;
+      state.config = cleanStoredConfig(nextConfig, parseProfiles, profilesWithSingleDefault, plainObject);
       return state;
     });
     res.json({ status: "imported", profiles: names.length });
