@@ -15,8 +15,6 @@ function registerConfigRoutes(app, {
   appOwnerEmail,
   authUserFromRequest,
   maxInstancesValue,
-  mergeProfileMaps,
-  packageJson,
   parseProfiles,
   plainObject,
   profilesWithSingleDefault,
@@ -28,9 +26,12 @@ function registerConfigRoutes(app, {
   selectedProfileConfig,
   sendContactEmail,
   sendTestEmail,
+  syncTemplatesToNetBoxConfigContext,
+  templatesForRequest,
   templatesWithCreatorEmails,
   verifyContactTurnstile,
   writeState,
+  workflowsForRequest,
 }) {
   app.get("/config", (req, res) => res.json(readState().config || {}));
   app.get("/mail-settings", requireAdmin, (req, res) => res.json({ owner_email_configured: Boolean(appOwnerEmail) }));
@@ -104,49 +105,62 @@ function registerConfigRoutes(app, {
     res.json(config);
   });
 
-  app.get("/templates", (req, res) => res.json(readState().templates || {}));
-  app.post("/templates", requireAdmin, (req, res) => {
-    let templates = {};
-    const creatorEmail = authUserFromRequest(req).email || "";
-    writeState((state) => {
-      templates = templatesWithCreatorEmails(req.body, plainObject(state.templates), creatorEmail);
-      state.templates = templates;
-      return state;
-    });
+  app.get("/templates", async (req, res) => {
+    const state = readState();
+    const profile = req.query.profile || req.query.config_profile || state.config?.profile || state.config?.config_profile || "";
+    const templates = await templatesForRequest(req, profile);
+    if (req.query.include_workflows === "true") {
+      res.json({
+        templates,
+        workflows: await workflowsForRequest(req, profile),
+      });
+      return;
+    }
     res.json(templates);
+  });
+  app.post("/templates", requireAdmin, async (req, res) => {
+    const creatorEmail = authUserFromRequest(req).email || "";
+    const state = readState();
+    const payload = plainObject(req.body);
+    const hasCatalogShape = Object.hasOwn(payload, "templates") || Object.hasOwn(payload, "workflows");
+    const profile = req.query.profile || req.query.config_profile || payload.profile || payload.config_profile || state.config?.profile || state.config?.config_profile || "";
+    const workflows = plainObject(hasCatalogShape ? payload.workflows : state.workflows);
+    const templates = templatesWithCreatorEmails(hasCatalogShape ? payload.templates : payload, plainObject(state.templates), creatorEmail);
+    try {
+      const syncResult = await syncTemplatesToNetBoxConfigContext(req, profile, templates, workflows);
+      if (!syncResult) {
+        writeState((state) => {
+          state.templates = templates;
+          state.workflows = workflows;
+          return state;
+        });
+      }
+      if (req.query.include_workflows === "true" || hasCatalogShape) {
+        res.json({ templates, workflows });
+        return;
+      }
+      res.json(templates);
+    } catch (error) {
+      res.status(error.statusCode || 502).json({ detail: error.message || "template sync failed", payload: error.payload });
+    }
   });
 
   app.get("/portable-config", requireAdmin, (req, res) => {
     const state = readState();
     const config = plainObject(state.config);
-    const payload = {
-      type: "saashup-config-export",
-      version: 1,
-      app_version: packageJson.version,
-      exported_at: new Date().toISOString(),
-      config: { ...config, profiles: profilesWithSingleDefault(parseProfiles(config.profiles)) },
-      templates: plainObject(state.templates),
-      order_counts: plainObject(state.order_counts),
-      enrollment_counts: plainObject(state.enrollment_counts),
-      order_instances: plainObject(state.order_instances),
-      enrollment_instances: plainObject(state.enrollment_instances),
-    };
+    const payload = { config: { ...config, profiles: profilesWithSingleDefault(parseProfiles(config.profiles)) } };
     res.attachment(`saashup-config-${new Date().toISOString().slice(0, 10)}.json`).json(payload);
   });
-  app.post("/portable-config", requireAdmin, (req, res) => {
+  app.post("/portable-config", requireAdmin, async (req, res) => {
     const payload = plainObject(req.body);
     const config = plainObject(payload.config);
     const profiles = profilesWithSingleDefault(normalizeImportedProfiles(parseProfiles(payload.profiles || config.profiles), maxInstancesValue, plainObject));
     const names = Object.keys(profiles).sort((a, b) => a.localeCompare(b));
-    const importedTemplates = plainObject(payload.templates);
-    const importedOrderCounts = plainObject(payload.order_counts);
-    const importedEnrollmentCounts = plainObject(payload.enrollment_counts);
-    const importedOrderInstances = plainObject(payload.order_instances);
-    const importedEnrollmentInstances = plainObject(payload.enrollment_instances);
+    let selectedProfile = "";
     writeState((state) => {
       const existingConfig = plainObject(state.config);
       const mergedProfiles = profilesWithSingleDefault({ ...parseProfiles(existingConfig.profiles), ...profiles });
-      const selectedProfile = config.profile || config.config_profile || existingConfig.profile || existingConfig.config_profile || names[0] || "";
+      selectedProfile = config.profile || config.config_profile || existingConfig.profile || existingConfig.config_profile || names[0] || "";
       const nextConfig = {
         ...existingConfig,
         ...config,
@@ -157,14 +171,9 @@ function registerConfigRoutes(app, {
         nextConfig.config_profile = selectedProfile;
       }
       state.config = nextConfig;
-      state.templates = { ...plainObject(state.templates), ...importedTemplates };
-      state.order_counts = mergeProfileMaps(plainObject(state.order_counts), importedOrderCounts);
-      state.enrollment_counts = mergeProfileMaps(plainObject(state.enrollment_counts), importedEnrollmentCounts);
-      state.order_instances = mergeProfileMaps(plainObject(state.order_instances), importedOrderInstances);
-      state.enrollment_instances = mergeProfileMaps(plainObject(state.enrollment_instances), importedEnrollmentInstances);
       return state;
     });
-    res.json({ status: "imported", profiles: names.length, templates: Object.keys(importedTemplates).length });
+    res.json({ status: "imported", profiles: names.length });
   });
 
   app.get("/logs", (req, res) => res.type("text/html").send(readState().logs || "&nbsp;<br>"));

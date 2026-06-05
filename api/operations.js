@@ -114,11 +114,11 @@ function registerOperationRoutes(app, {
     const authUser = authUserFromRequest(req);
     data.saashup_owner = authUser.email || "";
     const orderProfile = data.profile || data.config_profile || "";
-    const usage = currentUsage(req, orderProfile);
+    const usage = await currentUsage(req, orderProfile);
     const isOrderRequest = req.body.order_request === "true";
-    const enrollUsage = currentEnrollmentUsage(req, orderProfile);
     const isEnrollRequest = req.body.enroll_request === "true";
-    if (isOrderRequest && !validateOrderTemplate(req, res)) return;
+    const enrollUsage = isEnrollRequest ? await currentEnrollmentUsage(req, orderProfile) : { reached: false };
+    if (isOrderRequest && !await validateOrderTemplate(req, res, orderProfile)) return;
     if (isOrderRequest && usage.reached) {
       return res.status(429).json({ code: "max_instances_reached", detail: `You have reached your maximum of ${usage.max} instance${usage.max === 1 ? "" : "s"} for this config.`, max_instances: usage.max, used_instances: usage.used });
     }

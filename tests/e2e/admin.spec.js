@@ -42,7 +42,7 @@ async function openAdmin(page, config = {}, templates = {}, instances = [
     });
   });
 
-  await page.route("**/templates", async (route) => {
+  await page.route("**/templates**", async (route) => {
     if (route.request().method() === "POST") {
       templateStore = JSON.parse(route.request().postData() || "{}");
     }
@@ -118,6 +118,7 @@ test("config tab starts without a forced default profile", async ({ page }) => {
   await expect(page.locator("#netbox")).toHaveValue("");
   await expect(page.locator("#token")).toHaveValue("");
   await expect(page.locator("#token")).toHaveAttribute("type", "password");
+  await expect(page.locator("#tag")).toHaveAttribute("required");
   await page.locator("#tokenToggle").click();
   await expect(page.locator("#token")).toHaveAttribute("type", "text");
   await expect(page.locator("#tokenToggle")).toHaveAttribute("aria-label", "Hide NetBox token");
@@ -175,6 +176,31 @@ test("config tab starts without a forced default profile", async ({ page }) => {
   await expect(page.locator("#clearBtn")).toBeHidden();
   await expect(page.locator("#dockerRunBtn")).toBeHidden();
   await expect(page.locator("#saveTemplateBtn")).toBeHidden();
+});
+
+test("config profile requires a tag before saving", async ({ page }) => {
+  let webhookRequests = 0;
+  await page.route("**/webhook?**", async (route) => {
+    webhookRequests += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+
+  await openAdmin(page, {});
+  await expect(page.locator("#tag")).toHaveAttribute("required");
+  await page.locator("#config_name").fill("production");
+  await page.locator("#netbox").fill("https://netbox.example.com");
+  await page.locator("#token").fill("secret");
+  await page.locator("#tag").fill("   ");
+  await page.locator("#submitBtn").click();
+
+  await expect(page.locator("#notif")).toContainText("Tag is required");
+  expect(webhookRequests).toBe(0);
+  const localProfiles = await page.evaluate(() => JSON.parse(localStorage.getItem("config_profiles") || "{}"));
+  expect(localProfiles).toEqual({});
 });
 
 test("config profile warns when local profile is not synced to server", async ({ page }) => {
@@ -303,10 +329,8 @@ test("config page can send a test email when smtp and owner email are configured
   expect(emailBody).toContain('"smtp_config":"mailer:smtp-secret@smtp.example.com:587"');
 });
 
-test("config page exports config profiles and templates", async ({ page }) => {
+test("config page exports config only", async ({ page }) => {
   const exportPayload = {
-    type: "saashup-config-export",
-    version: 1,
     config: {
       profile: "production",
       profiles: {
@@ -317,12 +341,6 @@ test("config page exports config profiles and templates", async ({ page }) => {
         },
       },
     },
-    templates: {
-      Guide: {
-        image: "saashup/guide",
-      },
-    },
-    order_counts: {},
   };
 
   await page.route("**/portable-config", async (route) => {
@@ -345,7 +363,7 @@ test("config page exports config profiles and templates", async ({ page }) => {
   await expect(page.locator("#notif")).toContainText("Config export ready");
 });
 
-test("config page imports config profiles and templates", async ({ page }) => {
+test("config page imports config profiles", async ({ page }) => {
   let importedPayload;
   await page.route("**/portable-config", async (route) => {
     importedPayload = JSON.parse(route.request().postData() || "{}");
@@ -378,8 +396,6 @@ test("config page imports config profiles and templates", async ({ page }) => {
   page.on("dialog", (dialog) => dialog.accept());
 
   const importPayload = {
-    type: "saashup-config-export",
-    version: 1,
     config: {
       profile: "production",
       profiles: {
@@ -393,17 +409,6 @@ test("config page imports config profiles and templates", async ({ page }) => {
           owner_env_var: "OWNER",
           cloudflare_filter: false,
         },
-      },
-    },
-    templates: {
-      Guide: {
-        image: "saashup/guide",
-        version: "v1.0.0",
-      },
-    },
-    order_counts: {
-      "ada@example.com": {
-        production: 1,
       },
     },
   };
@@ -429,7 +434,7 @@ test("config page imports config profiles and templates", async ({ page }) => {
   expect(localProfiles.production.owner_env_var).toBe("OWNER");
   expect(localProfiles.production.cloudflare_filter).toBe(false);
   expect(localTemplates.Existing.image).toBe("saashup/existing");
-  expect(localTemplates.Guide.image).toBe("saashup/guide");
+  expect(localTemplates.Guide).toBeUndefined();
 });
 
 test("admin header shows oauth user and logs out through app auth", async ({ page }) => {
@@ -454,6 +459,33 @@ test("admin header shows oauth user and logs out through app auth", async ({ pag
 
   await page.locator("#logoutBtn").click();
   await expect(page).toHaveURL("/");
+});
+
+test("admin profile clear cache button clears local storage", async ({ page }) => {
+  await page.route("**/session/user", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ name: "Ada Lovelace", email: "ada@example.com" }),
+    });
+  });
+
+  await openAdmin(page, {});
+  await page.evaluate(() => {
+    localStorage.setItem("create_templates", JSON.stringify({ Guide: { image: "saashup/guide" } }));
+    localStorage.setItem("current_action", "template");
+  });
+  await expect(page.locator("#clearCacheBtn")).toBeVisible();
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("Clear local browser cache");
+    await dialog.accept();
+  });
+  await page.locator("#clearCacheBtn").click();
+  await page.waitForLoadState("domcontentloaded");
+  await expect.poll(() => page.evaluate(() => ({
+    templates: localStorage.getItem("create_templates"),
+    action: localStorage.getItem("current_action"),
+  }))).toEqual({ templates: null, action: null });
 });
 
 test("admin sidebar can collapse and expand", async ({ page }) => {
@@ -661,6 +693,52 @@ test("delete config removes the profile and keeps it gone after reload", async (
   await expect(page.locator("#config_profile option")).toHaveText("No config saved");
 });
 
+test("saving config refreshes templates for that profile", async ({ page }) => {
+  const templateProfiles = [];
+  let resolveWebhook;
+  const webhookPending = new Promise((resolve) => {
+    resolveWebhook = resolve;
+  });
+  await page.route("**/webhook?**", async (route) => {
+    await webhookPending;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/templates") templateProfiles.push(url.searchParams.get("profile") || "");
+  });
+
+  await openAdmin(page, {}, {
+    Remote: { image: "saashup/remote", version: "v1" },
+  });
+  await page.evaluate(() => {
+    localStorage.setItem("create_templates", JSON.stringify({ Stale: { image: "saashup/stale" } }));
+  });
+
+  await page.locator("#config_name").fill("production");
+  await page.locator("#netbox").fill("https://netbox.example.com");
+  await page.locator("#token").fill("secret");
+  await page.locator("#tag").fill("production");
+  await page.locator("#submitBtn").click();
+
+  await expect(page.locator("#submitBtn")).toHaveText("Saving config");
+  await expect(page.locator("#submitBtn")).toHaveClass(/btn-loading/);
+  await expect(page.locator("#submitBtn")).toBeDisabled();
+  resolveWebhook();
+
+  await expect(page.locator("#notif")).toContainText('Config "production" saved');
+  await expect.poll(() => templateProfiles).toContain("production");
+  await expect(page.locator("#submitBtn")).toHaveText("Save config");
+  await expect(page.locator("#submitBtn")).toBeEnabled();
+  const localTemplates = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")));
+  expect(localTemplates.Remote).toMatchObject({ image: "saashup/remote", version: "v1" });
+  expect(localTemplates.Stale).toBeUndefined();
+});
+
 test("create form supports repeatable env, labels, ports, volumes, and binds", async ({ page }) => {
   await page.route("**/images?**", async (route) => {
     await route.fulfill({
@@ -775,7 +853,9 @@ test("create form generates a random instance name when empty", async ({ page })
 });
 
 test("create form preloads a profile-based random instance name on page load", async ({ page }) => {
-  await page.evaluate(() => localStorage.setItem("current_action", "create"));
+  await page.addInitScript(() => {
+    localStorage.setItem("current_action", "create");
+  });
 
   await openAdmin(page, {
     profile: "production",
@@ -1673,6 +1753,96 @@ test("saved templates are normalized from SaaShup labels", async ({ page }) => {
   });
 });
 
+test("template import can upload a template export", async ({ page }) => {
+  await openAdmin(page, {}, {});
+
+  await page.getByRole("link", { name: "Template" }).click();
+  await page.locator("#dockerRunBtn").click();
+  await expect(page.locator("#dockerRunModal")).toBeVisible();
+  await page.locator('[data-import-tab="export"]').click();
+  await expect(page.locator("#templateExportPanel")).toBeVisible();
+  await expect(page.locator("#templateExportFileName")).toHaveText("JSON file from Export all templates");
+  await page.locator("#templateExportFile").setInputFiles({
+    name: "saashup-templates.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({
+      type: "saashup-template-export",
+      version: 1,
+      templates: {
+        Guide: {
+          image: "saashup/guide",
+          version: "v1.2.3",
+          max_instances: 2,
+          saashup_enabled: true,
+        },
+      },
+      workflows: {
+        "production::guide-stack": {
+          name: "guide-stack",
+          config_profile: "production",
+          steps: [{ template: "Guide", enabled: true }],
+        },
+      },
+    })),
+  });
+  await expect(page.locator("#templateExportFileName")).toHaveText("saashup-templates.json");
+  await page.locator("#dockerRunApplyBtn").click();
+
+  await expect(page.locator("#dockerRunModal")).toBeHidden();
+  await expect(page.locator("#notif")).toContainText("1 template and 1 workflow imported from export");
+  await expect(page.locator("#templateSelect")).toHaveValue("Guide");
+  const templates = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")));
+  const workflows = await page.evaluate(() => JSON.parse(localStorage.getItem("create_workflows")));
+  expect(templates.Guide).toMatchObject({
+    image: "saashup/guide",
+    version: "v1.2.3",
+    max_instances: 2,
+    saashup_enabled: true,
+  });
+  expect(workflows["production::guide-stack"]).toMatchObject({
+    name: "guide-stack",
+    config_profile: "production",
+    steps: [{ template: "Guide", enabled: true }],
+  });
+});
+
+test("template export import creates a workflow when the export only has templates", async ({ page }) => {
+  await openAdmin(page, {
+    profile: "production",
+    config_profile: "production",
+    profiles: JSON.stringify({
+      production: { netbox: "https://netbox.example.com", token: "secret", tag: "prod" },
+    }),
+  }, {});
+
+  await page.getByRole("link", { name: "Template" }).click();
+  await page.locator("#dockerRunBtn").click();
+  await page.locator('[data-import-tab="export"]').click();
+  await page.locator("#templateExportFile").setInputFiles({
+    name: "saashup-templates-only.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({
+      type: "saashup-template-export",
+      version: 1,
+      templates: {
+        Guide: {
+          image: "saashup/guide",
+          version: "v1.2.3",
+        },
+      },
+    })),
+  });
+  await page.locator("#dockerRunApplyBtn").click();
+
+  await expect(page.locator("#notif")).toContainText("1 template and 1 workflow imported from export");
+  const workflows = await page.evaluate(() => JSON.parse(localStorage.getItem("create_workflows")));
+  expect(workflows["production::templates"]).toMatchObject({
+    name: "templates",
+    config_profile: "production",
+    steps: [{ template: "Guide", enabled: true, template_data: expect.objectContaining({ image: "saashup/guide" }) }],
+  });
+});
+
 test("import profile selector includes server profiles beyond local cache", async ({ page }) => {
   await openAdmin(page, {
     profile: "install",
@@ -1741,6 +1911,10 @@ test("create form can save and load templates", async ({ page }) => {
   await page.getByRole("link", { name: "Template" }).click();
   await expect(page.locator("#saveTemplateBtn")).toBeVisible();
   await expect(page.locator("#saveTemplateBtn")).toHaveText("Save template");
+  await expect(page.locator("#saveTemplateBtn")).toHaveClass(/btn-primary/);
+  await expect(page.locator("#saveAllTemplatesBtn")).toBeVisible();
+  await expect(page.locator("#saveAllTemplatesBtn")).toHaveText("Export all templates");
+  await expect(page.locator("#saveAllTemplatesBtn")).toBeDisabled();
   await expect(page.locator("#orderTemplateBtn")).toBeVisible();
   await expect(page.locator("#orderTemplateBtn")).toBeEnabled();
   await expect(page.locator("#orderTemplateBtn")).toHaveText("Select template to order");
@@ -1778,6 +1952,7 @@ test("create form can save and load templates", async ({ page }) => {
   expect(savedTemplate.max_instances).toBe(2);
   expect(savedTemplate.version).toBe("v1.10.0");
   expect(savedTemplate.volumes).toEqual([{ key: "/app/data" }]);
+  await expect(page.locator("#saveAllTemplatesBtn")).toBeEnabled();
 
   await page.evaluate(() => localStorage.removeItem("create_templates"));
   await page.reload();
@@ -1794,7 +1969,6 @@ test("create form can save and load templates", async ({ page }) => {
   await expect(page.locator("#orderTemplateBtn")).toHaveClass(/btn-primary/);
   expect(imageRequestCount).toBeGreaterThanOrEqual(imageRequestsBeforeLoad);
   await expect(page.locator("#templateCreatorEmailWrap")).toBeVisible();
-  await expect(page.locator("#templateCreatorEmail")).toHaveValue("");
   await expect(page.locator("#network")).toHaveValue("traefik-net");
   await expect(page.locator("[data-field='instance']")).toBeHidden();
   await expect(page.locator("[data-field='dns_name']")).toBeHidden();
@@ -1821,6 +1995,12 @@ test("create form can save and load templates", async ({ page }) => {
   const updatedTemplate = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")).Guide);
   expect(updatedTemplate.creator_email).toBe("creator@example.com");
   expect(updatedTemplate.version).toBe("v1.2.3");
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.locator("#saveAllTemplatesBtn").click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/^saashup-templates-\d{4}-\d{2}-\d{2}\.json$/);
+  await expect(page.locator("#notif")).toContainText("1 template exported");
 
   page.once("dialog", async (dialog) => {
     expect(dialog.message()).toBe("Template name");

@@ -418,19 +418,51 @@ describe("server helpers", () => {
     expect(ownerEnvVarName({})).toBe("SAASHUP_OWNER");
     expect(ownerEnvVarName({ owner_env_var: "OWNER" })).toBe("OWNER");
     expect(ownerEnvVarName({ owner_env_var: "   " })).toBe("SAASHUP_OWNER");
-    expect(containerConfigPayloadFromForm({
-      instance: "custom-owned.example.com",
-      host_id: 7,
-      var_env_key: ["OWNER", "SAASHUP_OWNER"],
-      var_env_value: ["spoofed@example.com", "manual@example.com"],
+	    expect(containerConfigPayloadFromForm({
+	      instance: "custom-owned.example.com",
+	      host_id: 7,
+	      var_env_key: ["OWNER", "SAASHUP_OWNER"],
+	      var_env_value: ["spoofed@example.com", "manual@example.com"],
       owner_env_var: "OWNER",
       saashup_owner: "owner@example.com",
     }, 11).env).toEqual([
-      { var_name: "SAASHUP_OWNER", value: "manual@example.com" },
-      { var_name: "OWNER", value: "owner@example.com" },
-    ]);
+	      { var_name: "SAASHUP_OWNER", value: "manual@example.com" },
+	      { var_name: "OWNER", value: "owner@example.com" },
+	    ]);
 
-    expect(cloudflareFilterEnabled({})).toBe(true);
+    const enrollConfig = containerConfigPayloadFromForm({
+      instance: "guide.example.com",
+      host_id: 7,
+      image: "saashup/guide",
+      version: "v1.2.3",
+      network: "traefik",
+      port_value: "3000",
+      max_instances: "4",
+      template_url: "https://templates.example.com/guide",
+      enroll_request: "true",
+      saashup_owner: "owner@example.com",
+      label_key: ["saashup.template.name", "custom.label"],
+      label_value: ["spoofed", "custom-value"],
+    }, 12);
+    expect(enrollConfig.labels).toEqual(expect.arrayContaining([
+      { key: "saashup.template.name", value: "guide.example.com" },
+      { key: "saashup.template.owner", value: "owner@example.com" },
+      { key: "saashup.template.enabled", value: "true" },
+      { key: "saashup.template.url", value: "https://templates.example.com/guide" },
+      { key: "saashup.template.max_instances", value: "4" },
+      { key: "saashup.template.image", value: "saashup/guide" },
+      { key: "saashup.template.version", value: "v1.2.3" },
+      { key: "saashup.template.network", value: "traefik" },
+      { key: "saashup.template.port", value: "3000" },
+      { key: "saashup.template.traefik", value: "true" },
+      { key: "saashup.template.owner_env_var", value: "SAASHUP_OWNER" },
+      { key: "custom.label", value: "custom-value" },
+    ]));
+    expect(enrollConfig.labels).not.toEqual(expect.arrayContaining([
+      { key: "saashup.template.name", value: "spoofed" },
+    ]));
+
+	    expect(cloudflareFilterEnabled({})).toBe(true);
     expect(cloudflareFilterEnabled({ cloudflare_filter: "false" })).toBe(false);
     expect(cloudflareFilterEnabled({ cloudflare_filter: ["true", "false"] })).toBe(false);
     expect(containerConfigPayloadFromForm({
@@ -846,8 +878,11 @@ describe("server helpers", () => {
     expect(store.readState()).toMatchObject({ config: { netbox: "https://netbox.example.com" }, templates: { app: { image: "app" } }, logs: "legacy log" });
     store.writeState((state) => {
       state.config = { saved: true };
+      state.templates = {};
     });
     expect(store.readState().config).toEqual({ saved: true });
+    expect(readJson(store.stateFile).templates).toBeUndefined();
+    expect(store.readState().templates).toEqual({});
     store.writeState({ templates: { direct: true } });
     expect(store.readState().templates).toEqual({ direct: true });
     store.logLine("hello");

@@ -29,14 +29,19 @@ const configDefaultInput = document.getElementById("configDefaultInput");
 const loadTemplateBtn = document.getElementById("loadTemplateBtn");
 const orderTemplateBtn = document.getElementById("orderTemplateBtn");
 const saveTemplateBtn = document.getElementById("saveTemplateBtn");
+const saveAllTemplatesBtn = document.getElementById("saveAllTemplatesBtn");
 const deleteTemplateBtn = document.getElementById("deleteTemplateBtn");
 const orderCancelBtn = document.getElementById("orderCancelBtn");
 const dockerRunModal = document.getElementById("dockerRunModal");
 const dockerRunInput = document.getElementById("dockerRunInput");
 const dockerComposeInput = document.getElementById("dockerComposeInput");
+const templateExportFile = document.getElementById("templateExportFile");
+const templateExportFileName = document.getElementById("templateExportFileName");
 const importProfileSelect = document.getElementById("importProfileSelect");
 const createWorkflowInput = document.getElementById("createWorkflowInput");
 const importTemplateOrdersInput = document.getElementById("importTemplateOrdersInput");
+const exportCreateWorkflowInput = document.getElementById("exportCreateWorkflowInput");
+const exportImportTemplateOrdersInput = document.getElementById("exportImportTemplateOrdersInput");
 const enrollSummary = document.getElementById("enrollSummary");
 const dockerRunApplyBtn = document.getElementById("dockerRunApplyBtn");
 const dockerRunCancelBtn = document.getElementById("dockerRunCancelBtn");
@@ -83,6 +88,7 @@ const authUser = document.getElementById("authUser");
 const authAvatar = document.getElementById("authAvatar");
 const authName = document.getElementById("authName");
 const authEmail = document.getElementById("authEmail");
+const clearCacheBtn = document.getElementById("clearCacheBtn");
 const logoutBtn = document.getElementById("logoutBtn");
 const reportCard = document.getElementById("reportCard");
 const reportProfileSelect = document.getElementById("reportProfileSelect");
@@ -471,6 +477,12 @@ async function loadAuthUser() {
 function logout() {
   const returnUrl = window.location.origin + "/";
   window.location.href = `/logout?rd=${encodeURIComponent(returnUrl)}`;
+}
+
+function clearLocalCache() {
+  if (!confirm("Clear local browser cache for this app?")) return;
+  localStorage.clear();
+  window.location.reload();
 }
 
 function setSidebarCollapsed(collapsed) {
@@ -864,17 +876,24 @@ function parseStoredObject(key) {
 function loadCreateTemplates({ useCache = true } = {}) {
   createTemplates = useCache ? normalizeCreateTemplates(parseStoredObject("create_templates")) : {};
   createWorkflows = useCache ? normalizeCreateWorkflows(parseStoredObject("create_workflows")) : {};
+  const query = new URLSearchParams();
+  const profile = selectedProfileCredentials().profile;
+  if (profile) query.set("profile", profile);
+  query.set("include_workflows", "true");
 
-  return fetch("/templates", {
+  return fetch(`/templates${query.toString() ? `?${query.toString()}` : ""}`, {
     headers: { Accept: "application/json" },
   })
     .then((response) => {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return response.json();
     })
-    .then((templates) => {
-      createTemplates = normalizeCreateTemplates(templates && typeof templates === "object" && !Array.isArray(templates) ? templates : {});
+    .then((payload) => {
+      const catalog = templateCatalogFromPayload(payload, { workflows: createWorkflows });
+      createTemplates = catalog.templates;
+      createWorkflows = catalog.workflows;
       localStorage.setItem("create_templates", JSON.stringify(createTemplates));
+      localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
       updateTemplateOptions();
       updateWorkflowOptions();
     })
@@ -893,17 +912,24 @@ function loadCreateTemplates({ useCache = true } = {}) {
 function persistCreateTemplates() {
   localStorage.setItem("create_templates", JSON.stringify(createTemplates));
   localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
+  const query = new URLSearchParams();
+  const profile = selectedProfileCredentials().profile;
+  if (profile) query.set("profile", profile);
+  query.set("include_workflows", "true");
 
-  return fetch("/templates", {
+  return fetch(`/templates${query.toString() ? `?${query.toString()}` : ""}`, {
     method: "POST",
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(createTemplates),
+    body: JSON.stringify({
+      templates: createTemplates,
+      workflows: createWorkflows,
+    }),
   }).then((response) => {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return response.json().catch(() => createTemplates);
+    return response.json().catch(() => ({ templates: createTemplates, workflows: createWorkflows }));
   });
 }
 
@@ -962,7 +988,7 @@ async function importPortableConfig(event) {
     const text = await file.text();
     const data = JSON.parse(text);
 
-    if (!confirm("Import config, profiles and templates from this file? Matching names will be replaced and new names will be added.")) {
+    if (!confirm("Import config from this file? Matching profile names will be replaced and new names will be added.")) {
       return;
     }
 
@@ -979,22 +1005,16 @@ async function importPortableConfig(event) {
 
     const importedConfig = plainObject(data.config);
     const importedProfiles = normalizeImportedProfiles(parseProfiles(data.profiles || importedConfig.profiles));
-    const importedTemplates = normalizeCreateTemplates(plainObject(data.templates));
-    const importedWorkflows = normalizeCreateWorkflows(plainObject(data.workflows));
     const mergedProfiles = { ...configProfiles, ...importedProfiles };
     const selectedProfile = importedConfig.profile || importedConfig.config_profile || currentConfigProfile || Object.keys(mergedProfiles).sort((a, b) => a.localeCompare(b))[0] || "";
 
     configProfiles = mergedProfiles;
     serverConfigProfiles = { ...serverConfigProfiles, ...importedProfiles };
-    createTemplates = { ...createTemplates, ...importedTemplates };
-    createWorkflows = { ...createWorkflows, ...importedWorkflows };
     savedConfig = { ...savedConfig, ...importedConfig, profiles: mergedProfiles };
     currentConfigProfile = selectedProfile;
 
     Object.keys(importedProfiles).forEach(forgetDeletedProfile);
     persistProfiles();
-    localStorage.setItem("create_templates", JSON.stringify(createTemplates));
-    localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
     updateProfileOptions();
     updateTemplateOptions();
     updateWorkflowOptions();
@@ -1008,6 +1028,11 @@ async function importPortableConfig(event) {
 }
 
 function updateTemplateOptions(selected = "") {
+  const normalizedTemplates = normalizeCreateTemplates(createTemplates);
+  if (JSON.stringify(normalizedTemplates) !== JSON.stringify(createTemplates)) {
+    createTemplates = normalizedTemplates;
+    localStorage.setItem("create_templates", JSON.stringify(createTemplates));
+  }
   const names = Object.keys(createTemplates).sort((a, b) => a.localeCompare(b));
   const selectedValue = names.includes(selected) ? selected : "";
   [templateSelect, createTemplateSelect].filter(Boolean).forEach((select) => {
@@ -1024,6 +1049,11 @@ function updateTemplateOptions(selected = "") {
 function updateWorkflowOptions(selected = workflowSelect?.value || "") {
   if (!workflowSelect) return;
 
+  const normalizedWorkflows = normalizeCreateWorkflows(createWorkflows);
+  if (JSON.stringify(normalizedWorkflows) !== JSON.stringify(createWorkflows)) {
+    createWorkflows = normalizedWorkflows;
+    localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
+  }
   const names = Object.keys(createWorkflows).sort((a, b) => workflowOptionLabel(a).localeCompare(workflowOptionLabel(b)));
   workflowSelect.replaceChildren(new Option(names.length ? "Select workflow" : "No workflows saved", ""));
   names.forEach((name) => workflowSelect.appendChild(new Option(workflowOptionLabel(name), name)));
@@ -1161,6 +1191,7 @@ function syncTemplateActions() {
   orderTemplateBtn.title = hasTemplate && !orderEnabled ? "This template is disabled for orders" : (hasTemplate ? "Open the order page for this template" : "Select a template before ordering");
   orderTemplateBtn.classList.toggle("btn-primary", hasTemplate && orderEnabled);
   orderTemplateBtn.classList.toggle("btn-danger-outline", !hasTemplate || !orderEnabled);
+  if (saveAllTemplatesBtn) saveAllTemplatesBtn.disabled = !Object.keys(createTemplates).length;
 }
 
 function defaultConfigProfileName(exceptName = "") {
@@ -2142,11 +2173,11 @@ function renderEnrollmentInstances(instances = enrollmentCards, limit = enrollme
         <article class="order-instance-card" data-enroll-instance-card="${index}">
           <span class="order-instance-icon" aria-hidden="true">${reportStatIcon("containers")}</span>
           <span class="order-instance-copy">
-            ${item.source === "template" ? enrollmentTemplateTitle(item) : orderInstanceNameLink(item.instance, item.dns_name)}
+            ${isEnrollmentTemplateCard(item) ? enrollmentTemplateTitle(item) : orderInstanceNameLink(item.instance, item.dns_name)}
             <small>${escapeHtml(item.template_url || item.image || "SaaShup template")}</small>
             <small class="${orderInstanceStatusTextClass(item)}">${orderInstanceStatusText(item)}</small>
           </span>
-          ${item.source === "template" ? `
+          ${isEnrollmentTemplateCard(item) ? `
             <span class="order-instance-actions">
               <button type="button" class="icon-btn order-template-copy" data-order-template-copy="${escapeHtml(item.instance)}" title="Copy order link" aria-label="Copy order link for ${escapeHtml(item.instance)}">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="10" height="10" rx="2"></rect><path d="M5 15V7a2 2 0 0 1 2-2h8"></path></svg>
@@ -2160,6 +2191,10 @@ function renderEnrollmentInstances(instances = enrollmentCards, limit = enrollme
       `).join("")}
     </div>
   `;
+}
+
+function isEnrollmentTemplateCard(item) {
+  return item?.source === "template" || item?.source === "netbox-template" || item?.source === "netbox-config-context";
 }
 
 function enrollmentTemplateTitle(item) {
@@ -2325,6 +2360,7 @@ function setAction(actionName) {
   updateTestEmailVisibility();
   exportConfigBtn?.classList.toggle("hidden", actionName !== "config");
   importConfigBtn?.classList.toggle("hidden", actionName !== "config");
+  clearCacheBtn?.classList.toggle("hidden", actionName !== "config");
   clearBtn?.classList.toggle("hidden", actionName === "config" || actionName === "report" || actionName === "workflow");
   dockerRunBtn?.classList.toggle("hidden", actionName !== "template");
   templateSelect?.classList.toggle("hidden", actionName !== "template");
@@ -2335,6 +2371,7 @@ function setAction(actionName) {
   if (loadTemplateBtn) loadTemplateBtn.textContent = "Load template";
   orderTemplateBtn?.classList.toggle("hidden", actionName !== "template");
   saveTemplateBtn?.classList.toggle("hidden", actionName !== "template");
+  saveAllTemplatesBtn?.classList.toggle("hidden", actionName !== "template");
   deleteTemplateBtn?.classList.toggle("hidden", actionName !== "template");
   restartInstanceBtn?.classList.toggle("hidden", actionName !== "restart");
   if (restartInstanceBtn) restartInstanceBtn.disabled = actionName !== "restart";
@@ -2462,6 +2499,9 @@ function openDockerRunModal() {
   updateImportProfileOptions();
   setImportTab("run");
   dockerRunInput.value = "";
+  if (dockerComposeInput) dockerComposeInput.value = "";
+  if (templateExportFile) templateExportFile.value = "";
+  updateTemplateExportFileName();
   dockerRunModal.classList.remove("hidden");
   dockerRunInput.focus();
 }
@@ -2626,7 +2666,7 @@ function configureEnrollDefaultConfig() {
 }
 
 function setImportTab(tabName) {
-  currentImportTab = tabName === "compose" ? "compose" : "run";
+  currentImportTab = ["compose", "export"].includes(tabName) ? tabName : "run";
   importTabButtons.forEach((button) => {
     const active = button.dataset.importTab === currentImportTab;
     button.classList.toggle("active", active);
@@ -2635,7 +2675,14 @@ function setImportTab(tabName) {
   importPanels.forEach((panel) => panel.classList.toggle("hidden", panel.dataset.importPanel !== currentImportTab));
   updateEnrollSubmitState();
   if (currentImportTab === "run") dockerRunInput?.focus();
-  else dockerComposeInput?.focus();
+  else if (currentImportTab === "compose") dockerComposeInput?.focus();
+  else templateExportFile?.focus();
+}
+
+function updateTemplateExportFileName() {
+  if (!templateExportFileName) return;
+  const fileName = templateExportFile?.files?.[0]?.name || "";
+  templateExportFileName.textContent = fileName || "JSON file from Export all templates";
 }
 
 function openProfileHelp(key) {
@@ -2986,17 +3033,109 @@ function normalizeCreateTemplate(template) {
   return applySaashupTemplateLabels(normalized);
 }
 
+function isTemplateRecord(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+const templateCatalogReservedKeys = new Set([
+  "config",
+  "config_profile",
+  "creator_email",
+  "instance_count",
+  "profile",
+  "saashup_enabled",
+  "saashup_template_catalog",
+  "saashup_templates",
+  "saashup_workflows",
+  "templates",
+  "workflows",
+]);
+
+function templateLooksLikeTemplate(template) {
+  if (!isTemplateRecord(template)) return false;
+  if (looksLikeWorkflowRecord(template)) return false;
+  if (Object.hasOwn(template, "delete_volumes")) return false;
+
+  const valueKeys = [
+    "image",
+    "template_url",
+    "saashup_template_url",
+    "version",
+    "max_instances",
+    "network",
+    "ports",
+    "labels",
+    "env",
+    "binds",
+    "volumes",
+    "dns_name",
+    "traefik",
+    "instance",
+    "port_value",
+  ];
+  if (!Object.keys(template).some((key) => valueKeys.includes(key))) return false;
+
+  return valueKeys.some((key) => {
+    const value = template[key];
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === "string") return value.trim() !== "";
+    if (typeof value === "number") return Number.isFinite(value);
+    if (typeof value === "boolean") return true;
+    return false;
+  });
+}
+
+function templateLooksLikeTemplateLegacy(template) {
+  if (!isTemplateRecord(template)) return false;
+  if (looksLikeWorkflowRecord(template)) return false;
+  if (Object.hasOwn(template, "delete_volumes")) return false;
+
+  const legacyValueKeys = ["image", "template_url", "saashup_template_url", "source", "config_profile", "profile", "version", "max_instances", "network", "creator_email"];
+  return Object.keys(template).some((key) => legacyValueKeys.includes(key));
+}
+
+function looksLikeWorkflowRecord(value) {
+  if (!isTemplateRecord(value)) return false;
+  return Object.hasOwn(value, "steps") || Object.hasOwn(value, "delete_volumes");
+}
+
 function normalizeCreateTemplates(templates) {
+  const entries = Object.entries(plainObject(templates));
+  const normalizedStrict = Object.fromEntries(
+    entries
+      .filter(([name, template]) => (
+        typeof name === "string" &&
+        name.trim() &&
+        !templateCatalogReservedKeys.has(name.trim().toLowerCase()) &&
+        templateLooksLikeTemplate(template)
+      ))
+      .map(([name, template]) => [name, normalizeCreateTemplate(template)]),
+  );
+  if (Object.keys(normalizedStrict).length) return normalizedStrict;
+
   return Object.fromEntries(
-    Object.entries(plainObject(templates))
+    entries
+      .filter(([name, template]) => (
+        typeof name === "string" &&
+        name.trim() &&
+        !templateCatalogReservedKeys.has(name.trim().toLowerCase()) &&
+        templateLooksLikeTemplateLegacy(template)
+      ))
       .map(([name, template]) => [name, normalizeCreateTemplate(template)]),
   );
 }
 
 function normalizeCreateWorkflows(workflows) {
   return Object.fromEntries(
-    Object.entries(plainObject(workflows)).map(([key, workflow]) => {
+    Object.entries(plainObject(workflows))
+      .filter(([key, workflow]) => {
+        if (typeof key !== "string" || !key.trim() || !isTemplateRecord(workflow)) return false;
+        return looksLikeWorkflowRecord(workflow);
+      })
+      .map(([key, workflow]) => {
       const normalized = { ...plainObject(workflow) };
+      const workflowKey = String(normalized.id || key).trim();
+      normalized.id = workflowKey || key;
       normalized.steps = Array.isArray(normalized.steps)
         ? normalized.steps.map((step) => {
           if (typeof step === "string") return { template: step, enabled: true };
@@ -3006,9 +3145,18 @@ function normalizeCreateWorkflows(workflows) {
           return normalizedStep;
         })
         : [];
-      return [key, normalized];
+      return [workflowKey || key, normalized];
     }),
   );
+}
+
+function templateCatalogFromPayload(payload, fallback = {}) {
+  const data = plainObject(payload);
+  const hasCatalogShape = Object.hasOwn(data, "templates") || Object.hasOwn(data, "workflows");
+  return {
+    templates: normalizeCreateTemplates(hasCatalogShape ? plainObject(data.templates) : data),
+    workflows: normalizeCreateWorkflows(hasCatalogShape ? plainObject(data.workflows) : plainObject(fallback.workflows)),
+  };
 }
 
 function parseComposeList(inlineValue, blockLines) {
@@ -3124,6 +3272,23 @@ function composeWorkflowName(text) {
     .map((line) => stripYamlComment(line).trim().match(/^name:\s*(.+)$/))
     .find(Boolean);
   return match ? yamlScalar(match[1]) : "compose";
+}
+
+function workflowFromTemplateEntries(templates, profileName = selectedProfileCredentials().profile || "", name = "templates", enableTemplateOrders = true) {
+  const workflowKey = workflowStorageKey(profileName, name);
+  return {
+    key: workflowKey,
+    workflow: {
+      name,
+      config_profile: profileName,
+      steps: Object.entries(normalizeCreateTemplates(templates)).map(([templateName, template]) => ({
+        template: templateName,
+        template_data: { ...template, saashup_enabled: enableTemplateOrders },
+        enabled: true,
+      })),
+      created_at: new Date().toISOString(),
+    },
+  };
 }
 
 function parseDockerCompose(text) {
@@ -3344,9 +3509,11 @@ async function saveCreateTemplate() {
   createTemplates[name] = currentCreateTemplate();
 
   try {
-    const savedTemplates = await persistCreateTemplates();
-    createTemplates = normalizeCreateTemplates(savedTemplates && typeof savedTemplates === "object" && !Array.isArray(savedTemplates) ? savedTemplates : createTemplates);
+    const savedCatalog = templateCatalogFromPayload(await persistCreateTemplates());
+    createTemplates = savedCatalog.templates;
+    createWorkflows = savedCatalog.workflows;
     localStorage.setItem("create_templates", JSON.stringify(createTemplates));
+    localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
     updateTemplateOptions(name);
     setNotice(`Template "${name}" saved`, "success");
   } catch {
@@ -3355,6 +3522,28 @@ async function saveCreateTemplate() {
     updateTemplateOptions();
     setNotice("Template save failed", "error");
   }
+}
+
+function templateExportPayload() {
+  return {
+    type: "saashup-template-export",
+    version: 1,
+    exported_at: new Date().toISOString(),
+    templates: normalizeCreateTemplates(createTemplates),
+    workflows: normalizeCreateWorkflows(createWorkflows),
+  };
+}
+
+function exportAllCreateTemplates() {
+  const count = Object.keys(createTemplates).length;
+  if (!count) {
+    setNotice("No templates to export", "error");
+    return;
+  }
+
+  const date = new Date().toISOString().slice(0, 10);
+  downloadJson(`saashup-templates-${date}.json`, templateExportPayload());
+  setNotice(`${count} template${count === 1 ? "" : "s"} exported`, "success");
 }
 
 async function deleteSelectedTemplate() {
@@ -3370,9 +3559,11 @@ async function deleteSelectedTemplate() {
   delete createTemplates[name];
 
   try {
-    const savedTemplates = await persistCreateTemplates();
-    createTemplates = normalizeCreateTemplates(savedTemplates && typeof savedTemplates === "object" && !Array.isArray(savedTemplates) ? savedTemplates : createTemplates);
+    const savedCatalog = templateCatalogFromPayload(await persistCreateTemplates());
+    createTemplates = savedCatalog.templates;
+    createWorkflows = savedCatalog.workflows;
     localStorage.setItem("create_templates", JSON.stringify(createTemplates));
+    localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
     updateTemplateOptions();
     setNotice(`Template "${name}" deleted`, "success");
   } catch {
@@ -3601,7 +3792,108 @@ async function applyDockerComposeFile(text) {
   }
 }
 
+function templateCatalogFromExportPayload(payload) {
+  const data = plainObject(payload);
+  if (data.type === "saashup-template-export" || data.type === "saashup-config-export") return templateCatalogFromPayload(data);
+  if (data.templates && typeof data.templates === "object" && !Array.isArray(data.templates)) return templateCatalogFromPayload(data);
+  return {
+    templates: normalizeCreateTemplates(data),
+    workflows: {},
+  };
+}
+
+async function applyTemplateExportFile() {
+  const file = templateExportFile?.files?.[0];
+  if (!file) {
+    setNotice("Select a template export first", "error");
+    return false;
+  }
+
+  const previousTemplates = { ...createTemplates };
+  const previousWorkflows = { ...createWorkflows };
+  const shouldCreateWorkflow = exportCreateWorkflowInput?.checked !== false;
+  const enableTemplateOrders = exportImportTemplateOrdersInput?.checked !== false;
+
+  try {
+    const payload = JSON.parse(await file.text());
+    const { templates: importedTemplates, workflows: importedWorkflows } = templateCatalogFromExportPayload(payload);
+    const count = Object.keys(importedTemplates).length;
+    const workflowCount = Object.keys(importedWorkflows).length;
+    let effectiveWorkflowCount = shouldCreateWorkflow ? workflowCount : 0;
+    if (!count && !effectiveWorkflowCount) {
+      setNotice("Template export is empty", "error");
+      return false;
+    }
+
+    createTemplates = {
+      ...createTemplates,
+      ...Object.fromEntries(
+        Object.entries(importedTemplates).map(([name, template]) => [
+          name,
+          { ...template, saashup_enabled: enableTemplateOrders },
+        ]),
+      ),
+    };
+    if (shouldCreateWorkflow) {
+      const workflowEntries = Object.entries(importedWorkflows);
+      if (!workflowEntries.length && count) {
+        const generated = workflowFromTemplateEntries(importedTemplates, selectedProfileCredentials().profile || "", "templates", enableTemplateOrders);
+        workflowEntries.push([generated.key, generated.workflow]);
+        effectiveWorkflowCount = 1;
+      }
+      createWorkflows = {
+        ...createWorkflows,
+        ...Object.fromEntries(
+          workflowEntries.map(([key, workflow]) => [
+            key,
+            {
+              ...workflow,
+              steps: Array.isArray(workflow.steps)
+                ? workflow.steps.map((step) => ({
+                  ...step,
+                  template_data: step?.template_data
+                    ? { ...step.template_data, saashup_enabled: enableTemplateOrders }
+                    : step?.template_data,
+                }))
+                : [],
+            },
+          ]),
+        ),
+      };
+    } else {
+      createWorkflows = { ...createWorkflows };
+    }
+    const savedCatalog = templateCatalogFromPayload(await persistCreateTemplates());
+    createTemplates = savedCatalog.templates;
+    createWorkflows = savedCatalog.workflows;
+    localStorage.setItem("create_templates", JSON.stringify(createTemplates));
+    localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
+    updateTemplateOptions(Object.keys(importedTemplates).sort((a, b) => a.localeCompare(b))[0] || "");
+    const selectedWorkflow = shouldCreateWorkflow ? (Object.keys(createWorkflows).sort((a, b) => a.localeCompare(b))[0] || "") : "";
+    updateWorkflowOptions(selectedWorkflow);
+    closeDockerRunModal();
+    setNotice(
+      `${count} template${count === 1 ? "" : "s"} and ${effectiveWorkflowCount} workflow${effectiveWorkflowCount === 1 ? "" : "s"} imported from export`,
+      "success",
+    );
+    return true;
+  } catch {
+    createTemplates = previousTemplates;
+    createWorkflows = previousWorkflows;
+    localStorage.setItem("create_templates", JSON.stringify(createTemplates));
+    localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
+    updateTemplateOptions();
+    updateWorkflowOptions();
+    setNotice("Template export import failed", "error");
+    return false;
+  }
+}
+
 async function applyDockerRunCommand() {
+  if (currentImportTab === "export") {
+    return applyTemplateExportFile();
+  }
+
   if (currentImportTab === "compose") {
     return applyDockerComposeFile();
   }
@@ -3803,13 +4095,14 @@ async function testEmail() {
 }
 
 async function saveConfig() {
+  const previousSubmitText = submitBtn?.textContent || "Save config";
   const profile = (fieldValue("config_name") || fieldValue("config_profile") || "").trim();
   const customer_name = fieldValue("customer_name").trim();
   const netbox = fieldValue("netbox");
   const token = fieldValue("token");
   const proxy = fieldValue("proxy");
   const domain = normalizeDomain(fieldValue("domain"));
-  const tag = fieldValue("tag");
+  const tag = fieldValue("tag").trim();
   const max_templates = normalizeMaxInstances(fieldValue("max_templates"));
   const enrollment_limit = max_templates;
   const owner_env_var = ownerEnvVarValue(fieldValue("owner_env_var"));
@@ -3827,7 +4120,13 @@ async function saveConfig() {
     return;
   }
 
+  if (!tag) {
+    setNotice("Tag is required", "error");
+    return;
+  }
+
   forgetDeletedProfile(profile);
+  setFieldValue("tag", tag);
   setFieldValue("max_templates", max_templates);
   setFieldValue("enrollment_limit", enrollment_limit);
   setFieldValue("owner_env_var", owner_env_var);
@@ -3855,6 +4154,11 @@ async function saveConfig() {
   });
 
   try {
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.classList.add("btn-loading");
+      submitBtn.textContent = "Saving config";
+    }
     const response = await fetch(`/webhook?${params.toString()}`, {
       method: "GET",
       headers: { Accept: "application/json" },
@@ -3865,9 +4169,20 @@ async function saveConfig() {
     savedConfig = { customer_name, netbox, token, proxy, domain, tag, max_templates, enrollment_limit, owner_env_var, cloudflare_filter, smtp_config, profile, profiles: configProfiles };
     serverConfigProfiles = { ...configProfiles };
     applyProfileToFields(profile);
-    setNotice(`Config "${profileLabel(profile)}" saved (${response.status})`, "success");
+    try {
+      await loadCreateTemplates({ useCache: false });
+      setNotice(`Config "${profileLabel(profile)}" saved (${response.status})`, "success");
+    } catch {
+      setNotice(`Config "${profileLabel(profile)}" saved, templates refresh failed`, "error");
+    }
   } catch {
     setNotice("Config save failed", "error");
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.classList.remove("btn-loading");
+      submitBtn.textContent = previousSubmitText;
+    }
   }
 }
 
@@ -4858,10 +5173,12 @@ form?.addEventListener("keydown", (event) => {
 profileHelpCloseBtn?.addEventListener("click", closeProfileHelp);
 profileHelpOkBtn?.addEventListener("click", closeProfileHelp);
 saveTemplateBtn?.addEventListener("click", saveCreateTemplate);
+saveAllTemplatesBtn?.addEventListener("click", exportAllCreateTemplates);
 deleteTemplateBtn?.addEventListener("click", deleteSelectedTemplate);
 loadTemplateBtn?.addEventListener("click", loadSelectedTemplate);
 orderTemplateBtn?.addEventListener("click", openSelectedTemplateOrder);
 logoutBtn?.addEventListener("click", logout);
+clearCacheBtn?.addEventListener("click", clearLocalCache);
 sidebarToggle?.addEventListener("click", () => {
   setSidebarCollapsed(!appShell?.classList.contains("sidebar-collapsed"));
 });
@@ -4908,6 +5225,7 @@ dockerRunCancelBtn?.addEventListener("click", closeDockerRunModal);
 dockerRunCloseBtn?.addEventListener("click", closeDockerRunModal);
 dockerRunInput?.addEventListener("input", updateEnrollSubmitState);
 dockerComposeInput?.addEventListener("input", updateEnrollSubmitState);
+templateExportFile?.addEventListener("change", updateTemplateExportFileName);
 importTabButtons.forEach((button) => {
   button.addEventListener("click", () => setImportTab(button.dataset.importTab));
 });
