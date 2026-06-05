@@ -3944,6 +3944,19 @@ function appendWorkflowPairs(body, items, keyField, valueField, keyNames = ["key
   });
 }
 
+function createTemplateVolumeName(volume, index, instanceName, template, templateName) {
+  const explicitName = volume.name ?? volume.value;
+  if (!explicitName) return workflowVolumeName(instanceName, index);
+
+  const generatedTemplateNames = new Set([
+    workflowVolumeName("instance", index),
+    workflowVolumeName(templateName, index),
+  ]);
+  if (template.instance) generatedTemplateNames.add(workflowVolumeName(template.instance, index));
+
+  return generatedTemplateNames.has(String(explicitName)) ? workflowVolumeName(instanceName, index) : explicitName;
+}
+
 function workflowCreateBody(template, templateName) {
   template = normalizeCreateTemplate(template);
   const profileName = template.config_profile || template.profile || currentConfigProfile || "";
@@ -3981,7 +3994,7 @@ function workflowCreateBody(template, templateName) {
     const source = volume.source ?? volume.key ?? "";
     if (!source) return;
     body.append("volume_source", source);
-    body.append("volume_name", volume.name ?? volume.value ?? workflowVolumeName(instanceName, index));
+    body.append("volume_name", createTemplateVolumeName(volume, index, instanceName, template, templateName));
   });
   (template.binds || []).forEach((bind) => {
     const hostPath = bind.host_path ?? bind.host ?? bind.key ?? "";
@@ -4023,7 +4036,7 @@ function appendCreateTemplateBody(body, template, templateName = "") {
     const source = volume.source ?? volume.key ?? "";
     if (!source) return;
     body.append("volume_source", source);
-    body.append("volume_name", volume.name ?? volume.value ?? workflowVolumeName(instanceName, index));
+    body.append("volume_name", createTemplateVolumeName(volume, index, instanceName, template, templateName));
   });
   (template.binds || []).forEach((bind) => {
     const hostPath = bind.host_path ?? bind.host ?? bind.key ?? "";

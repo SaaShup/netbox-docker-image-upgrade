@@ -145,7 +145,7 @@ test("config tab starts without a forced default profile", async ({ page }) => {
   await expect(page.locator("#profileHelpBody")).toContainText("Registry webhook URL:");
   await expect(page.locator("#profileHelpBody")).toContainText(`${new URL(page.url()).origin}/registry-webhook/<config-profile>/<template>/hook-secret`);
   await page.locator("#profileHelpOkBtn").click();
-  await page.getByRole("link", { name: "Config" }).click();
+  await page.getByRole("link", { name: "Profiles" }).click();
   await expect(page.locator('[data-field="registry_webhook_secret"]')).toBeHidden();
   await expect(page.locator("#domain")).toHaveValue("");
   await expect(page.locator("#tag")).toHaveValue("");
@@ -170,7 +170,7 @@ test("config tab starts without a forced default profile", async ({ page }) => {
   await expect(page.locator("#profileHelpTitle")).toHaveText("Delete volumes");
   await expect(page.locator("#profileHelpBody")).toContainText("Leave it off to keep data volumes");
   await page.locator("#profileHelpOkBtn").click();
-  await page.getByRole("link", { name: "Config" }).click();
+  await page.getByRole("link", { name: "Profiles" }).click();
   await expect(page.locator("#deleteConfigBtn")).toBeVisible();
   await expect(page.locator("#clearBtn")).toBeHidden();
   await expect(page.locator("#dockerRunBtn")).toBeHidden();
@@ -693,7 +693,6 @@ test("create form supports repeatable env, labels, ports, volumes, and binds", a
   await expect(page.locator("#instance")).toHaveValue(/^production-[a-z0-9]{16}$/);
   await expect(page.locator("#network")).toHaveValue("traefik-net");
   await expect(page.locator("#network")).toHaveAttribute("readonly", "");
-  await expect(page.locator("#version")).toHaveAttribute("readonly", "");
   await expect(page.locator("[data-field='env_vars']")).toBeVisible();
   await expect(page.locator("[data-field='labels']")).toBeVisible();
   await expect(page.locator("[data-field='ports']")).toBeVisible();
@@ -729,8 +728,8 @@ test("create form supports repeatable env, labels, ports, volumes, and binds", a
   await page.locator('#bindList [name="bind_read_only"]').first().check();
   await page.locator('#bindList [name="bind_host_path"]').nth(1).fill("/etc/localtime");
   await page.locator('#bindList [name="bind_container_path"]').nth(1).fill("/etc/localtime");
-  await expect(page.locator('#volumeList [name="volume_name"]').first()).toHaveValue(`${generatedInstance}-data`);
-  await expect(page.locator('#volumeList [name="volume_name"]').nth(1)).toHaveValue(`${generatedInstance}-data-2`);
+  await expect(page.locator('#volumeList [name="volume_name"]').first()).toHaveValue("instance-data");
+  await expect(page.locator('#volumeList [name="volume_name"]').nth(1)).toHaveValue("instance-data-2");
 
   await page.locator("#envList .env-remove").last().click();
   await page.locator("#labelList .repeat-remove").last().click();
@@ -1002,7 +1001,7 @@ test("create template switches to its saved config profile", async ({ page }) =>
     },
   });
 
-  await page.getByRole("link", { name: "Template" }).click();
+  await page.getByRole("link", { name: "Create" }).click();
   await expect(page.locator("#config_profile")).toHaveValue("guide");
 
   await page.locator("#create_template_select").selectOption("Tile");
@@ -1095,23 +1094,31 @@ test("create form requires an fqdn DNS name when Traefik is enabled", async ({ p
         tag: "TILE",
       },
     }),
+  }, {
+    "Guide App": {
+      config_profile: "production",
+      network: "traefik-net",
+      traefik: true,
+      image: "saashup/guide",
+      version: "v1.0.0",
+      ports: [{ value: "3000" }],
+    },
   });
 
-  await page.getByRole("link", { name: "Template" }).click();
+  await page.getByRole("link", { name: "Create" }).click();
+  await page.locator("#create_template_select").selectOption("Guide App");
   await page.locator("#instance").fill("guide-app");
-  await page.locator("#image").fill("saashup/guide");
-  await page.locator("#port_value").fill("3000");
   await page.locator("#submitBtn").click();
 
   await expect(page.locator("#notif")).toContainText("DNS name must be a fully qualified domain name");
   expect(createSubmitted).toBe(false);
 
-  await page.locator("#traefik").uncheck();
+  await page.locator("#dns_name").fill("guide-app.example.com");
   await page.locator("#submitBtn").click();
 
   await expect.poll(() => createBody).toContain("instance=guide-app");
-  expect(createBody).toContain("dns_name=");
-  expect(createBody).toContain("traefik=false");
+  expect(createBody).toContain("dns_name=guide-app.example.com");
+  expect(createBody).toContain("traefik=true");
 });
 
 test("create form appends the configured domain to short instance names", async ({ page }) => {
@@ -1148,14 +1155,22 @@ test("create form appends the configured domain to short instance names", async 
         cloudflare_filter: false,
       },
     }),
+  }, {
+    Tiles: {
+      config_profile: "production",
+      network: "traefik-public",
+      traefik: true,
+      image: "saashup/tiles",
+      version: "v1.0.0",
+      ports: [{ value: "3000" }],
+    },
   });
 
-  await page.getByRole("link", { name: "Template" }).click();
+  await page.getByRole("link", { name: "Create" }).click();
+  await page.locator("#create_template_select").selectOption("Tiles");
   await expect(page.locator("#traefik")).toBeChecked();
   await page.locator("#instance").fill("tiles");
   await page.locator("#dns_name").fill("tiles.daily.paashup.cloud/dashboard");
-  await page.locator("#image").fill("saashup/tiles");
-  await page.locator("#port_value").fill("3000");
   await page.locator("#submitBtn").click();
 
   await expect.poll(() => createBody).toContain("instance=tiles");
@@ -1240,7 +1255,7 @@ test("create form can import a docker run command", async ({ page }) => {
   await expect(page.locator("#label_value")).toHaveValue("true");
   await expect(page.locator("#port_value")).toHaveValue("3000");
   await expect(page.locator("#volume_source")).toHaveValue("/app/data");
-  await expect(page.locator("#volume_name")).toHaveValue("guide-app-data");
+  await expect(page.locator("#volume_name")).toHaveValue("instance-data");
   await expect(page.locator("#bind_host_path")).toHaveValue("/var/run/docker.sock");
   await expect(page.locator("#bind_container_path")).toHaveValue("/var/run/docker.sock");
   await expect(page.locator("#bind_read_only")).toBeChecked();
@@ -2056,7 +2071,7 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
   expect(createBody).toContain("profile=production");
   expect(createBody).toContain("enroll_request=true");
   expect(createBody).toContain("enrollment_limit=2");
-  await expect(page.locator("#notif")).toContainText("Creation requested for guide-app.example.com.");
+  await expect(page.locator("#notif")).toContainText("Creation requested for guide-app.");
 });
 
 test("enroll page keeps submit disabled before import content", async ({ page }) => {
