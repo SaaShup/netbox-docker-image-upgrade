@@ -1506,7 +1506,8 @@ body.enroll-page .main {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 88px 24px 74px;
+  gap: 18px;
+  padding: 96px 28px 82px;
 }
 
 body.enroll-page .order-auth {
@@ -1532,32 +1533,47 @@ body.enroll-page .order-footer {
 }
 
 .enroll-card {
-  width: min(760px, 100%);
-  padding: 24px;
+  width: min(940px, 100%);
+  padding: 34px;
   border: 1px solid var(--border);
   border-radius: 18px;
   background: var(--panel);
   box-shadow: var(--shadow);
 }
 
+.enroll-card .card-header {
+  margin-bottom: 24px;
+}
+
+.enroll-card .card-header h3 {
+  font-size: 1.55rem;
+}
+
+.enroll-card .card-header p {
+  font-size: 1rem;
+}
+
 .enroll-card .modal-field,
 .enroll-card .import-tabs,
 .enroll-card .modal-textarea,
 .enroll-summary {
-  margin-bottom: 14px;
+  margin-bottom: 20px;
 }
 
 .enroll-card .modal-textarea {
-  min-height: 240px;
+  min-height: 320px;
+  padding: 18px;
+  font-size: 1rem;
+  line-height: 1.55;
 }
 
 .enroll-summary {
-  padding: 12px 14px;
+  padding: 16px 18px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--panel-soft);
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: 1rem;
   overflow-wrap: anywhere;
 }
 
@@ -1565,17 +1581,18 @@ body.enroll-page .order-footer {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  margin-top: 4px;
+  gap: 16px;
+  margin-top: 8px;
 }
 
 .enroll-actions .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 46px;
-  min-width: 156px;
-  padding: 0 18px;
+  min-height: 52px;
+  min-width: 176px;
+  padding: 0 22px;
+  font-size: 1rem;
 }
 
 .enroll-home-btn {
@@ -1684,6 +1701,12 @@ body.enroll-page .order-instances {
   border-radius: 18px;
   background: var(--panel-soft);
   box-shadow: var(--shadow);
+}
+
+body.enroll-page .order-instances {
+  width: min(940px, 100%);
+  margin-bottom: 0;
+  padding: 24px;
 }
 
 body.order-page .order-instances.hidden,
@@ -1897,6 +1920,64 @@ body.enroll-page .order-instances.hidden {
   font-size: 0.78rem;
 }
 
+body.enroll-page .order-instances-header {
+  margin-bottom: 18px;
+}
+
+body.enroll-page .order-instances-header .eyebrow {
+  font-size: 0.78rem;
+}
+
+body.enroll-page .order-instances-header h2 {
+  font-size: 1.55rem;
+}
+
+body.enroll-page .order-instance-grid {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+body.enroll-page .order-instance-card {
+  gap: 14px;
+  padding: 16px;
+}
+
+body.enroll-page .order-instance-icon,
+body.enroll-page .order-instance-delete,
+body.enroll-page .order-instance-status {
+  flex-basis: 42px;
+  width: 42px;
+  height: 42px;
+}
+
+body.enroll-page .order-instance-icon svg,
+body.enroll-page .order-instance-delete svg,
+body.enroll-page .order-instance-status svg {
+  width: 22px;
+  height: 22px;
+}
+
+body.enroll-page .order-instance-open {
+  min-width: 64px;
+  height: 42px;
+  padding-inline: 14px;
+  font-size: 0.88rem;
+}
+
+body.enroll-page .order-instance-copy strong,
+body.enroll-page .order-instance-copy a {
+  font-size: 1.06rem;
+}
+
+body.enroll-page .order-instance-copy small {
+  font-size: 0.9rem;
+}
+
+body.enroll-page .order-instance-state {
+  padding: 4px 10px;
+  font-size: 0.86rem;
+}
+
 body.order-page .order-status.success {
   color: #166534;
   background: #dcfce7;
@@ -2011,7 +2092,18 @@ body.order-page #orderCancelBtn {
     margin-bottom: 18px;
   }
 
+  body.enroll-page .order-theme {
+    position: static;
+    margin-bottom: 18px;
+  }
+
   body.order-page .order-auth {
+    position: static;
+    width: 100%;
+    margin-bottom: 18px;
+  }
+
+  body.enroll-page .order-auth {
     position: static;
     width: 100%;
     margin-bottom: 18px;
@@ -2021,10 +2113,38 @@ body.order-page #orderCancelBtn {
     flex-direction: column;
   }
 
+  body.enroll-page .main {
+    justify-content: flex-start;
+    padding: 20px;
+  }
+
   body.order-page .order-footer {
     position: static;
     width: 100%;
     margin-top: 18px;
+  }
+
+  body.enroll-page .order-footer {
+    position: static;
+    width: 100%;
+    margin-top: 18px;
+  }
+
+  .enroll-card {
+    padding: 24px;
+  }
+
+  .enroll-card .modal-textarea {
+    min-height: 260px;
+  }
+
+  .enroll-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .enroll-actions .btn {
+    width: 100%;
   }
 
   .auth-logout {
