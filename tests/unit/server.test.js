@@ -120,7 +120,8 @@ describe("server helpers", () => {
     expect(maxInstancesValue(undefined)).toBe(1);
     expect(maxInstancesValue("-3")).toBe(0);
     expect(maxInstancesValue("4.9")).toBe(4);
-    expect(maxInstancesValue("99")).toBe(10);
+    expect(maxInstancesValue("99")).toBe(99);
+    expect(maxInstancesValue("101")).toBe(100);
   });
 
   test("parses simple smtp config strings", () => {
@@ -418,19 +419,51 @@ describe("server helpers", () => {
     expect(ownerEnvVarName({})).toBe("SAASHUP_OWNER");
     expect(ownerEnvVarName({ owner_env_var: "OWNER" })).toBe("OWNER");
     expect(ownerEnvVarName({ owner_env_var: "   " })).toBe("SAASHUP_OWNER");
-    expect(containerConfigPayloadFromForm({
-      instance: "custom-owned.example.com",
-      host_id: 7,
-      var_env_key: ["OWNER", "SAASHUP_OWNER"],
-      var_env_value: ["spoofed@example.com", "manual@example.com"],
+	    expect(containerConfigPayloadFromForm({
+	      instance: "custom-owned.example.com",
+	      host_id: 7,
+	      var_env_key: ["OWNER", "SAASHUP_OWNER"],
+	      var_env_value: ["spoofed@example.com", "manual@example.com"],
       owner_env_var: "OWNER",
       saashup_owner: "owner@example.com",
     }, 11).env).toEqual([
-      { var_name: "SAASHUP_OWNER", value: "manual@example.com" },
-      { var_name: "OWNER", value: "owner@example.com" },
-    ]);
+	      { var_name: "SAASHUP_OWNER", value: "manual@example.com" },
+	      { var_name: "OWNER", value: "owner@example.com" },
+	    ]);
 
-    expect(cloudflareFilterEnabled({})).toBe(true);
+    const enrollConfig = containerConfigPayloadFromForm({
+      instance: "guide.example.com",
+      host_id: 7,
+      image: "saashup/guide",
+      version: "v1.2.3",
+      network: "traefik",
+      port_value: "3000",
+      max_instances: "4",
+      template_url: "https://templates.example.com/guide",
+      enroll_request: "true",
+      saashup_owner: "owner@example.com",
+      label_key: ["saashup.template.name", "custom.label"],
+      label_value: ["spoofed", "custom-value"],
+    }, 12);
+    expect(enrollConfig.labels).toEqual(expect.arrayContaining([
+      { key: "saashup.template.name", value: "guide.example.com" },
+      { key: "saashup.template.owner", value: "owner@example.com" },
+      { key: "saashup.template.enabled", value: "true" },
+      { key: "saashup.template.url", value: "https://templates.example.com/guide" },
+      { key: "saashup.template.max_instances", value: "4" },
+      { key: "saashup.template.image", value: "saashup/guide" },
+      { key: "saashup.template.version", value: "v1.2.3" },
+      { key: "saashup.template.network", value: "traefik" },
+      { key: "saashup.template.port", value: "3000" },
+      { key: "saashup.template.traefik", value: "true" },
+      { key: "saashup.template.owner_env_var", value: "SAASHUP_OWNER" },
+      { key: "custom.label", value: "custom-value" },
+    ]));
+    expect(enrollConfig.labels).not.toEqual(expect.arrayContaining([
+      { key: "saashup.template.name", value: "spoofed" },
+    ]));
+
+	    expect(cloudflareFilterEnabled({})).toBe(true);
     expect(cloudflareFilterEnabled({ cloudflare_filter: "false" })).toBe(false);
     expect(cloudflareFilterEnabled({ cloudflare_filter: ["true", "false"] })).toBe(false);
     expect(containerConfigPayloadFromForm({
@@ -846,8 +879,11 @@ describe("server helpers", () => {
     expect(store.readState()).toMatchObject({ config: { netbox: "https://netbox.example.com" }, templates: { app: { image: "app" } }, logs: "legacy log" });
     store.writeState((state) => {
       state.config = { saved: true };
+      state.templates = {};
     });
     expect(store.readState().config).toEqual({ saved: true });
+    expect(readJson(store.stateFile).templates).toBeUndefined();
+    expect(store.readState().templates).toEqual({});
     store.writeState({ templates: { direct: true } });
     expect(store.readState().templates).toEqual({ direct: true });
     store.logLine("hello");
@@ -948,6 +984,7 @@ describe("server helpers", () => {
     await expect(helpers.createDnsRecord(readyClient, { instance: "app.example.com" }, { name: "host" })).resolves.toBeUndefined();
     await expect(helpers.createDnsRecord(readyClient, { instance: "app", dns_name: "app.example.com" }, { name: "host" })).resolves.toBeUndefined();
     await expect(helpers.createDnsRecord(readyClient, { instance: "app", dns_name: "app.example.com/dashboard" }, { name: "host" })).resolves.toBeUndefined();
+    expect(logs).toContain("CREATE : Cloudflare DNS record skipped for app.example.com/dashboard because it includes path info");
     expect(readyClient.request).toHaveBeenCalledWith("POST", "/api/plugins/cloudflare/dns/records/", expect.objectContaining({
       body: expect.objectContaining({ name: "app.example.com" }),
     }));
@@ -989,7 +1026,10 @@ describe("server helpers", () => {
     }, { id: 102 }, "app:v7 on host-d")).resolves.toEqual({ id: 102, repoDigest: ["app@sha256:def"] });
 
     const pendingImageClient = {
-      list: vi.fn(async () => []),
+      list: vi.fn(async (apiPath, query = {}) => {
+        if (apiPath.includes("/images/") && !query.version) return [{ id: 9, registry: { id: 4 } }];
+        return [];
+      }),
       request: vi.fn(async (method, apiPath) => {
         if (method === "GET" && apiPath === "/api/plugins/docker/images/100/") return { payload: { id: 100, Digest: "" }, statusCode: 200 };
         return { payload: { id: 100 }, statusCode: 202 };

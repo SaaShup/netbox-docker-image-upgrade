@@ -172,9 +172,33 @@ body {
   opacity: 0;
 }
 
+.app-shell.sidebar-collapsed .nav-section-label {
+  width: 44px;
+  height: 1px;
+  padding: 0;
+  margin: 6px 0 2px;
+  overflow: hidden;
+  color: transparent;
+  background: rgba(255, 255, 255, 0.16);
+}
+
 .nav {
   display: grid;
   gap: 10px;
+}
+
+.nav-section-label {
+  padding: 16px 14px 2px;
+  color: #94a3b8;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.nav-section-label:first-child {
+  padding-top: 4px;
 }
 
 .nav-item {
@@ -261,6 +285,7 @@ body {
 .auth-user {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   max-width: 100%;
   padding: 8px 10px;
@@ -305,6 +330,7 @@ body {
   font-size: 0.8rem;
 }
 
+.auth-cache,
 .auth-logout {
   min-height: 36px;
   padding: 0 12px;
@@ -491,6 +517,25 @@ h2 {
 .workflow-card .report-table td:first-child {
   width: 68px;
   text-align: center;
+}
+
+.workflow-card .report-table th:nth-child(2),
+.workflow-card .report-table td:nth-child(2),
+.workflow-card .report-table th:last-child,
+.workflow-card .report-table td:last-child {
+  width: 84px;
+  text-align: center;
+}
+
+.workflow-card .workflow-step-delete {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  font-size: 1.1rem;
+}
+
+.workflow-step-disabled {
+  opacity: 0.55;
 }
 
 .workflow-step-status {
@@ -781,6 +826,47 @@ h2 {
   gap: 16px;
 }
 
+.delete-form-section {
+  display: contents;
+}
+
+.delete-form-section h4 {
+  display: none;
+}
+
+.delete-form .delete-form-section {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--field-bg);
+}
+
+.delete-form .delete-form-section h4 {
+  grid-column: 1 / -1;
+  display: block;
+  margin: 0;
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.delete-form .form-actions {
+  display: none;
+}
+
+.delete-form .delete-instance-action,
+.delete-form .delete-image-action {
+  grid-column: 2;
+}
+
+.delete-instance-action .btn,
+.delete-image-action .btn {
+  justify-self: end;
+}
+
 .field {
   display: grid;
   gap: 7px;
@@ -929,8 +1015,55 @@ h2 {
 }
 
 .checkbox-field input {
+  width: 42px;
+  height: 24px;
+}
+
+input[type="checkbox"] {
+  appearance: none;
+  position: relative;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 24px;
+  min-width: 42px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0;
+  background: var(--button-soft);
+  cursor: pointer;
+  outline: none;
+  transition: background 0.18s ease, border-color 0.18s ease, opacity 0.18s ease;
+}
+
+input[type="checkbox"]::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
   width: 18px;
   height: 18px;
+  border-radius: 999px;
+  background: var(--panel);
+  box-shadow: 0 1px 3px rgba(21, 32, 51, 0.22);
+  transition: transform 0.18s ease;
+}
+
+input[type="checkbox"]:checked {
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
+input[type="checkbox"]:checked::before {
+  transform: translateX(18px);
+}
+
+input[type="checkbox"]:focus-visible {
+  box-shadow: 0 0 0 4px rgba(36, 107, 254, 0.12);
+}
+
+input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .input-action {
@@ -989,41 +1122,31 @@ h2 {
 }
 
 .mini-toggle {
-  position: relative;
-  min-width: 58px;
-  padding: 0 10px 0 30px;
+  min-width: 72px;
+  padding: 0 8px;
   cursor: pointer;
   user-select: none;
 }
 
 .mini-toggle input {
-  position: absolute;
-  inline-size: 1px;
-  block-size: 1px;
-  opacity: 0;
+  width: 34px;
+  height: 20px;
+  min-width: 34px;
 }
 
-.mini-toggle::before {
-  content: "";
-  position: absolute;
-  left: 10px;
-  width: 12px;
-  height: 12px;
-  border: 2px solid var(--border);
-  border-radius: 999px;
-  background: var(--panel);
+.mini-toggle input::before {
+  width: 14px;
+  height: 14px;
+}
+
+.mini-toggle input:checked::before {
+  transform: translateX(14px);
 }
 
 .mini-toggle:has(input:checked) {
   color: var(--primary);
   border-color: rgba(36, 107, 254, 0.28);
   background: rgba(36, 107, 254, 0.08);
-}
-
-.mini-toggle:has(input:checked)::before {
-  border-color: var(--primary);
-  background: var(--primary);
-  box-shadow: inset 0 0 0 3px var(--panel);
 }
 
 .icon-btn {
@@ -1083,6 +1206,23 @@ h2 {
   opacity: 0.48;
   box-shadow: none;
   transform: none;
+}
+
+.btn-loading {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.btn-loading::before {
+  content: "";
+  width: 15px;
+  height: 15px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
 }
 
 .btn-primary {
@@ -1252,6 +1392,81 @@ h2 {
   box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
 }
 
+.template-file-picker {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  min-height: 104px;
+  margin: 16px 0;
+  padding: 18px;
+  border: 1px dashed var(--primary);
+  border-radius: 12px;
+  color: var(--text);
+  background: var(--button-soft);
+  cursor: pointer;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+
+.template-file-picker:hover,
+.template-file-picker:focus-within {
+  border-color: var(--primary-dark);
+  background: var(--field-bg);
+  box-shadow: 0 0 0 4px rgba(36, 107, 254, 0.12);
+}
+
+.template-file-picker input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.template-file-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  color: var(--primary);
+  background: var(--panel);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+}
+
+.template-file-icon svg {
+  width: 23px;
+  height: 23px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.template-file-copy {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.template-file-copy strong,
+.template-file-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.template-file-copy strong {
+  font-size: 0.98rem;
+}
+
+.template-file-copy small {
+  color: var(--muted);
+  font-weight: 700;
+}
+
 .modal-textarea {
   width: 100%;
   min-height: 190px;
@@ -1384,8 +1599,9 @@ body.enroll-page .main {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  padding: 88px 24px 74px;
+  justify-content: flex-start;
+  gap: 18px;
+  padding: 96px 28px 82px;
 }
 
 body.enroll-page .order-auth {
@@ -1410,33 +1626,69 @@ body.enroll-page .order-footer {
   margin: 0;
 }
 
+body.enroll-page .notice {
+  width: min(1420px, 100%);
+}
+
+.enroll-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(390px, 440px);
+  align-items: start;
+  gap: 20px;
+  width: min(1420px, 100%);
+}
+
+.enroll-workspace:has(.order-instances.hidden) {
+  grid-template-columns: minmax(520px, 860px);
+  justify-content: center;
+}
+
 .enroll-card {
-  width: min(760px, 100%);
-  padding: 24px;
+  position: sticky;
+  top: 92px;
+  width: 100%;
+  max-height: calc(100vh - 174px);
+  overflow: auto;
+  padding: 28px;
   border: 1px solid var(--border);
   border-radius: 18px;
   background: var(--panel);
   box-shadow: var(--shadow);
 }
 
+.enroll-card .card-header {
+  margin-bottom: 24px;
+}
+
+.enroll-card .card-header h3 {
+  font-size: 1.55rem;
+}
+
+.enroll-card .card-header p {
+  font-size: 1rem;
+}
+
 .enroll-card .modal-field,
 .enroll-card .import-tabs,
 .enroll-card .modal-textarea,
 .enroll-summary {
-  margin-bottom: 14px;
+  margin-bottom: 20px;
 }
 
 .enroll-card .modal-textarea {
   min-height: 240px;
+  padding: 16px;
+  font-size: 0.96rem;
+  line-height: 1.5;
 }
 
 .enroll-summary {
-  padding: 12px 14px;
+  padding: 16px 18px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--panel-soft);
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: 1rem;
   overflow-wrap: anywhere;
 }
 
@@ -1444,17 +1696,18 @@ body.enroll-page .order-footer {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  margin-top: 4px;
+  gap: 16px;
+  margin-top: 8px;
 }
 
 .enroll-actions .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 46px;
-  min-width: 156px;
-  padding: 0 18px;
+  min-height: 52px;
+  min-width: 176px;
+  padding: 0 22px;
+  font-size: 1rem;
 }
 
 .enroll-home-btn {
@@ -1468,7 +1721,8 @@ body.enroll-page .order-footer {
   border-color: color-mix(in srgb, var(--primary) 24%, var(--border));
 }
 
-body.order-page .order-loading {
+body.order-page .order-loading,
+body.enroll-page .order-loading {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1482,11 +1736,13 @@ body.order-page .order-loading {
   font-weight: 800;
 }
 
-body.order-page .order-loading.hidden {
+body.order-page .order-loading.hidden,
+body.enroll-page .order-loading.hidden {
   display: none;
 }
 
-body.order-page .order-spinner {
+body.order-page .order-spinner,
+body.enroll-page .order-spinner {
   width: 22px;
   height: 22px;
   border: 3px solid #c7d2fe;
@@ -1565,6 +1821,14 @@ body.enroll-page .order-instances {
   box-shadow: var(--shadow);
 }
 
+body.enroll-page .order-instances {
+  width: 100%;
+  max-height: calc(100vh - 174px);
+  margin-bottom: 0;
+  overflow: auto;
+  padding: 20px;
+}
+
 body.order-page .order-instances.hidden,
 body.enroll-page .order-instances.hidden {
   display: none;
@@ -1636,6 +1900,33 @@ body.enroll-page .order-instances.hidden {
   min-width: 0;
 }
 
+.enroll-template-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.enroll-template-title .order-instance-link {
+  min-width: 0;
+}
+
+.enroll-template-count {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--primary-dark);
+  background: var(--button-soft);
+  font-size: 0.76rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
 .order-instance-state {
   width: fit-content;
   padding: 2px 8px;
@@ -1682,6 +1973,15 @@ body.enroll-page .order-instances.hidden {
   border-radius: 10px;
 }
 
+.order-template-copy {
+  display: grid;
+  place-items: center;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+}
+
 .order-instance-open {
   display: inline-flex;
   align-items: center;
@@ -1701,7 +2001,8 @@ body.enroll-page .order-instances.hidden {
 }
 
 .order-instance-delete svg,
-.order-instance-open svg {
+.order-instance-open svg,
+.order-template-copy svg {
   width: 18px;
   height: 18px;
   fill: none;
@@ -1774,6 +2075,72 @@ body.enroll-page .order-instances.hidden {
 .order-instance-copy small {
   color: var(--muted);
   font-size: 0.78rem;
+}
+
+body.enroll-page .order-instances-header {
+  margin-bottom: 18px;
+}
+
+body.enroll-page .order-instances-header .eyebrow {
+  font-size: 0.78rem;
+}
+
+body.enroll-page .order-instances-header h2 {
+  font-size: 1.55rem;
+}
+
+body.enroll-page .order-instance-grid {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+body.enroll-page .order-instance-card {
+  gap: 12px;
+  padding: 14px;
+}
+
+body.enroll-page .order-instance-icon,
+body.enroll-page .order-instance-delete,
+body.enroll-page .order-template-copy,
+body.enroll-page .order-instance-status {
+  flex-basis: 42px;
+  width: 42px;
+  height: 42px;
+}
+
+body.enroll-page .order-instance-icon svg,
+body.enroll-page .order-instance-delete svg,
+body.enroll-page .order-template-copy svg,
+body.enroll-page .order-instance-status svg {
+  width: 22px;
+  height: 22px;
+}
+
+body.enroll-page .order-instance-open {
+  min-width: 64px;
+  height: 42px;
+  padding-inline: 14px;
+  font-size: 0.88rem;
+}
+
+body.enroll-page .order-instance-copy strong,
+body.enroll-page .order-instance-copy a {
+  font-size: 1.06rem;
+}
+
+body.enroll-page .enroll-template-count {
+  height: 24px;
+  min-width: 26px;
+  font-size: 0.82rem;
+}
+
+body.enroll-page .order-instance-copy small {
+  font-size: 0.9rem;
+}
+
+body.enroll-page .order-instance-state {
+  padding: 4px 10px;
+  font-size: 0.86rem;
 }
 
 body.order-page .order-status.success {
@@ -1860,6 +2227,21 @@ body.order-page #orderCancelBtn {
   .content-grid {
     grid-template-columns: 1fr;
   }
+
+  .enroll-workspace,
+  .enroll-workspace:has(.order-instances.hidden) {
+    grid-template-columns: minmax(0, 1fr);
+    width: min(860px, 100%);
+  }
+
+  .enroll-card {
+    position: static;
+    max-height: none;
+  }
+
+  body.enroll-page .order-instances {
+    max-height: none;
+  }
 }
 
 @media (max-width: 720px) {
@@ -1890,7 +2272,18 @@ body.order-page #orderCancelBtn {
     margin-bottom: 18px;
   }
 
+  body.enroll-page .order-theme {
+    position: static;
+    margin-bottom: 18px;
+  }
+
   body.order-page .order-auth {
+    position: static;
+    width: 100%;
+    margin-bottom: 18px;
+  }
+
+  body.enroll-page .order-auth {
     position: static;
     width: 100%;
     margin-bottom: 18px;
@@ -1900,10 +2293,38 @@ body.order-page #orderCancelBtn {
     flex-direction: column;
   }
 
+  body.enroll-page .main {
+    justify-content: flex-start;
+    padding: 20px;
+  }
+
   body.order-page .order-footer {
     position: static;
     width: 100%;
     margin-top: 18px;
+  }
+
+  body.enroll-page .order-footer {
+    position: static;
+    width: 100%;
+    margin-top: 18px;
+  }
+
+  .enroll-card {
+    padding: 24px;
+  }
+
+  .enroll-card .modal-textarea {
+    min-height: 260px;
+  }
+
+  .enroll-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .enroll-actions .btn {
+    width: 100%;
   }
 
   .auth-logout {
@@ -1916,6 +2337,15 @@ body.order-page #orderCancelBtn {
 
   .form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .delete-form .delete-form-section {
+    grid-template-columns: 1fr;
+  }
+
+  .delete-form .delete-instance-action,
+  .delete-form .delete-image-action {
+    grid-column: 1;
   }
 
   .report-toolbar {
@@ -1960,6 +2390,15 @@ body.order-page #orderCancelBtn {
 
   .icon-btn {
     width: 100%;
+  }
+
+  body.order-page .order-instance-actions .icon-btn,
+  body.enroll-page .order-instance-actions .icon-btn {
+    width: 42px;
+  }
+
+  body.enroll-page .order-template-copy {
+    width: 42px;
   }
 
   .profile-select {

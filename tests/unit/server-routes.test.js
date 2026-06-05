@@ -93,6 +93,12 @@ function readState(dataPath) {
   return JSON.parse(fs.readFileSync(path.join(dataPath, "app-state.json"), "utf8"));
 }
 
+function parseProfiles(value) {
+  if (!value) return {};
+  if (typeof value === "object" && !Array.isArray(value)) return value;
+  return JSON.parse(value);
+}
+
 function parsedFetchCalls(fetchMock) {
   return fetchMock.mock.calls.map(([url, options = {}]) => ({
     url: new URL(String(url)),
@@ -120,18 +126,47 @@ function setupNetBoxFetch(fetchMock, {
   omitContainerName = false,
   recreateContainerName = "tiles",
   reportContainerOwners = false,
+  netboxTemplateContainers,
+  netboxTemplateContexts = [],
   expectTraefikConfig = true,
   fuzzyContainerNameMatches = false,
   createHostSelectionContainers,
+  fuzzyImageNameMatches = false,
+  existingVolumes = [],
 } = {}) {
   let deleteContainerGetCount = 0;
   let stopRequested = false;
+  const configContextStore = [...netboxTemplateContexts];
   fetchMock.mockImplementation(async (url, options = {}) => {
     const parsed = new URL(String(url));
     const method = options.method || "GET";
     const pathname = parsed.pathname;
 
     if (pathname === "/api/status/") return jsonResponse({ status: "ok" });
+
+    if (pathname === "/api/extras/config-contexts/" && method === "GET") {
+      const q = String(parsed.searchParams.get("q") || "").toLowerCase();
+      const results = configContextStore.filter((context) => (
+        !q || String(context.name || "").toLowerCase().includes(q)
+      ));
+      return jsonResponse({ results });
+    }
+
+    if (pathname === "/api/extras/config-contexts/" && method === "POST") {
+      const body = JSON.parse(options.body);
+      const next = { id: 501 + configContextStore.length, ...body };
+      configContextStore.push(next);
+      return jsonResponse(next, 201);
+    }
+
+    if (/^\/api\/extras\/config-contexts\/\d+\/$/.test(pathname) && method === "PATCH") {
+      const id = Number(pathname.split("/").filter(Boolean).at(-1));
+      const next = { id, ...JSON.parse(options.body) };
+      const index = configContextStore.findIndex((context) => Number(context.id) === id);
+      if (index >= 0) configContextStore[index] = next;
+      else configContextStore.push(next);
+      return jsonResponse(next);
+    }
 
     if (pathname === "/api/plugins/cloudflare/dns/accounts/" && method === "GET") {
       return jsonResponse({ count: 1, results: [{ id: 51, name: parsed.searchParams.get("name") }] });
@@ -181,9 +216,17 @@ function setupNetBoxFetch(fetchMock, {
       }
       const version = parsed.searchParams.get("version");
       const hostId = parsed.searchParams.get("host_id");
-      if (version === "v2.0.0") return jsonResponse({ results: [{ id: 20, name: "saashup/tile", version, host: { id: Number(hostId || 1) } }] });
+      if (version === "v2.0.0") return jsonResponse({ results: [{ id: 20, name: "saashup/tile", version, host: { id: Number(hostId || 1) }, registry: { id: 7 } }] });
       if (version === "v3.0.0") return jsonResponse({});
-      return jsonResponse({ results: [{ id: 10, name: "saashup/tile", version: "v1.0.0", host: { id: Number(hostId || 1), display: "host-a" } }] });
+      if (fuzzyImageNameMatches && parsed.searchParams.get("name") === "saashup/tile") {
+        return jsonResponse({
+          results: [
+            { id: 10, name: "saashup/tile", version: "v1.0.0", host: { id: Number(hostId || 1), display: "host-a" }, registry: { id: 7 } },
+            { id: 99, name: "saashup/netbox-docker-agent", version: "v1.0.0", host: { id: Number(hostId || 1), display: "host-a" }, registry: { id: 7 } },
+          ],
+        });
+      }
+      return jsonResponse({ results: [{ id: 10, name: "saashup/tile", version: "v1.0.0", host: { id: Number(hostId || 1), display: "host-a" }, registry: { id: 7 } }] });
     }
 
     if (pathname === "/api/plugins/docker/images/" && method === "POST") {
@@ -204,6 +247,15 @@ function setupNetBoxFetch(fetchMock, {
     }
 
     if (pathname === "/api/plugins/docker/volumes/" && method === "GET") {
+      if (parsed.searchParams.has("host_id") && parsed.searchParams.get("limit") === "10") {
+        const hostIds = parsed.searchParams.getAll("host_id");
+        const name = parsed.searchParams.get("name") || "";
+        const matches = existingVolumes.filter((volume) => (
+          (!name || volume.name === name)
+          && (!hostIds.length || hostIds.includes(String(volume.host?.id || volume.host || "")))
+        ));
+        return jsonResponse({ results: matches });
+      }
       return jsonResponse({ results: [{ id: 41, name: parsed.searchParams.get("name") || "tiles-data" }] });
     }
 
@@ -213,9 +265,25 @@ function setupNetBoxFetch(fetchMock, {
 
     if (pathname === "/api/plugins/docker/containers/" && method === "GET") {
       if (parsed.searchParams.get("limit") === "1") return jsonResponse({ results: [{ id: 30 }] });
+      if (parsed.searchParams.get("image_id") === "99") {
+        return jsonResponse({
+          results: [{
+            id: 99,
+            name: "netbox-docker-agent",
+            display: "netbox-docker-agent",
+            host: { id: 1, display: "host-a" },
+            image: { id: 99 },
+            state: "running",
+            status: "running",
+          }],
+        });
+      }
       if (parsed.searchParams.get("name") === emptyContainersForName) return jsonResponse({ results: [] });
       if (createHostSelectionContainers && parsed.searchParams.get("limit") === "1000" && parsed.searchParams.has("host_id")) {
         return jsonResponse({ results: createHostSelectionContainers });
+      }
+      if (netboxTemplateContainers && parsed.searchParams.get("limit") === "1000" && parsed.searchParams.has("host_id")) {
+        return jsonResponse({ results: netboxTemplateContainers });
       }
       if (fuzzyContainerNameMatches && parsed.searchParams.get("name") === "netbox") {
         return jsonResponse({
@@ -404,6 +472,32 @@ function setupOrderWorkflowNetBoxFetch(fetchMock) {
     const call = { method, path: parsed.pathname, query: Object.fromEntries(parsed.searchParams.entries()), body };
     calls.push(call);
 
+    if (parsed.pathname === "/api/extras/config-contexts/" && method === "GET") {
+      return jsonResponse({
+        results: [{
+          id: 501,
+          name: "saashup-template-catalog-prod-buyer",
+          is_active: true,
+          data: {
+            saashup_template_catalog: true,
+            saashup_profile: "prod",
+            saashup_owner: "buyer@example.com",
+            saashup_templates: {
+              Tiles: {
+                instance: "tiles-order",
+                dns_name: "tiles-order.example.com",
+                image: "saashup/tile",
+                version: "v2.0.0",
+                max_instances: 2,
+                network: "traefik-public",
+                port_value: "8080",
+              },
+            },
+          },
+        }],
+      });
+    }
+
     if (parsed.pathname === "/api/plugins/docker/hosts/" && method === "GET") {
       return jsonResponse({
         count: 2,
@@ -468,6 +562,10 @@ function setupOrderWorkflowNetBoxFetch(fetchMock) {
     if (parsed.pathname === "/api/plugins/docker/volumes/" && method === "POST") {
       expect(body).toEqual({ host: 1, name: "tiles-order-data" });
       return jsonResponse({ id: 41, ...body }, 201);
+    }
+
+    if (parsed.pathname === "/api/plugins/docker/volumes/" && method === "GET") {
+      return jsonResponse({ results: [] });
     }
 
     if (parsed.pathname === "/api/plugins/docker/containers/" && method === "POST") {
@@ -837,7 +935,8 @@ describe("server routes", () => {
   });
 
   test("persists config, templates, logs, and portable exports", async () => {
-    const { dataPath, request } = await loadServer();
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock);
 
     await request.get("/config").expect(200);
     writeState(dataPath, { config: null, templates: null, order_counts: {}, logs: "" });
@@ -878,6 +977,27 @@ describe("server routes", () => {
         customer_name: "CuriooCity",
         netbox: "https://netbox.example.com",
         token: "secret",
+        domain: "example.com",
+        tag: "tile",
+        max_templates: "10",
+        enrollment_limit: "10",
+        profile: "prod",
+        profiles: JSON.stringify({ prod: { tag: "tile", max_templates: 20, enrollment_limit: 20 } }),
+      })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.max_templates).toBe(20);
+        expect(res.body.enrollment_limit).toBe(20);
+      });
+    expect(readState(dataPath).config.max_templates).toBeUndefined();
+    expect(readState(dataPath).config.enrollment_limit).toBeUndefined();
+    expect(parseProfiles(readState(dataPath).config.profiles).prod.max_templates).toBe(20);
+    expect(parseProfiles(readState(dataPath).config.profiles).prod.enrollment_limit).toBe(20);
+    await request.get("/webhook")
+      .query({
+        customer_name: "CuriooCity",
+        netbox: "https://netbox.example.com",
+        token: "secret",
         proxy: "",
         domain: "example.com",
         tag: "tile",
@@ -895,32 +1015,37 @@ describe("server routes", () => {
       expect(res.body.owner_env_var).toBe("SAASHUP_OWNER");
       expect(res.body.profile).toBe("prod");
       expect(res.body.customer_name).toBe("CuriooCity");
-      expect(JSON.parse(res.body.profiles).prod.saashup_default).toBe(true);
-      expect(JSON.parse(res.body.profiles).dev.saashup_default).toBeUndefined();
+      expect(parseProfiles(res.body.profiles).prod.saashup_default).toBe(true);
+      expect(parseProfiles(res.body.profiles).dev.saashup_default).toBeUndefined();
     });
-    await request.post("/templates").send({ tile: { image: "saashup/tile" } }).expect(200);
-    await request.get("/templates").expect(200).expect((res) => {
+    await request.post("/templates").set("x-auth-request-email", "owner@example.com").send({ tile: { image: "saashup/tile" } }).expect(200);
+    await request.get("/templates").set("x-auth-request-email", "owner@example.com").expect(200).expect((res) => {
       expect(res.body.tile.image).toBe("saashup/tile");
     });
     await request.get("/portable-config").expect(200).expect((res) => {
       expect(res.body.config.profiles.prod.tag).toBe("tile");
-      expect(res.body.templates.tile.image).toBe("saashup/tile");
+      expect(res.body).toEqual({ config: expect.any(Object) });
     });
     await request.post("/portable-config").send({
       config: { profiles: { dev: { tag: "guide" } } },
       templates: { guide: { image: "saashup/guide" } },
       order_counts: { "user@example.com": { dev: 1 } },
     }).expect(200).expect((res) => {
-      expect(res.body).toMatchObject({ status: "imported", profiles: 1, templates: 1 });
+      expect(res.body).toMatchObject({ status: "imported", profiles: 1 });
+      expect(res.body.templates).toBeUndefined();
     });
-    expect(JSON.parse(readState(dataPath).config.profiles)).toMatchObject({
+    const importedTemplateContext = parsedFetchCalls(fetchMock).find((call) => (
+      call.method === "POST"
+      && call.url.pathname === "/api/extras/config-contexts/"
+      && call.body?.data?.saashup_templates?.guide?.image === "saashup/guide"
+    ));
+    expect(importedTemplateContext).toBeUndefined();
+    expect(parseProfiles(readState(dataPath).config.profiles)).toMatchObject({
       prod: { tag: "tile" },
       dev: { tag: "guide" },
     });
-    expect(readState(dataPath).templates).toMatchObject({
-      tile: { image: "saashup/tile" },
-      guide: { image: "saashup/guide" },
-    });
+    expect(readState(dataPath).templates?.guide).toBeUndefined();
+    expect(readState(dataPath).templates?.tile).toBeUndefined();
     await request.post("/portable-config").send({
       config: {
         profile: "prod",
@@ -930,19 +1055,21 @@ describe("server routes", () => {
       templates: {},
       order_counts: {},
     }).expect(200).expect((res) => {
-      expect(res.body).toMatchObject({ status: "imported", profiles: 1, templates: 0 });
+      expect(res.body).toMatchObject({ status: "imported", profiles: 1 });
+      expect(res.body.templates).toBeUndefined();
     });
-    expect(JSON.parse(readState(dataPath).config.profiles)).toMatchObject({
+    expect(parseProfiles(readState(dataPath).config.profiles)).toMatchObject({
       prod: { tag: "tile-v2" },
       dev: { tag: "guide" },
     });
-    expect(readState(dataPath).templates.guide.image).toBe("saashup/guide");
+    expect(readState(dataPath).templates?.guide).toBeUndefined();
     await request.post("/portable-config").send({
       config: { profile: "solo" },
       templates: {},
       order_counts: {},
     }).expect(200).expect((res) => {
-      expect(res.body).toMatchObject({ status: "imported", profiles: 0, templates: 0 });
+      expect(res.body).toMatchObject({ status: "imported", profiles: 0 });
+      expect(res.body.templates).toBeUndefined();
     });
     await request.delete("/logs").expect(200);
     await request.get("/logs").expect(200).expect((res) => {
@@ -950,6 +1077,241 @@ describe("server routes", () => {
     });
     await request.delete("/config").expect(200);
     expect(readState(dataPath).config).toEqual({});
+  });
+
+  test("templates endpoint uses NetBox templates without local fallback when NetBox is configured", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, {
+      netboxTemplateContainers: [
+        {
+          id: 30,
+          name: "guide-one",
+          image: { name: "saashup/guide", version: "v1.2.3" },
+          env: [{ var_name: "SAASHUP_OWNER", value: "owner@example.com" }],
+          labels: [
+            { key: "saashup.template.name", value: "Guide" },
+            { key: "saashup.template.url", value: "https://templates.example.com/guide" },
+            { key: "saashup.template.max_instances", value: "3" },
+          ],
+        },
+      ],
+    });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", profile: "prod", config_profile: "prod" },
+      templates: {
+        Local: { image: "saashup/local", version: "v1", creator_email: "owner@example.com" },
+      },
+      logs: "",
+    });
+
+    await request.get("/templates")
+      .set("x-auth-request-email", "owner@example.com")
+      .query({ profile: "prod" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.Guide).toMatchObject({
+          source: "netbox-template",
+          image: "saashup/guide",
+          version: "v1.2.3",
+          template_url: "https://templates.example.com/guide",
+          max_instances: 3,
+        });
+        expect(res.body.Local).toBeUndefined();
+      });
+  });
+
+  test("templates endpoint reads template definitions from NetBox config contexts", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, {
+      netboxTemplateContexts: [
+        {
+          id: 501,
+          name: "saashup-template-catalog-prod-owner",
+          is_active: true,
+          data: {
+            saashup_template_catalog: true,
+            saashup_profile: "prod",
+            saashup_owner: "owner@example.com",
+            saashup_templates: {
+              Guide: {
+                image: "saashup/guide",
+                version: "v1.2.3",
+                template_url: "https://templates.example.com/guide",
+                max_instances: 3,
+              },
+              config_profile: "prod",
+              saashup_enabled: true,
+              instance_count: 2,
+              "prod::stack": {
+                name: "stack",
+                config_profile: "prod",
+                steps: [{ template: "Guide", enabled: true }],
+              },
+            },
+            saashup_workflows: {
+              "prod::stack": {
+                name: "stack",
+                config_profile: "prod",
+                steps: [{ template: "Guide", enabled: true }],
+              },
+              Guide: {
+                image: "saashup/guide",
+              },
+            },
+          },
+        },
+        {
+          id: 502,
+          name: "manual-template-upload",
+          is_active: true,
+          data: {
+            profile: "prod",
+            templates: {
+              Legacy: {
+                image: "saashup/legacy",
+                version: "v9.9.9",
+                template_url: "https://templates.example.com/legacy",
+              },
+            },
+            workflows: {
+              "prod::legacy": {
+                name: "legacy",
+                steps: [{ template: "Legacy", enabled: true }],
+              },
+            },
+          },
+        },
+        {
+          id: 503,
+          name: "nested-export-upload",
+          is_active: true,
+          data: {
+            saashup_template_catalog: true,
+            saashup_profile: "prod",
+            saashup_owner: "owner@example.com",
+            saashup_templates: {
+              templates: {
+                Nested: {
+                  image: "saashup/nested",
+                  version: "v1.0.0",
+                },
+                creator_email: "owner@example.com",
+              },
+              workflows: {
+                "prod::nested": {
+                  name: "nested",
+                  steps: [{ template: "Nested", enabled: true }],
+                },
+                creator_email: "owner@example.com",
+              },
+            },
+          },
+        },
+        {
+          id: 504,
+          name: "nested-export-without-workflows",
+          is_active: true,
+          data: {
+            saashup_template_catalog: true,
+            saashup_profile: "prod",
+            saashup_owner: "owner@example.com",
+            saashup_templates: {
+              templates: {
+                Solo: {
+                  image: "saashup/solo",
+                  version: "v2.0.0",
+                },
+              },
+              workflows: {
+                creator_email: "owner@example.com",
+              },
+            },
+          },
+        },
+      ],
+    });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "missing", profile: "prod", config_profile: "prod" },
+      templates: {},
+      order_instances: {
+        "owner@example.com": {
+          prod: [{ instance: "guide-one.example.com", template: "Guide" }],
+        },
+      },
+      logs: "",
+    });
+
+    await request.get("/templates")
+      .set("x-auth-request-email", "owner@example.com")
+      .query({ profile: "prod" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.Guide).toMatchObject({
+          source: "netbox-config-context",
+          image: "saashup/guide",
+          version: "v1.2.3",
+          template_url: "https://templates.example.com/guide",
+          max_instances: 3,
+          instance_count: 1,
+          creator_email: "owner@example.com",
+        });
+        expect(res.body.Legacy).toMatchObject({
+          source: "netbox-config-context",
+          image: "saashup/legacy",
+          version: "v9.9.9",
+          template_url: "https://templates.example.com/legacy",
+        });
+        expect(res.body.Nested).toMatchObject({
+          source: "netbox-config-context",
+          image: "saashup/nested",
+          version: "v1.0.0",
+        });
+        expect(res.body.Solo).toMatchObject({
+          source: "netbox-config-context",
+          image: "saashup/solo",
+          version: "v2.0.0",
+        });
+        expect(res.body.creator_email).toBeUndefined();
+        expect(res.body.config_profile).toBeUndefined();
+        expect(res.body.saashup_enabled).toBeUndefined();
+        expect(res.body.instance_count).toBeUndefined();
+        expect(res.body["prod::stack"]).toBeUndefined();
+      });
+    await request.get("/templates")
+      .set("x-auth-request-email", "owner@example.com")
+      .query({ profile: "prod", include_workflows: "true" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.templates.Guide).toMatchObject({ image: "saashup/guide" });
+        expect(res.body.workflows["prod::stack"]).toMatchObject({
+          name: "stack",
+          config_profile: "prod",
+          steps: [{ template: "Guide", enabled: true }],
+          source: "netbox-config-context",
+        });
+        expect(res.body.workflows["prod::legacy"]).toMatchObject({
+          name: "legacy",
+          source: "netbox-config-context",
+          steps: [{ template: "Legacy", enabled: true }],
+        });
+        expect(res.body.workflows["prod::nested"]).toMatchObject({
+          name: "nested",
+          source: "netbox-config-context",
+          steps: [{ template: "Nested", enabled: true }],
+        });
+        expect(res.body.workflows["prod::templates"]).toMatchObject({
+          name: "templates",
+          source: "netbox-config-context",
+          steps: [{ template: "Solo", enabled: true }],
+        });
+        expect(res.body.templates.config_profile).toBeUndefined();
+        expect(res.body.templates.saashup_enabled).toBeUndefined();
+        expect(res.body.templates.instance_count).toBeUndefined();
+        expect(res.body.templates["prod::stack"]).toBeUndefined();
+        expect(res.body.templates.creator_email).toBeUndefined();
+        expect(res.body.workflows.Guide).toBeUndefined();
+        expect(res.body.workflows.creator_email).toBeUndefined();
+      });
   });
 
   test("stores template creator email and preserves it on edits", async () => {
@@ -1003,6 +1365,62 @@ describe("server routes", () => {
     expect(readState(dataPath).templates).toMatchObject({
       tile: { image: "saashup/tile", version: "v2", creator_email: "owner@example.com" },
       guide: { image: "saashup/guide", creator_email: "editor@example.com" },
+    });
+  });
+
+  test("stores templates in a NetBox config context when credentials are configured", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock);
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", profile: "prod", config_profile: "prod" },
+      templates: {},
+      logs: "",
+    });
+
+    await request
+      .post("/templates")
+      .set("x-auth-request-email", "creator@example.com")
+      .query({ include_workflows: "true" })
+      .send({
+        templates: { tile: { image: "saashup/tile", max_instances: 2 } },
+        workflows: {
+          "prod::stack": {
+            name: "stack",
+            config_profile: "prod",
+            steps: [{ template: "tile", enabled: true }],
+          },
+        },
+      })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.templates.tile).toMatchObject({
+          image: "saashup/tile",
+          max_instances: 2,
+          creator_email: "creator@example.com",
+        });
+        expect(res.body.workflows["prod::stack"]).toMatchObject({ name: "stack" });
+      });
+
+    const contextPost = parsedFetchCalls(fetchMock).find((call) => call.method === "POST" && call.url.pathname === "/api/extras/config-contexts/");
+    expect(contextPost).toBeTruthy();
+    expect(contextPost.body).toMatchObject({
+      name: expect.stringMatching(/^saashup-template-catalog-prod-/),
+      is_active: true,
+      data: {
+        saashup_template_catalog: true,
+        saashup_profile: "prod",
+        saashup_owner: "creator@example.com",
+        saashup_templates: {
+          tile: { image: "saashup/tile", max_instances: 2, creator_email: "creator@example.com" },
+        },
+        saashup_workflows: {
+          "prod::stack": {
+            name: "stack",
+            config_profile: "prod",
+            steps: [{ template: "tile", enabled: true }],
+          },
+        },
+      },
     });
   });
 
@@ -1442,9 +1860,53 @@ describe("server routes", () => {
       });
   });
 
+  test("order limit resolves NetBox-labeled templates when no local template exists", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, {
+      netboxTemplateContainers: [
+        {
+          id: 30,
+          name: "guide-one",
+          image: { name: "saashup/guide", version: "v1.2.3" },
+          env: [{ var_name: "SAASHUP_OWNER", value: "buyer@example.com" }],
+          labels: [
+            { key: "saashup.template.name", value: "Guide" },
+            { key: "saashup.template.max_instances", value: "3" },
+          ],
+        },
+      ],
+    });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", profile: "prod", config_profile: "prod" },
+      templates: {},
+      order_counts: { "buyer@example.com": { prod: 2 } },
+      order_instances: {
+        "buyer@example.com": {
+          prod: [
+            { instance: "guide-one.example.com", template: "Guide" },
+            { instance: "guide-two.example.com", template: "Guide" },
+          ],
+        },
+      },
+      logs: "",
+    });
+
+    await request.get("/order/limit")
+      .set("x-auth-request-email", "buyer@example.com")
+      .query({ profile: "prod", template: "Guide" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toMatchObject({ used: 2, max: 3, remaining: 1, reached: false });
+        expect(res.body.instances).toEqual([
+          expect.objectContaining({ instance: "guide-one.example.com" }),
+          expect.objectContaining({ instance: "guide-two.example.com" }),
+        ]);
+      });
+  });
+
   test("enforces enrollment limits separately from order requests", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
-    setupNetBoxFetch(fetchMock);
+    setupNetBoxFetch(fetchMock, { expectTraefikConfig: false });
     writeState(dataPath, {
       config: { netbox: "https://netbox.example.com", token: "secret", max_templates: 1, profile: "prod", config_profile: "prod" },
       templates: {},
@@ -1471,23 +1933,30 @@ describe("server routes", () => {
     expect(readState(dataPath).enrollment_instances["buyer@example.com"]?.prod).toEqual([
       expect.objectContaining({ instance: "enroll-one.example.com", image: "saashup/tile", version: "v2.0.0" }),
     ]);
-    expect(readState(dataPath).templates["enroll-one.example.com"]).toMatchObject({
-      creator_email: "buyer@example.com",
-      config_profile: "prod",
-      image: "saashup/tile",
-      version: "v2.0.0",
+    expect(readState(dataPath).templates?.["enroll-one.example.com"]).toBeUndefined();
+    expect(readState(dataPath).order_counts?.["buyer@example.com"]?.prod).toBeUndefined();
+    await vi.waitFor(() => {
+      const configPatch = parsedFetchCalls(fetchMock).find((call) => (
+        call.url.pathname === "/api/plugins/docker/containers/"
+        && call.method === "PATCH"
+        && Array.isArray(call.body)
+        && call.body.some((item) => item.id === 31 && !item.operation)
+      ));
+      expect(configPatch?.body[0].labels).toEqual(expect.arrayContaining([
+        { key: "saashup.template.name", value: "enroll-one.example.com" },
+        { key: "saashup.template.owner", value: "buyer@example.com" },
+        { key: "saashup.template.image", value: "saashup/tile" },
+        { key: "saashup.template.version", value: "v2.0.0" },
+        { key: "saashup.template.port", value: "8080" },
+      ]));
     });
-    expect(readState(dataPath).order_counts["buyer@example.com"]?.prod).toBeUndefined();
 
     await request.get("/enroll/limit")
       .set("x-auth-request-email", "buyer@example.com")
       .query({ profile: "prod", template: "Tiles" })
       .expect(200)
       .expect((res) => {
-        expect(res.body).toMatchObject({ used: 1, max: 1, remaining: 0, reached: true });
-        expect(res.body.instances).toEqual([
-          expect.objectContaining({ instance: "enroll-one.example.com", image: "saashup/tile", source: "template" }),
-        ]);
+        expect(res.body).toMatchObject({ used: 1, max: 1, remaining: 0, reached: true, instances: [] });
       });
 
     await request.post("/create")
@@ -1518,7 +1987,7 @@ describe("server routes", () => {
       .query({ profile: "prod", template: "Tiles" })
       .expect(200)
       .expect((res) => {
-        expect(res.body).toMatchObject({ used: 0, max: 1, remaining: 1, reached: false, instances: [] });
+        expect(res.body).toMatchObject({ used: 1, max: 1, remaining: 0, reached: true, instances: [] });
       });
   });
 
@@ -1532,6 +2001,20 @@ describe("server routes", () => {
         Install: { config_profile: "install", image: "saashup/install", version: "v4", creator_email: "owner@example.com" },
         Shared: { image: "saashup/shared", version: "v3", creator_email: "owner@example.com" },
       },
+      order_instances: {
+        "buyer@example.com": {
+          prod: [
+            { instance: "tile-one.example.com", template: "Tile" },
+            { instance: "tile-two.example.com", template: "tile" },
+            { instance: "guide.example.com", template: "Guide" },
+          ],
+        },
+        "second@example.com": {
+          dev: [
+            { instance: "tile-dev.example.com", template: "Tile" },
+          ],
+        },
+      },
       enrollment_counts: {},
       enrollment_instances: {},
       logs: "",
@@ -1544,9 +2027,247 @@ describe("server routes", () => {
       .expect((res) => {
         expect(res.body).toMatchObject({ used: 3, max: 2, remaining: 0, reached: true });
         expect(res.body.instances).toEqual([
-          expect.objectContaining({ instance: "Tile", image: "saashup/tile", source: "template", status: "ready" }),
-          expect.objectContaining({ instance: "Install", image: "saashup/install", source: "template", status: "ready" }),
-          expect.objectContaining({ instance: "Shared", image: "saashup/shared", source: "template", status: "ready" }),
+          expect.objectContaining({ instance: "Tile", image: "saashup/tile", source: "template", status: "ready", instance_count: 3 }),
+          expect.objectContaining({ instance: "Install", image: "saashup/install", source: "template", status: "ready", instance_count: 0 }),
+          expect.objectContaining({ instance: "Shared", image: "saashup/shared", source: "template", status: "ready", instance_count: 0 }),
+        ]);
+      });
+  });
+
+  test("enroll limit discovers owner templates from NetBox labels before local fallback", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, {
+      netboxTemplateContainers: [
+        {
+          id: 30,
+          name: "guide-one",
+          image: { name: "saashup/guide", version: "v1.2.3" },
+          env: [{ var_name: "SAASHUP_OWNER", value: "owner@example.com" }],
+          labels: [
+            { key: "saashup.template.name", value: "Guide" },
+            { key: "saashup.template.url", value: "https://templates.example.com/guide" },
+          ],
+        },
+        {
+          id: 31,
+          name: "guide-two",
+          image: { name: "saashup/guide", version: "v1.2.3" },
+          labels: [
+            { key: "saashup.template.name", value: "Guide" },
+            { key: "saashup.template.owner", value: "owner@example.com" },
+          ],
+        },
+        {
+          id: 32,
+          name: "other-owner",
+          image: { name: "saashup/private", version: "v9" },
+          labels: [
+            { key: "saashup.template.name", value: "Private" },
+            { key: "saashup.template.owner", value: "other@example.com" },
+          ],
+        },
+      ],
+    });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", enrollment_limit: 4, profile: "prod", config_profile: "prod" },
+      templates: {
+        Local: { image: "saashup/local", version: "v1", creator_email: "owner@example.com" },
+        Guide: { image: "saashup/local-guide", version: "old", creator_email: "owner@example.com" },
+      },
+      enrollment_counts: {},
+      enrollment_instances: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.get("/enroll/limit")
+      .set("x-auth-request-email", "owner@example.com")
+      .query({ profile: "prod" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toMatchObject({ used: 1, max: 4, remaining: 3, reached: false });
+        expect(res.body.instances).toEqual([
+          expect.objectContaining({ instance: "Guide", image: "saashup/guide", version: "v1.2.3", source: "netbox-template", instance_count: 2, template_url: "https://templates.example.com/guide" }),
+        ]);
+      });
+  });
+
+  test("enroll template badges count NetBox containers using the template image", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, {
+      netboxTemplateContexts: [
+        {
+          id: 501,
+          name: "saashup-template-catalog-prod-owner",
+          is_active: true,
+          data: {
+            saashup_template_catalog: true,
+            saashup_profile: "prod",
+            saashup_owner: "owner@example.com",
+            saashup_templates: {
+              Tile: {
+                image: "saashup/tile",
+                version: "v1.0.0",
+                template_url: "https://templates.example.com/tile",
+              },
+            },
+          },
+        },
+      ],
+    });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", enrollment_limit: 4, profile: "prod", config_profile: "prod" },
+      enrollment_counts: {},
+      enrollment_instances: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.get("/enroll/limit")
+      .set("x-auth-request-email", "owner@example.com")
+      .query({ profile: "prod" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.instances).toEqual([
+          expect.objectContaining({ instance: "Tile", image: "saashup/tile", version: "v1.0.0", source: "netbox-template", instance_count: 1 }),
+        ]);
+      });
+  });
+
+  test("enroll template badges count one container for each template image", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, {
+      netboxTemplateContexts: [
+        {
+          id: 501,
+          name: "saashup-template-catalog-prod-owner",
+          is_active: true,
+          data: {
+            saashup_template_catalog: true,
+            saashup_profile: "prod",
+            saashup_owner: "owner@example.com",
+            saashup_templates: {
+              Alpha: { image: "saashup/alpha:v1.0.0" },
+              Beta: { image: "saashup/beta:v1.0.0" },
+            },
+          },
+        },
+      ],
+    });
+    fetchMock.mockImplementation(async (url, options = {}) => {
+      const parsed = new URL(String(url));
+      const method = options.method || "GET";
+      if (parsed.pathname === "/api/plugins/docker/hosts/" && method === "GET") {
+        return jsonResponse({ results: [{ id: 1, name: "host-a", tags: [{ slug: "tile" }] }] });
+      }
+      if (parsed.pathname === "/api/extras/config-contexts/" && method === "GET") {
+        return jsonResponse({ results: [{
+          id: 501,
+          name: "saashup-template-catalog-prod-owner",
+          is_active: true,
+          data: {
+            saashup_template_catalog: true,
+            saashup_profile: "prod",
+            saashup_owner: "owner@example.com",
+            saashup_templates: {
+              Alpha: { image: "saashup/alpha:v1.0.0" },
+              Beta: { image: "saashup/beta:v1.0.0" },
+            },
+          },
+        }] });
+      }
+      if (parsed.pathname === "/api/plugins/docker/images/" && method === "GET") {
+        return jsonResponse({ results: [
+          { id: 101, name: "saashup/alpha", version: "v1.0.0", host: { id: 1 } },
+          { id: 102, name: "saashup/beta", version: "v1.0.0", host: { id: 1 } },
+        ] });
+      }
+      if (parsed.pathname === "/api/plugins/docker/containers/" && method === "GET") {
+        return jsonResponse({ results: [
+          { id: 201, name: "alpha-one", image: { id: 101 }, host: { id: 1 } },
+          { id: 202, name: "beta-one", image: { id: 102 }, host: { id: 1 } },
+        ] });
+      }
+      return jsonResponse({});
+    });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", enrollment_limit: 4, profile: "prod", config_profile: "prod" },
+      enrollment_counts: {},
+      enrollment_instances: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.get("/enroll/limit")
+      .set("x-auth-request-email", "owner@example.com")
+      .query({ profile: "prod" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.instances).toEqual([
+          expect.objectContaining({ instance: "Alpha", instance_count: 1 }),
+          expect.objectContaining({ instance: "Beta", instance_count: 1 }),
+        ]);
+      });
+  });
+
+  test("enroll template badges count image usage when templates omit versions", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    fetchMock.mockImplementation(async (url, options = {}) => {
+      const parsed = new URL(String(url));
+      const method = options.method || "GET";
+      if (parsed.pathname === "/api/plugins/docker/hosts/" && method === "GET") {
+        return jsonResponse({ results: [{ id: 1, name: "host-a", tags: [{ slug: "tile" }] }] });
+      }
+      if (parsed.pathname === "/api/extras/config-contexts/" && method === "GET") {
+        return jsonResponse({ results: [{
+          id: 501,
+          name: "saashup-template-catalog-prod-owner",
+          is_active: true,
+          data: {
+            saashup_template_catalog: true,
+            saashup_profile: "prod",
+            saashup_owner: "owner@example.com",
+            saashup_templates: {
+              Alpha: { image: "saashup/alpha" },
+              Beta: { image: "saashup/beta" },
+            },
+          },
+        }] });
+      }
+      if (parsed.pathname === "/api/plugins/docker/images/" && method === "GET") {
+        return jsonResponse({ results: [
+          { id: 101, name: "saashup/alpha", version: "v1.0.0", host: { id: 1 } },
+          { id: 102, name: "saashup/beta", version: "v2.0.0", host: { id: 1 } },
+        ] });
+      }
+      if (parsed.pathname === "/api/plugins/docker/containers/" && method === "GET") {
+        return jsonResponse({ results: [
+          { id: 201, name: "alpha-one", image: { id: 101 }, host: { id: 1 } },
+          { id: 202, name: "beta-one", image: { id: 102 }, host: { id: 1 } },
+        ] });
+      }
+      return jsonResponse({});
+    });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", enrollment_limit: 4, profile: "prod", config_profile: "prod" },
+      enrollment_counts: {},
+      enrollment_instances: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.get("/enroll/limit")
+      .set("x-auth-request-email", "owner@example.com")
+      .query({ profile: "prod" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.instances).toEqual([
+          expect.objectContaining({ instance: "Alpha", instance_count: 1 }),
+          expect.objectContaining({ instance: "Beta", instance_count: 1 }),
         ]);
       });
   });
@@ -1671,27 +2392,18 @@ describe("server routes", () => {
     await vi.waitFor(() => expect(readState(dataPath).order_counts["buyer@example.com"].prod).toBe(0));
     await vi.waitFor(() => expect(readState(dataPath).order_instances["buyer@example.com"].prod).toEqual([]));
 
-    expect(netboxCalls.map((call) => `${call.method} ${call.path}`)).toEqual([
-      "GET /api/plugins/docker/hosts/",
-      "GET /api/plugins/docker/containers/",
+    const netboxPaths = netboxCalls.map((call) => `${call.method} ${call.path}`);
+    expect(netboxPaths).toEqual(expect.arrayContaining([
+      "GET /api/extras/config-contexts/",
       "GET /api/plugins/docker/images/",
-      "GET /api/plugins/cloudflare/dns/accounts/",
       "POST /api/plugins/cloudflare/dns/records/",
       "POST /api/plugins/docker/volumes/",
       "POST /api/plugins/docker/containers/",
       "PATCH /api/plugins/docker/containers/",
-      "GET /api/plugins/docker/containers/31/",
-      "PATCH /api/plugins/docker/containers/",
-      "GET /api/plugins/docker/containers/31/",
-      "GET /api/plugins/docker/hosts/",
-      "GET /api/plugins/docker/containers/",
-      "PATCH /api/plugins/docker/containers/",
-      "GET /api/plugins/docker/containers/31/",
       "DELETE /api/plugins/docker/containers/31/",
       "DELETE /api/plugins/docker/volumes/41/",
-      "GET /api/plugins/cloudflare/dns/records/",
       "DELETE /api/plugins/cloudflare/dns/records/61/",
-    ]);
+    ]));
   });
 
   test("sends the expected NetBox create payloads for container, config, DNS, and volumes", async () => {
@@ -1735,15 +2447,9 @@ describe("server routes", () => {
       .expect(200);
 
     const calls = parsedFetchCalls(fetchMock);
-    const dnsCreate = calls.find((call) => call.url.pathname === "/api/plugins/cloudflare/dns/records/" && call.method === "POST");
-    expect(dnsCreate.body).toMatchObject({
-      zone: 51,
-      name: "payload-check.example.com",
-      type: "CNAME",
-      content: "host-a.example.com",
-      ttl: 60,
-      proxied: true,
-    });
+    const dnsCreates = calls.filter((call) => call.url.pathname === "/api/plugins/cloudflare/dns/records/" && call.method === "POST");
+    expect(dnsCreates).toHaveLength(0);
+    expect(readState(dataPath).logs).toContain("CREATE : Cloudflare DNS record skipped for payload-check.example.com/app because it includes path info");
 
     const volumeCreate = calls.find((call) => call.url.pathname === "/api/plugins/docker/volumes/" && call.method === "POST");
     expect(volumeCreate.body).toEqual({ host: 1, name: "payload-data" });
@@ -1781,6 +2487,102 @@ describe("server routes", () => {
       { key: "custom.label", value: "custom-value" },
     ]));
     expect(containerConfig.labels.some((label) => label.key === "traefik.http.middlewares.payload-check.ipallowlist.sourcerange")).toBe(true);
+  });
+
+  test("reuses existing Docker volumes before creating missing ones", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, {
+      existingVolumes: [{ id: 41, host: { id: 1 }, name: "payload-data" }],
+      expectTraefikConfig: false,
+    });
+    writeState(dataPath, {
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        tag: "tile",
+      },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/create")
+      .send({
+        instance: "payload-check.example.com",
+        image: "saashup/tile",
+        version: "v2.0.0",
+        volume_source: ["/data", "/cache"],
+        volume_name: ["payload-data", "payload-cache"],
+        traefik: "false",
+        wait: "true",
+      })
+      .expect(200);
+
+    const calls = parsedFetchCalls(fetchMock);
+    const volumeLookups = calls.filter((call) => call.url.pathname === "/api/plugins/docker/volumes/" && call.method === "GET" && call.url.searchParams.has("host_id"));
+    expect(volumeLookups.map((call) => call.url.searchParams.get("name"))).toEqual(["payload-data", "payload-cache"]);
+
+    const volumeCreates = calls.filter((call) => call.url.pathname === "/api/plugins/docker/volumes/" && call.method === "POST");
+    expect(volumeCreates).toHaveLength(1);
+    expect(volumeCreates[0].body).toEqual({ host: 1, name: "payload-cache" });
+
+    const containerConfig = calls.find((call) => (
+      call.url.pathname === "/api/plugins/docker/containers/"
+      && call.method === "PATCH"
+      && Array.isArray(call.body)
+      && call.body.some((item) => item.id === 31 && !item.operation)
+    )).body[0];
+    expect(containerConfig.mounts).toEqual([
+      { source: "/data", volume: { host: 1, name: "payload-data" }, read_only: false },
+      { source: "/cache", volume: { host: 1, name: "payload-cache" }, read_only: false },
+    ]);
+    expect(readState(dataPath).logs).toContain("CREATE : 2 volumes prepared on host-a (1 reused, 1 created)");
+  });
+
+  test("pulls a missing image before creating an instance", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, {
+      expectTraefikConfig: false,
+    });
+    writeState(dataPath, {
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        tag: "tile",
+      },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/create")
+      .send({
+        instance: "missing-image.example.com",
+        image: "saashup/missing",
+        version: "v3.0.0",
+        traefik: "false",
+        wait: "true",
+      })
+      .expect(200);
+
+    const calls = parsedFetchCalls(fetchMock);
+    const imageLookup = calls.find((call) => call.url.pathname === "/api/plugins/docker/images/" && call.method === "GET" && call.url.searchParams.get("name") === "saashup/missing");
+    expect(imageLookup.url.searchParams.get("version")).toBe("v3.0.0");
+    expect(imageLookup.url.searchParams.get("host_id")).toBe("1");
+
+    const registryLookup = calls.find((call) => call.url.pathname === "/api/plugins/docker/images/" && call.method === "GET" && call.url.searchParams.get("name") === "saashup/missing" && !call.url.searchParams.has("version"));
+    expect(registryLookup.url.searchParams.get("limit")).toBe("1");
+
+    const imageCreate = calls.find((call) => call.url.pathname === "/api/plugins/docker/images/" && call.method === "POST");
+    expect(imageCreate.body).toEqual({ host: 1, name: "saashup/missing", version: "v3.0.0", registry: 7 });
+
+    const imagePoll = calls.find((call) => call.url.pathname === "/api/plugins/docker/images/20/" && call.method === "GET");
+    expect(imagePoll).toBeTruthy();
+
+    const containerCreate = calls.find((call) => call.url.pathname === "/api/plugins/docker/containers/" && call.method === "POST");
+    expect(containerCreate.body).toMatchObject({ name: "missing-image", image: 20 });
+    expect(readState(dataPath).logs).toContain("CREATE : created image saashup/missing:v3.0.0 on host-a status=201");
+    expect(readState(dataPath).logs).toContain("CREATE : image saashup/missing:v3.0.0 on host-a pulled identifier=sha256:20");
   });
 
   test("reserves order slots immediately when create is accepted", async () => {
@@ -2401,8 +3203,8 @@ describe("server routes", () => {
       .send({ instance: "tiles.example.com", order_request: "true", profile: "prod" })
       .expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : container tiles deleted"));
-    expect(readState(dataPath).order_counts).toEqual({});
-    expect(readState(dataPath).order_instances).toEqual({});
+    expect(readState(dataPath).order_counts || {}).toEqual({});
+    expect(readState(dataPath).order_instances || {}).toEqual({});
 
     await request.post("/refresh-hosts").send({}).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("REFRESH_HOST : finished"));
@@ -2885,6 +3687,14 @@ describe("server routes", () => {
 
     await request.post("/delete").send({ instance: "missing.example.com" }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : cannot delete missing, expected 1 container got 0"));
+
+    await request.post("/delete")
+      .send({ instance: "tiles.example.com", wait: "true" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toEqual({ status: "finished" });
+      });
+    expect(readState(dataPath).logs).toContain("DELETE : container tiles deleted");
   });
 
   test("deletes the exact container when NetBox returns fuzzy name matches", async () => {
@@ -3001,8 +3811,13 @@ describe("server routes", () => {
       image: "saashup/tile",
       version: "v3.0.0",
       port_value: "8080",
+      var_env_key: ["APP_ENV"],
+      var_env_value: ["production"],
+      label_key: ["custom.label"],
+      label_value: ["custom-value"],
     }).expect(202);
-    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("CREATE : image saashup/tile:v3.0.0 not found on host-a"));
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("CREATE : created image saashup/tile:v3.0.0 on host-a status=201"));
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("CREATE : container missing-image configured on host-a"));
 
     await request.post("/create")
       .set("x-auth-request-email", "missing-image@example.com")
@@ -3011,12 +3826,16 @@ describe("server routes", () => {
         image: "saashup/tile",
         version: "v3.0.0",
         port_value: "8080",
+        var_env_key: ["APP_ENV"],
+        var_env_value: ["production"],
+        label_key: ["custom.label"],
+        label_value: ["custom-value"],
         order_request: "true",
         profile: "prod",
       })
       .expect(202);
     await vi.waitFor(() => expect(readState(dataPath).order_instances["missing-image@example.com"]?.prod?.[0]).toEqual(
-      expect.objectContaining({ instance: "missing-order.example.com", status: "failed" }),
+      expect.objectContaining({ instance: "missing-order.example.com", status: "ready" }),
     ));
   });
 
@@ -3136,6 +3955,47 @@ describe("server routes", () => {
     expect(fetchMock.mock.calls.some(([url, options]) => String(url).endsWith("/api/plugins/docker/volumes/40/") && options?.method === "DELETE")).toBe(true);
   });
 
+  test("deletes containers by image and removes the image after success", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock);
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/delete")
+      .send({ image: "saashup/tile", delete_mode: "image", remove_image: "true" })
+      .expect(202);
+
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : container tiles deleted id=30"));
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : 1 container deleted for image saashup/tile"));
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : image saashup/tile:v1.0.0 deleted id=10"));
+  });
+
+  test("delete by image ignores fuzzy image matches returned by NetBox", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, { fuzzyImageNameMatches: true });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/delete")
+      .send({ image: "saashup/tile", delete_mode: "image" })
+      .expect(202);
+
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : container tiles deleted id=30"));
+    expect(readState(dataPath).logs).not.toContain("netbox-docker-agent");
+    expect(fetchMock.mock.calls.some(([url]) => {
+      const parsed = new URL(String(url));
+      return parsed.pathname === "/api/plugins/docker/containers/" && parsed.searchParams.get("image_id") === "99";
+    })).toBe(false);
+  });
+
   test("create wait mode blocks until recreate finishes", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock);
@@ -3223,12 +4083,24 @@ describe("server routes", () => {
 
   test("order create rejects disabled templates before reserving usage", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
-    setupNetBoxFetch(fetchMock);
+    setupNetBoxFetch(fetchMock, {
+      netboxTemplateContexts: [{
+        id: 501,
+        name: "saashup-template-catalog-prod-buyer",
+        is_active: true,
+        data: {
+          saashup_template_catalog: true,
+          saashup_profile: "prod",
+          saashup_owner: "buyer@example.com",
+          saashup_templates: {
+            Disabled: { image: "saashup/tile", saashup_enabled: "false;" },
+          },
+        },
+      }],
+    });
     writeState(dataPath, {
       config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 3 },
-      templates: {
-        Disabled: { image: "saashup/tile", saashup_enabled: "false;" },
-      },
+      templates: {},
       order_counts: {},
       order_instances: {},
       logs: "",
@@ -3251,8 +4123,11 @@ describe("server routes", () => {
       });
 
     expect(readState(dataPath).order_counts).toEqual({});
-    expect(readState(dataPath).order_instances).toEqual({});
-    expect(fetchMock.mock.calls.some(([url]) => new URL(String(url)).pathname === "/api/plugins/docker/containers/")).toBe(false);
+    expect(readState(dataPath).order_instances || {}).toEqual({});
+    expect(fetchMock.mock.calls.some(([url, options = {}]) => (
+      new URL(String(url)).pathname === "/api/plugins/docker/containers/"
+      && (options.method || "GET") === "POST"
+    ))).toBe(false);
   });
 
   test("create wait mode reports failures without an order reservation", async () => {
@@ -3280,7 +4155,7 @@ describe("server routes", () => {
     }).expect(502);
 
     expect(response.body).toMatchObject({ detail: "wait create failed", payload: { detail: "bad gateway" } });
-    expect(readState(dataPath).order_instances).toEqual({});
+    expect(readState(dataPath).order_instances || {}).toEqual({});
     expect(readState(dataPath).logs).toContain("ERROR : wait create failed");
   });
 

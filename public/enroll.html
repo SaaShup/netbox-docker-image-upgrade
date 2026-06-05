@@ -18,33 +18,40 @@
         <span id="authName">Signed in</span>
         <small id="authEmail"></small>
       </div>
+      <button type="button" class="btn btn-secondary auth-cache" id="clearCacheBtn">Clear cache</button>
       <button type="button" class="btn btn-secondary auth-logout" id="logoutBtn">Logout</button>
     </div>
 
-    <section class="notice" id="notif">Import a Docker run command or compose with a single service.</section>
+    <section class="notice hidden" id="notif">Import a Docker run command or compose with a single service.</section>
 
-    <section class="order-instances hidden" id="enrollInstances" aria-live="polite"></section>
+    <div class="order-loading" id="orderLoading" role="status">
+      <span class="order-spinner" aria-hidden="true"></span>
+      <span>Loading enrollment</span>
+    </div>
 
-    <form id="instanceForm" action="/create" method="post" class="enroll-card" novalidate>
-      <div class="card-header">
-        <h3>Enroll instance</h3>
-        <p>Import a Docker Run command or Docker Compose service, then submit the creation request.</p>
-      </div>
+    <section class="enroll-workspace" aria-label="Enrollment workspace">
+      <section class="order-instances hidden" id="enrollInstances" aria-live="polite"></section>
 
-      <select id="importProfileSelect" class="hidden" aria-hidden="true"></select>
+      <form id="instanceForm" action="/create" method="post" class="enroll-card hidden" novalidate>
+        <div class="card-header">
+          <h3>Enroll instance</h3>
+          <p>Import a Docker Run command or Docker Compose service, then submit the creation request.</p>
+        </div>
 
-      <div class="import-tabs" role="tablist" aria-label="Import type">
-        <button type="button" class="import-tab active" id="dockerRunTab" data-import-tab="run" role="tab" aria-selected="true" aria-controls="dockerRunPanel">Run</button>
-        <button type="button" class="import-tab" id="dockerComposeTab" data-import-tab="compose" role="tab" aria-selected="false" aria-controls="dockerComposePanel">Compose</button>
-      </div>
+        <select id="importProfileSelect" class="hidden" aria-hidden="true"></select>
 
-      <div id="dockerRunPanel" data-import-panel="run" role="tabpanel" aria-labelledby="dockerRunTab">
-        <textarea id="dockerRunInput" class="modal-textarea" spellcheck="false" placeholder="docker run --name app --network mgmt -e APP_ENV=production -v app-data:/app/data saashup/app:v1.0.0"></textarea>
-      </div>
+        <div class="import-tabs" role="tablist" aria-label="Import type">
+          <button type="button" class="import-tab active" id="dockerRunTab" data-import-tab="run" role="tab" aria-selected="true" aria-controls="dockerRunPanel">Run</button>
+          <button type="button" class="import-tab" id="dockerComposeTab" data-import-tab="compose" role="tab" aria-selected="false" aria-controls="dockerComposePanel">Compose</button>
+        </div>
 
-      <div id="dockerComposePanel" class="hidden" data-import-panel="compose" role="tabpanel" aria-labelledby="dockerComposeTab">
-        <input type="checkbox" id="createWorkflowInput" class="hidden" aria-hidden="true">
-        <textarea id="dockerComposeInput" class="modal-textarea" spellcheck="false" placeholder="services:
+        <div id="dockerRunPanel" data-import-panel="run" role="tabpanel" aria-labelledby="dockerRunTab">
+          <textarea id="dockerRunInput" class="modal-textarea" spellcheck="false" placeholder="docker run --name app --network mgmt -e APP_ENV=production -v app-data:/app/data saashup/app:v1.0.0"></textarea>
+        </div>
+
+        <div id="dockerComposePanel" class="hidden" data-import-panel="compose" role="tabpanel" aria-labelledby="dockerComposeTab">
+          <input type="checkbox" id="createWorkflowInput" class="hidden" aria-hidden="true">
+          <textarea id="dockerComposeInput" class="modal-textarea" spellcheck="false" placeholder="services:
   web:
     container_name: web
     image: saashup/web:v1.0.0
@@ -54,76 +61,77 @@
       APP_ENV: production
     volumes:
       - web-data:/app/data"></textarea>
-      </div>
-
-      <div class="enroll-summary hidden" id="enrollSummary" aria-live="polite"></div>
-
-      <div class="form-actions enroll-actions">
-        <a class="btn btn-secondary enroll-home-btn" href="/">Back to home</a>
-        <button type="submit" class="btn btn-primary" id="submitBtn" disabled>Submit creation</button>
-      </div>
-
-      <div hidden>
-        <select id="config_profile" name="config_profile"></select>
-        <input type="text" id="config_name" name="config_name">
-        <input type="url" id="netbox" name="netbox">
-        <input type="password" id="token" name="token" autocomplete="off">
-        <input type="url" id="proxy" name="proxy">
-        <input type="text" id="domain" name="domain">
-        <input type="text" id="tag" name="tag">
-        <input type="number" id="max_templates" name="max_templates" min="0" max="10" value="1">
-        <input type="number" id="max_instances" name="max_instances" min="0" max="10" value="1">
-        <input type="number" id="enrollment_limit" name="enrollment_limit" min="0" max="10" value="1">
-        <input type="text" id="owner_env_var" name="owner_env_var" value="SAASHUP_OWNER">
-        <input type="checkbox" id="cloudflare_filter" name="cloudflare_filter" value="true" checked>
-        <input type="text" id="network" name="network">
-        <input type="text" id="instance" name="instance" list="instanceOptions">
-        <button type="button" id="refreshInstancesBtn">Refresh instances</button>
-        <datalist id="instanceOptions"></datalist>
-        <input type="text" id="dns_name" name="dns_name">
-        <input type="checkbox" id="traefik" name="traefik" value="true" checked>
-        <input type="checkbox" id="all_hosts" name="all_hosts" value="true">
-        <input type="checkbox" id="saashup_enabled" name="saashup_enabled" value="true" checked>
-        <input type="text" id="image" name="image" list="imageOptions">
-        <button type="button" id="refreshImagesBtn">Refresh images</button>
-        <datalist id="imageOptions"></datalist>
-        <input type="text" id="version" name="version">
-        <input type="text" id="oldversion" name="oldversion" list="oldVersionOptions">
-        <datalist id="oldVersionOptions"></datalist>
-        <input type="text" id="restart_version" name="restart_version" list="restartVersionOptions">
-        <datalist id="restartVersionOptions"></datalist>
-        <input type="checkbox" id="clean_name" name="clean_name" value="true">
-
-        <div id="envList">
-          <div class="env-row">
-            <input type="text" id="var_env_key" name="var_env_key">
-            <input type="text" id="var_env_value" name="var_env_value">
-            <button type="button" class="env-remove" disabled>Remove</button>
-          </div>
         </div>
-        <div id="labelList">
-          <div class="repeat-row">
-            <input type="text" id="label_key" name="label_key">
-            <input type="text" id="label_value" name="label_value">
-            <button type="button" class="repeat-remove" disabled>Remove</button>
-          </div>
+
+        <div class="enroll-summary hidden" id="enrollSummary" aria-live="polite"></div>
+
+        <div class="form-actions enroll-actions">
+          <a class="btn btn-secondary enroll-home-btn" href="/">Back to home</a>
+          <button type="submit" class="btn btn-primary" id="submitBtn" disabled>Submit creation</button>
         </div>
-        <div id="portList">
-          <div class="repeat-row">
-            <input type="number" id="port_value" name="port_value" min="1" max="65535" required>
-            <button type="button" class="repeat-remove" disabled>Remove</button>
+
+        <div hidden>
+          <select id="config_profile" name="config_profile"></select>
+          <input type="text" id="config_name" name="config_name">
+          <input type="url" id="netbox" name="netbox">
+          <input type="password" id="token" name="token" autocomplete="off">
+          <input type="url" id="proxy" name="proxy">
+          <input type="text" id="domain" name="domain">
+          <input type="text" id="tag" name="tag">
+          <input type="number" id="max_templates" name="max_templates" min="0" max="100" value="1">
+          <input type="number" id="max_instances" name="max_instances" min="0" max="100" value="1">
+          <input type="number" id="enrollment_limit" name="enrollment_limit" min="0" max="100" value="1">
+          <input type="text" id="owner_env_var" name="owner_env_var" value="SAASHUP_OWNER">
+          <input type="checkbox" id="cloudflare_filter" name="cloudflare_filter" value="true" checked>
+          <input type="text" id="network" name="network">
+          <input type="text" id="instance" name="instance" list="instanceOptions">
+          <button type="button" id="refreshInstancesBtn">Refresh instances</button>
+          <datalist id="instanceOptions"></datalist>
+          <input type="text" id="dns_name" name="dns_name">
+          <input type="checkbox" id="traefik" name="traefik" value="true" checked>
+          <input type="checkbox" id="all_hosts" name="all_hosts" value="true">
+          <input type="checkbox" id="saashup_enabled" name="saashup_enabled" value="true" checked>
+          <input type="text" id="image" name="image" list="imageOptions">
+          <button type="button" id="refreshImagesBtn">Refresh images</button>
+          <datalist id="imageOptions"></datalist>
+          <input type="text" id="version" name="version">
+          <input type="text" id="oldversion" name="oldversion" list="oldVersionOptions">
+          <datalist id="oldVersionOptions"></datalist>
+          <input type="text" id="restart_version" name="restart_version" list="restartVersionOptions">
+          <datalist id="restartVersionOptions"></datalist>
+          <input type="checkbox" id="clean_name" name="clean_name" value="true">
+
+          <div id="envList">
+            <div class="env-row">
+              <input type="text" id="var_env_key" name="var_env_key">
+              <input type="text" id="var_env_value" name="var_env_value">
+              <button type="button" class="env-remove" disabled>Remove</button>
+            </div>
           </div>
-        </div>
-        <div id="volumeList">
-          <div class="repeat-row">
-            <input type="text" id="volume_source" name="volume_source">
-            <input type="text" id="volume_name" name="volume_name" readonly>
-            <button type="button" class="repeat-remove" disabled>Remove</button>
+          <div id="labelList">
+            <div class="repeat-row">
+              <input type="text" id="label_key" name="label_key">
+              <input type="text" id="label_value" name="label_value">
+              <button type="button" class="repeat-remove" disabled>Remove</button>
+            </div>
           </div>
+          <div id="portList">
+            <div class="repeat-row">
+              <input type="number" id="port_value" name="port_value" min="1" max="65535" required>
+              <button type="button" class="repeat-remove" disabled>Remove</button>
+            </div>
+          </div>
+          <div id="volumeList">
+            <div class="repeat-row">
+              <input type="text" id="volume_source" name="volume_source">
+              <input type="text" id="volume_name" name="volume_name" readonly>
+              <button type="button" class="repeat-remove" disabled>Remove</button>
+            </div>
+          </div>
+          <div id="bindList"></div>
         </div>
-        <div id="bindList"></div>
-      </div>
-    </form>
+      </form>
+    </section>
 
     <footer class="app-footer order-footer">
       <span>SaaShup © 2026</span>

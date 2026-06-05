@@ -10,6 +10,8 @@ const sidebarToggle = document.getElementById("sidebarToggle");
 const formCard = document.querySelector(".form-card");
 const submitBtn = document.getElementById("submitBtn");
 const restartInstanceBtn = document.getElementById("restartInstanceBtn");
+const deleteInstanceBtn = document.getElementById("deleteInstanceBtn");
+const deleteImageBtn = document.getElementById("deleteImageBtn");
 const testBtn = document.getElementById("testBtn");
 const testEmailBtn = document.getElementById("testEmailBtn");
 const deleteConfigBtn = document.getElementById("deleteConfigBtn");
@@ -19,6 +21,7 @@ const importConfigFile = document.getElementById("importConfigFile");
 const clearBtn = document.getElementById("clearBtn");
 const dockerRunBtn = document.getElementById("dockerRunBtn");
 const templateSelect = document.getElementById("templateSelect");
+const createTemplateSelect = document.getElementById("create_template_select");
 const templateCreatorEmailWrap = document.getElementById("templateCreatorEmailWrap");
 const templateCreatorEmail = document.getElementById("templateCreatorEmail");
 const configDefaultWrap = document.getElementById("configDefaultWrap");
@@ -26,13 +29,19 @@ const configDefaultInput = document.getElementById("configDefaultInput");
 const loadTemplateBtn = document.getElementById("loadTemplateBtn");
 const orderTemplateBtn = document.getElementById("orderTemplateBtn");
 const saveTemplateBtn = document.getElementById("saveTemplateBtn");
+const saveAllTemplatesBtn = document.getElementById("saveAllTemplatesBtn");
 const deleteTemplateBtn = document.getElementById("deleteTemplateBtn");
 const orderCancelBtn = document.getElementById("orderCancelBtn");
 const dockerRunModal = document.getElementById("dockerRunModal");
 const dockerRunInput = document.getElementById("dockerRunInput");
 const dockerComposeInput = document.getElementById("dockerComposeInput");
+const templateExportFile = document.getElementById("templateExportFile");
+const templateExportFileName = document.getElementById("templateExportFileName");
 const importProfileSelect = document.getElementById("importProfileSelect");
 const createWorkflowInput = document.getElementById("createWorkflowInput");
+const importTemplateOrdersInput = document.getElementById("importTemplateOrdersInput");
+const exportCreateWorkflowInput = document.getElementById("exportCreateWorkflowInput");
+const exportImportTemplateOrdersInput = document.getElementById("exportImportTemplateOrdersInput");
 const enrollSummary = document.getElementById("enrollSummary");
 const dockerRunApplyBtn = document.getElementById("dockerRunApplyBtn");
 const dockerRunCancelBtn = document.getElementById("dockerRunCancelBtn");
@@ -79,6 +88,7 @@ const authUser = document.getElementById("authUser");
 const authAvatar = document.getElementById("authAvatar");
 const authName = document.getElementById("authName");
 const authEmail = document.getElementById("authEmail");
+const clearCacheBtn = document.getElementById("clearCacheBtn");
 const logoutBtn = document.getElementById("logoutBtn");
 const reportCard = document.getElementById("reportCard");
 const reportProfileSelect = document.getElementById("reportProfileSelect");
@@ -88,6 +98,9 @@ const reportTableHead = document.getElementById("reportTableHead");
 const reportTableBody = document.getElementById("reportTableBody");
 const reportViewButtons = Array.from(document.querySelectorAll("[data-report-view]"));
 const workflowCard = document.getElementById("workflowCard");
+const workflowActionSelect = document.getElementById("workflowActionSelect");
+const workflowDeleteVolumesField = document.getElementById("workflowDeleteVolumesField");
+const workflowDeleteVolumesInput = document.getElementById("workflowDeleteVolumesInput");
 const workflowSelect = document.getElementById("workflowSelect");
 const workflowSummary = document.getElementById("workflowSummary");
 const workflowTableBody = document.getElementById("workflowTableBody");
@@ -206,6 +219,10 @@ const profileFieldHelp = {
     title: "Delete volumes",
     body: "When enabled, deleting the instance also deletes the Docker volumes mounted on that container. Leave it off to keep data volumes.",
   },
+  remove_image: {
+    title: "Remove image",
+    body: "When deleting by image, remove the matching Docker image records only after all matching containers have been deleted successfully.",
+  },
   image: {
     title: "Image name",
     body: "The Docker image name used to find containers or available versions in NetBox, for example saashup/app.",
@@ -238,6 +255,18 @@ const profileFieldHelp = {
 
 const configFields = ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_templates", "owner_env_var", "cloudflare_filter", "smtp_config"];
 
+function isCreateFormAction(action = currentAction) {
+  return action === "create" || action === "template";
+}
+
+function isTemplateAction(action = currentAction) {
+  return action === "template";
+}
+
+function selectedTemplateName() {
+  return currentAction === "create" ? (createTemplateSelect?.value || "") : (templateSelect?.value || "");
+}
+
 const actions = {
   config: {
     endpoint: "/webhook",
@@ -254,10 +283,20 @@ const actions = {
     method: "post",
     menu: "menu_create",
     title: "Create instance",
-    description: "Create a container, volume, optional DNS record and optional Traefik labels.",
+    description: "Create an instance from a saved template.",
     submitLabel: "Create instance",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "network", "traefik", "all_hosts", "saashup_enabled", "template_url", "max_instances", "registry_webhook_secret", "instance", "dns_name", "image", "version", "env_vars", "labels", "ports", "volumes", "binds"],
+    fields: ["create_template", "instance", "dns_name", "image", "version"],
+  },
+  template: {
+    endpoint: "/create",
+    method: "post",
+    menu: "menu_template",
+    title: "Template",
+    description: "Create and manage reusable instance templates.",
+    submitLabel: "Create instance",
+    buttonClass: "btn btn-primary",
+    fields: ["config_profile", "network", "traefik", "template_url", "max_instances", "registry_webhook_secret", "image", "version", "env_vars", "labels", "ports", "volumes", "binds"],
   },
   workflow: {
     endpoint: "",
@@ -317,7 +356,7 @@ const actions = {
     description: "Delete one instance. A confirmation will be requested before submitting.",
     submitLabel: "Delete instance",
     buttonClass: "btn btn-danger",
-    fields: ["config_profile", "instance", "delete_volumes"],
+    fields: ["config_profile", "delete_volumes", "instance", "delete_instance_action", "image", "remove_image", "delete_image_action"],
     confirm: "Delete this instance?",
   },
 };
@@ -349,6 +388,7 @@ const allFieldNames = [
   "version",
   "clean_name",
   "remove_old_images",
+  "remove_image",
   "cloudflare_filter",
   "registry_webhook_secret",
   "smtp_config",
@@ -439,6 +479,12 @@ function logout() {
   window.location.href = `/logout?rd=${encodeURIComponent(returnUrl)}`;
 }
 
+function clearLocalCache() {
+  if (!confirm("Clear local browser cache for this app?")) return;
+  localStorage.clear();
+  window.location.reload();
+}
+
 function setSidebarCollapsed(collapsed) {
   appShell?.classList.toggle("sidebar-collapsed", collapsed);
   if (sidebarToggle) {
@@ -502,7 +548,7 @@ function createDnsName() {
 
 function syncCreateDnsName({ force = false } = {}) {
   const dnsInput = field("dns_name");
-  if (!dnsInput || currentAction !== "create") return;
+  if (!dnsInput || !isCreateFormAction()) return;
 
   const hasTraefik = fieldChecked("traefik", true);
   dnsInput.disabled = !hasTraefik;
@@ -545,6 +591,8 @@ function instanceNamePrefix() {
 }
 
 function instanceShortName() {
+  if (isTemplateAction()) return "instance";
+
   const name = String(fieldValue("instance") || "instance").trim();
   const shortName = (name.includes(".") ? name.split(".")[0] : name)
     .toLowerCase()
@@ -578,7 +626,7 @@ function syncVolumeNames() {
 }
 
 function ensureRandomCreateInstanceName() {
-  if (currentAction !== "create") return;
+  if (!isCreateFormAction()) return;
 
   const currentName = fieldValue("instance");
   if (currentName && currentName !== generatedCreateInstanceName) return;
@@ -639,7 +687,7 @@ async function refreshCreateNetworkFromInstances(requestId) {
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
     const data = await response.json();
-    if (requestId !== createNetworkRequestId || currentAction !== "create") return;
+    if (requestId !== createNetworkRequestId || !isCreateFormAction()) return;
 
     const networks = Array.from(new Set((Array.isArray(data) ? data : [])
       .flatMap(networkNamesFromItem)
@@ -652,7 +700,7 @@ async function refreshCreateNetworkFromInstances(requestId) {
     }
     setFieldValue("network", networks[0] || "");
   } catch {
-    if (requestId === createNetworkRequestId && currentAction === "create") {
+    if (requestId === createNetworkRequestId && isCreateFormAction()) {
       if (templateNetworkOverride) {
         setFieldValue("network", templateNetworkOverride);
         return;
@@ -666,8 +714,8 @@ function syncCreateNetwork() {
   const network = field("network");
   if (!network) return;
 
-  network.readOnly = currentAction === "create";
-  if (currentAction !== "create") return;
+  network.readOnly = isCreateFormAction();
+  if (!isCreateFormAction()) return;
 
   if (templateNetworkOverride) {
     setFieldValue("network", templateNetworkOverride);
@@ -828,17 +876,24 @@ function parseStoredObject(key) {
 function loadCreateTemplates({ useCache = true } = {}) {
   createTemplates = useCache ? normalizeCreateTemplates(parseStoredObject("create_templates")) : {};
   createWorkflows = useCache ? normalizeCreateWorkflows(parseStoredObject("create_workflows")) : {};
+  const query = new URLSearchParams();
+  const profile = selectedProfileCredentials().profile;
+  if (profile) query.set("profile", profile);
+  query.set("include_workflows", "true");
 
-  return fetch("/templates", {
+  return fetch(`/templates${query.toString() ? `?${query.toString()}` : ""}`, {
     headers: { Accept: "application/json" },
   })
     .then((response) => {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return response.json();
     })
-    .then((templates) => {
-      createTemplates = normalizeCreateTemplates(templates && typeof templates === "object" && !Array.isArray(templates) ? templates : {});
+    .then((payload) => {
+      const catalog = templateCatalogFromPayload(payload, { workflows: createWorkflows });
+      createTemplates = catalog.templates;
+      createWorkflows = catalog.workflows;
       localStorage.setItem("create_templates", JSON.stringify(createTemplates));
+      localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
       updateTemplateOptions();
       updateWorkflowOptions();
     })
@@ -857,17 +912,24 @@ function loadCreateTemplates({ useCache = true } = {}) {
 function persistCreateTemplates() {
   localStorage.setItem("create_templates", JSON.stringify(createTemplates));
   localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
+  const query = new URLSearchParams();
+  const profile = selectedProfileCredentials().profile;
+  if (profile) query.set("profile", profile);
+  query.set("include_workflows", "true");
 
-  return fetch("/templates", {
+  return fetch(`/templates${query.toString() ? `?${query.toString()}` : ""}`, {
     method: "POST",
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(createTemplates),
+    body: JSON.stringify({
+      templates: createTemplates,
+      workflows: createWorkflows,
+    }),
   }).then((response) => {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return response.json().catch(() => createTemplates);
+    return response.json().catch(() => ({ templates: createTemplates, workflows: createWorkflows }));
   });
 }
 
@@ -926,7 +988,7 @@ async function importPortableConfig(event) {
     const text = await file.text();
     const data = JSON.parse(text);
 
-    if (!confirm("Import config, profiles and templates from this file? Matching names will be replaced and new names will be added.")) {
+    if (!confirm("Import config from this file? Matching profile names will be replaced and new names will be added.")) {
       return;
     }
 
@@ -943,22 +1005,16 @@ async function importPortableConfig(event) {
 
     const importedConfig = plainObject(data.config);
     const importedProfiles = normalizeImportedProfiles(parseProfiles(data.profiles || importedConfig.profiles));
-    const importedTemplates = normalizeCreateTemplates(plainObject(data.templates));
-    const importedWorkflows = normalizeCreateWorkflows(plainObject(data.workflows));
     const mergedProfiles = { ...configProfiles, ...importedProfiles };
     const selectedProfile = importedConfig.profile || importedConfig.config_profile || currentConfigProfile || Object.keys(mergedProfiles).sort((a, b) => a.localeCompare(b))[0] || "";
 
     configProfiles = mergedProfiles;
     serverConfigProfiles = { ...serverConfigProfiles, ...importedProfiles };
-    createTemplates = { ...createTemplates, ...importedTemplates };
-    createWorkflows = { ...createWorkflows, ...importedWorkflows };
     savedConfig = { ...savedConfig, ...importedConfig, profiles: mergedProfiles };
     currentConfigProfile = selectedProfile;
 
     Object.keys(importedProfiles).forEach(forgetDeletedProfile);
     persistProfiles();
-    localStorage.setItem("create_templates", JSON.stringify(createTemplates));
-    localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
     updateProfileOptions();
     updateTemplateOptions();
     updateWorkflowOptions();
@@ -972,22 +1028,32 @@ async function importPortableConfig(event) {
 }
 
 function updateTemplateOptions(selected = "") {
-  if (!templateSelect) return;
-
+  const normalizedTemplates = normalizeCreateTemplates(createTemplates);
+  if (JSON.stringify(normalizedTemplates) !== JSON.stringify(createTemplates)) {
+    createTemplates = normalizedTemplates;
+    localStorage.setItem("create_templates", JSON.stringify(createTemplates));
+  }
   const names = Object.keys(createTemplates).sort((a, b) => a.localeCompare(b));
-  templateSelect.replaceChildren(new Option(names.length ? "Select template" : "No templates saved", ""));
-
-  names.forEach((name) => {
-    templateSelect.appendChild(new Option(name, name));
+  const selectedValue = names.includes(selected) ? selected : "";
+  [templateSelect, createTemplateSelect].filter(Boolean).forEach((select) => {
+    select.replaceChildren(new Option(names.length ? "Select template" : "No templates saved", ""));
+    names.forEach((name) => {
+      select.appendChild(new Option(name, name));
+    });
+    select.value = selectedValue;
   });
 
-  templateSelect.value = names.includes(selected) ? selected : "";
   syncTemplateActions();
 }
 
 function updateWorkflowOptions(selected = workflowSelect?.value || "") {
   if (!workflowSelect) return;
 
+  const normalizedWorkflows = normalizeCreateWorkflows(createWorkflows);
+  if (JSON.stringify(normalizedWorkflows) !== JSON.stringify(createWorkflows)) {
+    createWorkflows = normalizedWorkflows;
+    localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
+  }
   const names = Object.keys(createWorkflows).sort((a, b) => workflowOptionLabel(a).localeCompare(workflowOptionLabel(b)));
   workflowSelect.replaceChildren(new Option(names.length ? "Select workflow" : "No workflows saved", ""));
   names.forEach((name) => workflowSelect.appendChild(new Option(workflowOptionLabel(name), name)));
@@ -1025,7 +1091,21 @@ function workflowStepName(step) {
 function workflowStepTemplate(step) {
   const templateName = workflowStepName(step);
   const embeddedTemplate = plainObject(step?.template_data || step?.data);
-  return Object.keys(embeddedTemplate).length ? embeddedTemplate : (createTemplates[templateName] || {});
+  return createTemplates[templateName] || (Object.keys(embeddedTemplate).length ? embeddedTemplate : {});
+}
+
+function workflowStepEnabled(step) {
+  return typeof step === "string" || step?.enabled !== false;
+}
+
+function selectedWorkflowKey() {
+  return workflowSelect?.value || "";
+}
+
+function persistSelectedWorkflow() {
+  const key = selectedWorkflowKey();
+  if (!key || !createWorkflows[key]) return;
+  localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
 }
 
 function workflowStepStatusIcon(status = "pending") {
@@ -1050,29 +1130,37 @@ function renderWorkflow() {
   if (!workflowSummary || !workflowTableBody) return;
 
   const steps = Array.isArray(workflow?.steps) ? workflow.steps : [];
+  const enabledSteps = steps.filter(workflowStepEnabled);
   const profile = workflowProfile(workflow);
+  const action = workflowActionSelect?.value === "delete" ? "delete" : "create";
   workflowSummary.textContent = workflow
-    ? `${steps.length} step${steps.length === 1 ? "" : "s"}${profile ? ` - ${profileLabel(profile)}` : ""}`
+    ? `${enabledSteps.length}/${steps.length} enabled - ${action}${profile ? ` - ${profileLabel(profile)}` : ""}`
     : "No workflow selected";
-  if (runWorkflowBtn) runWorkflowBtn.disabled = !steps.length;
+  if (runWorkflowBtn) runWorkflowBtn.disabled = !enabledSteps.length;
+  if (runWorkflowBtn) runWorkflowBtn.textContent = action === "delete" ? "Run delete" : "Run create";
   if (deleteWorkflowBtn) deleteWorkflowBtn.disabled = !workflow;
+  workflowDeleteVolumesField?.classList.toggle("hidden", action !== "delete");
 
   if (!steps.length) {
-    workflowTableBody.innerHTML = '<tr><td colspan="4">Import a compose file with workflow enabled.</td></tr>';
+    workflowTableBody.innerHTML = '<tr><td colspan="6">Import a compose file with workflow enabled.</td></tr>';
     return;
   }
 
   workflowTableBody.replaceChildren(...steps.map((step, index) => {
     const templateName = workflowStepName(step);
     const template = workflowStepTemplate(step);
+    const enabled = workflowStepEnabled(step);
     const status = workflowStepStatuses[index] || "pending";
     const row = document.createElement("tr");
     row.dataset.workflowStepStatus = status;
+    row.classList.toggle("workflow-step-disabled", !enabled);
     row.innerHTML = `
       <td>${workflowStepStatusIcon(status)}</td>
+      <td><input type="checkbox" data-workflow-step-enabled="${index}" aria-label="Enable ${escapeHtml(templateName || "workflow step")}" ${enabled ? "checked" : ""}></td>
       <td>${escapeHtml(templateName || "")}</td>
       <td>${escapeHtml(template.instance || "")}</td>
       <td>${escapeHtml(template.image || "")}:${escapeHtml(template.version || "")}</td>
+      <td><button type="button" class="icon-btn icon-btn-danger workflow-step-delete" data-workflow-step-delete="${index}" title="Remove ${escapeHtml(templateName || "workflow step")}" aria-label="Remove ${escapeHtml(templateName || "workflow step")}">×</button></td>
     `;
     return row;
   }));
@@ -1088,8 +1176,9 @@ function updateImportProfileOptions() {
 }
 
 function syncTemplateActions() {
-  const hasTemplate = Boolean(templateSelect?.value);
-  const selectedTemplate = hasTemplate ? createTemplates[templateSelect.value] : null;
+  const name = selectedTemplateName();
+  const hasTemplate = Boolean(name);
+  const selectedTemplate = hasTemplate ? createTemplates[name] : null;
   const orderEnabled = !selectedTemplate || selectedTemplate.saashup_enabled !== false;
 
   updateTemplateCreatorEmail(selectedTemplate);
@@ -1102,6 +1191,7 @@ function syncTemplateActions() {
   orderTemplateBtn.title = hasTemplate && !orderEnabled ? "This template is disabled for orders" : (hasTemplate ? "Open the order page for this template" : "Select a template before ordering");
   orderTemplateBtn.classList.toggle("btn-primary", hasTemplate && orderEnabled);
   orderTemplateBtn.classList.toggle("btn-danger-outline", !hasTemplate || !orderEnabled);
+  if (saveAllTemplatesBtn) saveAllTemplatesBtn.disabled = !Object.keys(createTemplates).length;
 }
 
 function defaultConfigProfileName(exceptName = "") {
@@ -1116,7 +1206,7 @@ function updateTemplateCreatorEmail(template) {
   templateCreatorEmail.value = email;
   templateCreatorEmail.title = email ? `Template creator: ${email}` : "Template creator email";
   templateCreatorEmail.disabled = !template;
-  templateCreatorEmailWrap.classList.toggle("hidden", currentAction !== "create");
+  templateCreatorEmailWrap.classList.toggle("hidden", !isTemplateAction());
 }
 
 function updateConfigDefaultControl() {
@@ -1194,7 +1284,7 @@ function normalizeMaxInstances(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 1;
 
-  return Math.min(10, Math.max(0, Math.floor(number)));
+  return Math.min(100, Math.max(0, Math.floor(number)));
 }
 
 function maxTemplatesValue(profile = {}) {
@@ -1302,7 +1392,7 @@ function applyProfileToFields(name = currentConfigProfile) {
   setFieldValue("owner_env_var", credentials.owner_env_var);
   setFieldValue("cloudflare_filter", credentials.cloudflare_filter);
   setFieldValue("smtp_config", credentials.smtp_config);
-  if (currentAction === "create") applyRegistryDefaultSecret();
+  if (isTemplateAction()) applyRegistryDefaultSecret();
   persistProfiles();
   syncCreateNetwork();
   updateProfileSyncWarning();
@@ -1340,7 +1430,7 @@ async function loadRegistryDefaultSecret() {
 }
 
 function applyRegistryDefaultSecret() {
-  if (currentAction !== "create" || !registryWebhookSecretInput || registryWebhookSecretInput.value || !registryWebhookDefaultSecret) return;
+  if (!isTemplateAction() || !registryWebhookSecretInput || registryWebhookSecretInput.value || !registryWebhookDefaultSecret) return;
   registryWebhookSecretInput.value = registryWebhookDefaultSecret;
 }
 
@@ -1369,7 +1459,7 @@ function credentialsQuery({ includeTag = false } = {}) {
 }
 
 function shouldFilterRefreshByTag() {
-  return currentAction === "create" || currentAction === "recreate" || currentAction === "restart" || currentAction === "delete";
+  return isCreateFormAction() || currentAction === "recreate" || currentAction === "restart" || currentAction === "delete";
 }
 
 function setTestButtonState(state = "default") {
@@ -1798,6 +1888,7 @@ function setNotice(message, type = "info", autoClear = true) {
 
   notif.textContent = message;
   notif.className = "notice";
+  notif.classList.remove("hidden");
 
   if (type === "success") {
     notif.style.backgroundColor = "#dcfce7";
@@ -1820,6 +1911,12 @@ function setNotice(message, type = "info", autoClear = true) {
       setNotice("Welcome !", "info", false);
     }, 4000);
   }
+}
+
+function hideNotice() {
+  const notif = document.getElementById("notif");
+  if (!notif) return;
+  notif.classList.add("hidden");
 }
 
 function setOrderStatus(message, type = "success", reason = "") {
@@ -2083,14 +2180,38 @@ function renderEnrollmentInstances(instances = enrollmentCards, limit = enrollme
         <article class="order-instance-card" data-enroll-instance-card="${index}">
           <span class="order-instance-icon" aria-hidden="true">${reportStatIcon("containers")}</span>
           <span class="order-instance-copy">
-            ${orderInstanceNameLink(item.instance, item.dns_name)}
+            ${isEnrollmentTemplateCard(item) ? enrollmentTemplateTitle(item) : orderInstanceNameLink(item.instance, item.dns_name)}
             <small>${escapeHtml(item.template_url || item.image || "SaaShup template")}</small>
             <small class="${orderInstanceStatusTextClass(item)}">${orderInstanceStatusText(item)}</small>
           </span>
-          ${item.source === "template" ? `<button type="button" class="icon-btn icon-btn-danger order-instance-delete" title="Remove disabled" aria-label="Remove disabled" disabled>×</button>` : ""}
+          ${isEnrollmentTemplateCard(item) ? `
+            <span class="order-instance-actions">
+              <button type="button" class="icon-btn order-template-copy" data-order-template-copy="${escapeHtml(item.instance)}" title="Copy order link" aria-label="Copy order link for ${escapeHtml(item.instance)}">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="10" height="10" rx="2"></rect><path d="M5 15V7a2 2 0 0 1 2-2h8"></path></svg>
+              </button>
+              <button type="button" class="icon-btn icon-btn-danger order-instance-delete" title="Remove disabled" aria-label="Remove disabled" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>
+              </button>
+            </span>
+          ` : ""}
         </article>
       `).join("")}
     </div>
+  `;
+}
+
+function isEnrollmentTemplateCard(item) {
+  return item?.source === "template" || item?.source === "netbox-template" || item?.source === "netbox-config-context";
+}
+
+function enrollmentTemplateTitle(item) {
+  const count = Number(item?.instance_count || 0);
+  const badgeLabel = `${count} instance${count === 1 ? "" : "s"}`;
+  return `
+    <span class="enroll-template-title">
+      ${orderInstanceNameLink(item.instance, item.dns_name)}
+      <span class="enroll-template-count" title="${escapeHtml(badgeLabel)}" aria-label="${escapeHtml(badgeLabel)}">${count}</span>
+    </span>
   `;
 }
 
@@ -2204,6 +2325,19 @@ function hideOrderLoading() {
   orderLoading?.classList.add("hidden");
 }
 
+function showEnrollLoading() {
+  if (!isEnrollPage) return;
+  hideNotice();
+  orderLoading?.classList.remove("hidden");
+  form?.classList.add("hidden");
+  enrollInstances?.classList.add("hidden");
+}
+
+function hideEnrollLoading() {
+  if (!isEnrollPage) return;
+  orderLoading?.classList.add("hidden");
+}
+
 function setLogsExpanded(expanded) {
   logsCard?.classList.toggle("fullscreen", expanded);
 
@@ -2232,11 +2366,13 @@ function setAction(actionName) {
   form.action = config.endpoint;
   form.method = config.method;
   form.classList.toggle("operate-form", actionName === "restart");
+  form.classList.toggle("delete-form", actionName === "delete");
 
   if (formTitle) formTitle.textContent = config.title;
   if (formDescription) formDescription.textContent = config.description;
   submitBtn.textContent = config.submitLabel;
   submitBtn.className = config.buttonClass;
+  submitBtn.classList.toggle("hidden", actionName === "delete" || actionName === "template");
   submitBtn.name = actionName === "restart" ? "restart_mode" : "";
   submitBtn.value = actionName === "restart" ? "image" : "";
 
@@ -2244,20 +2380,25 @@ function setAction(actionName) {
   updateTestEmailVisibility();
   exportConfigBtn?.classList.toggle("hidden", actionName !== "config");
   importConfigBtn?.classList.toggle("hidden", actionName !== "config");
+  clearCacheBtn?.classList.toggle("hidden", actionName !== "config");
   clearBtn?.classList.toggle("hidden", actionName === "config" || actionName === "report" || actionName === "workflow");
-  dockerRunBtn?.classList.toggle("hidden", actionName !== "create");
-  templateSelect?.classList.toggle("hidden", actionName !== "create");
-  if (actionName === "create") syncTemplateActions();
+  dockerRunBtn?.classList.toggle("hidden", actionName !== "template");
+  templateSelect?.classList.toggle("hidden", actionName !== "template");
+  if (isCreateFormAction(actionName)) syncTemplateActions();
   else updateTemplateCreatorEmail(null);
   updateConfigDefaultControl();
-  loadTemplateBtn?.classList.toggle("hidden", actionName !== "create");
-  orderTemplateBtn?.classList.toggle("hidden", actionName !== "create");
-  saveTemplateBtn?.classList.toggle("hidden", actionName !== "create");
-  deleteTemplateBtn?.classList.toggle("hidden", actionName !== "create");
+  loadTemplateBtn?.classList.toggle("hidden", actionName !== "template");
+  if (loadTemplateBtn) loadTemplateBtn.textContent = "Load template";
+  orderTemplateBtn?.classList.toggle("hidden", actionName !== "template");
+  saveTemplateBtn?.classList.toggle("hidden", actionName !== "template");
+  saveAllTemplatesBtn?.classList.toggle("hidden", actionName !== "template");
+  deleteTemplateBtn?.classList.toggle("hidden", actionName !== "template");
   restartInstanceBtn?.classList.toggle("hidden", actionName !== "restart");
   if (restartInstanceBtn) restartInstanceBtn.disabled = actionName !== "restart";
-  refreshInstancesBtn?.classList.toggle("hidden", actionName === "create");
-  if (refreshInstancesBtn && actionName === "create") refreshInstancesBtn.disabled = true;
+  deleteInstanceBtn?.classList.toggle("hidden", actionName !== "delete");
+  deleteImageBtn?.classList.toggle("hidden", actionName !== "delete");
+  refreshInstancesBtn?.classList.toggle("hidden", isCreateFormAction(actionName));
+  if (refreshInstancesBtn && isCreateFormAction(actionName)) refreshInstancesBtn.disabled = true;
   formCard?.classList.toggle("hidden", actionName === "report" || actionName === "workflow");
   reportCard?.classList.toggle("hidden", actionName !== "report");
   workflowCard?.classList.toggle("hidden", actionName !== "workflow");
@@ -2274,19 +2415,27 @@ function setAction(actionName) {
     });
   });
 
-  if (refreshInstancesBtn && visibleFields.has("instance") && actionName !== "create") {
+  if (refreshInstancesBtn && visibleFields.has("instance") && !isCreateFormAction(actionName)) {
     refreshInstancesBtn.disabled = false;
   }
+  if (refreshImagesBtn && visibleFields.has("image")) {
+    refreshImagesBtn.disabled = false;
+  }
+  const imageInput = field("image");
+  if (imageInput) imageInput.readOnly = actionName === "create";
 
   syncCreateNetwork();
   syncCreateVersion();
   updateRemoveOldImagesState();
   ensureRandomCreateInstanceName();
   syncCreateDnsName();
-  if (actionName === "create" && imageRecords.length === 0) {
+  if (isCreateFormAction(actionName) && imageRecords.length === 0) {
     refreshImages({ notify: false });
   }
-  if (actionName === "create") {
+  if (actionName === "delete" && imageRecords.length === 0) {
+    refreshImages({ notify: false });
+  }
+  if (isCreateFormAction(actionName)) {
     loadRegistryDefaultSecret();
   }
   if (actionName === "report") {
@@ -2366,10 +2515,13 @@ function clearActionFields() {
 function openDockerRunModal() {
   if (!dockerRunModal || !dockerRunInput) return;
 
-  if (currentAction !== "create") setAction("create");
+  if (!isTemplateAction()) setAction("template");
   updateImportProfileOptions();
   setImportTab("run");
   dockerRunInput.value = "";
+  if (dockerComposeInput) dockerComposeInput.value = "";
+  if (templateExportFile) templateExportFile.value = "";
+  updateTemplateExportFileName();
   dockerRunModal.classList.remove("hidden");
   dockerRunInput.focus();
 }
@@ -2491,8 +2643,10 @@ function enrollmentLimitMessage(limit) {
   return `You have reached your maximum of ${max} template${max === 1 ? "" : "s"} for this config.`;
 }
 
-async function refreshEnrollLimit() {
+async function refreshEnrollLimit({ showLoading = true } = {}) {
   if (!isEnrollPage) return null;
+
+  if (showLoading) showEnrollLoading();
 
   try {
     const limit = await enrollLimitForProfile(selectedProfileCredentials().profile);
@@ -2501,8 +2655,11 @@ async function refreshEnrollLimit() {
     if (limit.reached) setNotice(enrollmentLimitMessage(limit), "error", false);
     else if (!dockerRunInput?.value && !dockerComposeInput?.value) setNotice(enrollImportNotice, "info", false);
     updateEnrollSubmitState({ notify: false });
+    hideEnrollLoading();
     return limit;
   } catch {
+    hideEnrollLoading();
+    form?.classList.remove("hidden");
     updateEnrollSubmitState({ notify: false });
     return null;
   }
@@ -2518,13 +2675,13 @@ function configureEnrollDefaultConfig() {
   if (!isEnrollPage) return false;
 
   const profileName = defaultConfigProfileName();
-  form?.classList.remove("hidden");
   updateImportProfileOptions();
   if (importProfileSelect) importProfileSelect.value = profileName;
   applyProfileToFields(profileName);
 
   const credentials = selectedProfileCredentials();
   if (!profileName || !credentials.netbox || !credentials.token) {
+    hideEnrollLoading();
     form?.classList.add("hidden");
     setNotice("You cannot deploy a new SaaS yet. Ask an administrator to configure a config.", "error", false);
     return false;
@@ -2534,7 +2691,7 @@ function configureEnrollDefaultConfig() {
 }
 
 function setImportTab(tabName) {
-  currentImportTab = tabName === "compose" ? "compose" : "run";
+  currentImportTab = ["compose", "export"].includes(tabName) ? tabName : "run";
   importTabButtons.forEach((button) => {
     const active = button.dataset.importTab === currentImportTab;
     button.classList.toggle("active", active);
@@ -2543,7 +2700,14 @@ function setImportTab(tabName) {
   importPanels.forEach((panel) => panel.classList.toggle("hidden", panel.dataset.importPanel !== currentImportTab));
   updateEnrollSubmitState();
   if (currentImportTab === "run") dockerRunInput?.focus();
-  else dockerComposeInput?.focus();
+  else if (currentImportTab === "compose") dockerComposeInput?.focus();
+  else templateExportFile?.focus();
+}
+
+function updateTemplateExportFileName() {
+  if (!templateExportFileName) return;
+  const fileName = templateExportFile?.files?.[0]?.name || "";
+  templateExportFileName.textContent = fileName || "JSON file from Export all templates";
 }
 
 function openProfileHelp(key) {
@@ -2560,7 +2724,7 @@ function openProfileHelp(key) {
 
 function registryWebhookHelpBody(body) {
   const profile = selectedProfileCredentials().profile || "";
-  const template = templateSelect?.value || "";
+  const template = selectedTemplateName();
   const secret = fieldValue("registry_webhook_secret") || registryWebhookDefaultSecret || "";
   const profileSegment = profile ? encodeURIComponent(profile) : "<config-profile>";
   const templateSegment = template ? encodeURIComponent(template) : "<template>";
@@ -2894,27 +3058,130 @@ function normalizeCreateTemplate(template) {
   return applySaashupTemplateLabels(normalized);
 }
 
+function isTemplateRecord(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+const templateCatalogReservedKeys = new Set([
+  "config",
+  "config_profile",
+  "creator_email",
+  "instance_count",
+  "profile",
+  "saashup_enabled",
+  "saashup_template_catalog",
+  "saashup_templates",
+  "saashup_workflows",
+  "templates",
+  "workflows",
+]);
+
+function templateLooksLikeTemplate(template) {
+  if (!isTemplateRecord(template)) return false;
+  if (looksLikeWorkflowRecord(template)) return false;
+  if (Object.hasOwn(template, "delete_volumes")) return false;
+
+  const valueKeys = [
+    "image",
+    "template_url",
+    "saashup_template_url",
+    "version",
+    "max_instances",
+    "network",
+    "ports",
+    "labels",
+    "env",
+    "binds",
+    "volumes",
+    "dns_name",
+    "traefik",
+    "instance",
+    "port_value",
+  ];
+  if (!Object.keys(template).some((key) => valueKeys.includes(key))) return false;
+
+  return valueKeys.some((key) => {
+    const value = template[key];
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === "string") return value.trim() !== "";
+    if (typeof value === "number") return Number.isFinite(value);
+    if (typeof value === "boolean") return true;
+    return false;
+  });
+}
+
+function templateLooksLikeTemplateLegacy(template) {
+  if (!isTemplateRecord(template)) return false;
+  if (looksLikeWorkflowRecord(template)) return false;
+  if (Object.hasOwn(template, "delete_volumes")) return false;
+
+  const legacyValueKeys = ["image", "template_url", "saashup_template_url", "source", "config_profile", "profile", "version", "max_instances", "network", "creator_email"];
+  return Object.keys(template).some((key) => legacyValueKeys.includes(key));
+}
+
+function looksLikeWorkflowRecord(value) {
+  if (!isTemplateRecord(value)) return false;
+  return Object.hasOwn(value, "steps") || Object.hasOwn(value, "delete_volumes");
+}
+
 function normalizeCreateTemplates(templates) {
+  const entries = Object.entries(plainObject(templates));
+  const normalizedStrict = Object.fromEntries(
+    entries
+      .filter(([name, template]) => (
+        typeof name === "string" &&
+        name.trim() &&
+        !templateCatalogReservedKeys.has(name.trim().toLowerCase()) &&
+        templateLooksLikeTemplate(template)
+      ))
+      .map(([name, template]) => [name, normalizeCreateTemplate(template)]),
+  );
+  if (Object.keys(normalizedStrict).length) return normalizedStrict;
+
   return Object.fromEntries(
-    Object.entries(plainObject(templates))
+    entries
+      .filter(([name, template]) => (
+        typeof name === "string" &&
+        name.trim() &&
+        !templateCatalogReservedKeys.has(name.trim().toLowerCase()) &&
+        templateLooksLikeTemplateLegacy(template)
+      ))
       .map(([name, template]) => [name, normalizeCreateTemplate(template)]),
   );
 }
 
 function normalizeCreateWorkflows(workflows) {
   return Object.fromEntries(
-    Object.entries(plainObject(workflows)).map(([key, workflow]) => {
+    Object.entries(plainObject(workflows))
+      .filter(([key, workflow]) => {
+        if (typeof key !== "string" || !key.trim() || !isTemplateRecord(workflow)) return false;
+        return looksLikeWorkflowRecord(workflow);
+      })
+      .map(([key, workflow]) => {
       const normalized = { ...plainObject(workflow) };
+      const workflowKey = String(normalized.id || key).trim();
+      normalized.id = workflowKey || key;
       normalized.steps = Array.isArray(normalized.steps)
         ? normalized.steps.map((step) => {
+          if (typeof step === "string") return { template: step, enabled: true };
           const normalizedStep = { ...plainObject(step) };
+          normalizedStep.enabled = normalizedStep.enabled !== false;
           if (normalizedStep.template_data) normalizedStep.template_data = normalizeCreateTemplate(normalizedStep.template_data);
           return normalizedStep;
         })
         : [];
-      return [key, normalized];
+      return [workflowKey || key, normalized];
     }),
   );
+}
+
+function templateCatalogFromPayload(payload, fallback = {}) {
+  const data = plainObject(payload);
+  const hasCatalogShape = Object.hasOwn(data, "templates") || Object.hasOwn(data, "workflows");
+  return {
+    templates: normalizeCreateTemplates(hasCatalogShape ? plainObject(data.templates) : data),
+    workflows: normalizeCreateWorkflows(hasCatalogShape ? plainObject(data.workflows) : plainObject(fallback.workflows)),
+  };
 }
 
 function parseComposeList(inlineValue, blockLines) {
@@ -3030,6 +3297,49 @@ function composeWorkflowName(text) {
     .map((line) => stripYamlComment(line).trim().match(/^name:\s*(.+)$/))
     .find(Boolean);
   return match ? yamlScalar(match[1]) : "compose";
+}
+
+function workflowFromTemplateEntries(templates, profileName = selectedProfileCredentials().profile || "", name = "templates", enableTemplateOrders = true, order = []) {
+  const workflowKey = workflowStorageKey(profileName, name);
+  return {
+    key: workflowKey,
+    workflow: {
+      name,
+      config_profile: profileName,
+      steps: orderedTemplateEntries(templates, order).map(([templateName, template]) => ({
+        template: templateName,
+        template_data: { ...template, saashup_enabled: enableTemplateOrders },
+        enabled: true,
+      })),
+      created_at: new Date().toISOString(),
+    },
+  };
+}
+
+function templateOrderFromPayload(payload) {
+  const data = plainObject(payload);
+  const order = data.template_order || data.templateOrder || data.order;
+  return Array.isArray(order) ? order.map((item) => String(item || "").trim()).filter(Boolean) : [];
+}
+
+function orderedTemplateEntries(templates, order = []) {
+  const normalized = normalizeCreateTemplates(templates);
+  const seen = new Set();
+  const entries = [];
+
+  order.forEach((name) => {
+    if (!Object.hasOwn(normalized, name) || seen.has(name)) return;
+    seen.add(name);
+    entries.push([name, normalized[name]]);
+  });
+
+  Object.entries(normalized).forEach(([name, template]) => {
+    if (seen.has(name)) return;
+    seen.add(name);
+    entries.push([name, template]);
+  });
+
+  return entries;
 }
 
 function parseDockerCompose(text) {
@@ -3170,20 +3480,21 @@ function prepareBindReadOnlyForFormData() {
 
 function currentCreateTemplate() {
   const credentials = selectedProfileCredentials();
+  const existingTemplate = createTemplates[selectedTemplateName()] || {};
 
   return {
     config_profile: credentials.profile,
-    instance: fieldValue("instance"),
-    dns_name: fieldValue("dns_name"),
+    ...(existingTemplate.instance ? { instance: existingTemplate.instance } : {}),
+    ...(existingTemplate.dns_name ? { dns_name: existingTemplate.dns_name } : {}),
     traefik: fieldChecked("traefik", true),
-    all_hosts: fieldChecked("all_hosts", false),
-    saashup_enabled: fieldChecked("saashup_enabled", true),
+    all_hosts: existingTemplate.all_hosts ?? false,
+    saashup_enabled: existingTemplate.saashup_enabled ?? true,
     template_url: fieldValue("template_url").trim(),
     max_instances: normalizeMaxInstances(fieldValue("max_instances")),
     registry_webhook_secret: registryWebhookSecretValue(),
     network: fieldValue("network"),
     image: fieldValue("image"),
-    version: fieldValue("version"),
+    version: fieldValue("version") || existingTemplate.version,
     ...(templateCreatorEmailWrap && !templateCreatorEmailWrap.classList.contains("hidden") && !templateCreatorEmail?.disabled
       ? { creator_email: templateCreatorEmail?.value.trim() || "" }
       : {}),
@@ -3199,7 +3510,7 @@ function applyCreateTemplate(template) {
   if (!template) return;
   template = normalizeCreateTemplate(template);
 
-  setAction("create");
+  if (!isCreateFormAction()) setAction("template");
 
   const templateProfile = template.config_profile || template.profile || "";
   const switchesProfile = Boolean(templateProfile && templateProfile !== currentConfigProfile && Object.hasOwn(configProfiles, templateProfile));
@@ -3223,10 +3534,10 @@ function applyCreateTemplate(template) {
   templateVersionOverride = template.version || "";
   generatedCreateInstanceName = "";
   generatedCreateDnsName = "";
-  setFieldValue("instance", switchesProfile ? "" : (template.instance || ""));
-  if (switchesProfile || !template.instance) ensureRandomCreateInstanceName();
-  setFieldValue("dns_name", template.dns_name || "");
-  syncCreateDnsName({ force: !template.dns_name });
+  setFieldValue("instance", "");
+  setFieldValue("dns_name", "");
+  if (currentAction === "create") ensureRandomCreateInstanceName();
+  else syncCreateDnsName({ force: true });
   setFieldValue("image", template.image || "");
   syncCreateVersion();
   if (template.version) setFieldValue("version", template.version);
@@ -3234,13 +3545,14 @@ function applyCreateTemplate(template) {
   setRepeatRows(template.labels || [], clearLabelRows, addLabelRow, { key: "label_key", value: "label_value" });
   setPortValue((template.ports || [])[0]?.value || "");
   setRepeatRows(template.volumes || [], clearVolumeRows, addVolumeRow, { key: "volume_source", value: "volume_name" });
+  syncVolumeNames();
   setBindRows(template.binds || []);
 }
 
 async function saveCreateTemplate() {
-  if (currentAction !== "create") setAction("create");
+  if (!isTemplateAction()) setAction("template");
 
-  const suggested = templateSelect?.value || "";
+  const suggested = selectedTemplateName();
   const name = (prompt("Template name", suggested) || "").trim();
   if (!name) return;
 
@@ -3248,9 +3560,11 @@ async function saveCreateTemplate() {
   createTemplates[name] = currentCreateTemplate();
 
   try {
-    const savedTemplates = await persistCreateTemplates();
-    createTemplates = normalizeCreateTemplates(savedTemplates && typeof savedTemplates === "object" && !Array.isArray(savedTemplates) ? savedTemplates : createTemplates);
+    const savedCatalog = templateCatalogFromPayload(await persistCreateTemplates());
+    createTemplates = savedCatalog.templates;
+    createWorkflows = savedCatalog.workflows;
     localStorage.setItem("create_templates", JSON.stringify(createTemplates));
+    localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
     updateTemplateOptions(name);
     setNotice(`Template "${name}" saved`, "success");
   } catch {
@@ -3261,8 +3575,31 @@ async function saveCreateTemplate() {
   }
 }
 
+function templateExportPayload() {
+  return {
+    type: "saashup-template-export",
+    version: 1,
+    exported_at: new Date().toISOString(),
+    templates: normalizeCreateTemplates(createTemplates),
+    template_order: Object.keys(normalizeCreateTemplates(createTemplates)),
+    workflows: normalizeCreateWorkflows(createWorkflows),
+  };
+}
+
+function exportAllCreateTemplates() {
+  const count = Object.keys(createTemplates).length;
+  if (!count) {
+    setNotice("No templates to export", "error");
+    return;
+  }
+
+  const date = new Date().toISOString().slice(0, 10);
+  downloadJson(`saashup-templates-${date}.json`, templateExportPayload());
+  setNotice(`${count} template${count === 1 ? "" : "s"} exported`, "success");
+}
+
 async function deleteSelectedTemplate() {
-  const name = templateSelect?.value || "";
+  const name = selectedTemplateName();
   if (!name || !createTemplates[name]) {
     setNotice("Select a template first", "error");
     return;
@@ -3274,9 +3611,11 @@ async function deleteSelectedTemplate() {
   delete createTemplates[name];
 
   try {
-    const savedTemplates = await persistCreateTemplates();
-    createTemplates = normalizeCreateTemplates(savedTemplates && typeof savedTemplates === "object" && !Array.isArray(savedTemplates) ? savedTemplates : createTemplates);
+    const savedCatalog = templateCatalogFromPayload(await persistCreateTemplates());
+    createTemplates = savedCatalog.templates;
+    createWorkflows = savedCatalog.workflows;
     localStorage.setItem("create_templates", JSON.stringify(createTemplates));
+    localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
     updateTemplateOptions();
     setNotice(`Template "${name}" deleted`, "success");
   } catch {
@@ -3288,12 +3627,14 @@ async function deleteSelectedTemplate() {
 }
 
 async function loadSelectedTemplate() {
-  const name = templateSelect?.value || "";
+  const name = selectedTemplateName();
   if (!name || !createTemplates[name]) {
     setNotice("Select a template first", "error");
     return;
   }
 
+  if (templateSelect) templateSelect.value = name;
+  if (createTemplateSelect) createTemplateSelect.value = name;
   applyCreateTemplate(createTemplates[name]);
   if (fieldValue("image") && !fieldValue("version")) {
     await refreshImages({ notify: false });
@@ -3315,6 +3656,33 @@ function openSelectedTemplateOrder() {
   }
 
   window.location.href = `/order?template=${encodeURIComponent(name)}`;
+}
+
+function orderTemplateUrl(name) {
+  const templateName = String(name || "").trim();
+  if (!templateName) return "";
+  return `${window.location.origin}/order?template=${encodeURIComponent(templateName)}`;
+}
+
+function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+
+  const input = document.createElement("textarea");
+  input.value = text;
+  input.setAttribute("readonly", "");
+  input.style.position = "fixed";
+  input.style.top = "-1000px";
+  document.body.appendChild(input);
+  input.select();
+
+  try {
+    document.execCommand("copy");
+    return Promise.resolve();
+  } catch (error) {
+    return Promise.reject(error);
+  } finally {
+    input.remove();
+  }
 }
 
 function createTemplateEntry(name) {
@@ -3431,8 +3799,9 @@ async function applyDockerComposeFile(text) {
 
   const previousTemplates = { ...createTemplates };
   const previousWorkflows = { ...createWorkflows };
+  const enableTemplateOrders = importTemplateOrdersInput?.checked !== false;
   templates.forEach(({ name, template }) => {
-    createTemplates[name] = template;
+    createTemplates[name] = { ...template, saashup_enabled: enableTemplateOrders };
   });
   if (createWorkflowInput?.checked) {
     const workflowName = composeWorkflowName(composeText);
@@ -3443,7 +3812,8 @@ async function applyDockerComposeFile(text) {
       config_profile: workflowProfileName,
       steps: templates.map(({ name, template }) => ({
         template: name,
-        template_data: template,
+        template_data: { ...template, saashup_enabled: enableTemplateOrders },
+        enabled: true,
       })),
       created_at: new Date().toISOString(),
     };
@@ -3474,7 +3844,109 @@ async function applyDockerComposeFile(text) {
   }
 }
 
+function templateCatalogFromExportPayload(payload) {
+  const data = plainObject(payload);
+  if (data.type === "saashup-template-export" || data.type === "saashup-config-export") return templateCatalogFromPayload(data);
+  if (data.templates && typeof data.templates === "object" && !Array.isArray(data.templates)) return templateCatalogFromPayload(data);
+  return {
+    templates: normalizeCreateTemplates(data),
+    workflows: {},
+  };
+}
+
+async function applyTemplateExportFile() {
+  const file = templateExportFile?.files?.[0];
+  if (!file) {
+    setNotice("Select a template export first", "error");
+    return false;
+  }
+
+  const previousTemplates = { ...createTemplates };
+  const previousWorkflows = { ...createWorkflows };
+  const shouldCreateWorkflow = exportCreateWorkflowInput?.checked !== false;
+  const enableTemplateOrders = exportImportTemplateOrdersInput?.checked !== false;
+
+  try {
+    const payload = JSON.parse(await file.text());
+    const { templates: importedTemplates, workflows: importedWorkflows } = templateCatalogFromExportPayload(payload);
+    const importedTemplateOrder = templateOrderFromPayload(payload);
+    const count = Object.keys(importedTemplates).length;
+    const workflowCount = Object.keys(importedWorkflows).length;
+    let effectiveWorkflowCount = shouldCreateWorkflow ? workflowCount : 0;
+    if (!count && !effectiveWorkflowCount) {
+      setNotice("Template export is empty", "error");
+      return false;
+    }
+
+    createTemplates = {
+      ...createTemplates,
+      ...Object.fromEntries(
+        Object.entries(importedTemplates).map(([name, template]) => [
+          name,
+          { ...template, saashup_enabled: enableTemplateOrders },
+        ]),
+      ),
+    };
+    if (shouldCreateWorkflow) {
+      const workflowEntries = Object.entries(importedWorkflows);
+      if (!workflowEntries.length && count) {
+        const generated = workflowFromTemplateEntries(importedTemplates, selectedProfileCredentials().profile || "", "templates", enableTemplateOrders, importedTemplateOrder);
+        workflowEntries.push([generated.key, generated.workflow]);
+        effectiveWorkflowCount = 1;
+      }
+      createWorkflows = {
+        ...createWorkflows,
+        ...Object.fromEntries(
+          workflowEntries.map(([key, workflow]) => [
+            key,
+            {
+              ...workflow,
+              steps: Array.isArray(workflow.steps)
+                ? workflow.steps.map((step) => ({
+                  ...step,
+                  template_data: step?.template_data
+                    ? { ...step.template_data, saashup_enabled: enableTemplateOrders }
+                    : step?.template_data,
+                }))
+                : [],
+            },
+          ]),
+        ),
+      };
+    } else {
+      createWorkflows = { ...createWorkflows };
+    }
+    const savedCatalog = templateCatalogFromPayload(await persistCreateTemplates());
+    createTemplates = savedCatalog.templates;
+    createWorkflows = savedCatalog.workflows;
+    localStorage.setItem("create_templates", JSON.stringify(createTemplates));
+    localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
+    updateTemplateOptions(Object.keys(importedTemplates).sort((a, b) => a.localeCompare(b))[0] || "");
+    const selectedWorkflow = shouldCreateWorkflow ? (Object.keys(createWorkflows).sort((a, b) => a.localeCompare(b))[0] || "") : "";
+    updateWorkflowOptions(selectedWorkflow);
+    closeDockerRunModal();
+    setNotice(
+      `${count} template${count === 1 ? "" : "s"} and ${effectiveWorkflowCount} workflow${effectiveWorkflowCount === 1 ? "" : "s"} imported from export`,
+      "success",
+    );
+    return true;
+  } catch {
+    createTemplates = previousTemplates;
+    createWorkflows = previousWorkflows;
+    localStorage.setItem("create_templates", JSON.stringify(createTemplates));
+    localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
+    updateTemplateOptions();
+    updateWorkflowOptions();
+    setNotice("Template export import failed", "error");
+    return false;
+  }
+}
+
 async function applyDockerRunCommand() {
+  if (currentImportTab === "export") {
+    return applyTemplateExportFile();
+  }
+
   if (currentImportTab === "compose") {
     return applyDockerComposeFile();
   }
@@ -3492,7 +3964,7 @@ async function applyDockerRunCommand() {
     return false;
   }
 
-  if (currentAction !== "create") setAction("create");
+  if (!isTemplateAction()) setAction("template");
   templateNetworkOverride = "";
   templateVersionOverride = parsed.version || "";
   generatedCreateDnsName = "";
@@ -3676,13 +4148,14 @@ async function testEmail() {
 }
 
 async function saveConfig() {
+  const previousSubmitText = submitBtn?.textContent || "Save config";
   const profile = (fieldValue("config_name") || fieldValue("config_profile") || "").trim();
   const customer_name = fieldValue("customer_name").trim();
   const netbox = fieldValue("netbox");
   const token = fieldValue("token");
   const proxy = fieldValue("proxy");
   const domain = normalizeDomain(fieldValue("domain"));
-  const tag = fieldValue("tag");
+  const tag = fieldValue("tag").trim();
   const max_templates = normalizeMaxInstances(fieldValue("max_templates"));
   const enrollment_limit = max_templates;
   const owner_env_var = ownerEnvVarValue(fieldValue("owner_env_var"));
@@ -3700,7 +4173,13 @@ async function saveConfig() {
     return;
   }
 
+  if (!tag) {
+    setNotice("Tag is required", "error");
+    return;
+  }
+
   forgetDeletedProfile(profile);
+  setFieldValue("tag", tag);
   setFieldValue("max_templates", max_templates);
   setFieldValue("enrollment_limit", enrollment_limit);
   setFieldValue("owner_env_var", owner_env_var);
@@ -3728,6 +4207,11 @@ async function saveConfig() {
   });
 
   try {
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.classList.add("btn-loading");
+      submitBtn.textContent = "Saving config";
+    }
     const response = await fetch(`/webhook?${params.toString()}`, {
       method: "GET",
       headers: { Accept: "application/json" },
@@ -3738,9 +4222,20 @@ async function saveConfig() {
     savedConfig = { customer_name, netbox, token, proxy, domain, tag, max_templates, enrollment_limit, owner_env_var, cloudflare_filter, smtp_config, profile, profiles: configProfiles };
     serverConfigProfiles = { ...configProfiles };
     applyProfileToFields(profile);
-    setNotice(`Config "${profileLabel(profile)}" saved (${response.status})`, "success");
+    try {
+      await loadCreateTemplates({ useCache: false });
+      setNotice(`Config "${profileLabel(profile)}" saved (${response.status})`, "success");
+    } catch {
+      setNotice(`Config "${profileLabel(profile)}" saved, templates refresh failed`, "error");
+    }
   } catch {
     setNotice("Config save failed", "error");
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.classList.remove("btn-loading");
+      submitBtn.textContent = previousSubmitText;
+    }
   }
 }
 
@@ -3864,6 +4359,19 @@ function appendWorkflowPairs(body, items, keyField, valueField, keyNames = ["key
   });
 }
 
+function createTemplateVolumeName(volume, index, instanceName, template, templateName) {
+  const explicitName = volume.name ?? volume.value;
+  if (!explicitName) return workflowVolumeName(instanceName, index);
+
+  const generatedTemplateNames = new Set([
+    workflowVolumeName("instance", index),
+    workflowVolumeName(templateName, index),
+  ]);
+  if (template.instance) generatedTemplateNames.add(workflowVolumeName(template.instance, index));
+
+  return generatedTemplateNames.has(String(explicitName)) ? workflowVolumeName(instanceName, index) : explicitName;
+}
+
 function workflowCreateBody(template, templateName) {
   template = normalizeCreateTemplate(template);
   const profileName = template.config_profile || template.profile || currentConfigProfile || "";
@@ -3901,7 +4409,7 @@ function workflowCreateBody(template, templateName) {
     const source = volume.source ?? volume.key ?? "";
     if (!source) return;
     body.append("volume_source", source);
-    body.append("volume_name", volume.name ?? volume.value ?? workflowVolumeName(instanceName, index));
+    body.append("volume_name", createTemplateVolumeName(volume, index, instanceName, template, templateName));
   });
   (template.binds || []).forEach((bind) => {
     const hostPath = bind.host_path ?? bind.host ?? bind.key ?? "";
@@ -3914,11 +4422,85 @@ function workflowCreateBody(template, templateName) {
   return body;
 }
 
+function clearBodyKeys(body, keys) {
+  keys.forEach((key) => body.delete(key));
+}
+
+function appendCreateTemplateBody(body, template, templateName = "") {
+  template = normalizeCreateTemplate(template);
+  const instanceName = String(body.get("instance") || template.instance || templateName || "").trim();
+  const versionOverride = String(body.get("version") || "").trim();
+  const templateKeys = [
+    "network", "traefik", "saashup_enabled", "template_url", "max_instances", "registry_webhook_secret",
+    "image", "version", "var_env_key", "var_env_value", "label_key", "label_value", "port_value",
+    "volume_source", "volume_name", "bind_host_path", "bind_container_path", "bind_read_only",
+  ];
+  clearBodyKeys(body, templateKeys);
+  body.set("network", template.network || "");
+  body.set("traefik", template.traefik === false ? "false" : "true");
+  body.set("saashup_enabled", template.saashup_enabled === false ? "false" : "true");
+  body.set("template_url", template.template_url || "");
+  body.set("max_instances", String(templateMaxInstancesValue(template)));
+  body.set("registry_webhook_secret", template.registry_webhook_secret || template.dockerhub_webhook_secret || "");
+  body.set("image", template.image || "");
+  body.set("version", versionOverride || template.version || "");
+  appendWorkflowPairs(body, template.env || [], "var_env_key", "var_env_value", ["key", "var_name", "name"], ["value"]);
+  appendWorkflowPairs(body, template.labels || [], "label_key", "label_value", ["key"], ["value"]);
+  (template.ports || []).slice(0, 1).forEach((port) => body.append("port_value", port.value || port.key || ""));
+  (template.volumes || []).forEach((volume, index) => {
+    const source = volume.source ?? volume.key ?? "";
+    if (!source) return;
+    body.append("volume_source", source);
+    body.append("volume_name", createTemplateVolumeName(volume, index, instanceName, template, templateName));
+  });
+  (template.binds || []).forEach((bind) => {
+    const hostPath = bind.host_path ?? bind.host ?? bind.key ?? "";
+    const containerPath = bind.container_path ?? bind.container ?? bind.value ?? "";
+    if (!hostPath || !containerPath) return;
+    body.append("bind_host_path", hostPath);
+    body.append("bind_container_path", containerPath);
+    body.append("bind_read_only", bind.read_only || bind.readonly ? "true" : "false");
+  });
+}
+
+function workflowDeleteBody(template, templateName) {
+  template = normalizeCreateTemplate(template);
+  const profileName = template.config_profile || template.profile || currentConfigProfile || "";
+  const credentials = profileCredentials(profileName);
+  if (!credentials.netbox || !credentials.token) throw new Error(`Config "${profileLabel(profileName)}" is missing NetBox URL or token`);
+
+  const image = String(template.image || "").trim();
+  if (!image) throw new Error(`Template "${templateName}" is missing an image name for delete`);
+  return new URLSearchParams({
+    config_profile: profileName,
+    netbox: credentials.netbox,
+    token: credentials.token,
+    proxy: credentials.proxy,
+    domain: credentials.domain,
+    tag: credentials.tag,
+    profile: credentials.profile,
+    image,
+    delete_mode: "image",
+    delete_volumes: workflowDeleteVolumesInput?.checked ? "true" : "false",
+  });
+}
+
+function workflowPaintFrame() {
+  return new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
+}
+
+function workflowMinimumStatusDelay(action) {
+  return action === "delete" ? new Promise((resolve) => window.setTimeout(resolve, 350)) : Promise.resolve();
+}
+
 async function runWorkflow() {
   const workflowName = workflowSelect?.value || "";
+  const action = workflowActionSelect?.value === "delete" ? "delete" : "create";
   const workflow = selectedWorkflow();
   const steps = Array.isArray(workflow?.steps) ? workflow.steps : [];
-  if (!steps.length) {
+  const enabledSteps = steps.map((step, index) => ({ step, index })).filter(({ step }) => workflowStepEnabled(step));
+  const runSteps = action === "delete" ? [...enabledSteps].reverse() : enabledSteps;
+  if (!steps.length || !enabledSteps.length) {
     setNotice("Select a workflow first", "error");
     return;
   }
@@ -3930,27 +4512,32 @@ async function runWorkflow() {
   renderWorkflow();
 
   try {
-    for (let index = 0; index < steps.length; index += 1) {
-      const templateName = workflowStepName(steps[index]);
-      const template = workflowStepTemplate(steps[index]);
-      if (!template.image) throw new Error(`Template "${templateName}" is missing`);
+    for (let runIndex = 0; runIndex < runSteps.length; runIndex += 1) {
+      const { step, index } = runSteps[runIndex];
+      const templateName = workflowStepName(step);
+      const template = workflowStepTemplate(step);
+      if (action === "create" && !template.image) throw new Error(`Template "${templateName}" is missing`);
+      if (action === "delete" && !Object.keys(template).length) throw new Error(`Template "${templateName}" is missing`);
 
       workflowStepStatuses[index] = "running";
       renderWorkflow();
-      workflowSummary.textContent = `Running ${index + 1}/${steps.length}: ${templateName}`;
-      const body = workflowCreateBody(template, templateName);
+      workflowSummary.textContent = `${action === "delete" ? "Deleting" : "Running"} ${runIndex + 1}/${enabledSteps.length}: ${templateName}`;
+      await workflowPaintFrame();
+      const minimumStatusDelay = workflowMinimumStatusDelay(action);
+      const body = action === "delete" ? workflowDeleteBody(template, templateName) : workflowCreateBody(template, templateName);
       body.set("wait", "true");
-      const response = await fetch("/create", {
+      const response = await fetch(action === "delete" ? "/delete" : "/create", {
         method: "POST",
         headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
         body: body.toString(),
       });
+      await minimumStatusDelay;
       if (!response.ok) throw new Error(`Template "${templateName}" failed (${response.status})`);
       workflowStepStatuses[index] = "done";
       renderWorkflow();
     }
-    setNotice(`Workflow "${workflowOptionLabel(workflowName)}" requested`, "success");
-    workflowSummary.textContent = `${steps.length} step${steps.length === 1 ? "" : "s"} requested`;
+    setNotice(action === "delete" ? `Workflow "${workflowOptionLabel(workflowName)}" delete requested` : `Workflow "${workflowOptionLabel(workflowName)}" requested`, "success");
+    workflowSummary.textContent = `${enabledSteps.length} ${action} step${enabledSteps.length === 1 ? "" : "s"} requested`;
   } catch (error) {
     const failedIndex = steps.findIndex((_, index) => workflowStepStatuses[index] === "running");
     if (failedIndex !== -1) workflowStepStatuses[failedIndex] = "failed";
@@ -3975,6 +4562,29 @@ function deleteWorkflow() {
   localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
   updateWorkflowOptions();
   setNotice(`Workflow "${label}" deleted`, "success");
+}
+
+function setWorkflowStepEnabled(index, enabled) {
+  const workflow = selectedWorkflow();
+  const steps = Array.isArray(workflow?.steps) ? workflow.steps : [];
+  if (!steps[index]) return;
+  if (typeof steps[index] === "string") steps[index] = { template: steps[index] };
+  steps[index].enabled = enabled;
+  workflowStepStatuses = {};
+  persistSelectedWorkflow();
+  renderWorkflow();
+}
+
+function removeWorkflowStep(index) {
+  const workflow = selectedWorkflow();
+  const steps = Array.isArray(workflow?.steps) ? workflow.steps : [];
+  if (!steps[index]) return;
+  const name = workflowStepName(steps[index]) || "workflow step";
+  workflow.steps = steps.filter((_, stepIndex) => stepIndex !== index);
+  workflowStepStatuses = {};
+  persistSelectedWorkflow();
+  renderWorkflow();
+  setNotice(`Workflow task "${name}" removed`, "success");
 }
 
 async function submitAction(config, submitter) {
@@ -4010,7 +4620,10 @@ async function submitAction(config, submitter) {
   }
 
   if (currentAction === "create") {
-    const hasTraefik = fieldChecked("traefik", true);
+    const templateName = selectedTemplateName() || orderTemplateName || "";
+    const templateEntry = createTemplateEntry(templateName);
+    if (templateEntry) appendCreateTemplateBody(body, templateEntry.template, templateEntry.name);
+    const hasTraefik = String(body.get("traefik") ?? "true") !== "false";
     const instanceName = String(body.get("instance") || "").trim();
     let rawDnsName = body.get("dns_name") || instanceName;
     const orderTemplateDnsPath = isOrderPage ? dnsParts(createTemplateEntry(orderTemplateName)?.template?.dns_name).path : "";
@@ -4245,8 +4858,9 @@ function syncCreateVersion() {
   const version = field("version");
   if (!version) return;
 
-  version.readOnly = currentAction === "create";
-  if (currentAction !== "create") return;
+  const templateSelected = Boolean(selectedTemplateName());
+  version.readOnly = currentAction === "create" && !templateSelected;
+  if (!isCreateFormAction()) return;
 
   if (templateVersionOverride) {
     setFieldValue("version", templateVersionOverride);
@@ -4257,7 +4871,7 @@ function syncCreateVersion() {
 }
 
 async function ensureCreateVersion() {
-  if (currentAction !== "create" || !fieldValue("image") || fieldValue("version")) return;
+  if (!isCreateFormAction() || !fieldValue("image") || fieldValue("version")) return;
 
   syncCreateVersion();
   if (fieldValue("version")) return;
@@ -4488,6 +5102,11 @@ form.addEventListener("submit", async (event) => {
     return;
   }
 
+  if (currentAction === "template") {
+    setNotice("Use Save template to store template changes", "error");
+    return;
+  }
+
   if (isEnrollPage) {
     const imported = await applyDockerRunCommand();
     if (!imported) return;
@@ -4510,36 +5129,58 @@ form.addEventListener("submit", async (event) => {
     }
   }
 
-  if (currentAction === "create" && !fieldValue("network")) {
-    setNotice("Network is required", "error");
-    return;
-  }
-
-  if (currentAction === "create" && !fieldValue("image")) {
+  if (currentAction === "delete" && event.submitter?.value === "image" && !fieldValue("image")) {
     setNotice("Image name is required", "error");
     return;
   }
 
-  if (currentAction === "create" && !fieldValue("port_value")) {
+  if (currentAction === "delete" && event.submitter?.value !== "image" && !fieldValue("instance")) {
+    setNotice("Instance name is required", "error");
+    return;
+  }
+
+  const selectedCreateTemplate = currentAction === "create" ? createTemplateEntry(selectedTemplateName() || orderTemplateName || "") : null;
+
+  if (currentAction === "create" && !selectedCreateTemplate) {
+    setNotice("Select a template first", "error");
+    return;
+  }
+
+  if (currentAction === "create" && !(fieldValue("network") || selectedCreateTemplate?.template?.network)) {
+    setNotice("Network is required", "error");
+    return;
+  }
+
+  if (currentAction === "create" && !(fieldValue("image") || selectedCreateTemplate?.template?.image)) {
+    setNotice("Image name is required", "error");
+    return;
+  }
+
+  const selectedTemplatePort = selectedCreateTemplate?.template?.ports?.[0]?.value || selectedCreateTemplate?.template?.ports?.[0]?.key;
+  if (currentAction === "create" && !(fieldValue("port_value") || selectedTemplatePort)) {
     setNotice("Service port is required", "error");
     return;
   }
 
-  if (currentAction === "create" && fieldChecked("traefik", true) && !isFqdn(dnsParts(dnsNameFqdn(fieldValue("dns_name") || fieldValue("instance"), selectedProfileCredentials().domain)).host)) {
+  const createHasTraefik = selectedCreateTemplate?.template?.traefik ?? fieldChecked("traefik", true);
+  if (currentAction === "create" && createHasTraefik && !isFqdn(dnsParts(dnsNameFqdn(fieldValue("dns_name") || fieldValue("instance"), selectedProfileCredentials().domain)).host)) {
     setNotice("DNS name must be a fully qualified domain name", "error");
     return;
   }
 
-  if (currentAction === "create" && !fieldValue("version")) {
+  if (currentAction === "create" && !(fieldValue("version") || selectedCreateTemplate?.template?.version)) {
     await ensureCreateVersion();
 
-    if (!fieldValue("version")) {
+    if (!fieldValue("version") && !selectedCreateTemplate?.template?.version) {
       setNotice("Version not found for this image", "error");
       return;
     }
   }
 
-  if (config?.confirm && !confirm(config.confirm)) {
+  const confirmMessage = currentAction === "delete" && event.submitter?.value === "image"
+    ? "Delete all instances using this image?"
+    : config?.confirm;
+  if (confirmMessage && !confirm(confirmMessage)) {
     return;
   }
 
@@ -4585,10 +5226,12 @@ form?.addEventListener("keydown", (event) => {
 profileHelpCloseBtn?.addEventListener("click", closeProfileHelp);
 profileHelpOkBtn?.addEventListener("click", closeProfileHelp);
 saveTemplateBtn?.addEventListener("click", saveCreateTemplate);
+saveAllTemplatesBtn?.addEventListener("click", exportAllCreateTemplates);
 deleteTemplateBtn?.addEventListener("click", deleteSelectedTemplate);
 loadTemplateBtn?.addEventListener("click", loadSelectedTemplate);
 orderTemplateBtn?.addEventListener("click", openSelectedTemplateOrder);
 logoutBtn?.addEventListener("click", logout);
+clearCacheBtn?.addEventListener("click", clearLocalCache);
 sidebarToggle?.addEventListener("click", () => {
   setSidebarCollapsed(!appShell?.classList.contains("sidebar-collapsed"));
 });
@@ -4598,20 +5241,44 @@ workflowSelect?.addEventListener("change", () => {
   workflowStepStatuses = {};
   renderWorkflow();
 });
+workflowActionSelect?.addEventListener("change", () => {
+  workflowStepStatuses = {};
+  renderWorkflow();
+});
+workflowTableBody?.addEventListener("change", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const checkbox = target?.closest("[data-workflow-step-enabled]");
+  if (!checkbox) return;
+  setWorkflowStepEnabled(Number(checkbox.dataset.workflowStepEnabled), checkbox.checked);
+});
+workflowTableBody?.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const button = target?.closest("[data-workflow-step-delete]");
+  if (!button) return;
+  removeWorkflowStep(Number(button.dataset.workflowStepDelete));
+});
 runWorkflowBtn?.addEventListener("click", runWorkflow);
 deleteWorkflowBtn?.addEventListener("click", deleteWorkflow);
 reportViewButtons.forEach((button) => {
   button.addEventListener("click", () => setReportView(button.dataset.reportView));
 });
 templateSelect?.addEventListener("change", () => {
+  if (createTemplateSelect) createTemplateSelect.value = templateSelect.value;
   syncTemplateActions();
   if (templateSelect.value) loadSelectedTemplate();
+});
+createTemplateSelect?.addEventListener("change", () => {
+  if (templateSelect) templateSelect.value = createTemplateSelect.value;
+  syncTemplateActions();
+  syncCreateVersion();
+  if (createTemplateSelect.value) loadSelectedTemplate();
 });
 dockerRunApplyBtn?.addEventListener("click", applyDockerRunCommand);
 dockerRunCancelBtn?.addEventListener("click", closeDockerRunModal);
 dockerRunCloseBtn?.addEventListener("click", closeDockerRunModal);
 dockerRunInput?.addEventListener("input", updateEnrollSubmitState);
 dockerComposeInput?.addEventListener("input", updateEnrollSubmitState);
+templateExportFile?.addEventListener("change", updateTemplateExportFileName);
 importTabButtons.forEach((button) => {
   button.addEventListener("click", () => setImportTab(button.dataset.importTab));
 });
@@ -4650,7 +5317,7 @@ configProfileSelect?.addEventListener("change", () => {
   syncCreateVersion();
   syncCreateDnsName({ force: true });
 
-  if (currentAction === "create") {
+  if (isTemplateAction()) {
     refreshImages({ notify: false });
   }
 });
@@ -4676,7 +5343,10 @@ field("oldversion")?.addEventListener("input", () => {
   updateSelectedVersionContainerNotice();
   updateRemoveOldImagesState();
 });
-field("version")?.addEventListener("input", updateRemoveOldImagesState);
+field("version")?.addEventListener("input", () => {
+  if (isCreateFormAction() && selectedTemplateName()) templateVersionOverride = fieldValue("version");
+  updateRemoveOldImagesState();
+});
 field("restart_version")?.addEventListener("input", updateRestartButtons);
 field("restart_version")?.addEventListener("input", updateSelectedVersionContainerNotice);
 field("operate_action")?.addEventListener("change", updateOperateControls);
@@ -4702,6 +5372,21 @@ orderInstances?.addEventListener("click", (event) => {
   deleteOrderInstance(Number(button.dataset.orderInstanceDelete)).catch(() => {
     setOrderStatus("Delete request failed", "error");
   });
+});
+enrollInstances?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-order-template-copy]");
+  if (!button) return;
+
+  const templateName = button.dataset.orderTemplateCopy || "";
+  const url = orderTemplateUrl(templateName);
+  if (!url) {
+    setNotice("Order link unavailable", "error");
+    return;
+  }
+
+  copyTextToClipboard(url)
+    .then(() => setNotice(`Order link copied for "${templateName}"`, "success"))
+    .catch(() => setNotice(url, "info", false));
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !dockerRunModal?.classList.contains("hidden")) {

@@ -11,12 +11,35 @@ function normalizeImportedProfiles(profiles, maxInstancesValue, plainObject) {
   }));
 }
 
+function cleanStoredConfig(config, parseProfiles, profilesWithSingleDefault, plainObject) {
+  const data = plainObject(config);
+  const profiles = profilesWithSingleDefault(parseProfiles(data.profiles));
+  const profile = data.profile || data.config_profile || Object.keys(profiles).sort((a, b) => a.localeCompare(b))[0] || "";
+  return {
+    customer_name: data.customer_name || "",
+    profile,
+    config_profile: profile,
+    profiles,
+  };
+}
+
+function expandedConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject) {
+  const stored = cleanStoredConfig(config, parseProfiles, profilesWithSingleDefault, plainObject);
+  const selected = stored.profile ? selectedProfileConfig({ profile: stored.profile, config_profile: stored.profile }) : {};
+  return {
+    ...stored,
+    ...selected,
+    customer_name: stored.customer_name,
+    profile: stored.profile,
+    config_profile: stored.config_profile,
+    profiles: stored.profiles,
+  };
+}
+
 function registerConfigRoutes(app, {
   appOwnerEmail,
   authUserFromRequest,
   maxInstancesValue,
-  mergeProfileMaps,
-  packageJson,
   parseProfiles,
   plainObject,
   profilesWithSingleDefault,
@@ -28,11 +51,21 @@ function registerConfigRoutes(app, {
   selectedProfileConfig,
   sendContactEmail,
   sendTestEmail,
+  syncTemplatesToNetBoxConfigContext,
+  templatesForRequest,
   templatesWithCreatorEmails,
   verifyContactTurnstile,
   writeState,
+  workflowsForRequest,
 }) {
-  app.get("/config", (req, res) => res.json(readState().config || {}));
+  app.get("/config", (req, res) => {
+    const config = readState().config || {};
+    if (!Object.keys(plainObject(config)).length) {
+      res.json({});
+      return;
+    }
+    res.json(expandedConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject));
+  });
   app.get("/mail-settings", requireAdmin, (req, res) => res.json({ owner_email_configured: Boolean(appOwnerEmail) }));
   app.get("/registry-webhook-secret", requireAdmin, (req, res) => {
     const template = req.query.template || "";
@@ -80,91 +113,127 @@ function registerConfigRoutes(app, {
     res.json({});
   });
   app.get("/webhook", requireAdmin, (req, res) => {
-    const profiles = profilesWithSingleDefault(parseProfiles(req.query.profiles));
+    const profileName = req.query.profile || req.query.config_profile || "";
+    const configProfileName = req.query.config_profile || req.query.profile || "";
+    const parsedProfiles = profilesWithSingleDefault(parseProfiles(req.query.profiles));
+    const selectedInputProfile = plainObject(parsedProfiles[profileName]);
+    const selectedProfileMax = selectedInputProfile.max_templates
+      ?? selectedInputProfile.max_instances
+      ?? selectedInputProfile.enrollment_limit;
+    const maxTemplates = maxInstancesValue(selectedProfileMax ?? req.query.max_templates ?? req.query.max_instances ?? req.query.enrollment_limit);
+    const enrollmentLimit = maxInstancesValue(selectedInputProfile.enrollment_limit ?? selectedProfileMax ?? req.query.enrollment_limit ?? maxTemplates);
+    const ownerEnvVar = String(req.query.owner_env_var ?? selectedInputProfile.owner_env_var ?? "SAASHUP_OWNER").trim() || "SAASHUP_OWNER";
+    const cloudflareFilter = req.query.cloudflare_filter !== undefined
+      ? req.query.cloudflare_filter !== "false"
+      : selectedInputProfile.cloudflare_filter !== false;
+    if (profileName) {
+      parsedProfiles[profileName] = {
+        ...selectedInputProfile,
+        netbox: req.query.netbox ?? selectedInputProfile.netbox ?? "",
+        token: req.query.token ?? selectedInputProfile.token ?? "",
+        proxy: req.query.proxy ?? selectedInputProfile.proxy ?? "",
+        domain: req.query.domain ?? selectedInputProfile.domain ?? "",
+        tag: req.query.tag ?? selectedInputProfile.tag ?? "",
+        max_templates: maxTemplates,
+        enrollment_limit: enrollmentLimit,
+        owner_env_var: ownerEnvVar,
+        cloudflare_filter: cloudflareFilter,
+        smtp_config: req.query.smtp_config ?? selectedInputProfile.smtp_config ?? "",
+      };
+    }
+    const profiles = profilesWithSingleDefault(parsedProfiles);
+    const selectedProfile = plainObject(profiles[profileName]);
+    const profileValue = (key, fallback = "") => (profileName && selectedProfile[key] !== undefined ? selectedProfile[key] : fallback);
     const config = {
       customer_name: req.query.customer_name || "",
-      netbox: req.query.netbox || "",
-      token: req.query.token || "",
-      proxy: req.query.proxy || "",
-      domain: req.query.domain || "",
-      tag: req.query.tag || "",
-      max_templates: maxInstancesValue(req.query.max_templates ?? req.query.max_instances ?? req.query.enrollment_limit),
-      enrollment_limit: maxInstancesValue(req.query.enrollment_limit),
-      owner_env_var: String(req.query.owner_env_var || "SAASHUP_OWNER").trim() || "SAASHUP_OWNER",
-      cloudflare_filter: req.query.cloudflare_filter !== "false",
-      smtp_config: req.query.smtp_config || "",
-      profile: req.query.profile || req.query.config_profile || "",
-      config_profile: req.query.config_profile || req.query.profile || "",
-      profiles: JSON.stringify(profiles),
+      netbox: profileValue("netbox", req.query.netbox || ""),
+      token: profileValue("token", req.query.token || ""),
+      proxy: profileValue("proxy", req.query.proxy || ""),
+      domain: profileValue("domain", req.query.domain || ""),
+      tag: profileValue("tag", req.query.tag || ""),
+      max_templates: maxInstancesValue(profileValue("max_templates", maxTemplates)),
+      enrollment_limit: maxInstancesValue(profileValue("enrollment_limit", enrollmentLimit)),
+      owner_env_var: String(profileValue("owner_env_var", ownerEnvVar)).trim() || "SAASHUP_OWNER",
+      cloudflare_filter: profileValue("cloudflare_filter", cloudflareFilter) !== false,
+      smtp_config: profileValue("smtp_config", req.query.smtp_config || ""),
+      profile: profileName,
+      config_profile: configProfileName,
+      profiles,
     };
+    const storedConfig = cleanStoredConfig(config, parseProfiles, profilesWithSingleDefault, plainObject);
     writeState((state) => {
-      state.config = config;
+      state.config = storedConfig;
       return state;
     });
     res.json(config);
   });
 
-  app.get("/templates", (req, res) => res.json(readState().templates || {}));
-  app.post("/templates", requireAdmin, (req, res) => {
-    let templates = {};
-    const creatorEmail = authUserFromRequest(req).email || "";
-    writeState((state) => {
-      templates = templatesWithCreatorEmails(req.body, plainObject(state.templates), creatorEmail);
-      state.templates = templates;
-      return state;
-    });
+  app.get("/templates", async (req, res) => {
+    const state = readState();
+    const profile = req.query.profile || req.query.config_profile || state.config?.profile || state.config?.config_profile || "";
+    const templates = await templatesForRequest(req, profile);
+    if (req.query.include_workflows === "true") {
+      res.json({
+        templates,
+        workflows: await workflowsForRequest(req, profile),
+      });
+      return;
+    }
     res.json(templates);
+  });
+  app.post("/templates", requireAdmin, async (req, res) => {
+    const creatorEmail = authUserFromRequest(req).email || "";
+    const state = readState();
+    const payload = plainObject(req.body);
+    const hasCatalogShape = Object.hasOwn(payload, "templates") || Object.hasOwn(payload, "workflows");
+    const profile = req.query.profile || req.query.config_profile || payload.profile || payload.config_profile || state.config?.profile || state.config?.config_profile || "";
+    const workflows = plainObject(hasCatalogShape ? payload.workflows : state.workflows);
+    const templates = templatesWithCreatorEmails(hasCatalogShape ? payload.templates : payload, plainObject(state.templates), creatorEmail);
+    try {
+      const syncResult = await syncTemplatesToNetBoxConfigContext(req, profile, templates, workflows);
+      if (!syncResult) {
+        writeState((state) => {
+          state.templates = templates;
+          state.workflows = workflows;
+          return state;
+        });
+      }
+      if (req.query.include_workflows === "true" || hasCatalogShape) {
+        res.json({ templates, workflows });
+        return;
+      }
+      res.json(templates);
+    } catch (error) {
+      res.status(error.statusCode || 502).json({ detail: error.message || "template sync failed", payload: error.payload });
+    }
   });
 
   app.get("/portable-config", requireAdmin, (req, res) => {
     const state = readState();
-    const config = plainObject(state.config);
-    const payload = {
-      type: "saashup-config-export",
-      version: 1,
-      app_version: packageJson.version,
-      exported_at: new Date().toISOString(),
-      config: { ...config, profiles: profilesWithSingleDefault(parseProfiles(config.profiles)) },
-      templates: plainObject(state.templates),
-      order_counts: plainObject(state.order_counts),
-      enrollment_counts: plainObject(state.enrollment_counts),
-      order_instances: plainObject(state.order_instances),
-      enrollment_instances: plainObject(state.enrollment_instances),
-    };
+    const config = cleanStoredConfig(plainObject(state.config), parseProfiles, profilesWithSingleDefault, plainObject);
+    const payload = { config };
     res.attachment(`saashup-config-${new Date().toISOString().slice(0, 10)}.json`).json(payload);
   });
-  app.post("/portable-config", requireAdmin, (req, res) => {
+  app.post("/portable-config", requireAdmin, async (req, res) => {
     const payload = plainObject(req.body);
     const config = plainObject(payload.config);
     const profiles = profilesWithSingleDefault(normalizeImportedProfiles(parseProfiles(payload.profiles || config.profiles), maxInstancesValue, plainObject));
     const names = Object.keys(profiles).sort((a, b) => a.localeCompare(b));
-    const importedTemplates = plainObject(payload.templates);
-    const importedOrderCounts = plainObject(payload.order_counts);
-    const importedEnrollmentCounts = plainObject(payload.enrollment_counts);
-    const importedOrderInstances = plainObject(payload.order_instances);
-    const importedEnrollmentInstances = plainObject(payload.enrollment_instances);
+    let selectedProfile = "";
     writeState((state) => {
       const existingConfig = plainObject(state.config);
       const mergedProfiles = profilesWithSingleDefault({ ...parseProfiles(existingConfig.profiles), ...profiles });
-      const selectedProfile = config.profile || config.config_profile || existingConfig.profile || existingConfig.config_profile || names[0] || "";
+      selectedProfile = config.profile || config.config_profile || existingConfig.profile || existingConfig.config_profile || names[0] || "";
       const nextConfig = {
-        ...existingConfig,
-        ...config,
-        profiles: JSON.stringify(mergedProfiles),
+        customer_name: config.customer_name ?? existingConfig.customer_name ?? "",
+        profile: selectedProfile,
+        config_profile: selectedProfile,
+        profiles: mergedProfiles,
       };
-      if (selectedProfile) {
-        nextConfig.profile = selectedProfile;
-        nextConfig.config_profile = selectedProfile;
-      }
-      state.config = nextConfig;
-      state.templates = { ...plainObject(state.templates), ...importedTemplates };
-      state.order_counts = mergeProfileMaps(plainObject(state.order_counts), importedOrderCounts);
-      state.enrollment_counts = mergeProfileMaps(plainObject(state.enrollment_counts), importedEnrollmentCounts);
-      state.order_instances = mergeProfileMaps(plainObject(state.order_instances), importedOrderInstances);
-      state.enrollment_instances = mergeProfileMaps(plainObject(state.enrollment_instances), importedEnrollmentInstances);
+      state.config = cleanStoredConfig(nextConfig, parseProfiles, profilesWithSingleDefault, plainObject);
       return state;
     });
-    res.json({ status: "imported", profiles: names.length, templates: Object.keys(importedTemplates).length });
+    res.json({ status: "imported", profiles: names.length });
   });
 
   app.get("/logs", (req, res) => res.type("text/html").send(readState().logs || "&nbsp;<br>"));
