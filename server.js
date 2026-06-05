@@ -211,7 +211,8 @@ function enrollmentTemplatesForUser(req, profile) {
   const creator = String(user.email || user.user || "").trim().toLowerCase();
   if (!creator) return [];
 
-  return Object.entries(plainObject(readState().templates))
+  const state = readState();
+  return Object.entries(plainObject(state.templates))
     .map(([name, template]) => ({ name, template: plainObject(template) }))
     .filter(({ template }) => String(template.creator_email || "").trim().toLowerCase() === creator)
     .map(({ name, template }) => ({
@@ -222,8 +223,21 @@ function enrollmentTemplatesForUser(req, profile) {
       template_url: template.template_url || template.saashup_template_url || "",
       status: "ready",
       source: "template",
+      instance_count: orderInstanceCountForTemplate(state, name),
     }))
     .filter((item) => item.instance);
+}
+
+function orderInstanceCountForTemplate(state, templateName) {
+  const requestedName = String(templateName || "").trim().toLowerCase();
+  if (!requestedName) return 0;
+
+  return Object.values(plainObject(state.order_instances)).reduce((total, profileInstances) => (
+    total + Object.values(plainObject(profileInstances)).reduce((profileTotal, instances) => {
+      if (!Array.isArray(instances)) return profileTotal;
+      return profileTotal + instances.filter((item) => String(item?.template || "").trim().toLowerCase() === requestedName).length;
+    }, 0)
+  ), 0);
 }
 
 function recordEnrollment(req, profile, data) {

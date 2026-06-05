@@ -1568,6 +1568,20 @@ describe("server routes", () => {
         Install: { config_profile: "install", image: "saashup/install", version: "v4", creator_email: "owner@example.com" },
         Shared: { image: "saashup/shared", version: "v3", creator_email: "owner@example.com" },
       },
+      order_instances: {
+        "buyer@example.com": {
+          prod: [
+            { instance: "tile-one.example.com", template: "Tile" },
+            { instance: "tile-two.example.com", template: "tile" },
+            { instance: "guide.example.com", template: "Guide" },
+          ],
+        },
+        "second@example.com": {
+          dev: [
+            { instance: "tile-dev.example.com", template: "Tile" },
+          ],
+        },
+      },
       enrollment_counts: {},
       enrollment_instances: {},
       logs: "",
@@ -1580,9 +1594,9 @@ describe("server routes", () => {
       .expect((res) => {
         expect(res.body).toMatchObject({ used: 3, max: 2, remaining: 0, reached: true });
         expect(res.body.instances).toEqual([
-          expect.objectContaining({ instance: "Tile", image: "saashup/tile", source: "template", status: "ready" }),
-          expect.objectContaining({ instance: "Install", image: "saashup/install", source: "template", status: "ready" }),
-          expect.objectContaining({ instance: "Shared", image: "saashup/shared", source: "template", status: "ready" }),
+          expect.objectContaining({ instance: "Tile", image: "saashup/tile", source: "template", status: "ready", instance_count: 3 }),
+          expect.objectContaining({ instance: "Install", image: "saashup/install", source: "template", status: "ready", instance_count: 0 }),
+          expect.objectContaining({ instance: "Shared", image: "saashup/shared", source: "template", status: "ready", instance_count: 0 }),
         ]);
       });
   });

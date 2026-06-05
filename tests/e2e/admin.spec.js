@@ -2166,6 +2166,17 @@ test("enroll page shows enrollment count when prior details are unavailable", as
 });
 
 test("enroll page shows templates created by the user", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__copiedOrderLink = "";
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (text) => {
+          window.__copiedOrderLink = text;
+        },
+      },
+    });
+  });
   await page.route("**/session/user", async (route) => {
     await route.fulfill({
       status: 200,
@@ -2175,7 +2186,7 @@ test("enroll page shows templates created by the user", async ({ page }) => {
   });
   await page.route("**/enroll/limit?**", async (route) => {
     const instances = [
-      { instance: "guide-template", image: "saashup/guide", version: "v1.2.3", status: "ready", source: "template" },
+      { instance: "guide-template", image: "saashup/guide", version: "v1.2.3", status: "ready", source: "template", instance_count: 2 },
     ];
     await route.fulfill({
       status: 200,
@@ -2211,7 +2222,13 @@ test("enroll page shows templates created by the user", async ({ page }) => {
   await expect(page.locator("#enrollInstances")).toContainText("guide-template");
   await expect(page.locator("#enrollInstances")).toContainText("saashup/guide");
   await expect(page.locator("#enrollInstances .order-instance-state")).toHaveText("Ready");
+  await expect(page.locator("#enrollInstances .enroll-template-count")).toHaveText("2");
   await expect(page.locator("#enrollInstances .order-instance-delete")).toBeDisabled();
+  await expect(page.locator("#enrollInstances .order-instance-delete svg")).toBeVisible();
+  await expect(page.locator("#enrollInstances .order-template-copy")).toBeVisible();
+  await page.locator("#enrollInstances .order-template-copy").click();
+  await expect(page.locator("#notif")).toContainText('Order link copied for "guide-template"');
+  await expect.poll(() => page.evaluate(() => window.__copiedOrderLink)).toBe(`${page.url().replace(/\/enroll(?:\.html)?$/, "")}/order?template=guide-template`);
   await expect(page.locator("#instanceForm")).toBeHidden();
 });
 

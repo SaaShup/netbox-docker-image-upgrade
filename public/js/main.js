@@ -2142,14 +2142,34 @@ function renderEnrollmentInstances(instances = enrollmentCards, limit = enrollme
         <article class="order-instance-card" data-enroll-instance-card="${index}">
           <span class="order-instance-icon" aria-hidden="true">${reportStatIcon("containers")}</span>
           <span class="order-instance-copy">
-            ${orderInstanceNameLink(item.instance, item.dns_name)}
+            ${item.source === "template" ? enrollmentTemplateTitle(item) : orderInstanceNameLink(item.instance, item.dns_name)}
             <small>${escapeHtml(item.template_url || item.image || "SaaShup template")}</small>
             <small class="${orderInstanceStatusTextClass(item)}">${orderInstanceStatusText(item)}</small>
           </span>
-          ${item.source === "template" ? `<button type="button" class="icon-btn icon-btn-danger order-instance-delete" title="Remove disabled" aria-label="Remove disabled" disabled>×</button>` : ""}
+          ${item.source === "template" ? `
+            <span class="order-instance-actions">
+              <button type="button" class="icon-btn order-template-copy" data-order-template-copy="${escapeHtml(item.instance)}" title="Copy order link" aria-label="Copy order link for ${escapeHtml(item.instance)}">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="10" height="10" rx="2"></rect><path d="M5 15V7a2 2 0 0 1 2-2h8"></path></svg>
+              </button>
+              <button type="button" class="icon-btn icon-btn-danger order-instance-delete" title="Remove disabled" aria-label="Remove disabled" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>
+              </button>
+            </span>
+          ` : ""}
         </article>
       `).join("")}
     </div>
+  `;
+}
+
+function enrollmentTemplateTitle(item) {
+  const count = Number(item?.instance_count || 0);
+  const badgeLabel = `${count} instance${count === 1 ? "" : "s"}`;
+  return `
+    <span class="enroll-template-title">
+      ${orderInstanceNameLink(item.instance, item.dns_name)}
+      <span class="enroll-template-count" title="${escapeHtml(badgeLabel)}" aria-label="${escapeHtml(badgeLabel)}">${count}</span>
+    </span>
   `;
 }
 
@@ -3393,6 +3413,33 @@ function openSelectedTemplateOrder() {
   }
 
   window.location.href = `/order?template=${encodeURIComponent(name)}`;
+}
+
+function orderTemplateUrl(name) {
+  const templateName = String(name || "").trim();
+  if (!templateName) return "";
+  return `${window.location.origin}/order?template=${encodeURIComponent(templateName)}`;
+}
+
+function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+
+  const input = document.createElement("textarea");
+  input.value = text;
+  input.setAttribute("readonly", "");
+  input.style.position = "fixed";
+  input.style.top = "-1000px";
+  document.body.appendChild(input);
+  input.select();
+
+  try {
+    document.execCommand("copy");
+    return Promise.resolve();
+  } catch (error) {
+    return Promise.reject(error);
+  } finally {
+    input.remove();
+  }
 }
 
 function createTemplateEntry(name) {
@@ -4954,6 +5001,21 @@ orderInstances?.addEventListener("click", (event) => {
   deleteOrderInstance(Number(button.dataset.orderInstanceDelete)).catch(() => {
     setOrderStatus("Delete request failed", "error");
   });
+});
+enrollInstances?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-order-template-copy]");
+  if (!button) return;
+
+  const templateName = button.dataset.orderTemplateCopy || "";
+  const url = orderTemplateUrl(templateName);
+  if (!url) {
+    setNotice("Order link unavailable", "error");
+    return;
+  }
+
+  copyTextToClipboard(url)
+    .then(() => setNotice(`Order link copied for "${templateName}"`, "success"))
+    .catch(() => setNotice(url, "info", false));
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !dockerRunModal?.classList.contains("hidden")) {

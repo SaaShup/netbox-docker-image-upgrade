@@ -1704,7 +1704,7 @@ body.enroll-page .order-instances {
 }
 
 body.enroll-page .order-instances {
-  width: min(940px, 100%);
+  width: min(1040px, 100%);
   margin-bottom: 0;
   padding: 24px;
 }
@@ -1780,6 +1780,33 @@ body.enroll-page .order-instances.hidden {
   min-width: 0;
 }
 
+.enroll-template-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.enroll-template-title .order-instance-link {
+  min-width: 0;
+}
+
+.enroll-template-count {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--primary-dark);
+  background: var(--button-soft);
+  font-size: 0.76rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
 .order-instance-state {
   width: fit-content;
   padding: 2px 8px;
@@ -1826,6 +1853,15 @@ body.enroll-page .order-instances.hidden {
   border-radius: 10px;
 }
 
+.order-template-copy {
+  display: grid;
+  place-items: center;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+}
+
 .order-instance-open {
   display: inline-flex;
   align-items: center;
@@ -1845,7 +1881,8 @@ body.enroll-page .order-instances.hidden {
 }
 
 .order-instance-delete svg,
-.order-instance-open svg {
+.order-instance-open svg,
+.order-template-copy svg {
   width: 18px;
   height: 18px;
   fill: none;
@@ -1933,17 +1970,18 @@ body.enroll-page .order-instances-header h2 {
 }
 
 body.enroll-page .order-instance-grid {
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 14px;
 }
 
 body.enroll-page .order-instance-card {
   gap: 14px;
-  padding: 16px;
+  padding: 18px;
 }
 
 body.enroll-page .order-instance-icon,
 body.enroll-page .order-instance-delete,
+body.enroll-page .order-template-copy,
 body.enroll-page .order-instance-status {
   flex-basis: 42px;
   width: 42px;
@@ -1952,6 +1990,7 @@ body.enroll-page .order-instance-status {
 
 body.enroll-page .order-instance-icon svg,
 body.enroll-page .order-instance-delete svg,
+body.enroll-page .order-template-copy svg,
 body.enroll-page .order-instance-status svg {
   width: 22px;
   height: 22px;
@@ -1967,6 +2006,12 @@ body.enroll-page .order-instance-open {
 body.enroll-page .order-instance-copy strong,
 body.enroll-page .order-instance-copy a {
   font-size: 1.06rem;
+}
+
+body.enroll-page .enroll-template-count {
+  height: 24px;
+  min-width: 26px;
+  font-size: 0.82rem;
 }
 
 body.enroll-page .order-instance-copy small {
@@ -2210,6 +2255,15 @@ body.order-page #orderCancelBtn {
 
   .icon-btn {
     width: 100%;
+  }
+
+  body.order-page .order-instance-actions .icon-btn,
+  body.enroll-page .order-instance-actions .icon-btn {
+    width: 42px;
+  }
+
+  body.enroll-page .order-template-copy {
+    width: 42px;
   }
 
   .profile-select {
