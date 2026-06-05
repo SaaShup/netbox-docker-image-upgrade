@@ -130,7 +130,7 @@ test("config tab starts without a forced default profile", async ({ page }) => {
   await expect(page.locator("#smtpConfigToggle")).toHaveAttribute("aria-label", "Hide SMTP config");
   await page.locator("#smtpConfigToggle").click();
   await expect(page.locator("#smtp_config")).toHaveAttribute("type", "password");
-  await page.getByRole("link", { name: "Create" }).click();
+  await page.getByRole("link", { name: "Template" }).click();
   await expect(page.locator('[data-field="registry_webhook_secret"]')).toBeVisible();
   await expect(page.locator("#registry_webhook_secret")).toHaveValue("hook-secret");
   await expect(page.locator("#registry_webhook_secret")).toHaveAttribute("type", "password");
@@ -525,14 +525,20 @@ test("report menu shows image usage for one config", async ({ page }) => {
 
   await openAdmin(page, config);
   await expect(page.locator(".sidebar .nav-label")).toHaveText([
-    "Config",
+    "Profiles",
+    "Template",
     "Create",
     "Upgrade",
     "Operate",
     "Delete",
     "Refresh",
-    "Workflow",
-    "Report",
+    "Workflows",
+    "Reports",
+  ]);
+  await expect(page.locator(".sidebar .nav-section-label")).toHaveText([
+    "Settings",
+    "Operations",
+    "Tools",
   ]);
   await page.route("**/report/images?**", async (route) => {
     const url = new URL(route.request().url());
@@ -680,7 +686,7 @@ test("create form supports repeatable env, labels, ports, volumes, and binds", a
     }),
   });
 
-  await page.getByRole("link", { name: "Create" }).click();
+  await page.getByRole("link", { name: "Template" }).click();
 
   await expect(page.locator("[data-field='hostname']")).toHaveCount(0);
   await expect(page.locator("#refreshInstancesBtn")).toBeHidden();
@@ -758,7 +764,7 @@ test("create form generates a random instance name when empty", async ({ page })
     }),
   });
 
-  await page.getByRole("link", { name: "Create" }).click();
+  await page.getByRole("link", { name: "Template" }).click();
 
   const firstName = await page.locator("#instance").inputValue();
   expect(firstName).toMatch(/^production-[a-z0-9]{16}$/);
@@ -823,7 +829,7 @@ test("create form derives the highest version from full image references", async
     }),
   });
 
-  await page.getByRole("link", { name: "Create" }).click();
+  await page.getByRole("link", { name: "Template" }).click();
   await page.locator("#refreshImagesBtn").click();
   await expect(page.locator("#notif")).toContainText("Loaded 1 images");
   await page.locator("#image").fill("registry.example.com:5000/saashup/guide");
@@ -855,7 +861,7 @@ test("create form refreshes images automatically when an image is entered", asyn
     }),
   });
 
-  await page.getByRole("link", { name: "Create" }).click();
+  await page.getByRole("link", { name: "Template" }).click();
   await page.locator("#image").fill("saashup/guide");
   await page.locator("#image").blur();
 
@@ -888,7 +894,7 @@ test("create form refreshes again when the selected image is missing from the ca
     }),
   });
 
-  await page.getByRole("link", { name: "Create" }).click();
+  await page.getByRole("link", { name: "Template" }).click();
   await expect(page.locator("#notif")).toContainText("Welcome !");
   await page.locator("#image").fill("saashup/guide");
   await page.locator("#image").blur();
@@ -932,7 +938,7 @@ test("create form refreshes images for the selected config profile tag", async (
     }),
   });
 
-  await page.getByRole("link", { name: "Create" }).click();
+  await page.getByRole("link", { name: "Template" }).click();
   await expect.poll(() => page.locator("#imageOptions option").evaluateAll((options) => options.map((option) => option.value))).toEqual(["saashup/guide"]);
 
   await page.locator("#image").fill("saashup/guide");
@@ -996,10 +1002,10 @@ test("create template switches to its saved config profile", async ({ page }) =>
     },
   });
 
-  await page.getByRole("link", { name: "Create" }).click();
+  await page.getByRole("link", { name: "Template" }).click();
   await expect(page.locator("#config_profile")).toHaveValue("guide");
 
-  await page.locator("#templateSelect").selectOption("Tile");
+  await page.locator("#create_template_select").selectOption("Tile");
 
   await expect(page.locator("#config_profile")).toHaveValue("tile");
   await expect(page.locator("#domain")).toHaveValue("tile.example.com");
@@ -1025,7 +1031,7 @@ test("create form derives version from a pasted image tag", async ({ page }) => 
     }),
   });
 
-  await page.getByRole("link", { name: "Create" }).click();
+  await page.getByRole("link", { name: "Template" }).click();
   await page.locator("#image").fill("registry.example.com:5000/saashup/guide:v3.1.4");
 
   await expect(page.locator("#version")).toHaveValue("v3.1.4");
@@ -1050,7 +1056,7 @@ test("create form selects the network starting with traefik", async ({ page }) =
     ];
   });
 
-  await page.getByRole("link", { name: "Create" }).click();
+  await page.getByRole("link", { name: "Template" }).click();
 
   await expect(page.locator("#network")).toHaveValue("traefik-tile");
   expect(instanceTags).toContain("TILE");
@@ -1091,7 +1097,7 @@ test("create form requires an fqdn DNS name when Traefik is enabled", async ({ p
     }),
   });
 
-  await page.getByRole("link", { name: "Create" }).click();
+  await page.getByRole("link", { name: "Template" }).click();
   await page.locator("#instance").fill("guide-app");
   await page.locator("#image").fill("saashup/guide");
   await page.locator("#port_value").fill("3000");
@@ -1144,7 +1150,7 @@ test("create form appends the configured domain to short instance names", async 
     }),
   });
 
-  await page.getByRole("link", { name: "Create" }).click();
+  await page.getByRole("link", { name: "Template" }).click();
   await expect(page.locator("#traefik")).toBeChecked();
   await page.locator("#instance").fill("tiles");
   await page.locator("#dns_name").fill("tiles.daily.paashup.cloud/dashboard");
@@ -1198,7 +1204,7 @@ test("create form can import a docker run command", async ({ page }) => {
     ];
   });
 
-  await page.getByRole("link", { name: "Create" }).click();
+  await page.getByRole("link", { name: "Template" }).click();
   await expect(page.locator("#network")).toHaveValue("traefik-net");
   await page.locator("#refreshImagesBtn").click();
   await expect(page.locator("#notif")).toContainText("Loaded 1 images");
@@ -1288,12 +1294,13 @@ test("create import can save docker compose services as templates", async ({ pag
     }),
   });
 
-  await page.getByRole("link", { name: "Create" }).click();
+  await page.getByRole("link", { name: "Template" }).click();
   await page.locator("#dockerRunBtn").click();
   await expect(page.locator("#importProfileSelect")).toHaveValue("production");
   await page.locator("#importProfileSelect").selectOption("staging");
   await expect(page.getByRole("tab", { name: "Run" })).toHaveAttribute("aria-selected", "true");
-  await page.locator("#dockerRunInput").fill([
+  await page.getByRole("tab", { name: "Compose" }).click();
+  await page.locator("#dockerComposeInput").fill([
     "name: stack",
     "services:",
     "  web:",
@@ -1324,11 +1331,15 @@ test("create import can save docker compose services as templates", async ({ pag
     "      - saashup_traefik=false",
     "      - saashup_dns=worker.staging.example.com",
   ].join("\n"));
+  await expect(page.locator("#createWorkflowInput")).toBeChecked();
+  await expect(page.locator("#importTemplateOrdersInput")).toBeChecked();
+  await page.locator("#importTemplateOrdersInput").uncheck();
   await page.locator("#dockerRunApplyBtn").click();
 
   await expect(page.locator("#dockerRunModal")).toBeHidden();
   await expect(page.locator("#notif")).toContainText("2 compose templates imported");
   await expect(page.locator("#templateSelect option")).toContainText(["Select template", "web", "worker"]);
+  await expect(page.locator("[data-field='saashup_enabled']")).toHaveCount(0);
 
   const templates = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")));
   const workflows = await page.evaluate(() => JSON.parse(localStorage.getItem("create_workflows")));
@@ -1367,7 +1378,6 @@ test("create import can save docker compose services as templates", async ({ pag
 
   await page.locator("#templateSelect").selectOption("web");
   await expect(page.locator("#version")).toHaveValue("v1.2.3");
-  await page.locator("#instance").fill("web-container");
   await page.locator("#version").fill("v2.0.0");
   page.once("dialog", async (dialog) => {
     expect(dialog.message()).toBe("Template name");
@@ -1437,7 +1447,7 @@ test("create import can save docker compose services as templates", async ({ pag
   const workflowAfterTaskDelete = await page.evaluate(() => JSON.parse(localStorage.getItem("create_workflows"))["staging::stack"]);
   expect(workflowAfterTaskDelete.steps.map((step) => step.template)).toEqual(["web"]);
 
-  await page.getByRole("link", { name: "Create" }).click();
+  await page.getByRole("link", { name: "Template" }).click();
   await page.locator("#dockerRunBtn").click();
   await page.locator("#importProfileSelect").selectOption("production");
   await page.locator("#dockerRunInput").fill([
@@ -1453,7 +1463,7 @@ test("create import can save docker compose services as templates", async ({ pag
   await page.getByRole("link", { name: "Workflow" }).click();
   await expect(page.locator("#workflowSelect option")).toContainText(["production / stack", "staging / stack"]);
 
-  await page.getByRole("link", { name: "Create" }).click();
+  await page.getByRole("link", { name: "Template" }).click();
   await page.locator("#dockerRunBtn").click();
   await page.getByRole("tab", { name: "Compose" }).click();
   await page.locator("#dockerComposeInput").fill([
@@ -1475,7 +1485,7 @@ test("create import can save docker compose services as templates", async ({ pag
   await page.locator("#templateSelect").selectOption("web");
   await expect(page.locator("#config_profile")).toHaveValue("staging");
   await expect(page.locator("#network")).toHaveValue("proxy");
-  await expect(page.locator("#dns_name")).toHaveValue("web.staging.example.com/dashboard");
+  await expect(page.locator("[data-field='dns_name']")).toBeHidden();
   await page.waitForTimeout(50);
   await expect(page.locator("#network")).toHaveValue("proxy");
   await page.locator("#refreshImagesBtn").click();
@@ -1558,7 +1568,7 @@ test("compose import reads SaaShup labels from map labels", async ({ page }) => 
     }),
   });
 
-  await page.getByRole("link", { name: "Create" }).click();
+  await page.getByRole("link", { name: "Template" }).click();
   await page.locator("#dockerRunBtn").click();
   await page.locator("#dockerRunInput").fill([
     "name: paashup",
@@ -1601,8 +1611,8 @@ test("compose import reads SaaShup labels from map labels", async ({ page }) => 
   await expect(page.locator("#traefik")).not.toBeChecked();
   await page.locator("#templateSelect").selectOption("netbox");
   await expect(page.locator("#traefik")).toBeChecked();
-  await expect(page.locator("#saashup_enabled")).toBeChecked();
-  await expect(page.locator("#dns_name")).toHaveValue("https://daily.paashup.cloud/cmdb");
+  await expect(page.locator("[data-field='saashup_enabled']")).toHaveCount(0);
+  await expect(page.locator("[data-field='dns_name']")).toBeHidden();
 });
 
 test("saved templates are normalized from SaaShup labels", async ({ page }) => {
@@ -1630,11 +1640,12 @@ test("saved templates are normalized from SaaShup labels", async ({ page }) => {
     },
   });
 
-  await page.getByRole("link", { name: "Create" }).click();
+  await page.getByRole("link", { name: "Template" }).click();
   await page.locator("#templateSelect").selectOption("legacy");
   await expect(page.locator("#traefik")).not.toBeChecked();
-  await expect(page.locator("#saashup_enabled")).not.toBeChecked();
-  await expect(page.locator("#dns_name")).toHaveValue("https://daily.paashup.cloud");
+  await expect(page.locator("[data-field='saashup_enabled']")).toHaveCount(0);
+  await expect(page.locator("#orderTemplateBtn")).toBeDisabled();
+  await expect(page.locator("[data-field='dns_name']")).toBeHidden();
   await expect(page.locator("#template_url")).toHaveValue("https://templates.example.com/legacy");
 
   const templates = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")));
@@ -1680,7 +1691,7 @@ test("import profile selector includes server profiles beyond local cache", asyn
     }));
   });
   await page.reload();
-  await page.getByRole("link", { name: "Create" }).click();
+  await page.getByRole("link", { name: "Template" }).click();
   await page.locator("#dockerRunBtn").click();
 
   await expect(page.locator("#importProfileSelect option")).toContainText(["install", "PaaShup"]);
@@ -1712,7 +1723,7 @@ test("create form can save and load templates", async ({ page }) => {
     }),
   });
 
-  await page.getByRole("link", { name: "Create" }).click();
+  await page.getByRole("link", { name: "Template" }).click();
   await expect(page.locator("#saveTemplateBtn")).toBeVisible();
   await expect(page.locator("#saveTemplateBtn")).toHaveText("Save template");
   await expect(page.locator("#orderTemplateBtn")).toBeVisible();
@@ -1723,8 +1734,10 @@ test("create form can save and load templates", async ({ page }) => {
 
   await page.locator("#refreshImagesBtn").click();
   await expect(page.locator("#notif")).toContainText("Loaded 1 images");
-  await page.locator("#instance").fill("guide-app");
+  await expect(page.locator("[data-field='instance']")).toBeHidden();
+  await expect(page.locator("[data-field='dns_name']")).toBeHidden();
   await page.locator("#image").fill("saashup/guide");
+  await expect(page.locator("[data-field='version']")).toBeVisible();
   await expect(page.locator("#version")).toHaveValue("v1.10.0");
   await page.locator("#var_env_key").fill("APP_ENV");
   await page.locator("#var_env_value").fill("production");
@@ -1733,8 +1746,8 @@ test("create form can save and load templates", async ({ page }) => {
   await page.locator("#max_instances").fill("2");
   await page.locator("#port_value").fill("3000");
   await page.locator("#volume_source").fill("/app/data");
-  await expect(page.locator("#volume_name")).toHaveValue("guide-app-data");
-  await expect(page.locator("#saashup_enabled")).toBeChecked();
+  await expect(page.locator("#volume_name")).toHaveValue("instance-data");
+  await expect(page.locator("[data-field='saashup_enabled']")).toHaveCount(0);
 
   page.once("dialog", async (dialog) => {
     expect(dialog.message()).toBe("Template name");
@@ -1744,14 +1757,16 @@ test("create form can save and load templates", async ({ page }) => {
   await page.locator("#saveTemplateBtn").click();
   await expect(page.locator("#notif")).toContainText('Template "Guide" saved');
   const savedTemplate = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")).Guide);
-  expect(savedTemplate.instance).toBe("guide-app");
+  expect(savedTemplate.instance).toBeUndefined();
+  expect(savedTemplate.dns_name).toBeUndefined();
   expect(savedTemplate.saashup_enabled).toBe(true);
   expect(savedTemplate.max_instances).toBe(2);
+  expect(savedTemplate.version).toBe("v1.10.0");
   expect(savedTemplate.volumes).toEqual([{ key: "/app/data" }]);
 
   await page.evaluate(() => localStorage.removeItem("create_templates"));
   await page.reload();
-  await page.getByRole("link", { name: "Create" }).click();
+  await page.getByRole("link", { name: "Template" }).click();
 
   await page.locator("#clearBtn").click();
   await expect(page.locator("#image")).toHaveValue("");
@@ -1766,20 +1781,19 @@ test("create form can save and load templates", async ({ page }) => {
   await expect(page.locator("#templateCreatorEmailWrap")).toBeVisible();
   await expect(page.locator("#templateCreatorEmail")).toHaveValue("");
   await expect(page.locator("#network")).toHaveValue("traefik-net");
-  await expect(page.locator("#instance")).toHaveValue("guide-app");
+  await expect(page.locator("[data-field='instance']")).toBeHidden();
+  await expect(page.locator("[data-field='dns_name']")).toBeHidden();
   await expect(page.locator("#image")).toHaveValue("saashup/guide");
+  await expect(page.locator("[data-field='version']")).toBeVisible();
   await expect(page.locator("#version")).toHaveValue("v1.10.0");
-  await expect(page.locator("#version")).not.toHaveAttribute("readonly", "");
   await page.locator("#version").fill("v1.2.3");
-  await expect(page.locator("#version")).toHaveValue("v1.2.3");
-  await expect(page.locator("#saashup_enabled")).toBeChecked();
+  await expect(page.locator("[data-field='saashup_enabled']")).toHaveCount(0);
   await expect(page.locator("#max_instances")).toHaveValue("2");
   await expect(page.locator("#var_env_key")).toHaveValue("APP_ENV");
   await expect(page.locator("#label_key")).toHaveValue("traefik.enable");
   await expect(page.locator("#port_value")).toHaveValue("3000");
   await expect(page.locator("#volume_source")).toHaveValue("/app/data");
-  const loadedInstance = await page.locator("#instance").inputValue();
-  await expect(page.locator("#volume_name")).toHaveValue(`${loadedInstance}-data`);
+  await expect(page.locator("#volume_name")).toHaveValue("instance-data");
 
   await page.locator("#templateCreatorEmail").fill("creator@example.com");
   page.once("dialog", async (dialog) => {
@@ -1806,6 +1820,83 @@ test("create form can save and load templates", async ({ page }) => {
   await expect(page.locator("#templateSelect option")).toHaveText("No templates saved");
 });
 
+test("template management is split from create from template", async ({ page }) => {
+  let createBody = "";
+
+  await page.route("**/create", async (route) => {
+    createBody = route.request().postData() || "";
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+
+  await openAdmin(page, {
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "example.com",
+        tag: "production",
+      },
+    }),
+  }, {
+    Guide: {
+      config_profile: "production",
+      network: "traefik-net",
+      traefik: true,
+      image: "saashup/guide",
+      version: "v1.2.3",
+      ports: [{ value: "3000" }],
+      env: [{ key: "APP_ENV", value: "production" }],
+      volumes: [{ key: "/app/data" }],
+    },
+  });
+
+  await page.getByRole("link", { name: "Template" }).click();
+  await expect(page.locator("#form-title")).toHaveText("Template");
+  await expect(page.locator("#saveTemplateBtn")).toBeVisible();
+  await expect(page.locator("#submitBtn")).toBeHidden();
+  await expect(page.locator("[data-field='image']")).toBeVisible();
+  await expect(page.locator("[data-field='all_hosts']")).toBeHidden();
+  await expect(page.locator("[data-field='version']")).toBeVisible();
+  await expect(page.locator("[data-field='instance']")).toBeHidden();
+  await expect(page.locator("[data-field='dns_name']")).toBeHidden();
+
+  await page.getByRole("link", { name: "Create" }).click();
+  await expect(page.locator("#form-title")).toHaveText("Create instance");
+  await expect(page.locator("#saveTemplateBtn")).toBeHidden();
+  await expect(page.locator("#templateSelect")).toBeHidden();
+  await expect(page.locator("#loadTemplateBtn")).toBeHidden();
+  await expect(page.locator("#submitBtn")).toBeVisible();
+  await expect(page.locator("[data-field='config_profile']")).toBeHidden();
+  await expect(page.locator("[data-field='create_template']")).toBeVisible();
+  await expect(page.locator("[data-field='image']")).toBeVisible();
+  await expect(page.locator("#image")).toHaveAttribute("readonly", "");
+  await expect(page.locator("[data-field='version']")).toBeVisible();
+  await expect(page.locator("[data-field='all_hosts']")).toBeHidden();
+
+  await page.locator("#create_template_select").selectOption("Guide");
+  await expect(page.locator("#image")).toHaveValue("saashup/guide");
+  await expect(page.locator("#version")).toHaveValue("v1.2.3");
+  await page.locator("#version").fill("v1.2.4");
+  await page.locator("#instance").fill("guide-copy");
+  await page.locator("#dns_name").fill("guide-copy.example.com");
+  await page.locator("#submitBtn").click();
+
+  await expect.poll(() => createBody).toContain("instance=guide-copy");
+  expect(createBody).toContain("dns_name=guide-copy.example.com");
+  expect(createBody).not.toContain("all_hosts=true");
+  expect(createBody).toContain("image=saashup%2Fguide");
+  expect(createBody).toContain("version=v1.2.4");
+  expect(createBody).toContain("network=traefik-net");
+  expect(createBody).toContain("port_value=3000");
+  expect(createBody).toContain("var_env_key=APP_ENV");
+  expect(createBody).toContain("volume_name=guide-copy-data");
+});
+
 test("create template order button reflects disabled order templates", async ({ page }) => {
   await openAdmin(page, {
     profiles: JSON.stringify({
@@ -1826,14 +1917,14 @@ test("create template order button reflects disabled order templates", async ({ 
     },
   });
 
-  await page.getByRole("link", { name: "Create" }).click();
+  await page.getByRole("link", { name: "Template" }).click();
   await expect(page.locator("#templateCreatorEmailWrap")).toBeVisible();
   await expect(page.locator("#templateCreatorEmail")).toBeDisabled();
   await page.locator("#templateSelect").selectOption("Guide App");
   await expect(page.locator("#templateCreatorEmailWrap")).toBeVisible();
   await expect(page.locator("#templateCreatorEmail")).toHaveValue("");
   await expect(page.locator("#templateCreatorEmail")).toBeEnabled();
-  await expect(page.locator("#saashup_enabled")).not.toBeChecked();
+  await expect(page.locator("[data-field='saashup_enabled']")).toHaveCount(0);
   await expect(page.locator("#orderTemplateBtn")).toBeDisabled();
   await expect(page.locator("#orderTemplateBtn")).toHaveText("Template disabled");
 });
@@ -1857,7 +1948,7 @@ test("create template order button opens the selected order page", async ({ page
     },
   });
 
-  await page.getByRole("link", { name: "Create" }).click();
+  await page.getByRole("link", { name: "Template" }).click();
   await expect(page.locator("#orderTemplateBtn")).toBeEnabled();
   await expect(page.locator("#orderTemplateBtn")).toHaveText("Select template to order");
   await expect(page.locator("#orderTemplateBtn")).toHaveClass(/btn-danger-outline/);

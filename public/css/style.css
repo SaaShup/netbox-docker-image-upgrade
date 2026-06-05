@@ -172,9 +172,33 @@ body {
   opacity: 0;
 }
 
+.app-shell.sidebar-collapsed .nav-section-label {
+  width: 44px;
+  height: 1px;
+  padding: 0;
+  margin: 6px 0 2px;
+  overflow: hidden;
+  color: transparent;
+  background: rgba(255, 255, 255, 0.16);
+}
+
 .nav {
   display: grid;
   gap: 10px;
+}
+
+.nav-section-label {
+  padding: 16px 14px 2px;
+  color: #94a3b8;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.nav-section-label:first-child {
+  padding-top: 4px;
 }
 
 .nav-item {

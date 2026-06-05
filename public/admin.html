@@ -26,12 +26,18 @@
       </div>
 
       <nav class="nav">
+        <div class="nav-section-label">Settings</div>
         <a href="#" class="menu nav-item active" data-action="config" id="menu_config" title="Config">
           <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M4.6 7.5l2.6 1.5M16.8 15l2.6 1.5M4.6 16.5 7.2 15M16.8 9l2.6-1.5"></path><circle cx="12" cy="12" r="4"></circle></svg></span>
-          <span class="nav-label">Config</span>
+          <span class="nav-label">Profiles</span>
         </a>
-        <a href="#" class="menu nav-item" data-action="create" id="menu_create" title="Create">
+        <a href="#" class="menu nav-item" data-action="template" id="menu_template" title="Template">
           <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg></span>
+          <span class="nav-label">Template</span>
+        </a>
+        <div class="nav-section-label">Operations</div>
+        <a href="#" class="menu nav-item" data-action="create" id="menu_create" title="Create">
+          <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 4h12"></path><path d="M6 9h12"></path><path d="M9 14h6"></path><path d="M12 12v8"></path><path d="M9 17h6"></path></svg></span>
           <span class="nav-label">Create</span>
         </a>
         <a href="#" class="menu nav-item" data-action="recreate" id="menu_recreate" title="Upgrade">
@@ -50,13 +56,14 @@
           <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.9-3"></path><path d="M4 5v5h5"></path><path d="M4 13a8 8 0 0 0 14.9 3"></path><path d="M20 19v-5h-5"></path></svg></span>
           <span class="nav-label">Refresh</span>
         </a>
-        <a href="#" class="menu nav-item" data-action="workflow" id="menu_workflow" title="Workflow">
+        <div class="nav-section-label">Tools</div>
+        <a href="#" class="menu nav-item" data-action="workflow" id="menu_workflow" title="Workflows">
           <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 5h4v4H6z"></path><path d="M14 15h4v4h-4z"></path><path d="M8 9v3a3 3 0 0 0 3 3h3"></path><path d="M14 7h4"></path><path d="M16 5v4"></path></svg></span>
-          <span class="nav-label">Workflow</span>
+          <span class="nav-label">Workflows</span>
         </a>
-        <a href="#" class="menu nav-item" data-action="report" id="menu_report" title="Report">
+        <a href="#" class="menu nav-item" data-action="report" id="menu_report" title="Reports">
           <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19V5"></path><path d="M4 19h16"></path><path d="M8 16v-5"></path><path d="M12 16V8"></path><path d="M16 16v-3"></path></svg></span>
-          <span class="nav-label">Report</span>
+          <span class="nav-label">Reports</span>
         </a>
       </nav>
     </aside>
@@ -124,6 +131,11 @@
                 <label class="field" data-field="config_profile">
                   <span class="field-label">Config profile <span class="profile-help-btn" data-profile-help="config_profile" role="button" tabindex="0" aria-label="Explain Config profile">?</span><span class="profile-sync-indicator hidden" id="profileSyncWarning" role="status" aria-label=""></span></span>
                   <select id="config_profile" name="config_profile"></select>
+                </label>
+
+                <label class="field" data-field="create_template">
+                  <span class="field-label">Template</span>
+                  <select id="create_template_select" aria-label="Template"></select>
                 </label>
 
                 <label class="field checkbox-field" data-field="delete_volumes">
@@ -227,10 +239,7 @@
                 <span class="field-label">Install on all hosts</span>
               </label>
 
-              <label class="field checkbox-field" data-field="saashup_enabled">
-                <input type="checkbox" id="saashup_enabled" name="saashup_enabled" value="true" checked>
-                <span class="field-label">Enable template orders</span>
-              </label>
+              <input type="checkbox" class="hidden" id="saashup_enabled" name="saashup_enabled" value="true" checked>
 
               <label class="field" data-field="template_url">
                 <span class="field-label">Template URL</span>
@@ -553,6 +562,10 @@
         <label class="modal-check">
           <input type="checkbox" id="createWorkflowInput" checked>
           <span>Create workflow</span>
+        </label>
+        <label class="modal-check">
+          <input type="checkbox" id="importTemplateOrdersInput" checked>
+          <span>Enable template orders</span>
         </label>
         <textarea id="dockerComposeInput" class="modal-textarea" spellcheck="false" placeholder="services:
   web:

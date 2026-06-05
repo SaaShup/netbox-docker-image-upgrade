@@ -21,6 +21,7 @@ const importConfigFile = document.getElementById("importConfigFile");
 const clearBtn = document.getElementById("clearBtn");
 const dockerRunBtn = document.getElementById("dockerRunBtn");
 const templateSelect = document.getElementById("templateSelect");
+const createTemplateSelect = document.getElementById("create_template_select");
 const templateCreatorEmailWrap = document.getElementById("templateCreatorEmailWrap");
 const templateCreatorEmail = document.getElementById("templateCreatorEmail");
 const configDefaultWrap = document.getElementById("configDefaultWrap");
@@ -35,6 +36,7 @@ const dockerRunInput = document.getElementById("dockerRunInput");
 const dockerComposeInput = document.getElementById("dockerComposeInput");
 const importProfileSelect = document.getElementById("importProfileSelect");
 const createWorkflowInput = document.getElementById("createWorkflowInput");
+const importTemplateOrdersInput = document.getElementById("importTemplateOrdersInput");
 const enrollSummary = document.getElementById("enrollSummary");
 const dockerRunApplyBtn = document.getElementById("dockerRunApplyBtn");
 const dockerRunCancelBtn = document.getElementById("dockerRunCancelBtn");
@@ -247,6 +249,18 @@ const profileFieldHelp = {
 
 const configFields = ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_templates", "owner_env_var", "cloudflare_filter", "smtp_config"];
 
+function isCreateFormAction(action = currentAction) {
+  return action === "create" || action === "template";
+}
+
+function isTemplateAction(action = currentAction) {
+  return action === "template";
+}
+
+function selectedTemplateName() {
+  return currentAction === "create" ? (createTemplateSelect?.value || "") : (templateSelect?.value || "");
+}
+
 const actions = {
   config: {
     endpoint: "/webhook",
@@ -263,10 +277,20 @@ const actions = {
     method: "post",
     menu: "menu_create",
     title: "Create instance",
-    description: "Create a container, volume, optional DNS record and optional Traefik labels.",
+    description: "Create an instance from a saved template.",
     submitLabel: "Create instance",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "network", "traefik", "all_hosts", "saashup_enabled", "template_url", "max_instances", "registry_webhook_secret", "instance", "dns_name", "image", "version", "env_vars", "labels", "ports", "volumes", "binds"],
+    fields: ["create_template", "instance", "dns_name", "image", "version"],
+  },
+  template: {
+    endpoint: "/create",
+    method: "post",
+    menu: "menu_template",
+    title: "Template",
+    description: "Create and manage reusable instance templates.",
+    submitLabel: "Create instance",
+    buttonClass: "btn btn-primary",
+    fields: ["config_profile", "network", "traefik", "template_url", "max_instances", "registry_webhook_secret", "image", "version", "env_vars", "labels", "ports", "volumes", "binds"],
   },
   workflow: {
     endpoint: "",
@@ -512,7 +536,7 @@ function createDnsName() {
 
 function syncCreateDnsName({ force = false } = {}) {
   const dnsInput = field("dns_name");
-  if (!dnsInput || currentAction !== "create") return;
+  if (!dnsInput || !isCreateFormAction()) return;
 
   const hasTraefik = fieldChecked("traefik", true);
   dnsInput.disabled = !hasTraefik;
@@ -555,6 +579,8 @@ function instanceNamePrefix() {
 }
 
 function instanceShortName() {
+  if (isTemplateAction()) return "instance";
+
   const name = String(fieldValue("instance") || "instance").trim();
   const shortName = (name.includes(".") ? name.split(".")[0] : name)
     .toLowerCase()
@@ -588,7 +614,7 @@ function syncVolumeNames() {
 }
 
 function ensureRandomCreateInstanceName() {
-  if (currentAction !== "create") return;
+  if (!isCreateFormAction()) return;
 
   const currentName = fieldValue("instance");
   if (currentName && currentName !== generatedCreateInstanceName) return;
@@ -649,7 +675,7 @@ async function refreshCreateNetworkFromInstances(requestId) {
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
     const data = await response.json();
-    if (requestId !== createNetworkRequestId || currentAction !== "create") return;
+    if (requestId !== createNetworkRequestId || !isCreateFormAction()) return;
 
     const networks = Array.from(new Set((Array.isArray(data) ? data : [])
       .flatMap(networkNamesFromItem)
@@ -662,7 +688,7 @@ async function refreshCreateNetworkFromInstances(requestId) {
     }
     setFieldValue("network", networks[0] || "");
   } catch {
-    if (requestId === createNetworkRequestId && currentAction === "create") {
+    if (requestId === createNetworkRequestId && isCreateFormAction()) {
       if (templateNetworkOverride) {
         setFieldValue("network", templateNetworkOverride);
         return;
@@ -676,8 +702,8 @@ function syncCreateNetwork() {
   const network = field("network");
   if (!network) return;
 
-  network.readOnly = currentAction === "create";
-  if (currentAction !== "create") return;
+  network.readOnly = isCreateFormAction();
+  if (!isCreateFormAction()) return;
 
   if (templateNetworkOverride) {
     setFieldValue("network", templateNetworkOverride);
@@ -982,16 +1008,16 @@ async function importPortableConfig(event) {
 }
 
 function updateTemplateOptions(selected = "") {
-  if (!templateSelect) return;
-
   const names = Object.keys(createTemplates).sort((a, b) => a.localeCompare(b));
-  templateSelect.replaceChildren(new Option(names.length ? "Select template" : "No templates saved", ""));
-
-  names.forEach((name) => {
-    templateSelect.appendChild(new Option(name, name));
+  const selectedValue = names.includes(selected) ? selected : "";
+  [templateSelect, createTemplateSelect].filter(Boolean).forEach((select) => {
+    select.replaceChildren(new Option(names.length ? "Select template" : "No templates saved", ""));
+    names.forEach((name) => {
+      select.appendChild(new Option(name, name));
+    });
+    select.value = selectedValue;
   });
 
-  templateSelect.value = names.includes(selected) ? selected : "";
   syncTemplateActions();
 }
 
@@ -1120,8 +1146,9 @@ function updateImportProfileOptions() {
 }
 
 function syncTemplateActions() {
-  const hasTemplate = Boolean(templateSelect?.value);
-  const selectedTemplate = hasTemplate ? createTemplates[templateSelect.value] : null;
+  const name = selectedTemplateName();
+  const hasTemplate = Boolean(name);
+  const selectedTemplate = hasTemplate ? createTemplates[name] : null;
   const orderEnabled = !selectedTemplate || selectedTemplate.saashup_enabled !== false;
 
   updateTemplateCreatorEmail(selectedTemplate);
@@ -1148,7 +1175,7 @@ function updateTemplateCreatorEmail(template) {
   templateCreatorEmail.value = email;
   templateCreatorEmail.title = email ? `Template creator: ${email}` : "Template creator email";
   templateCreatorEmail.disabled = !template;
-  templateCreatorEmailWrap.classList.toggle("hidden", currentAction !== "create");
+  templateCreatorEmailWrap.classList.toggle("hidden", !isTemplateAction());
 }
 
 function updateConfigDefaultControl() {
@@ -1334,7 +1361,7 @@ function applyProfileToFields(name = currentConfigProfile) {
   setFieldValue("owner_env_var", credentials.owner_env_var);
   setFieldValue("cloudflare_filter", credentials.cloudflare_filter);
   setFieldValue("smtp_config", credentials.smtp_config);
-  if (currentAction === "create") applyRegistryDefaultSecret();
+  if (isTemplateAction()) applyRegistryDefaultSecret();
   persistProfiles();
   syncCreateNetwork();
   updateProfileSyncWarning();
@@ -1372,7 +1399,7 @@ async function loadRegistryDefaultSecret() {
 }
 
 function applyRegistryDefaultSecret() {
-  if (currentAction !== "create" || !registryWebhookSecretInput || registryWebhookSecretInput.value || !registryWebhookDefaultSecret) return;
+  if (!isTemplateAction() || !registryWebhookSecretInput || registryWebhookSecretInput.value || !registryWebhookDefaultSecret) return;
   registryWebhookSecretInput.value = registryWebhookDefaultSecret;
 }
 
@@ -1401,7 +1428,7 @@ function credentialsQuery({ includeTag = false } = {}) {
 }
 
 function shouldFilterRefreshByTag() {
-  return currentAction === "create" || currentAction === "recreate" || currentAction === "restart" || currentAction === "delete";
+  return isCreateFormAction() || currentAction === "recreate" || currentAction === "restart" || currentAction === "delete";
 }
 
 function setTestButtonState(state = "default") {
@@ -2270,7 +2297,7 @@ function setAction(actionName) {
   if (formDescription) formDescription.textContent = config.description;
   submitBtn.textContent = config.submitLabel;
   submitBtn.className = config.buttonClass;
-  submitBtn.classList.toggle("hidden", actionName === "delete");
+  submitBtn.classList.toggle("hidden", actionName === "delete" || actionName === "template");
   submitBtn.name = actionName === "restart" ? "restart_mode" : "";
   submitBtn.value = actionName === "restart" ? "image" : "";
 
@@ -2279,21 +2306,22 @@ function setAction(actionName) {
   exportConfigBtn?.classList.toggle("hidden", actionName !== "config");
   importConfigBtn?.classList.toggle("hidden", actionName !== "config");
   clearBtn?.classList.toggle("hidden", actionName === "config" || actionName === "report" || actionName === "workflow");
-  dockerRunBtn?.classList.toggle("hidden", actionName !== "create");
-  templateSelect?.classList.toggle("hidden", actionName !== "create");
-  if (actionName === "create") syncTemplateActions();
+  dockerRunBtn?.classList.toggle("hidden", actionName !== "template");
+  templateSelect?.classList.toggle("hidden", actionName !== "template");
+  if (isCreateFormAction(actionName)) syncTemplateActions();
   else updateTemplateCreatorEmail(null);
   updateConfigDefaultControl();
-  loadTemplateBtn?.classList.toggle("hidden", actionName !== "create");
-  orderTemplateBtn?.classList.toggle("hidden", actionName !== "create");
-  saveTemplateBtn?.classList.toggle("hidden", actionName !== "create");
-  deleteTemplateBtn?.classList.toggle("hidden", actionName !== "create");
+  loadTemplateBtn?.classList.toggle("hidden", actionName !== "template");
+  if (loadTemplateBtn) loadTemplateBtn.textContent = "Load template";
+  orderTemplateBtn?.classList.toggle("hidden", actionName !== "template");
+  saveTemplateBtn?.classList.toggle("hidden", actionName !== "template");
+  deleteTemplateBtn?.classList.toggle("hidden", actionName !== "template");
   restartInstanceBtn?.classList.toggle("hidden", actionName !== "restart");
   if (restartInstanceBtn) restartInstanceBtn.disabled = actionName !== "restart";
   deleteInstanceBtn?.classList.toggle("hidden", actionName !== "delete");
   deleteImageBtn?.classList.toggle("hidden", actionName !== "delete");
-  refreshInstancesBtn?.classList.toggle("hidden", actionName === "create");
-  if (refreshInstancesBtn && actionName === "create") refreshInstancesBtn.disabled = true;
+  refreshInstancesBtn?.classList.toggle("hidden", isCreateFormAction(actionName));
+  if (refreshInstancesBtn && isCreateFormAction(actionName)) refreshInstancesBtn.disabled = true;
   formCard?.classList.toggle("hidden", actionName === "report" || actionName === "workflow");
   reportCard?.classList.toggle("hidden", actionName !== "report");
   workflowCard?.classList.toggle("hidden", actionName !== "workflow");
@@ -2310,25 +2338,27 @@ function setAction(actionName) {
     });
   });
 
-  if (refreshInstancesBtn && visibleFields.has("instance") && actionName !== "create") {
+  if (refreshInstancesBtn && visibleFields.has("instance") && !isCreateFormAction(actionName)) {
     refreshInstancesBtn.disabled = false;
   }
   if (refreshImagesBtn && visibleFields.has("image")) {
     refreshImagesBtn.disabled = false;
   }
+  const imageInput = field("image");
+  if (imageInput) imageInput.readOnly = actionName === "create";
 
   syncCreateNetwork();
   syncCreateVersion();
   updateRemoveOldImagesState();
   ensureRandomCreateInstanceName();
   syncCreateDnsName();
-  if (actionName === "create" && imageRecords.length === 0) {
+  if (isCreateFormAction(actionName) && imageRecords.length === 0) {
     refreshImages({ notify: false });
   }
   if (actionName === "delete" && imageRecords.length === 0) {
     refreshImages({ notify: false });
   }
-  if (actionName === "create") {
+  if (isCreateFormAction(actionName)) {
     loadRegistryDefaultSecret();
   }
   if (actionName === "report") {
@@ -2408,7 +2438,7 @@ function clearActionFields() {
 function openDockerRunModal() {
   if (!dockerRunModal || !dockerRunInput) return;
 
-  if (currentAction !== "create") setAction("create");
+  if (!isTemplateAction()) setAction("template");
   updateImportProfileOptions();
   setImportTab("run");
   dockerRunInput.value = "";
@@ -2602,7 +2632,7 @@ function openProfileHelp(key) {
 
 function registryWebhookHelpBody(body) {
   const profile = selectedProfileCredentials().profile || "";
-  const template = templateSelect?.value || "";
+  const template = selectedTemplateName();
   const secret = fieldValue("registry_webhook_secret") || registryWebhookDefaultSecret || "";
   const profileSegment = profile ? encodeURIComponent(profile) : "<config-profile>";
   const templateSegment = template ? encodeURIComponent(template) : "<template>";
@@ -3214,20 +3244,21 @@ function prepareBindReadOnlyForFormData() {
 
 function currentCreateTemplate() {
   const credentials = selectedProfileCredentials();
+  const existingTemplate = createTemplates[selectedTemplateName()] || {};
 
   return {
     config_profile: credentials.profile,
-    instance: fieldValue("instance"),
-    dns_name: fieldValue("dns_name"),
+    ...(existingTemplate.instance ? { instance: existingTemplate.instance } : {}),
+    ...(existingTemplate.dns_name ? { dns_name: existingTemplate.dns_name } : {}),
     traefik: fieldChecked("traefik", true),
-    all_hosts: fieldChecked("all_hosts", false),
-    saashup_enabled: fieldChecked("saashup_enabled", true),
+    all_hosts: existingTemplate.all_hosts ?? false,
+    saashup_enabled: existingTemplate.saashup_enabled ?? true,
     template_url: fieldValue("template_url").trim(),
     max_instances: normalizeMaxInstances(fieldValue("max_instances")),
     registry_webhook_secret: registryWebhookSecretValue(),
     network: fieldValue("network"),
     image: fieldValue("image"),
-    version: fieldValue("version"),
+    version: fieldValue("version") || existingTemplate.version,
     ...(templateCreatorEmailWrap && !templateCreatorEmailWrap.classList.contains("hidden") && !templateCreatorEmail?.disabled
       ? { creator_email: templateCreatorEmail?.value.trim() || "" }
       : {}),
@@ -3243,7 +3274,7 @@ function applyCreateTemplate(template) {
   if (!template) return;
   template = normalizeCreateTemplate(template);
 
-  setAction("create");
+  if (!isCreateFormAction()) setAction("template");
 
   const templateProfile = template.config_profile || template.profile || "";
   const switchesProfile = Boolean(templateProfile && templateProfile !== currentConfigProfile && Object.hasOwn(configProfiles, templateProfile));
@@ -3267,10 +3298,10 @@ function applyCreateTemplate(template) {
   templateVersionOverride = template.version || "";
   generatedCreateInstanceName = "";
   generatedCreateDnsName = "";
-  setFieldValue("instance", switchesProfile ? "" : (template.instance || ""));
-  if (switchesProfile || !template.instance) ensureRandomCreateInstanceName();
-  setFieldValue("dns_name", template.dns_name || "");
-  syncCreateDnsName({ force: !template.dns_name });
+  setFieldValue("instance", "");
+  setFieldValue("dns_name", "");
+  if (currentAction === "create") ensureRandomCreateInstanceName();
+  else syncCreateDnsName({ force: true });
   setFieldValue("image", template.image || "");
   syncCreateVersion();
   if (template.version) setFieldValue("version", template.version);
@@ -3278,13 +3309,14 @@ function applyCreateTemplate(template) {
   setRepeatRows(template.labels || [], clearLabelRows, addLabelRow, { key: "label_key", value: "label_value" });
   setPortValue((template.ports || [])[0]?.value || "");
   setRepeatRows(template.volumes || [], clearVolumeRows, addVolumeRow, { key: "volume_source", value: "volume_name" });
+  syncVolumeNames();
   setBindRows(template.binds || []);
 }
 
 async function saveCreateTemplate() {
-  if (currentAction !== "create") setAction("create");
+  if (!isTemplateAction()) setAction("template");
 
-  const suggested = templateSelect?.value || "";
+  const suggested = selectedTemplateName();
   const name = (prompt("Template name", suggested) || "").trim();
   if (!name) return;
 
@@ -3306,7 +3338,7 @@ async function saveCreateTemplate() {
 }
 
 async function deleteSelectedTemplate() {
-  const name = templateSelect?.value || "";
+  const name = selectedTemplateName();
   if (!name || !createTemplates[name]) {
     setNotice("Select a template first", "error");
     return;
@@ -3332,12 +3364,14 @@ async function deleteSelectedTemplate() {
 }
 
 async function loadSelectedTemplate() {
-  const name = templateSelect?.value || "";
+  const name = selectedTemplateName();
   if (!name || !createTemplates[name]) {
     setNotice("Select a template first", "error");
     return;
   }
 
+  if (templateSelect) templateSelect.value = name;
+  if (createTemplateSelect) createTemplateSelect.value = name;
   applyCreateTemplate(createTemplates[name]);
   if (fieldValue("image") && !fieldValue("version")) {
     await refreshImages({ notify: false });
@@ -3475,8 +3509,9 @@ async function applyDockerComposeFile(text) {
 
   const previousTemplates = { ...createTemplates };
   const previousWorkflows = { ...createWorkflows };
+  const enableTemplateOrders = importTemplateOrdersInput?.checked !== false;
   templates.forEach(({ name, template }) => {
-    createTemplates[name] = template;
+    createTemplates[name] = { ...template, saashup_enabled: enableTemplateOrders };
   });
   if (createWorkflowInput?.checked) {
     const workflowName = composeWorkflowName(composeText);
@@ -3487,7 +3522,7 @@ async function applyDockerComposeFile(text) {
       config_profile: workflowProfileName,
       steps: templates.map(({ name, template }) => ({
         template: name,
-        template_data: template,
+        template_data: { ...template, saashup_enabled: enableTemplateOrders },
         enabled: true,
       })),
       created_at: new Date().toISOString(),
@@ -3537,7 +3572,7 @@ async function applyDockerRunCommand() {
     return false;
   }
 
-  if (currentAction !== "create") setAction("create");
+  if (!isTemplateAction()) setAction("template");
   templateNetworkOverride = "";
   templateVersionOverride = parsed.version || "";
   generatedCreateDnsName = "";
@@ -3959,6 +3994,47 @@ function workflowCreateBody(template, templateName) {
   return body;
 }
 
+function clearBodyKeys(body, keys) {
+  keys.forEach((key) => body.delete(key));
+}
+
+function appendCreateTemplateBody(body, template, templateName = "") {
+  template = normalizeCreateTemplate(template);
+  const instanceName = String(body.get("instance") || template.instance || templateName || "").trim();
+  const versionOverride = String(body.get("version") || "").trim();
+  const templateKeys = [
+    "network", "traefik", "saashup_enabled", "template_url", "max_instances", "registry_webhook_secret",
+    "image", "version", "var_env_key", "var_env_value", "label_key", "label_value", "port_value",
+    "volume_source", "volume_name", "bind_host_path", "bind_container_path", "bind_read_only",
+  ];
+  clearBodyKeys(body, templateKeys);
+  body.set("network", template.network || "");
+  body.set("traefik", template.traefik === false ? "false" : "true");
+  body.set("saashup_enabled", template.saashup_enabled === false ? "false" : "true");
+  body.set("template_url", template.template_url || "");
+  body.set("max_instances", String(templateMaxInstancesValue(template)));
+  body.set("registry_webhook_secret", template.registry_webhook_secret || template.dockerhub_webhook_secret || "");
+  body.set("image", template.image || "");
+  body.set("version", versionOverride || template.version || "");
+  appendWorkflowPairs(body, template.env || [], "var_env_key", "var_env_value", ["key", "var_name", "name"], ["value"]);
+  appendWorkflowPairs(body, template.labels || [], "label_key", "label_value", ["key"], ["value"]);
+  (template.ports || []).slice(0, 1).forEach((port) => body.append("port_value", port.value || port.key || ""));
+  (template.volumes || []).forEach((volume, index) => {
+    const source = volume.source ?? volume.key ?? "";
+    if (!source) return;
+    body.append("volume_source", source);
+    body.append("volume_name", volume.name ?? volume.value ?? workflowVolumeName(instanceName, index));
+  });
+  (template.binds || []).forEach((bind) => {
+    const hostPath = bind.host_path ?? bind.host ?? bind.key ?? "";
+    const containerPath = bind.container_path ?? bind.container ?? bind.value ?? "";
+    if (!hostPath || !containerPath) return;
+    body.append("bind_host_path", hostPath);
+    body.append("bind_container_path", containerPath);
+    body.append("bind_read_only", bind.read_only || bind.readonly ? "true" : "false");
+  });
+}
+
 function workflowDeleteBody(template, templateName) {
   template = normalizeCreateTemplate(template);
   const profileName = template.config_profile || template.profile || currentConfigProfile || "";
@@ -4116,7 +4192,10 @@ async function submitAction(config, submitter) {
   }
 
   if (currentAction === "create") {
-    const hasTraefik = fieldChecked("traefik", true);
+    const templateName = selectedTemplateName() || orderTemplateName || "";
+    const templateEntry = createTemplateEntry(templateName);
+    if (templateEntry) appendCreateTemplateBody(body, templateEntry.template, templateEntry.name);
+    const hasTraefik = String(body.get("traefik") ?? "true") !== "false";
     const instanceName = String(body.get("instance") || "").trim();
     let rawDnsName = body.get("dns_name") || instanceName;
     const orderTemplateDnsPath = isOrderPage ? dnsParts(createTemplateEntry(orderTemplateName)?.template?.dns_name).path : "";
@@ -4351,9 +4430,9 @@ function syncCreateVersion() {
   const version = field("version");
   if (!version) return;
 
-  const templateSelected = Boolean(templateSelect?.value);
+  const templateSelected = Boolean(selectedTemplateName());
   version.readOnly = currentAction === "create" && !templateSelected;
-  if (currentAction !== "create") return;
+  if (!isCreateFormAction()) return;
 
   if (templateVersionOverride) {
     setFieldValue("version", templateVersionOverride);
@@ -4364,7 +4443,7 @@ function syncCreateVersion() {
 }
 
 async function ensureCreateVersion() {
-  if (currentAction !== "create" || !fieldValue("image") || fieldValue("version")) return;
+  if (!isCreateFormAction() || !fieldValue("image") || fieldValue("version")) return;
 
   syncCreateVersion();
   if (fieldValue("version")) return;
@@ -4595,6 +4674,11 @@ form.addEventListener("submit", async (event) => {
     return;
   }
 
+  if (currentAction === "template") {
+    setNotice("Use Save template to store template changes", "error");
+    return;
+  }
+
   if (isEnrollPage) {
     const imported = await applyDockerRunCommand();
     if (!imported) return;
@@ -4627,30 +4711,39 @@ form.addEventListener("submit", async (event) => {
     return;
   }
 
-  if (currentAction === "create" && !fieldValue("network")) {
+  const selectedCreateTemplate = currentAction === "create" ? createTemplateEntry(selectedTemplateName() || orderTemplateName || "") : null;
+
+  if (currentAction === "create" && !selectedCreateTemplate) {
+    setNotice("Select a template first", "error");
+    return;
+  }
+
+  if (currentAction === "create" && !(fieldValue("network") || selectedCreateTemplate?.template?.network)) {
     setNotice("Network is required", "error");
     return;
   }
 
-  if (currentAction === "create" && !fieldValue("image")) {
+  if (currentAction === "create" && !(fieldValue("image") || selectedCreateTemplate?.template?.image)) {
     setNotice("Image name is required", "error");
     return;
   }
 
-  if (currentAction === "create" && !fieldValue("port_value")) {
+  const selectedTemplatePort = selectedCreateTemplate?.template?.ports?.[0]?.value || selectedCreateTemplate?.template?.ports?.[0]?.key;
+  if (currentAction === "create" && !(fieldValue("port_value") || selectedTemplatePort)) {
     setNotice("Service port is required", "error");
     return;
   }
 
-  if (currentAction === "create" && fieldChecked("traefik", true) && !isFqdn(dnsParts(dnsNameFqdn(fieldValue("dns_name") || fieldValue("instance"), selectedProfileCredentials().domain)).host)) {
+  const createHasTraefik = selectedCreateTemplate?.template?.traefik ?? fieldChecked("traefik", true);
+  if (currentAction === "create" && createHasTraefik && !isFqdn(dnsParts(dnsNameFqdn(fieldValue("dns_name") || fieldValue("instance"), selectedProfileCredentials().domain)).host)) {
     setNotice("DNS name must be a fully qualified domain name", "error");
     return;
   }
 
-  if (currentAction === "create" && !fieldValue("version")) {
+  if (currentAction === "create" && !(fieldValue("version") || selectedCreateTemplate?.template?.version)) {
     await ensureCreateVersion();
 
-    if (!fieldValue("version")) {
+    if (!fieldValue("version") && !selectedCreateTemplate?.template?.version) {
       setNotice("Version not found for this image", "error");
       return;
     }
@@ -4740,8 +4833,15 @@ reportViewButtons.forEach((button) => {
   button.addEventListener("click", () => setReportView(button.dataset.reportView));
 });
 templateSelect?.addEventListener("change", () => {
+  if (createTemplateSelect) createTemplateSelect.value = templateSelect.value;
   syncTemplateActions();
   if (templateSelect.value) loadSelectedTemplate();
+});
+createTemplateSelect?.addEventListener("change", () => {
+  if (templateSelect) templateSelect.value = createTemplateSelect.value;
+  syncTemplateActions();
+  syncCreateVersion();
+  if (createTemplateSelect.value) loadSelectedTemplate();
 });
 dockerRunApplyBtn?.addEventListener("click", applyDockerRunCommand);
 dockerRunCancelBtn?.addEventListener("click", closeDockerRunModal);
@@ -4786,7 +4886,7 @@ configProfileSelect?.addEventListener("change", () => {
   syncCreateVersion();
   syncCreateDnsName({ force: true });
 
-  if (currentAction === "create") {
+  if (isTemplateAction()) {
     refreshImages({ notify: false });
   }
 });
@@ -4813,7 +4913,7 @@ field("oldversion")?.addEventListener("input", () => {
   updateRemoveOldImagesState();
 });
 field("version")?.addEventListener("input", () => {
-  if (currentAction === "create" && templateSelect?.value) templateVersionOverride = fieldValue("version");
+  if (isCreateFormAction() && selectedTemplateName()) templateVersionOverride = fieldValue("version");
   updateRemoveOldImagesState();
 });
 field("restart_version")?.addEventListener("input", updateRestartButtons);
