@@ -1193,17 +1193,17 @@ function renderWorkflow() {
   const steps = Array.isArray(workflow?.steps) ? workflow.steps : [];
   const enabledSteps = steps.filter(workflowStepEnabled);
   const profile = workflowProfile(workflow);
-  const action = workflowActionSelect?.value === "delete" ? "delete" : "create";
+  const action = workflowAction();
   workflowSummary.textContent = workflow
     ? `${enabledSteps.length}/${steps.length} enabled - ${action}${profile ? ` - ${profileLabel(profile)}` : ""}`
     : "No workflow selected";
   if (runWorkflowBtn) runWorkflowBtn.disabled = !enabledSteps.length;
-  if (runWorkflowBtn) runWorkflowBtn.textContent = action === "delete" ? "Run delete" : "Run create";
+  if (runWorkflowBtn) runWorkflowBtn.textContent = `Run ${action}`;
   if (deleteWorkflowBtn) deleteWorkflowBtn.disabled = !workflow;
   workflowDeleteVolumesField?.classList.toggle("hidden", action !== "delete");
 
   if (!steps.length) {
-    workflowTableBody.innerHTML = '<tr><td colspan="7">Import a compose file with workflow enabled.</td></tr>';
+    workflowTableBody.innerHTML = '<tr><td colspan="6">Import a compose file with workflow enabled.</td></tr>';
     return;
   }
 
@@ -1221,7 +1221,6 @@ function renderWorkflow() {
       <td>${workflowStepStatusIcon(status)}</td>
       <td><input type="checkbox" data-workflow-step-enabled="${index}" aria-label="Enable ${escapeHtml(templateName || "workflow step")}" ${enabled ? "checked" : ""}></td>
       <td>${escapeHtml(templateName || "")}</td>
-      <td>${escapeHtml(template.instance || "")}</td>
       <td>${escapeHtml(template.image || "")}:${escapeHtml(template.version || "")}</td>
       <td><button type="button" class="icon-btn icon-btn-danger workflow-step-delete" data-workflow-step-delete="${index}" title="Remove ${escapeHtml(templateName || "workflow step")}" aria-label="Remove ${escapeHtml(templateName || "workflow step")}">×</button></td>
     `;
@@ -4663,6 +4662,33 @@ function workflowDeleteBody(template, templateName) {
   });
 }
 
+function workflowUpgradeBody(template, templateName) {
+  template = normalizeCreateTemplate(template);
+  const profileName = template.config_profile || template.profile || currentConfigProfile || "";
+  const credentials = profileCredentials(profileName);
+  if (!credentials.netbox || !credentials.token) throw new Error(`Config "${profileLabel(profileName)}" is missing NetBox URL or token`);
+
+  const image = String(template.image || "").trim();
+  if (!image) throw new Error(`Template "${templateName}" is missing an image name for upgrade`);
+  const version = String(template.version || "").trim();
+  if (!version) throw new Error(`Template "${templateName}" is missing a target version for upgrade`);
+
+  return new URLSearchParams({
+    config_profile: profileName,
+    netbox: credentials.netbox,
+    token: credentials.token,
+    proxy: credentials.proxy,
+    domain: credentials.domain,
+    tag: credentials.tag,
+    profile: credentials.profile,
+    image,
+    oldversion: template.oldversion || template.old_version || "",
+    version,
+    clean_name: "false",
+    remove_old_images: "false",
+  });
+}
+
 function workflowPaintFrame() {
   return new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
 }
@@ -4671,9 +4697,38 @@ function workflowMinimumStatusDelay(action) {
   return action === "delete" ? new Promise((resolve) => window.setTimeout(resolve, 350)) : Promise.resolve();
 }
 
+function workflowAction() {
+  return ["create", "upgrade", "delete"].includes(workflowActionSelect?.value) ? workflowActionSelect.value : "create";
+}
+
+function workflowActionEndpoint(action) {
+  if (action === "delete") return "/delete";
+  if (action === "upgrade") return "/recreate";
+  return "/create";
+}
+
+function workflowActionBody(action, template, templateName) {
+  if (action === "delete") return workflowDeleteBody(template, templateName);
+  if (action === "upgrade") return workflowUpgradeBody(template, templateName);
+  return workflowCreateBody(template, templateName);
+}
+
+function workflowActionProgressLabel(action) {
+  if (action === "delete") return "Deleting";
+  if (action === "upgrade") return "Upgrading";
+  return "Running";
+}
+
+function workflowActionNotice(action, workflowName) {
+  const label = workflowOptionLabel(workflowName);
+  if (action === "delete") return `Workflow "${label}" delete requested`;
+  if (action === "upgrade") return `Workflow "${label}" upgrade requested`;
+  return `Workflow "${label}" requested`;
+}
+
 async function runWorkflow() {
   const workflowName = workflowSelect?.value || "";
-  const action = workflowActionSelect?.value === "delete" ? "delete" : "create";
+  const action = workflowAction();
   const workflow = selectedWorkflow();
   const steps = Array.isArray(workflow?.steps) ? workflow.steps : [];
   const enabledSteps = steps.map((step, index) => ({ step, index })).filter(({ step }) => workflowStepEnabled(step));
@@ -4695,16 +4750,17 @@ async function runWorkflow() {
       const templateName = workflowStepName(step);
       const template = workflowStepTemplate(step);
       if (action === "create" && !template.image) throw new Error(`Template "${templateName}" is missing`);
+      if (action === "upgrade" && (!template.image || !template.version)) throw new Error(`Template "${templateName}" is missing image or version for upgrade`);
       if (action === "delete" && !Object.keys(template).length) throw new Error(`Template "${templateName}" is missing`);
 
       workflowStepStatuses[index] = "running";
       renderWorkflow();
-      workflowSummary.textContent = `${action === "delete" ? "Deleting" : "Running"} ${runIndex + 1}/${enabledSteps.length}: ${templateName}`;
+      workflowSummary.textContent = `${workflowActionProgressLabel(action)} ${runIndex + 1}/${enabledSteps.length}: ${templateName}`;
       await workflowPaintFrame();
       const minimumStatusDelay = workflowMinimumStatusDelay(action);
-      const body = action === "delete" ? workflowDeleteBody(template, templateName) : workflowCreateBody(template, templateName);
+      const body = workflowActionBody(action, template, templateName);
       body.set("wait", "true");
-      const response = await fetch(action === "delete" ? "/delete" : "/create", {
+      const response = await fetch(workflowActionEndpoint(action), {
         method: "POST",
         headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
         body: body.toString(),
@@ -4714,7 +4770,7 @@ async function runWorkflow() {
       workflowStepStatuses[index] = "done";
       renderWorkflow();
     }
-    setNotice(action === "delete" ? `Workflow "${workflowOptionLabel(workflowName)}" delete requested` : `Workflow "${workflowOptionLabel(workflowName)}" requested`, "success");
+    setNotice(workflowActionNotice(action, workflowName), "success");
     workflowSummary.textContent = `${enabledSteps.length} ${action} step${enabledSteps.length === 1 ? "" : "s"} requested`;
   } catch (error) {
     const failedIndex = steps.findIndex((_, index) => workflowStepStatuses[index] === "running");

@@ -1369,6 +1369,7 @@ test("create form can import a docker run command", async ({ page }) => {
 
 test("create import can save docker compose services as templates", async ({ page }) => {
   const createBodies = [];
+  const recreateBodies = [];
   const deleteBodies = [];
 
   await page.route("**/images?**", async (route) => {
@@ -1390,6 +1391,14 @@ test("create import can save docker compose services as templates", async ({ pag
   });
   await page.route("**/delete", async (route) => {
     deleteBodies.push(route.request().postData() || "");
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+  await page.route("**/recreate", async (route) => {
+    recreateBodies.push(route.request().postData() || "");
     await route.fulfill({
       status: 202,
       contentType: "application/json",
@@ -1567,6 +1576,23 @@ test("create import can save docker compose services as templates", async ({ pag
   expect(createBodies[1]).toContain("wait=true");
   await expect(page.locator(".workflow-step-status-done")).toHaveCount(2);
   await expect(page.locator("#notif")).toContainText('Workflow "staging / stack" requested');
+
+  await page.locator("#workflowActionSelect").selectOption("upgrade");
+  await expect(page.locator("#runWorkflowBtn")).toHaveText("Run upgrade");
+  await expect(page.locator("#workflowDeleteVolumesField")).toBeHidden();
+  await page.locator("#runWorkflowBtn").click();
+  await expect.poll(() => recreateBodies.length).toBe(2);
+  expect(recreateBodies[0]).toContain("image=registry.example.com%3A5000%2Fsaashup%2Fweb");
+  expect(recreateBodies[0]).toContain("version=v2.0.0");
+  expect(recreateBodies[0]).toContain("oldversion=");
+  expect(recreateBodies[0]).toContain("clean_name=false");
+  expect(recreateBodies[0]).toContain("remove_old_images=false");
+  expect(recreateBodies[0]).toContain("wait=true");
+  expect(recreateBodies[1]).toContain("image=saashup%2Fworker");
+  expect(recreateBodies[1]).toContain("version=latest");
+  expect(recreateBodies[1]).toContain("wait=true");
+  await expect(page.locator(".workflow-step-status-done")).toHaveCount(2);
+  await expect(page.locator("#notif")).toContainText('Workflow "staging / stack" upgrade requested');
 
   await expect(page.locator("#workflowDeleteVolumesField")).toBeHidden();
   await page.locator("#workflowActionSelect").selectOption("delete");
