@@ -1563,8 +1563,16 @@ function currentSmtpConfigValue() {
 
 function updateTestEmailVisibility() {
   if (!testEmailBtn) return;
-  const visible = currentAction === "config" && Boolean(currentSmtpConfigValue()) && Boolean(mailSettings.owner_email_configured);
+  const hasSmtp = Boolean(currentSmtpConfigValue());
+  const visible = currentAction === "config" && hasSmtp;
   testEmailBtn.classList.toggle("hidden", !visible);
+  if (!visible) return;
+
+  const ownerReady = Boolean(mailSettings.owner_email_configured);
+  testEmailBtn.disabled = !ownerReady;
+  testEmailBtn.title = ownerReady
+    ? "Send a test notification email"
+    : "Set APP_OWNER_EMAIL to enable test emails";
 }
 
 async function loadRegistryDefaultSecret() {
@@ -4473,6 +4481,11 @@ async function testEmail() {
     return;
   }
 
+  if (!mailSettings.owner_email_configured) {
+    setNotice("APP_OWNER_EMAIL is not configured", "error");
+    return;
+  }
+
   testEmailBtn.disabled = true;
   try {
     const response = await fetch("/test-email", {
@@ -4496,10 +4509,17 @@ async function testEmail() {
       data = { detail: text };
     }
 
-    if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+    if (!response.ok) {
+      const detail = typeof data?.detail === "string" ? data.detail : String(text || `HTTP ${response.status}`);
+      throw new Error(detail || `HTTP ${response.status}`);
+    }
     setNotice("Test email sent", "success");
   } catch (error) {
-    setNotice(`Test email failed: ${String(error.message || "request error").slice(0, 160)}`, "error", false);
+    const msg = String(error.message || "request error");
+    const hint = msg.includes("origin_bad_gateway")
+      ? "Cloudflare returned origin_bad_gateway. This usually means the app could not complete the SMTP request." 
+      : msg;
+    setNotice(`Test email failed: ${hint.slice(0, 180)}`, "error", false);
   } finally {
     testEmailBtn.disabled = false;
   }

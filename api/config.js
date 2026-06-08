@@ -99,7 +99,8 @@ function registerConfigRoutes(app, {
         response: info?.response || "",
       });
     } catch (error) {
-      res.status(error.statusCode || 502).json({ detail: error.message || "email test failed" });
+      const status = Number.isFinite(Number(error.statusCode)) ? Number(error.statusCode) : 500;
+      res.status(status).json({ detail: error.message || "email test failed" });
     }
   });
   app.options("/contact", publicApiGuard);
