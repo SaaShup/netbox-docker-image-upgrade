@@ -123,6 +123,9 @@ let logsPollFailed = false;
 let createTemplates = {};
 let createWorkflows = {};
 let workflowStepStatuses = {};
+let workflowDragIndex = null;
+let workflowPointerDrag = null;
+let workflowMouseDrag = null;
 let generatedCreateInstanceName = "";
 let generatedCreateDnsName = "";
 let orderInstanceCards = [];
@@ -1108,6 +1111,56 @@ function persistSelectedWorkflow() {
   localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
 }
 
+function clearWorkflowDragState() {
+  workflowDragIndex = null;
+  workflowPointerDrag = null;
+  workflowMouseDrag = null;
+  workflowTableBody?.querySelectorAll(".workflow-step-dragging, .workflow-step-drop-target").forEach((row) => {
+    row.classList.remove("workflow-step-dragging", "workflow-step-drop-target");
+  });
+}
+
+function workflowStepRowAtPoint(clientX, clientY) {
+  const element = document.elementFromPoint(clientX, clientY);
+  return element instanceof Element ? element.closest("[data-workflow-step-index]") : null;
+}
+
+function markWorkflowDropTarget(row) {
+  workflowTableBody?.querySelectorAll(".workflow-step-drop-target").forEach((item) => item.classList.remove("workflow-step-drop-target"));
+  if (!(row instanceof HTMLElement) || workflowDragIndex === null) return;
+  row.classList.toggle("workflow-step-drop-target", Number(row.dataset.workflowStepIndex) !== workflowDragIndex);
+}
+
+async function moveWorkflowStep(fromIndex, toIndex) {
+  const key = selectedWorkflowKey();
+  const workflow = selectedWorkflow();
+  const steps = Array.isArray(workflow?.steps) ? workflow.steps : [];
+  if (!key || !workflow || fromIndex === toIndex || !steps[fromIndex] || !steps[toIndex]) return;
+
+  const previousSteps = [...steps];
+  const [movedStep] = steps.splice(fromIndex, 1);
+  steps.splice(toIndex, 0, movedStep);
+  workflow.steps = steps;
+  workflowStepStatuses = {};
+  persistSelectedWorkflow();
+  renderWorkflow();
+
+  try {
+    const savedCatalog = templateCatalogFromPayload(await persistCreateTemplates());
+    createTemplates = savedCatalog.templates;
+    createWorkflows = savedCatalog.workflows;
+    localStorage.setItem("create_templates", JSON.stringify(createTemplates));
+    localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
+    updateWorkflowOptions(key);
+    setNotice("Workflow order saved", "success");
+  } catch {
+    createWorkflows[key] = { ...workflow, steps: previousSteps };
+    localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
+    updateWorkflowOptions(key);
+    setNotice("Workflow order save failed", "error");
+  }
+}
+
 function workflowStepStatusIcon(status = "pending") {
   const normalized = ["pending", "running", "done", "failed"].includes(status) ? status : "pending";
   const labels = {
@@ -1142,7 +1195,7 @@ function renderWorkflow() {
   workflowDeleteVolumesField?.classList.toggle("hidden", action !== "delete");
 
   if (!steps.length) {
-    workflowTableBody.innerHTML = '<tr><td colspan="6">Import a compose file with workflow enabled.</td></tr>';
+    workflowTableBody.innerHTML = '<tr><td colspan="7">Import a compose file with workflow enabled.</td></tr>';
     return;
   }
 
@@ -1152,9 +1205,11 @@ function renderWorkflow() {
     const enabled = workflowStepEnabled(step);
     const status = workflowStepStatuses[index] || "pending";
     const row = document.createElement("tr");
+    row.dataset.workflowStepIndex = String(index);
     row.dataset.workflowStepStatus = status;
     row.classList.toggle("workflow-step-disabled", !enabled);
     row.innerHTML = `
+      <td><button type="button" class="icon-btn workflow-step-drag" data-workflow-step-drag="${index}" title="Drag to reorder ${escapeHtml(templateName || "workflow step")}" aria-label="Drag to reorder ${escapeHtml(templateName || "workflow step")}">↕</button></td>
       <td>${workflowStepStatusIcon(status)}</td>
       <td><input type="checkbox" data-workflow-step-enabled="${index}" aria-label="Enable ${escapeHtml(templateName || "workflow step")}" ${enabled ? "checked" : ""}></td>
       <td>${escapeHtml(templateName || "")}</td>
@@ -5257,6 +5312,102 @@ workflowTableBody?.addEventListener("click", (event) => {
   if (!button) return;
   removeWorkflowStep(Number(button.dataset.workflowStepDelete));
 });
+workflowTableBody?.addEventListener("pointerdown", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const handle = target?.closest("[data-workflow-step-drag]");
+  if (!(handle instanceof HTMLElement) || event.button !== 0) return;
+
+  const row = handle.closest("[data-workflow-step-index]");
+  if (!(row instanceof HTMLElement)) return;
+  event.preventDefault();
+  workflowDragIndex = Number(row.dataset.workflowStepIndex);
+  workflowPointerDrag = { pointerId: event.pointerId, fromIndex: workflowDragIndex };
+  row.classList.add("workflow-step-dragging");
+  handle.setPointerCapture?.(event.pointerId);
+});
+workflowTableBody?.addEventListener("mousedown", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const handle = target?.closest("[data-workflow-step-drag]");
+  if (!(handle instanceof HTMLElement) || event.button !== 0) return;
+
+  const row = handle.closest("[data-workflow-step-index]");
+  if (!(row instanceof HTMLElement)) return;
+  event.preventDefault();
+  workflowDragIndex = Number(row.dataset.workflowStepIndex);
+  workflowMouseDrag = { fromIndex: workflowDragIndex };
+  row.classList.add("workflow-step-dragging");
+});
+document.addEventListener("pointermove", (event) => {
+  if (!workflowPointerDrag || workflowPointerDrag.pointerId !== event.pointerId) return;
+  event.preventDefault();
+  markWorkflowDropTarget(workflowStepRowAtPoint(event.clientX, event.clientY));
+});
+document.addEventListener("pointerup", async (event) => {
+  if (!workflowPointerDrag || workflowPointerDrag.pointerId !== event.pointerId) return;
+  const fromIndex = workflowPointerDrag.fromIndex;
+  const row = workflowStepRowAtPoint(event.clientX, event.clientY);
+  const toIndex = row instanceof HTMLElement ? Number(row.dataset.workflowStepIndex) : fromIndex;
+  clearWorkflowDragState();
+  await moveWorkflowStep(fromIndex, toIndex);
+});
+document.addEventListener("pointercancel", (event) => {
+  if (!workflowPointerDrag || workflowPointerDrag.pointerId !== event.pointerId) return;
+  clearWorkflowDragState();
+});
+document.addEventListener("mousemove", (event) => {
+  if (!workflowMouseDrag) return;
+  event.preventDefault();
+  markWorkflowDropTarget(workflowStepRowAtPoint(event.clientX, event.clientY));
+});
+document.addEventListener("mouseup", async (event) => {
+  if (!workflowMouseDrag) return;
+  const fromIndex = workflowMouseDrag.fromIndex;
+  const row = workflowStepRowAtPoint(event.clientX, event.clientY);
+  const toIndex = row instanceof HTMLElement ? Number(row.dataset.workflowStepIndex) : fromIndex;
+  clearWorkflowDragState();
+  await moveWorkflowStep(fromIndex, toIndex);
+});
+workflowTableBody?.addEventListener("dragstart", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target?.closest("[data-workflow-step-drag]")) {
+    event.preventDefault();
+    return;
+  }
+
+  const row = target.closest("[data-workflow-step-index]");
+  if (!(row instanceof HTMLElement) || !event.dataTransfer) return;
+  workflowDragIndex = Number(row.dataset.workflowStepIndex);
+  row.classList.add("workflow-step-dragging");
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("text/plain", String(workflowDragIndex));
+});
+workflowTableBody?.addEventListener("dragover", (event) => {
+  if (workflowDragIndex === null) return;
+  const target = event.target instanceof Element ? event.target : null;
+  const row = target?.closest("[data-workflow-step-index]");
+  if (!(row instanceof HTMLElement)) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  markWorkflowDropTarget(row);
+});
+workflowTableBody?.addEventListener("dragleave", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const row = target?.closest("[data-workflow-step-index]");
+  if (!row || (event.relatedTarget instanceof Node && row.contains(event.relatedTarget))) return;
+  row.classList.remove("workflow-step-drop-target");
+});
+workflowTableBody?.addEventListener("drop", async (event) => {
+  if (workflowDragIndex === null) return;
+  const target = event.target instanceof Element ? event.target : null;
+  const row = target?.closest("[data-workflow-step-index]");
+  if (!(row instanceof HTMLElement)) return;
+  event.preventDefault();
+  const fromIndex = Number(event.dataTransfer?.getData("text/plain") || workflowDragIndex);
+  const toIndex = Number(row.dataset.workflowStepIndex);
+  clearWorkflowDragState();
+  await moveWorkflowStep(fromIndex, toIndex);
+});
+workflowTableBody?.addEventListener("dragend", clearWorkflowDragState);
 runWorkflowBtn?.addEventListener("click", runWorkflow);
 deleteWorkflowBtn?.addEventListener("click", deleteWorkflow);
 reportViewButtons.forEach((button) => {

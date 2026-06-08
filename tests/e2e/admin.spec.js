@@ -1491,6 +1491,27 @@ test("create import can save docker compose services as templates", async ({ pag
   await expect(page.locator("#workflowTableBody")).toContainText("worker");
   await expect(page.locator(".workflow-step-status-pending")).toHaveCount(2);
   await expect(page.locator("#runWorkflowBtn")).toHaveText("Run create");
+  await expect(page.locator("#workflowTableBody tr")).toHaveCount(2);
+  const dragSecondWorkflowStepAboveFirst = async () => {
+    await page.locator('[data-workflow-step-drag="1"]').scrollIntoViewIfNeeded();
+    const handle = await page.locator('[data-workflow-step-drag="1"]').boundingBox();
+    const target = await page.locator("#workflowTableBody tr").first().boundingBox();
+    expect(handle).toBeTruthy();
+    expect(target).toBeTruthy();
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 8 });
+    await page.mouse.up();
+  };
+  await dragSecondWorkflowStepAboveFirst();
+  await expect(page.locator("#notif")).toContainText("Workflow order saved");
+  await expect.poll(() => page.evaluate(() => (
+    JSON.parse(localStorage.getItem("create_workflows"))["staging::stack"].steps.map((step) => step.template)
+  ))).toEqual(["worker", "web"]);
+  await dragSecondWorkflowStepAboveFirst();
+  await expect.poll(() => page.evaluate(() => (
+    JSON.parse(localStorage.getItem("create_workflows"))["staging::stack"].steps.map((step) => step.template)
+  ))).toEqual(["web", "worker"]);
   await page.locator("#runWorkflowBtn").click();
   await expect.poll(() => createBodies.length).toBe(2);
   expect(createBodies[0]).toContain("instance=web-container");

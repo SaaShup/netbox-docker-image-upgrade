@@ -515,16 +515,31 @@ h2 {
 
 .workflow-card .report-table th:first-child,
 .workflow-card .report-table td:first-child {
-  width: 68px;
+  width: 62px;
   text-align: center;
 }
 
 .workflow-card .report-table th:nth-child(2),
 .workflow-card .report-table td:nth-child(2),
+.workflow-card .report-table th:nth-child(3),
+.workflow-card .report-table td:nth-child(3),
 .workflow-card .report-table th:last-child,
 .workflow-card .report-table td:last-child {
   width: 84px;
   text-align: center;
+}
+
+.workflow-card .workflow-step-drag {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  cursor: grab;
+  font-size: 1rem;
+  touch-action: none;
+}
+
+.workflow-card .workflow-step-drag:active {
+  cursor: grabbing;
 }
 
 .workflow-card .workflow-step-delete {
@@ -532,6 +547,15 @@ h2 {
   height: 34px;
   border-radius: 8px;
   font-size: 1.1rem;
+}
+
+.workflow-step-dragging {
+  opacity: 0.35;
+}
+
+.workflow-step-drop-target {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: -2px;
 }
 
 .workflow-step-disabled {
