@@ -3327,6 +3327,24 @@ test("order page uses the server default profile for bare template links", async
     }));
   });
 
+  await page.route("**/order/limit?**", async (route) => {
+    const url = new URL(route.request().url());
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        instances: [],
+        max: 1,
+        profile: url.searchParams.get("profile") || "SaaShup",
+        remaining: 1,
+        reached: false,
+        used: 0,
+        total_used: 0,
+        template: url.searchParams.get("template") || "nginx",
+      }),
+    });
+  });
+
   await page.route("**/create", async (route) => {
     createBody = route.request().postData() || "";
     await route.fulfill({

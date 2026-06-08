@@ -4371,25 +4371,26 @@ function loadSavedConfig() {
       serverConfigProfiles = { ...serverProfiles };
       configProfiles = { ...serverProfiles, ...localProfiles };
 
-      if (data.netbox && data.token) {
-        const profile = data.profile || data.config_profile || currentConfigProfile || "";
-        if (!deletedProfiles().includes(profile)) {
-          const serverProfile = {
-            netbox: data.netbox,
-            token: data.token,
-            proxy: data.proxy || "",
-            domain: data.domain || "",
-            tag: data.tag || "",
-            max_templates: maxTemplatesValue(data),
-            enrollment_limit: normalizeMaxInstances(data.enrollment_limit),
-            cloudflare_filter: checkboxValue(data.cloudflare_filter, true),
-            smtp_config: smtpConfigValue(data),
-            ...(serverProfiles[profile]?.saashup_default === true ? { saashup_default: true } : {}),
-          };
-          serverConfigProfiles[profile] = serverProfile;
-          configProfiles[profile] = localProfiles[profile] || serverProfile;
-          currentConfigProfile = (isEnrollPage || isOrderPage) ? profile : (localStorage.getItem("current_config_profile") || profile);
-        }
+      const profile = String(data.profile || data.config_profile || "").trim();
+      if (profile && !deletedProfiles().includes(profile) && Object.hasOwn(serverProfiles, profile)) {
+        currentConfigProfile = (isEnrollPage || isOrderPage) ? profile : (localStorage.getItem("current_config_profile") || profile);
+      }
+
+      if (data.netbox && data.token && profile) {
+        const serverProfile = {
+          netbox: data.netbox,
+          token: data.token,
+          proxy: data.proxy || "",
+          domain: data.domain || "",
+          tag: data.tag || "",
+          max_templates: maxTemplatesValue(data),
+          enrollment_limit: normalizeMaxInstances(data.enrollment_limit),
+          cloudflare_filter: checkboxValue(data.cloudflare_filter, true),
+          smtp_config: smtpConfigValue(data),
+          ...(serverProfiles[profile]?.saashup_default === true ? { saashup_default: true } : {}),
+        };
+        serverConfigProfiles[profile] = serverProfile;
+        configProfiles[profile] = localProfiles[profile] || serverProfile;
       }
 
       updateProfileOptions();
@@ -5601,7 +5602,7 @@ form.addEventListener("submit", async (event) => {
 
   const createHasTraefik = selectedCreateTemplate?.template?.traefik ?? fieldChecked("traefik", true);
   const createDomain = selectedProfileCredentials().domain;
-  if (currentAction === "create" && createHasTraefik && createDomain && !isFqdn(dnsParts(dnsNameFqdn(fieldValue("dns_name") || fieldValue("instance"), createDomain)).host)) {
+  if (currentAction === "create" && createHasTraefik && (!isOrderPage || Boolean(createDomain)) && !isFqdn(dnsParts(dnsNameFqdn(fieldValue("dns_name") || fieldValue("instance"), createDomain)).host)) {
     setSubmitValidationError("DNS name must be a fully qualified domain name");
     return;
   }
