@@ -309,10 +309,26 @@ function containerPortValues(container, labels) {
     .slice(0, 1);
 }
 
-function templateCatalogContextName(profile, creator) {
+function normalizedCatalogNetBoxUrl(value) {
+  return String(value || "").trim().replace(/\/+$/, "").toLowerCase();
+}
+
+function templateCatalogScope(profile, config = {}) {
+  const scope = {
+    profile: String(profile || "").trim(),
+    netbox: normalizedCatalogNetBoxUrl(config.netbox),
+    tag: String(config.tag || "").trim(),
+  };
+  return {
+    ...scope,
+    key: crypto.createHash("sha1").update(`${scope.profile}\n${scope.netbox}\n${scope.tag}`).digest("hex").slice(0, 12),
+  };
+}
+
+function templateCatalogContextName(profile, config = {}) {
+  const scope = templateCatalogScope(profile, config);
   const profilePart = String(profile || "default").trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") || "default";
-  const creatorHash = crypto.createHash("sha1").update(String(creator || "").trim().toLowerCase()).digest("hex").slice(0, 12);
-  return `saashup-template-catalog-${profilePart}-${creatorHash}`;
+  return `saashup-template-catalog-${profilePart}-${scope.key}`;
 }
 
 const templateCatalogReservedKeys = new Set([
@@ -364,13 +380,17 @@ function configContextCatalogData(context) {
   return hasCatalogData ? data : {};
 }
 
-function configContextMatchesCatalogScope(data, profile, creator) {
+function configContextMatchesCatalogScope(data, scope) {
   if (!Object.keys(data).length) return false;
 
-  const contextOwner = String(data.saashup_owner || data.owner || "").trim().toLowerCase();
+  const contextScope = String(data.saashup_scope || data.scope || "").trim();
   const contextProfile = String(data.saashup_profile || data.profile || "").trim();
-  if (contextOwner && contextOwner !== creator) return false;
-  if (contextProfile && contextProfile !== String(profile || "").trim()) return false;
+  const contextNetbox = normalizedCatalogNetBoxUrl(data.saashup_netbox_url || data.netbox_url || data.netbox);
+  const contextTag = String(data.saashup_tag || data.tag || "").trim();
+  if (contextScope && contextScope !== scope.key) return false;
+  if (contextProfile && contextProfile !== scope.profile) return false;
+  if (contextNetbox && contextNetbox !== scope.netbox) return false;
+  if (contextTag && contextTag !== scope.tag) return false;
   return true;
 }
 
@@ -406,11 +426,9 @@ function workflowEntriesFromTemplates(data, profile) {
   }];
 }
 
-function templateEntriesFromConfigContext(context, profile, creator, state) {
+function templateEntriesFromConfigContext(context, profile, scope, state) {
   const data = configContextCatalogData(context);
-  if (!configContextMatchesCatalogScope(data, profile, creator)) return [];
-
-  const contextOwner = String(data.saashup_owner || data.owner || creator || "").trim().toLowerCase();
+  if (!configContextMatchesCatalogScope(data, scope)) return [];
 
   return Object.entries(configContextTemplateDefinitions(data))
     .filter(([name, template]) => looksLikeTemplateDefinition(name, template))
@@ -422,7 +440,6 @@ function templateEntriesFromConfigContext(context, profile, creator, state) {
           ...entry,
           config_profile: entry.config_profile || profile,
           source: "netbox-config-context",
-          creator_email: entry.creator_email || contextOwner,
           saashup_enabled: orderTemplateEnabled(entry.saashup_enabled, true),
           max_instances: maxInstancesValue(entry.max_instances ?? 1),
           instance_count: orderInstanceCountForTemplate(state, name),
@@ -432,9 +449,9 @@ function templateEntriesFromConfigContext(context, profile, creator, state) {
     .filter((entry) => entry.name);
 }
 
-function workflowEntriesFromConfigContext(context, profile, creator) {
+function workflowEntriesFromConfigContext(context, profile, scope) {
   const data = configContextCatalogData(context);
-  if (!configContextMatchesCatalogScope(data, profile, creator)) return [];
+  if (!configContextMatchesCatalogScope(data, scope)) return [];
 
   const workflowEntries = Object.entries(configContextWorkflowDefinitions(data))
     .filter(([, workflow]) => looksLikeWorkflowDefinition(workflow))
@@ -450,18 +467,18 @@ function workflowEntriesFromConfigContext(context, profile, creator) {
   return workflowEntries.length ? workflowEntries : workflowEntriesFromTemplates(data, profile);
 }
 
-async function netboxTemplateCatalogEntries(client, profile, state, creator) {
+async function netboxTemplateCatalogEntries(client, profile, state, scope) {
   const contexts = await client.list("/api/extras/config-contexts/", { limit: 1000 });
   return contexts
     .filter((context) => context?.is_active !== false)
-    .flatMap((context) => templateEntriesFromConfigContext(context, profile, creator, state));
+    .flatMap((context) => templateEntriesFromConfigContext(context, profile, scope, state));
 }
 
-async function netboxWorkflowCatalogEntries(client, profile, creator) {
+async function netboxWorkflowCatalogEntries(client, profile, scope) {
   const contexts = await client.list("/api/extras/config-contexts/", { limit: 1000 });
   return contexts
     .filter((context) => context?.is_active !== false)
-    .flatMap((context) => workflowEntriesFromConfigContext(context, profile, creator));
+    .flatMap((context) => workflowEntriesFromConfigContext(context, profile, scope));
 }
 
 function netboxTemplateEntryFromContainer(container, labels, ownerEnvNameValue, creator, profile) {
@@ -570,8 +587,10 @@ async function netboxTemplateEntriesForUser(req, profile, state, creator) {
   try {
     const client = new NetBoxClient(config);
     const templates = new Map();
-    const catalogEntries = await netboxTemplateCatalogEntries(client, profile, state, creator);
+    const catalogEntries = await netboxTemplateCatalogEntries(client, profile, state, templateCatalogScope(profile, config));
     catalogEntries.forEach((entry) => templates.set(entry.name.toLowerCase(), entry));
+
+    if (!creator) return [...templates.values()];
 
     const ownerEnvNameValue = ownerEnvVarName(config);
     const hostFilter = await hostIdQuery(client, config.tag);
@@ -618,11 +637,9 @@ async function syncTemplatesToNetBoxConfigContext(req, profile, templates, workf
   const config = selectedProfileConfig({ profile, config_profile: profile });
   if (!config.netbox || !config.token) return null;
 
-  const creator = String(authUserFromRequest(req).email || authUserFromRequest(req).user || "").trim().toLowerCase();
-  if (!creator) return null;
-
   const client = new NetBoxClient(config);
-  const contextName = templateCatalogContextName(profile, creator);
+  const scope = templateCatalogScope(profile, config);
+  const contextName = templateCatalogContextName(profile, config);
   const contexts = await client.list("/api/extras/config-contexts/", { q: contextName, limit: 20 });
   const existing = contexts.find((context) => String(context?.name || "") === contextName);
   const body = {
@@ -632,7 +649,9 @@ async function syncTemplatesToNetBoxConfigContext(req, profile, templates, workf
     data: {
       saashup_template_catalog: true,
       saashup_profile: String(profile || "").trim(),
-      saashup_owner: creator,
+      saashup_scope: scope.key,
+      saashup_netbox_url: scope.netbox,
+      saashup_tag: scope.tag,
       saashup_templates: templates,
       saashup_workflows: plainObject(workflows),
     },
@@ -653,10 +672,8 @@ async function templateEntriesForRequest(req, profile = "") {
   const merged = new Map();
   const useNetBox = profileUsesNetBoxTemplates(profile);
 
-  if (creator) {
-    (await netboxTemplateEntriesForUser(req, profile, state, creator))
-      .forEach((entry) => merged.set(entry.name.toLowerCase(), { name: entry.name, template: plainObject(entry.template) }));
-  }
+  (await netboxTemplateEntriesForUser(req, profile, state, creator))
+    .forEach((entry) => merged.set(entry.name.toLowerCase(), { name: entry.name, template: plainObject(entry.template) }));
 
   if (!useNetBox) {
     Object.entries(plainObject(state.templates)).forEach(([name, template]) => {
@@ -675,15 +692,14 @@ async function templatesForRequest(req, profile = "") {
 
 async function workflowsForRequest(req, profile = "") {
   const state = readState();
-  const creator = String(authUserFromRequest(req).email || authUserFromRequest(req).user || "").trim().toLowerCase();
   const merged = new Map();
   const useNetBox = profileUsesNetBoxTemplates(profile);
   const config = selectedProfileConfig({ profile, config_profile: profile });
 
-  if (creator && config.netbox && config.token) {
+  if (config.netbox && config.token) {
     const client = new NetBoxClient(config);
     try {
-      (await netboxWorkflowCatalogEntries(client, profile, creator))
+      (await netboxWorkflowCatalogEntries(client, profile, templateCatalogScope(profile, config)))
         .forEach((entry) => merged.set(entry.name.toLowerCase(), { name: entry.name, workflow: plainObject(entry.workflow) }));
     } catch (error) {
       logLine(`ENROLL : NetBox workflow discovery failed ${error.message || "unknown error"}`);
@@ -791,7 +807,6 @@ async function templateEntryForRequest(req, profile, name) {
 
   const state = readState();
   const creator = String(authUserFromRequest(req).email || authUserFromRequest(req).user || "").trim().toLowerCase();
-  if (!creator) return null;
 
   return (await netboxTemplateEntriesForUser(req, profile, state, creator))
     .find((entry) => entry.name.toLowerCase() === requestedName.toLowerCase()) || null;

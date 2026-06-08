@@ -1268,7 +1268,6 @@ describe("server routes", () => {
           template_url: "https://templates.example.com/guide",
           max_instances: 3,
           instance_count: 1,
-          creator_email: "owner@example.com",
         });
         expect(res.body.Legacy).toMatchObject({
           source: "netbox-config-context",
@@ -1424,7 +1423,9 @@ describe("server routes", () => {
       data: {
         saashup_template_catalog: true,
         saashup_profile: "prod",
-        saashup_owner: "creator@example.com",
+        saashup_scope: expect.stringMatching(/^[a-f0-9]{12}$/),
+        saashup_netbox_url: "https://netbox.example.com",
+        saashup_tag: "",
         saashup_templates: {
           tile: { image: "saashup/tile", max_instances: 2, creator_email: "creator@example.com" },
         },
@@ -1437,6 +1438,57 @@ describe("server routes", () => {
         },
       },
     });
+  });
+
+  test("uses one NetBox template catalog per config scope, not per email", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock);
+    writeState(dataPath, {
+      config: {
+        profile: "prod",
+        config_profile: "prod",
+        profiles: {
+          prod: {
+            netbox: "https://netbox.example.com/",
+            token: "secret",
+            tag: "tile",
+          },
+        },
+      },
+      templates: {},
+      workflows: {},
+      logs: "",
+    });
+
+    await request
+      .post("/templates")
+      .set("x-auth-request-email", "creator@example.com")
+      .query({ profile: "prod", include_workflows: "true" })
+      .send({ templates: { tile: { image: "saashup/tile" } }, workflows: {} })
+      .expect(200);
+
+    await request
+      .post("/templates")
+      .set("x-auth-request-email", "editor@example.com")
+      .query({ profile: "prod", include_workflows: "true" })
+      .send({ templates: { guide: { image: "saashup/guide" } }, workflows: {} })
+      .expect(200);
+
+    const contextWrites = parsedFetchCalls(fetchMock).filter((call) => (
+      (call.method === "POST" && call.url.pathname === "/api/extras/config-contexts/")
+      || (call.method === "PATCH" && /^\/api\/extras\/config-contexts\/\d+\/$/.test(call.url.pathname))
+    ));
+    expect(contextWrites).toHaveLength(2);
+    expect(contextWrites[0].method).toBe("POST");
+    expect(contextWrites[1].method).toBe("PATCH");
+    expect(contextWrites[1].body.name).toBe(contextWrites[0].body.name);
+    expect(contextWrites[0].body.data).toMatchObject({
+      saashup_profile: "prod",
+      saashup_netbox_url: "https://netbox.example.com",
+      saashup_tag: "tile",
+    });
+    expect(contextWrites[0].body.data.saashup_owner).toBeUndefined();
+    expect(contextWrites[1].body.data.saashup_owner).toBeUndefined();
   });
 
   test("calls NetBox for read endpoints", async () => {
