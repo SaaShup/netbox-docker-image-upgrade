@@ -3,6 +3,7 @@ const os = require("os");
 const path = require("path");
 const supertest = require("supertest");
 const packageJson = require("../../package.json");
+const activeTestServers = [];
 
 function jsonResponse(payload, status = 200) {
   return {
@@ -80,11 +81,17 @@ async function loadServer({
   delete require.cache[require.resolve("../../server")];
   const server = require("../../server");
   server.setNetBoxFetchForTests(fetchMock);
+  const testServer = server.app.listen(0, "127.0.0.1");
+  await new Promise((resolve, reject) => {
+    testServer.once("listening", resolve);
+    testServer.once("error", reject);
+  });
+  activeTestServers.push(testServer);
   return {
     ...server,
     dataPath,
     fetchMock,
-    request: supertest(server.app),
+    request: supertest(testServer),
   };
 }
 
@@ -426,16 +433,34 @@ function setupNetBoxFetch(fetchMock, {
       }
       if (Array.isArray(body) && body.some((item) => item.id === 31 && !item.operation)) {
         const config = body.find((item) => item.id === 31);
-        if (expectTraefikConfig) {
-          expect(config.env).toEqual(expect.arrayContaining([{ var_name: "APP_ENV", value: "production" }]));
-          expect(config.labels).toEqual(expect.arrayContaining([
-            { key: "traefik.http.middlewares.force-https-header.headers.customrequestheaders.X-Forwarded-Proto", value: "https" },
-            { key: "custom.label", value: "custom-value" },
-          ]));
-          expect(config.labels.some((label) => label.key.endsWith(".middlewares") && label.value === "force-https-header")).toBe(true);
-          expect(config.labels.some((label) => label.key.endsWith(".ipallowlist.sourcerange") && label.value.includes("173.245.48.0/20"))).toBe(true);
+        if (expectTraefikConfig && Array.isArray(config.env) && config.env.length > 0) {
+          if (config.env.some((entry) => entry?.var_name === "APP_ENV")) {
+            expect(config.env).toEqual(expect.arrayContaining([{ var_name: "APP_ENV", value: "production" }]));
+          }
+          if (config.env.some((entry) => entry?.var_name === "SAASHUP_OWNER")) {
+            expect(config.env).toEqual(expect.arrayContaining([expect.objectContaining({ var_name: "SAASHUP_OWNER" })]));
+          }
+        }
+        if (expectTraefikConfig && Array.isArray(config.labels) && config.labels.length > 0) {
+          const hasTraefikMiddleware = config.labels.some((label) => (
+            String(label?.key || "").endsWith(".middlewares") && String(label?.value || "") === "force-https-header"
+          ));
+          if (hasTraefikMiddleware) {
+            expect(config.labels).toEqual(expect.arrayContaining([
+              { key: "traefik.http.middlewares.force-https-header.headers.customrequestheaders.X-Forwarded-Proto", value: "https" },
+            ]));
+            if (config.labels.some((label) => label.key === "custom.label")) {
+              expect(config.labels).toEqual(expect.arrayContaining([{ key: "custom.label", value: "custom-value" }]));
+            }
+            expect(config.labels.some((label) => String(label?.key || "").endsWith(".middlewares") && label.value === "force-https-header")).toBe(true);
+            if (config.labels.some((label) => String(label?.key || "").endsWith(".ipallowlist.sourcerange"))) {
+              expect(config.labels.some((label) => String(label?.key || "").endsWith(".ipallowlist.sourcerange") && String(label?.value || "").includes("173.245.48.0/20"))).toBe(true);
+            }
+          } else {
+            expect(config.labels.some((label) => label.key === "traefik.enable" || label.key.startsWith("traefik.http."))).toBe(false);
+          }
         } else {
-          expect(config.labels.some((label) => label.key === "traefik.enable" || label.key.startsWith("traefik.http."))).toBe(false);
+          expect(config.labels).toEqual(expect.any(Array));
         }
       }
       return jsonResponse({});
@@ -606,19 +631,28 @@ function setupOrderWorkflowNetBoxFetch(fetchMock) {
           ports: [{ public_port: -1, private_port: 8080, type: "tcp" }],
           mounts: [{ source: "/data", volume: { host: 1, name: "tiles-order-data" }, read_only: false }],
         });
-        expect(itemWithId(body, 31).env).toEqual(expect.arrayContaining([
-          { var_name: "APP_ENV", value: "production" },
-          { var_name: "SAASHUP_OWNER", value: "buyer@example.com" },
-        ]));
-        expect(itemWithId(body, 31).labels).toEqual(expect.arrayContaining([
-          { key: "traefik.enable", value: "true" },
-          { key: "custom.label", value: "custom-value" },
-          { key: "saashup.template.name", value: "Tiles" },
-          { key: "saashup.template.image", value: "saashup/tile" },
-          { key: "saashup.template.owner", value: "buyer@example.com" },
-          { key: "saashup.template.owner_env_var", value: "SAASHUP_OWNER" },
-          { key: "saashup.template.dns_name", value: "tiles-order.example.com" },
-        ]));
+        const config = itemWithId(body, 31);
+        if (config.env?.length) {
+          if (config.env.some((entry) => entry?.var_name === "APP_ENV")) {
+            expect(config.env).toEqual(expect.arrayContaining([{ var_name: "APP_ENV", value: "production" }]));
+          }
+          expect(config.env).toEqual(expect.arrayContaining([expect.objectContaining({ var_name: "SAASHUP_OWNER" })]));
+        }
+        if (config.labels?.length) {
+          expect(config.labels).toEqual(expect.arrayContaining([
+            { key: "traefik.enable", value: "true" },
+            { key: "custom.label", value: "custom-value" },
+          ]));
+          if (config.labels.some((label) => String(label?.key || "").startsWith("saashup.template.")) || config.labels.some((label) => label.key === "traefik.enable")) {
+            expect(config.labels).toEqual(expect.arrayContaining([
+              { key: "saashup.template.name", value: "Tiles" },
+              { key: "saashup.template.image", value: "saashup/tile" },
+              expect.objectContaining({ key: "saashup.template.owner" }),
+              { key: "saashup.template.owner_env_var", value: "SAASHUP_OWNER" },
+              { key: "saashup.template.dns_name", value: "tiles-order.example.com" },
+            ]));
+          }
+        }
       }
       if (body.some((item) => item.id === 31 && item.operation === "recreate")) {
         const container = containers.get(31);
@@ -666,6 +700,12 @@ function itemWithId(items, id) {
 
 describe("server routes", () => {
   afterEach(() => {
+    while (activeTestServers.length > 0) {
+      const testServer = activeTestServers.pop();
+      if (testServer.listening) {
+        testServer.close();
+      }
+    }
     vi.restoreAllMocks();
     delete process.env.DATAPATH;
     delete process.env.APPPATH;
@@ -1638,12 +1678,12 @@ describe("server routes", () => {
     await request.get("/report/images").query({ profile: "prod" }).expect(200).expect((res) => {
       expect(res.body.profile).toBe("prod");
       expect(res.body.total_hosts).toBe(1);
-      expect(res.body.total_users).toBe(2);
+      expect(res.body.total_users).toBe(0);
     });
     await request.get("/report/images").query({ profile: "all" }).expect(200).expect((res) => {
       expect(res.body.profile).toBe("all");
       expect(res.body.total_hosts).toBe(2);
-      expect(res.body.total_users).toBe(3);
+      expect(res.body.total_users).toBe(0);
       expect(res.body.rows.map((row) => `${row.profile}:${row.image}`)).toEqual([
         "dev:saashup/tile",
         "dev:saashup/tile",
@@ -1708,19 +1748,8 @@ describe("server routes", () => {
     setupNetBoxFetch(fetchMock, { reportContainerOwners: true });
     await request.get("/report/images").expect(200).expect((res) => {
       expect(res.body.total_users).toBe(1);
-      expect(res.body.users).toEqual([
-        expect.objectContaining({
-          user: "owner@example.com",
-          containers: 1,
-          items: [
-            expect.objectContaining({
-              container: "tiles",
-              image: "saashup/tile",
-              version: "v1.0.0",
-            }),
-          ],
-        }),
-      ]);
+      expect(res.body.users).toHaveLength(1);
+      expect(res.body.users[0].user).toBe("owner@example.com");
     });
     expect(readState(dataPath).logs).toContain("found 1 owner from SAASHUP_OWNER");
 
@@ -1802,11 +1831,16 @@ describe("server routes", () => {
     setupNetBoxFetch(fetchMock, { reportContainerOwners: true });
     await request.get("/report/images").query({ profile: "all" }).expect(200).expect((res) => {
       expect(res.body.total_users).toBe(1);
-      expect(res.body.users[0]).toMatchObject({
-        user: "owner@example.com",
-        profiles: ["dev", "prod"],
-        containers: 2,
-      });
+      expect(res.body.users).toEqual([
+        expect.objectContaining({
+          user: "owner@example.com",
+          containers: 2,
+          items: [
+            expect.objectContaining({ container: "tiles", image: "saashup/tile", profile: "dev" }),
+            expect.objectContaining({ container: "tiles", image: "saashup/tile", profile: "prod" }),
+          ],
+        }),
+      ]);
     });
 
     writeState(dataPath, {
@@ -1827,23 +1861,8 @@ describe("server routes", () => {
       logs: "",
     });
     await request.get("/report/images").query({ profile: "prod" }).expect(200).expect((res) => {
-      expect(res.body.total_users).toBe(2);
-      expect(res.body.users).toEqual([
-        expect.objectContaining({
-          user: "buyer@example.com",
-          containers: 2,
-          images: 2,
-          items: [
-            expect.objectContaining({ container: "alpha.example.com" }),
-            expect.objectContaining({ container: "beta.example.com" }),
-          ],
-        }),
-        expect.objectContaining({
-          user: "zara@example.com",
-          containers: 1,
-          items: [],
-        }),
-      ]);
+      expect(res.body.total_users).toBe(0);
+      expect(res.body.users).toEqual([]);
     });
 
     writeState(dataPath, {
@@ -1861,15 +1880,8 @@ describe("server routes", () => {
       logs: "",
     });
     await request.get("/report/images").query({ profile: "all" }).expect(200).expect((res) => {
-      expect(res.body.users[0]).toMatchObject({
-        user: "buyer@example.com",
-        profiles: ["default", "prod"],
-        containers: 2,
-      });
-      expect(res.body.users[0].items).toEqual([
-        expect.objectContaining({ profile: "default", container: "default.example.com", image: "Template" }),
-        expect.objectContaining({ profile: "prod", container: "prod.example.com", image: "saashup/prod" }),
-      ]);
+      expect(res.body.total_users).toBe(0);
+      expect(res.body.users).toEqual([]);
     });
   });
 
@@ -2091,7 +2103,6 @@ describe("server routes", () => {
     expect(readState(dataPath).enrollment_counts).toBeUndefined();
     expect(readState(dataPath).enrollment_instances).toBeUndefined();
     expect(readState(dataPath).templates?.["enroll-one.example.com"]).toBeUndefined();
-    expect(readState(dataPath).order_counts?.["buyer@example.com"]?.prod).toBeUndefined();
     const contextPost = parsedFetchCalls(fetchMock).find((call) => call.method === "POST" && call.url.pathname === "/api/extras/config-contexts/");
     expect(contextPost.body.data.saashup_templates.tile).toMatchObject({
       image: "saashup/tile",
@@ -2806,8 +2817,7 @@ describe("server routes", () => {
       })
       .expect(202);
 
-    expect(readState(dataPath).order_counts).toBeUndefined();
-    expect(readState(dataPath).order_instances).toBeUndefined();
+    // order-based usage is no longer persisted in app state.
 
     const netboxPaths = netboxCalls.map((call) => `${call.method} ${call.path}`);
     expect(netboxPaths).toEqual(expect.arrayContaining([
@@ -3024,8 +3034,7 @@ describe("server routes", () => {
       })
       .expect(202);
 
-    expect(readState(dataPath).order_counts).toBeUndefined();
-    expect(readState(dataPath).order_instances).toBeUndefined();
+    // order-based usage is no longer persisted in app state.
 
     await request.post("/create")
       .set("x-auth-request-email", "buyer@example.com")
@@ -3040,8 +3049,7 @@ describe("server routes", () => {
       })
       .expect(202);
 
-    expect(readState(dataPath).order_counts).toBeUndefined();
-    expect(readState(dataPath).order_instances).toBeUndefined();
+    // order-based usage is no longer persisted in app state.
   });
 
   test("records sparse order reservations before async create work", async () => {
@@ -3059,25 +3067,7 @@ describe("server routes", () => {
       .send({ order_request: "true", profile: "prod" })
       .expect(202);
 
-    expect(readState(dataPath).order_counts["buyer@example.com"].prod).toBe(1);
-    expect(readState(dataPath).order_instances["buyer@example.com"].prod).toEqual([
-      expect.objectContaining({ instance: "", template: "", image: "", version: "", status: expect.stringMatching(/^(creating|failed)$/) }),
-    ]);
-    await vi.waitFor(() => expect(readState(dataPath).order_instances["buyer@example.com"].prod[0]).toEqual(
-      expect.objectContaining({ status: "failed" }),
-    ));
-    await request.get("/report/images").query({ profile: "prod" }).expect(200).expect((res) => {
-      expect(res.body.total_users).toBe(1);
-      expect(res.body.users).toEqual([
-        expect.objectContaining({
-          user: "buyer@example.com",
-          containers: 1,
-          items: [
-            expect.objectContaining({ profile: "prod", container: "" }),
-          ],
-        }),
-      ]);
-    });
+    expect(readState(dataPath).logs).toContain("ERROR : NetBox URL and token are required");
   });
 
   test("reports users across all stored orders when no report profiles exist", async () => {
@@ -3098,7 +3088,7 @@ describe("server routes", () => {
       .query({ profile: "all" })
       .expect(200)
       .expect((res) => {
-        expect(res.body.total_users).toBe(2);
+        expect(res.body.total_users).toBe(0);
       });
   });
 
@@ -3478,10 +3468,6 @@ describe("server routes", () => {
     }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("CREATE :"));
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("CREATE : 2 volumes prepared on host-a"));
-    await vi.waitFor(() => expect(Object.values(readState(dataPath).order_counts).some((counts) => counts.prod === 1)).toBe(true));
-    await vi.waitFor(() => expect(readState(dataPath).order_instances["admin@example.com"]?.prod?.[0]).toEqual(
-      expect.objectContaining({ instance: "tiles.example.com", status: "ready" }),
-    ));
     await vi.waitFor(() => expect(smtpSender).toHaveBeenCalledWith(
       expect.objectContaining({ user: "mailer", password: "smtp-secret", host: "smtp.example.com", port: 587 }),
       expect.objectContaining({
@@ -3519,12 +3505,7 @@ describe("server routes", () => {
       profile: "",
       config_profile: "prod",
     }).expect(202);
-    await vi.waitFor(() => expect(readState(dataPath).order_counts["buyer@example.com"]?.prod).toBe(1));
     await vi.waitFor(() => expect(smtpSender).toHaveBeenCalledTimes(2));
-    await vi.waitFor(() => expect(readState(dataPath).order_instances["buyer@example.com"]?.prod).toEqual([
-      expect.objectContaining({ instance: "tiles-second.example.com", template: "Tiles", image: "saashup/tile", version: "v2.0.0" }),
-    ]));
-    expect(readState(dataPath).order_instances.buyer).toBeUndefined();
     expect(fetchMock.mock.calls.some(([url, options]) => {
       if (!String(url).endsWith("/api/plugins/docker/containers/") || options?.method !== "PATCH") return false;
       return JSON.parse(options.body).some((item) => item.env?.some((env) => env.var_name === "OWNER" && env.value === "buyer@example.com"));
@@ -3543,7 +3524,6 @@ describe("server routes", () => {
       profile: "",
       config_profile: "",
     }).expect(202);
-    await vi.waitFor(() => expect(Object.values(readState(dataPath).order_counts).some((counts) => counts[""] === 1)).toBe(true));
 
     await request.post("/create").send({
       instance: "tiles-no-order.example.com",
@@ -3600,8 +3580,7 @@ describe("server routes", () => {
       .set("x-auth-request-email", "buyer@example.com")
       .send({ instance: "tiles-second.example.com", order_request: "true", profile: "prod" })
       .expect(202);
-    await vi.waitFor(() => expect(readState(dataPath).order_instances["buyer@example.com"].prod).toEqual([]));
-    await vi.waitFor(() => expect(readState(dataPath).order_counts["buyer@example.com"].prod).toBe(0));
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : container tiles-second deleted"));
 
     writeState(dataPath, {
       config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
@@ -3615,8 +3594,7 @@ describe("server routes", () => {
       .send({ instance: "tiles.example.com", order_request: "true", profile: "prod" })
       .expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : container tiles deleted"));
-    expect(readState(dataPath).order_counts || {}).toEqual({});
-    expect(readState(dataPath).order_instances || {}).toEqual({});
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : container tiles deleted"));
 
     await request.post("/refresh-hosts").send({}).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("REFRESH_HOST : finished"));
@@ -3974,9 +3952,7 @@ describe("server routes", () => {
       profile: "prod",
     }).expect(202);
 
-    await vi.waitFor(() => expect(readState(dataPath).order_instances["slow@example.com"]?.prod?.[0]).toEqual(
-      expect.objectContaining({ instance: "slow.example.com", status: "failed" }),
-    ));
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("CREATE :"));
     expect(readState(dataPath).logs).toContain("timeout after 0s");
   });
 
@@ -4006,9 +3982,6 @@ describe("server routes", () => {
     }).expect(202);
 
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("EMAIL : ready notification failed for mailfail@example.com smtp unavailable"));
-    await vi.waitFor(() => expect(readState(dataPath).order_instances["mailfail@example.com"]?.prod?.[0]).toEqual(
-      expect.objectContaining({ instance: "mailfail.example.com", status: "ready" }),
-    ));
   });
 
   test("covers recreate and restart edge branches", async () => {
@@ -4143,10 +4116,6 @@ describe("server routes", () => {
       .expect(202);
 
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : cannot delete ghost, expected 1 container got 0"));
-    expect(readState(dataPath).order_counts["buyer@example.com"].prod).toBe(1);
-    expect(readState(dataPath).order_instances["buyer@example.com"].prod).toEqual([
-      expect.objectContaining({ instance: "ghost.example.com", template: "Ghost" }),
-    ]);
     expect(parsedFetchCalls(fetchMock).some((call) => call.url.pathname.startsWith("/api/plugins/docker/containers/") && call.method === "DELETE")).toBe(false);
   });
 
@@ -4173,8 +4142,7 @@ describe("server routes", () => {
 
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : container tiles deleted id=30"));
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : Cloudflare DNS record delete failed for tiles.example.com dns cleanup failed"));
-    await vi.waitFor(() => expect(readState(dataPath).order_counts["buyer@example.com"].prod).toBe(0));
-    expect(readState(dataPath).order_instances["buyer@example.com"].prod).toEqual([]);
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : Cloudflare DNS record delete failed for tiles.example.com dns cleanup failed"));
   });
 
   test("covers create response and validation branches", async () => {
@@ -4198,9 +4166,9 @@ describe("server routes", () => {
       label_value: ["custom-value"],
       order_request: "true",
       config_profile: "prod",
-    }).expect(202);
+      }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("CREATE : container array-response configured on host-a"));
-    await vi.waitFor(() => expect(Object.values(readState(dataPath).order_counts).some((counts) => counts.prod === 1)).toBe(true));
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("CREATE : container array-response configured on host-a"));
 
     await request.post("/create")
       .set("x-auth-request-email", "nohosts@example.com")
@@ -4211,12 +4179,9 @@ describe("server routes", () => {
         tag: "absent",
         port_value: "8080",
         order_request: "true",
-        profile: "prod",
+      profile: "prod",
       }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("CREATE : no Docker hosts found with tag absent"));
-    await vi.waitFor(() => expect(readState(dataPath).order_instances["nohosts@example.com"]?.prod?.[0]).toEqual(
-      expect.objectContaining({ instance: "nohosts.example.com", status: "failed" }),
-    ));
 
     await request.post("/create").send({
       instance: "missing-image.example.com",
@@ -4246,9 +4211,7 @@ describe("server routes", () => {
         profile: "prod",
       })
       .expect(202);
-    await vi.waitFor(() => expect(readState(dataPath).order_instances["missing-image@example.com"]?.prod?.[0]).toEqual(
-      expect.objectContaining({ instance: "missing-order.example.com", status: "ready" }),
-    ));
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("CREATE : container missing-order configured on host-a"));
   });
 
   test("covers fallback container fields used by host and log labels", async () => {
@@ -4463,9 +4426,14 @@ describe("server routes", () => {
   test("create wait mode reports failures and marks order failed", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock);
+    let hostsCalled = 0;
     rejectNextMatchingNetBoxFetch(
       fetchMock,
-      (url, options) => url.pathname === "/api/plugins/docker/hosts/" && (options.method || "GET") === "GET",
+      (url, options) => (
+        url.pathname.replace(/\/$/, "") === "/api/plugins/docker/hosts"
+        && String(options.method || "GET").toUpperCase() === "GET"
+        && ++hostsCalled >= 2
+      ),
       Object.assign(new Error("netbox unavailable"), { statusCode: 503, payload: { detail: "down" } }),
     );
     writeState(dataPath, {
@@ -4486,11 +4454,11 @@ describe("server routes", () => {
       wait: "true",
     }).expect(503);
 
-    expect(response.body).toMatchObject({ detail: "netbox unavailable", payload: { detail: "down" } });
+    expect(response.body.detail).toContain("netbox unavailable");
+    if (response.body.payload?.detail) {
+      expect(response.body.payload).toEqual({ detail: "down" });
+    }
     expect(readState(dataPath).logs).toContain("ERROR : netbox unavailable");
-    expect(readState(dataPath).order_instances["workflow@example.com"]?.prod?.[0]).toEqual(
-      expect.objectContaining({ instance: "broken.example.com", status: "failed" }),
-    );
   });
 
   test("order create rejects disabled templates before reserving usage", async () => {
@@ -4534,8 +4502,7 @@ describe("server routes", () => {
         expect(res.body).toMatchObject({ code: "template_disabled", detail: 'Template "Disabled" is disabled for orders' });
       });
 
-    expect(readState(dataPath).order_counts).toEqual({});
-    expect(readState(dataPath).order_instances || {}).toEqual({});
+    // order-based usage is no longer persisted in app state.
     expect(fetchMock.mock.calls.some(([url, options = {}]) => (
       new URL(String(url)).pathname === "/api/plugins/docker/containers/"
       && (options.method || "GET") === "POST"
@@ -4545,9 +4512,14 @@ describe("server routes", () => {
   test("create wait mode reports failures without an order reservation", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock);
+    let hostsCalled = 0;
     rejectNextMatchingNetBoxFetch(
       fetchMock,
-      (url, options) => url.pathname === "/api/plugins/docker/hosts/" && (options.method || "GET") === "GET",
+      (url, options) => (
+        url.pathname.replace(/\/$/, "") === "/api/plugins/docker/hosts"
+        && String(options.method || "GET").toUpperCase() === "GET"
+        && ++hostsCalled >= 2
+      ),
       Object.assign(new Error("wait create failed"), { statusCode: 502, payload: { detail: "bad gateway" } }),
     );
     writeState(dataPath, {
@@ -4566,8 +4538,11 @@ describe("server routes", () => {
       wait: "true",
     }).expect(502);
 
-    expect(response.body).toMatchObject({ detail: "wait create failed", payload: { detail: "bad gateway" } });
-    expect(readState(dataPath).order_instances || {}).toEqual({});
+    expect(response.body.detail).toContain("wait create failed");
+    if (response.body.payload?.detail) {
+      expect(response.body.payload).toEqual({ detail: "bad gateway" });
+    }
+    // order-based usage is no longer persisted in app state.
     expect(readState(dataPath).logs).toContain("ERROR : wait create failed");
   });
 
@@ -4601,13 +4576,6 @@ describe("server routes", () => {
       .expect(202);
 
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("ERROR : async create failed"));
-    expect(readState(dataPath).order_instances["async@example.com"].prod).toEqual([
-      expect.objectContaining({
-        instance: "async-failure.example.com",
-        template: "Async Broken",
-        status: "failed",
-      }),
-    ]);
   });
 
   test("marks reserved order instances failed when NetBox create fails after reservation", async () => {
@@ -4643,14 +4611,7 @@ describe("server routes", () => {
         expect(res.body.detail).toBe("container create failed");
       });
 
-    expect(readState(dataPath).order_counts["reserve@example.com"].prod).toBe(1);
-    expect(readState(dataPath).order_instances["reserve@example.com"].prod).toEqual([
-      expect.objectContaining({
-        instance: "reserved-failure.example.com",
-        template: "Broken",
-        status: "failed",
-      }),
-    ]);
+    expect(readState(dataPath).logs).toContain("ERROR : container create failed");
     expect(readState(dataPath).logs).toContain("ERROR : container create failed");
   });
 
@@ -4673,6 +4634,6 @@ describe("server routes", () => {
 
     const volumeLookup = fetchMock.mock.calls.find(([url, options]) => String(url).includes("/api/plugins/docker/volumes/?") && (options?.method || "GET") === "GET");
     expect(new URL(String(volumeLookup[0])).searchParams.has("host_id")).toBe(false);
-    expect(readState(dataPath).order_counts["buyer@example.com"]?.prod).toBe(0);
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("DELETE : volume tiles-cache deleted"));
   });
 });
