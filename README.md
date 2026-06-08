@@ -45,6 +45,8 @@ The admin UI supports multiple named NetBox configs. In the Config menu, choose 
 
 Each config also has a `Max instances` value from 0 to 10, defaulting to 1. Orders are limited per signed-in user and config profile. The limit and usage counters are persisted in `app-state.json` under `DATAPATH` (`/data` in the Docker image). When a profile has SMTP config and `APP_OWNER_EMAIL` is set, ready emails are sent to the requester with the owner address copied.
 
+Enroll requests reject duplicate image names for the same user and config profile. To block specific images from `/enroll`, set `SAASHUP_ENROLL_BLOCKED_IMAGES` to a comma-separated list, for example `traefik,netbox-docker-agent`.
+
 Use the Config page export/import buttons to move saved config profiles, create templates and order counters from one container to another. Export downloads a JSON file, and import replaces those persisted values in the target container.
 
 # Public website APIs

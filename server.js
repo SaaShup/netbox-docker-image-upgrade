@@ -60,6 +60,10 @@ const createConfigureDelayMs = Number(process.env.CREATE_CONFIGURE_DELAY_MS || 5
 const createRecreateDelayMs = Number(process.env.CREATE_RECREATE_DELAY_MS || 5000);
 const registryWebhookSecret = String(process.env.REGISTRY_WEBHOOK_SECRET || "");
 const appOwnerEmail = String(process.env.APP_OWNER_EMAIL || "").trim();
+const blockedEnrollmentImages = String(process.env.SAASHUP_ENROLL_BLOCKED_IMAGES || "")
+  .split(",")
+  .map((image) => image.trim().toLowerCase())
+  .filter(Boolean);
 const adminAllowedEmails = String(process.env.ADMIN_ALLOWED_EMAILS || "")
   .split(",")
   .map((email) => email.trim().toLowerCase())
@@ -208,6 +212,59 @@ async function currentEnrollmentUsage(req, profile) {
   const config = selectedProfileConfig({ profile, config_profile: profile });
   const max = maxInstancesValue(config.max_templates ?? config.enrollment_limit);
   return { profile, used, max, remaining: Math.max(0, max - used), reached: used >= max, instances };
+}
+
+function normalizedEnrollImageName(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "";
+
+  const withoutDigest = raw.split("@")[0];
+  const slashIndex = withoutDigest.lastIndexOf("/");
+  const colonIndex = withoutDigest.lastIndexOf(":");
+  if (colonIndex > slashIndex) return withoutDigest.slice(0, colonIndex);
+  return withoutDigest;
+}
+
+function enrollImageTokens(value) {
+  const normalized = normalizedEnrollImageName(value);
+  if (!normalized) return new Set();
+  const parts = normalized.split("/").filter(Boolean);
+  return new Set([normalized, parts.at(-1)].filter(Boolean));
+}
+
+function enrollImageMatches(candidate, blocked) {
+  const candidateTokens = enrollImageTokens(candidate);
+  return [...enrollImageTokens(blocked)].some((token) => candidateTokens.has(token));
+}
+
+function configuredEnrollmentImageBlock(image) {
+  return blockedEnrollmentImages.find((blocked) => enrollImageMatches(image, blocked)) || "";
+}
+
+function enrolledEntriesForProfile(state, profile) {
+  return Object.values(plainObject(state.enrollment_instances))
+    .flatMap((profileEntries) => asArray(plainObject(profileEntries)[profile]));
+}
+
+async function validateEnrollmentTemplate(req, res, profile = "", data = {}) {
+  const image = normalizedEnrollImageName(data.image);
+  if (!image) return true;
+
+  const blocked = configuredEnrollmentImageBlock(image);
+  if (blocked) {
+    res.status(403).json({ code: "image_not_enrollable", detail: `Image "${image}" is not enrollable for this config.`, image, blocked_image: blocked });
+    return false;
+  }
+
+  const existingEntries = await enrollmentTemplatesForUser(req, profile);
+  const pendingEntries = enrolledEntriesForProfile(readState(), profile);
+  const duplicate = [...existingEntries, ...pendingEntries].find((entry) => normalizedEnrollImageName(entry?.image) === image);
+  if (duplicate) {
+    res.status(409).json({ code: "template_already_enrolled", detail: `Image "${image}" is already enrolled for this config.`, image, existing_template: duplicate.instance || duplicate.name || duplicate.template || "" });
+    return false;
+  }
+
+  return true;
 }
 
 async function enrollmentTemplatesForUser(req, profile) {
@@ -1848,6 +1905,7 @@ registerOperationRoutes(app, {
   selectedProfileConfig,
   updateEnrollmentInstanceStatus,
   updateOrderInstanceStatus,
+  validateEnrollmentTemplate,
   validateOrderTemplate,
   valueText,
   waitForContainerStopped,

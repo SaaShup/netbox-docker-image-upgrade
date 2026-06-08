@@ -23,6 +23,7 @@ function registerOperationRoutes(app, {
   selectedProfileConfig,
   updateEnrollmentInstanceStatus,
   updateOrderInstanceStatus,
+  validateEnrollmentTemplate,
   validateOrderTemplate,
   valueText,
   waitForContainerStopped,
@@ -125,6 +126,7 @@ function registerOperationRoutes(app, {
     if (isEnrollRequest && enrollUsage.reached) {
       return res.status(429).json({ code: "max_templates_reached", detail: `You have reached your maximum of ${enrollUsage.max} template${enrollUsage.max === 1 ? "" : "s"} for this config.`, max_templates: enrollUsage.max, used_templates: enrollUsage.used });
     }
+    if (isEnrollRequest && !await validateEnrollmentTemplate(req, res, orderProfile, data)) return;
     if (isOrderRequest) recordOrderInstance(req, orderProfile, data);
     if (isEnrollRequest) recordEnrollment(req, orderProfile, data);
 
