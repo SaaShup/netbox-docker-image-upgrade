@@ -1563,8 +1563,16 @@ function currentSmtpConfigValue() {
 
 function updateTestEmailVisibility() {
   if (!testEmailBtn) return;
-  const visible = currentAction === "config" && Boolean(currentSmtpConfigValue()) && Boolean(mailSettings.owner_email_configured);
+  const hasSmtp = Boolean(currentSmtpConfigValue());
+  const visible = currentAction === "config" && hasSmtp;
   testEmailBtn.classList.toggle("hidden", !visible);
+  if (!visible) return;
+
+  const ownerReady = Boolean(mailSettings.owner_email_configured);
+  testEmailBtn.disabled = !ownerReady;
+  testEmailBtn.title = ownerReady
+    ? "Send a test notification email"
+    : "Set APP_OWNER_EMAIL to enable test emails";
 }
 
 async function loadRegistryDefaultSecret() {
@@ -4470,6 +4478,11 @@ async function testEmail() {
 
   if (!smtp_config) {
     setNotice("SMTP config is required", "error");
+    return;
+  }
+
+  if (!mailSettings.owner_email_configured) {
+    setNotice("APP_OWNER_EMAIL is not configured", "error");
     return;
   }
 
