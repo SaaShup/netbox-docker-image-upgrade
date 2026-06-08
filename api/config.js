@@ -36,6 +36,24 @@ function expandedConfigForResponse(config, selectedProfileConfig, parseProfiles,
   };
 }
 
+
+function workflowsForVisibleTemplates(workflows, templates) {
+  const visible = new Set(Object.keys(plainObject(templates)).map((name) => name.toLowerCase()));
+  return Object.fromEntries(Object.entries(plainObject(workflows))
+    .map(([name, workflow]) => {
+      const entry = plainObject(workflow);
+      if (!Array.isArray(entry.steps)) return [name, entry];
+      return [name, {
+        ...entry,
+        steps: entry.steps.filter((step) => {
+          const template = String(plainObject(step).template || "").trim().toLowerCase();
+          return !template || visible.has(template);
+        }),
+      }];
+    })
+    .filter(([, workflow]) => !Array.isArray(workflow.steps) || workflow.steps.length));
+}
+
 function enrollmentTemplateUsage(state, profile, templateName) {
   return 0;
 }
@@ -200,11 +218,13 @@ function registerConfigRoutes(app, {
   app.get("/templates", async (req, res) => {
     const state = readState();
     const profile = req.query.profile || req.query.config_profile || state.config?.profile || state.config?.config_profile || "";
-    const templates = await templatesForRequest(req, profile);
+    const ownerOnly = req.query.owner_only === "true" || req.query.enroll === "true";
+    const templates = await templatesForRequest(req, profile, { ownerOnly });
     if (req.query.include_workflows === "true") {
+      const workflows = await workflowsForRequest(req, profile);
       res.json({
         templates,
-        workflows: await workflowsForRequest(req, profile),
+        workflows: ownerOnly ? workflowsForVisibleTemplates(workflows, templates) : workflows,
       });
       return;
     }

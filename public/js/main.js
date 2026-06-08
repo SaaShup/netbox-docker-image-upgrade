@@ -925,6 +925,7 @@ function loadCreateTemplates({ useCache = true } = {}) {
   const query = new URLSearchParams();
   const profile = selectedProfileCredentials().profile;
   if (profile) query.set("profile", profile);
+  if (isEnrollPage) query.set("enroll", "true");
   query.set("include_workflows", "true");
 
   return fetch(`/templates${query.toString() ? `?${query.toString()}` : ""}`, {
