@@ -493,8 +493,12 @@ test("admin profile clear cache button clears local storage", async ({ page }) =
 test("admin sidebar can collapse and expand", async ({ page }) => {
   await page.goto("/admin");
   const shell = page.locator(".app-shell");
+  const loader = page.locator("#appBootLoader");
   const toggle = page.locator("#sidebarToggle");
 
+  await expect(loader).toBeHidden();
+  await expect(page.locator("body")).not.toHaveClass(/app-booting/);
+  await expect(shell).not.toHaveAttribute("aria-busy", "true");
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await toggle.click();
   await expect(shell).toHaveClass(/sidebar-collapsed/);

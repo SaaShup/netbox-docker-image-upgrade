@@ -9,8 +9,12 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 
-<body>
-  <div class="app-shell">
+<body class="app-booting">
+  <div class="app-boot-loader" id="appBootLoader" role="status" aria-live="polite">
+    <span class="app-boot-spinner" aria-hidden="true"></span>
+    <span>Loading</span>
+  </div>
+  <div class="app-shell" aria-busy="true">
     <aside class="sidebar">
       <div class="sidebar-top">
         <a href="/" class="brand" aria-label="Go to home page">

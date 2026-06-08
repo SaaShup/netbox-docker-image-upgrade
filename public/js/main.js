@@ -6,6 +6,7 @@ const orderTemplateName = urlParams.get("template") || "";
 
 const form = document.getElementById("instanceForm");
 const appShell = document.querySelector(".app-shell");
+const appBootLoader = document.getElementById("appBootLoader");
 const sidebarToggle = document.getElementById("sidebarToggle");
 const formCard = document.querySelector(".form-card");
 const submitBtn = document.getElementById("submitBtn");
@@ -5767,47 +5768,57 @@ window.parseDockerRun = parseDockerRun;
 window.isFqdn = isFqdn;
 window.instanceFqdn = instanceFqdn;
 
+function finishAppBoot() {
+  document.body?.classList.remove("app-booting");
+  appBootLoader?.classList.add("hidden");
+  appShell?.removeAttribute("aria-busy");
+}
+
 async function initializePage() {
-  initializeSidebar();
-  if (!isEnrollPage) await loadMailSettings();
-  if (!isEnrollPage) await loadCreateTemplates();
-  updateTemplateOptions();
-  setAction(currentAction);
-  await loadSavedConfig();
-  if (isEnrollPage) {
-    const canEnroll = configureEnrollDefaultConfig();
-    if (canEnroll) {
-      setImportTab("run");
-      await refreshEnrollLimit();
-      if (submitBtn) {
-        submitBtn.textContent = "Submit creation";
-        updateEnrollSubmitState({ notify: false });
+  try {
+    initializeSidebar();
+    if (!isEnrollPage) await loadMailSettings();
+    if (!isEnrollPage) await loadCreateTemplates();
+    updateTemplateOptions();
+    setAction(currentAction);
+    await loadSavedConfig();
+    if (isEnrollPage) {
+      const canEnroll = configureEnrollDefaultConfig();
+      if (canEnroll) {
+        setImportTab("run");
+        await refreshEnrollLimit();
+        if (submitBtn) {
+          submitBtn.textContent = "Submit creation";
+          updateEnrollSubmitState({ notify: false });
+        }
       }
     }
-  }
-  if (!isOrderPage && !isEnrollPage && currentAction === "report") refreshImageReport();
+    if (!isOrderPage && !isEnrollPage && currentAction === "report") refreshImageReport();
 
-  if (isOrderPage) {
-    hideOrderActions();
-    const orderReady = await applyOrderTemplate({ reveal: false });
-    await loadAuthUser();
-    hideOrderLoading();
-    if (orderReady) showOrderActions();
-  } else if (actionFromUrl) {
-    setNotice(actionFromUrl, "success");
+    if (isOrderPage) {
+      hideOrderActions();
+      const orderReady = await applyOrderTemplate({ reveal: false });
+      await loadAuthUser();
+      hideOrderLoading();
+      if (orderReady) showOrderActions();
+    } else if (actionFromUrl) {
+      setNotice(actionFromUrl, "success");
 
-    const actionKey = actionFromUrl.split(" ")[0].toLowerCase();
-    if (actions[actionKey]) setAction(actionKey);
+      const actionKey = actionFromUrl.split(" ")[0].toLowerCase();
+      if (actions[actionKey]) setAction(actionKey);
 
-    const cleanUrl = window.location.origin + window.location.pathname;
-    window.history.replaceState(window.history.state, "", cleanUrl);
-  }
+      const cleanUrl = window.location.origin + window.location.pathname;
+      window.history.replaceState(window.history.state, "", cleanUrl);
+    }
 
-  if (!isOrderPage) loadAuthUser();
+    if (!isOrderPage) loadAuthUser();
 
-  if (!isOrderPage && !isEnrollPage) {
-    getLogs();
-    setInterval(getLogs, 3000);
+    if (!isOrderPage && !isEnrollPage) {
+      getLogs();
+      setInterval(getLogs, 3000);
+    }
+  } finally {
+    finishAppBoot();
   }
 }
 
