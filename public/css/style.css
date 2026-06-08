@@ -49,6 +49,48 @@ body {
     var(--bg);
 }
 
+body.app-booting {
+  min-height: 100vh;
+}
+
+body.app-booting .app-shell {
+  visibility: hidden;
+}
+
+.app-boot-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 14px;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, rgba(36, 107, 254, 0.12), transparent 32rem),
+    var(--bg);
+  font-weight: 700;
+}
+
+.app-boot-loader.hidden {
+  display: none;
+}
+
+.app-boot-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 999px;
+  animation: app-boot-spin 0.75s linear infinite;
+}
+
+@keyframes app-boot-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .app-shell {
   min-height: 100vh;
   display: grid;
@@ -489,6 +531,33 @@ h2 {
   gap: 12px;
 }
 
+.card-heading-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+}
+
+.count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--primary);
+  border-radius: 999px;
+  background: var(--primary);
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.count-badge.hidden {
+  display: none;
+}
+
 .workflow-actions {
   display: flex;
   flex-wrap: wrap;
@@ -501,6 +570,16 @@ h2 {
 
 .workflow-card .workflow-actions .btn {
   min-width: 132px;
+}
+
+.workflow-save-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.workflow-save-actions .btn {
+  min-width: 150px;
 }
 
 .workflow-card .report-table {

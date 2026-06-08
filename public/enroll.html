@@ -46,11 +46,11 @@
         </div>
 
         <div id="dockerRunPanel" data-import-panel="run" role="tabpanel" aria-labelledby="dockerRunTab">
-          <textarea id="dockerRunInput" class="modal-textarea" spellcheck="false" placeholder="docker run --name app --network mgmt -e APP_ENV=production -v app-data:/app/data saashup/app:v1.0.0"></textarea>
+          <textarea id="dockerRunInput" class="modal-textarea" spellcheck="false" placeholder="docker run --name app --network mgmt -e APP_ENV=production -p 8080:3000 -v app-data:/app/data saashup/app:v1.0.0"></textarea>
         </div>
 
         <div id="dockerComposePanel" class="hidden" data-import-panel="compose" role="tabpanel" aria-labelledby="dockerComposeTab">
-          <input type="checkbox" id="createWorkflowInput" class="hidden" aria-hidden="true">
+          <input type="checkbox" id="createWorkflowInput" class="hidden" aria-hidden="true" checked>
           <textarea id="dockerComposeInput" class="modal-textarea" spellcheck="false" placeholder="services:
   web:
     container_name: web

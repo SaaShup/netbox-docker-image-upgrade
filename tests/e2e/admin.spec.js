@@ -111,6 +111,8 @@ test("config tab starts without a forced default profile", async ({ page }) => {
   await openAdmin(page, {});
 
   await expect(page.locator("#form-title")).toHaveText("Config");
+  await expect(page.locator("#formTitleBadge")).toHaveText("0");
+  await expect(page.locator("#formTitleBadge")).toHaveAttribute("aria-label", "0 config profiles");
   await expect(page.locator("#config_profile")).toHaveValue("");
   await expect(page.locator("#config_profile option")).toHaveText("No config saved");
   await expect(page.locator("#profileSyncWarning")).toBeHidden();
@@ -201,6 +203,49 @@ test("config profile requires a tag before saving", async ({ page }) => {
   expect(webhookRequests).toBe(0);
   const localProfiles = await page.evaluate(() => JSON.parse(localStorage.getItem("config_profiles") || "{}"));
   expect(localProfiles).toEqual({});
+});
+
+test("config profile prevents duplicate netbox url and tag", async ({ page }) => {
+  let webhookRequests = 0;
+  await page.route("**/webhook?**", async (route) => {
+    webhookRequests += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+
+  await openAdmin(page, {});
+  await page.evaluate(() => {
+    localStorage.setItem("config_profiles", JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com/",
+        token: "secret",
+        tag: "Prod",
+      },
+    }));
+    localStorage.setItem("current_config_profile", "production");
+  });
+  await page.reload();
+
+  await page.locator("#config_name").fill("staging");
+  await page.locator("#netbox").fill("https://NETBOX.example.com");
+  await page.locator("#token").fill("secret");
+  await page.locator("#tag").fill("prod");
+  await page.locator("#submitBtn").click();
+
+  await expect(page.locator("#notif")).toContainText('Profile "production" already uses this NetBox URL and tag');
+  expect(webhookRequests).toBe(0);
+  const localProfiles = await page.evaluate(() => JSON.parse(localStorage.getItem("config_profiles") || "{}"));
+  expect(localProfiles.staging).toBeUndefined();
+
+  await page.locator("#config_name").fill("");
+  await page.locator("#config_profile").selectOption("production");
+  await page.locator("#domain").fill("apps.example.com");
+  await page.locator("#submitBtn").click();
+  await expect(page.locator("#notif")).toContainText('Config "production" saved');
+  expect(webhookRequests).toBe(1);
 });
 
 test("config profile warns when local profile is not synced to server", async ({ page }) => {
@@ -491,8 +536,12 @@ test("admin profile clear cache button clears local storage", async ({ page }) =
 test("admin sidebar can collapse and expand", async ({ page }) => {
   await page.goto("/admin");
   const shell = page.locator(".app-shell");
+  const loader = page.locator("#appBootLoader");
   const toggle = page.locator("#sidebarToggle");
 
+  await expect(loader).toBeHidden();
+  await expect(page.locator("body")).not.toHaveClass(/app-booting/);
+  await expect(shell).not.toHaveAttribute("aria-busy", "true");
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await toggle.click();
   await expect(shell).toHaveClass(/sidebar-collapsed/);
@@ -1474,6 +1523,8 @@ test("create import can save docker compose services as templates", async ({ pag
   await expect(page.locator("#dockerRunModal")).toBeHidden();
   await expect(page.locator("#notif")).toContainText("2 compose templates imported");
   await expect(page.locator("#templateSelect option")).toContainText(["Select template", "web", "worker"]);
+  await expect(page.locator("#formTitleBadge")).toHaveText("2");
+  await expect(page.locator("#formTitleBadge")).toHaveAttribute("aria-label", "2 templates");
   await expect(page.locator("[data-field='saashup_enabled']")).toHaveCount(0);
 
   const templates = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")));
@@ -1525,6 +1576,8 @@ test("create import can save docker compose services as templates", async ({ pag
   await expect(page.locator("#notif")).toContainText('Template "web" saved');
 
   await page.getByRole("link", { name: "Workflow" }).click();
+  await expect(page.locator("#workflowTitleBadge")).toHaveText("1");
+  await expect(page.locator("#workflowTitleBadge")).toHaveAttribute("aria-label", "1 workflow");
   await expect(page.locator("#workflowSelect")).toHaveValue("staging::stack");
   await expect(page.locator("#workflowSelect option:checked")).toHaveText("staging / stack");
   await expect(page.locator("#workflowSummary")).toContainText("staging");
@@ -1532,7 +1585,8 @@ test("create import can save docker compose services as templates", async ({ pag
   await expect(page.locator("#workflowTableBody")).toContainText("v2.0.0");
   await expect(page.locator("#workflowTableBody")).toContainText("worker");
   await expect(page.locator(".workflow-step-status-pending")).toHaveCount(2);
-  await expect(page.locator("#runWorkflowBtn")).toHaveText("Run create");
+  await expect(page.locator("#runWorkflowBtn")).toHaveText("Execute");
+  await expect(page.locator("#saveWorkflowBtn")).toBeDisabled();
   await expect(page.locator("#workflowTableBody tr")).toHaveCount(2);
   const dragWorkflowStep = async (sourceIndex, targetIndex) => {
     await page.locator(`[data-workflow-step-drag="${sourceIndex}"]`).scrollIntoViewIfNeeded();
@@ -1548,7 +1602,8 @@ test("create import can save docker compose services as templates", async ({ pag
     await page.mouse.up();
   };
   await dragWorkflowStep(1, 0);
-  await expect(page.locator("#notif")).toContainText("Workflow order saved");
+  await expect(page.locator("#notif")).toContainText("Workflow order changed");
+  await expect(page.locator("#saveWorkflowBtn")).toBeEnabled();
   await expect.poll(() => page.evaluate(() => (
     JSON.parse(localStorage.getItem("create_workflows"))["staging::stack"].steps.map((step) => step.template)
   ))).toEqual(["worker", "web"]);
@@ -1556,6 +1611,35 @@ test("create import can save docker compose services as templates", async ({ pag
   await expect.poll(() => page.evaluate(() => (
     JSON.parse(localStorage.getItem("create_workflows"))["staging::stack"].steps.map((step) => step.template)
   ))).toEqual(["web", "worker"]);
+  const workflowSavePayloads = [];
+  await page.route("**/templates?**", async (route) => {
+    if (route.request().method() === "POST") {
+      const payload = JSON.parse(route.request().postData() || "{}");
+      workflowSavePayloads.push(payload);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(payload),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+  await page.locator("[data-workflow-step-enabled='1']").uncheck();
+  await expect(page.locator("#saveWorkflowBtn")).toBeEnabled();
+  await page.locator("#saveWorkflowBtn").scrollIntoViewIfNeeded();
+  await page.locator("#saveWorkflowBtn").click();
+  await expect(page.locator("#notif")).toContainText("Workflow saved");
+  await expect(page.locator("#saveWorkflowBtn")).toBeDisabled();
+  await expect.poll(() => workflowSavePayloads.length).toBe(1);
+  expect(workflowSavePayloads[0].workflows["staging::stack"].steps.map((step) => ({
+    template: step.template,
+    enabled: step.enabled,
+  }))).toEqual([
+    { template: "web", enabled: true },
+    { template: "worker", enabled: false },
+  ]);
+  await page.locator("[data-workflow-step-enabled='1']").check();
   await page.locator("#runWorkflowBtn").click();
   await expect.poll(() => createBodies.length).toBe(2);
   expect(createBodies[0]).toContain("instance=web-container");
@@ -1578,7 +1662,7 @@ test("create import can save docker compose services as templates", async ({ pag
   await expect(page.locator("#notif")).toContainText('Workflow "staging / stack" requested');
 
   await page.locator("#workflowActionSelect").selectOption("upgrade");
-  await expect(page.locator("#runWorkflowBtn")).toHaveText("Run upgrade");
+  await expect(page.locator("#runWorkflowBtn")).toHaveText("Execute");
   await expect(page.locator("#workflowDeleteVolumesField")).toBeHidden();
   await page.locator("#runWorkflowBtn").click();
   await expect.poll(() => recreateBodies.length).toBe(2);
@@ -1596,7 +1680,7 @@ test("create import can save docker compose services as templates", async ({ pag
 
   await expect(page.locator("#workflowDeleteVolumesField")).toBeHidden();
   await page.locator("#workflowActionSelect").selectOption("delete");
-  await expect(page.locator("#runWorkflowBtn")).toHaveText("Run delete");
+  await expect(page.locator("#runWorkflowBtn")).toHaveText("Execute");
   await expect(page.locator("#workflowDeleteVolumesField")).toBeVisible();
   await page.locator("#workflowDeleteVolumesInput").check();
   await page.locator("#runWorkflowBtn").click();
@@ -2252,6 +2336,7 @@ test("create template order button opens the selected order page", async ({ page
 
 test("enroll page imports docker run and submits creation", async ({ page }) => {
   let createBody = "";
+  let enrolledGuide = false;
 
   await page.route("**/session/user", async (route) => {
     await route.fulfill({
@@ -2263,6 +2348,7 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
 
   await page.route("**/create", async (route) => {
     createBody = route.request().postData() || "";
+    enrolledGuide = true;
     await route.fulfill({
       status: 202,
       contentType: "application/json",
@@ -2275,10 +2361,10 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
       contentType: "application/json",
       body: JSON.stringify({
         profile: "production",
-        used: 1,
+        used: enrolledGuide ? 2 : 1,
         max: 2,
-        remaining: 1,
-        reached: false,
+        remaining: enrolledGuide ? 0 : 1,
+        reached: enrolledGuide,
         instances: [
           {
             instance: "existing-guide.example.com",
@@ -2287,6 +2373,15 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
             version: "v1.0.0",
             status: "ready",
           },
+          ...(enrolledGuide ? [{
+            instance: "guide-app",
+            dns_name: "guide-app.example.com",
+            image: "saashup/guide",
+            version: "v1.2.3",
+            status: "ready",
+            source: "template",
+            instance_count: 0,
+          }] : []),
         ],
       }),
     });
@@ -2315,6 +2410,7 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
   await expect(page.getByRole("link", { name: "Back to home" })).toHaveClass(/btn-secondary/);
   await expect(page.getByRole("link", { name: "Back to home" })).toHaveAttribute("href", "/");
   await expect(page.locator("#submitBtn")).toBeDisabled();
+  await expect(page.locator("#dockerRunInput")).toHaveAttribute("placeholder", /-p 8080:3000/);
   await expect(page.locator("#importProfileSelect")).toBeHidden();
   await expect(page.locator("#config_profile")).toHaveValue("production");
   await expect(page.locator("#enrollInstances")).toBeVisible();
@@ -2343,7 +2439,60 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
   expect(createBody).toContain("profile=production");
   expect(createBody).toContain("enroll_request=true");
   expect(createBody).toContain("enrollment_limit=2");
-  await expect(page.locator("#notif")).toContainText("Creation requested for guide-app.");
+  await expect(page.locator("#notif")).toContainText("Enrollment recorded for guide-app.");
+  await expect(page.locator("#enrollInstances")).toContainText("2 / 2");
+  await expect(page.locator("#enrollInstances")).toContainText("guide-app");
+  await expect(page.locator("#instanceForm")).toBeHidden();
+});
+
+test("enroll page reports only missing port when docker run has image", async ({ page }) => {
+  await page.route("**/enroll/limit?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        profile: "production",
+        used: 0,
+        max: 1,
+        remaining: 1,
+        reached: false,
+        instances: [],
+      }),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "production",
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "example.com",
+        tag: "production",
+        enrollment_limit: 1,
+        saashup_default: true,
+      },
+    }),
+  }, {}, [], undefined, "/enroll.html");
+
+  const commandBase = "docker run --name some-nginx -v /some/content:/usr/share/nginx/html:ro -d";
+  const command = `${commandBase} nginx`;
+  await expect.poll(() => page.evaluate((value) => window.parseDockerRun(value).image, command)).toBe("nginx");
+  await page.locator("#dockerRunInput").fill(command);
+  await expect(page.locator("#submitBtn")).toBeDisabled();
+  await expect(page.locator("#notif")).toHaveText("Docker run port is required");
+
+  await page.locator("#dockerRunInput").fill(`${commandBase} -p 8080:80 nginx`);
+  await expect(page.locator("#submitBtn")).toBeDisabled();
+  await expect(page.locator("#notif")).toHaveText("Docker run image version is required");
+
+  await page.locator("#dockerRunInput").fill(`${commandBase} -p 8080:80 nginx:latest`);
+  await expect(page.locator("#submitBtn")).toBeDisabled();
+  await expect(page.locator("#notif")).toHaveText("Docker run image version cannot be latest");
+
+  await page.locator("#dockerRunInput").fill(`${commandBase} -p 8080:80 nginx:1.27`);
+  await expect(page.locator("#submitBtn")).toBeEnabled();
 });
 
 test("enroll page waits for limit before showing create panel or cards", async ({ page }) => {
@@ -2448,7 +2597,7 @@ test("enroll page keeps submit disabled before import content", async ({ page })
   await expect(page.locator("#submitBtn")).toBeDisabled();
 });
 
-test("enroll page shows enrollment count when prior details are unavailable", async ({ page }) => {
+test("enroll page hides enrollment panel when no templates are returned", async ({ page }) => {
   await page.route("**/session/user", async (route) => {
     await route.fulfill({
       status: 200,
@@ -2462,10 +2611,10 @@ test("enroll page shows enrollment count when prior details are unavailable", as
       contentType: "application/json",
       body: JSON.stringify({
         profile: "production",
-        used: 1,
+        used: 0,
         max: 1,
-        remaining: 0,
-        reached: true,
+        remaining: 1,
+        reached: false,
         instances: [],
       }),
     });
@@ -2486,16 +2635,12 @@ test("enroll page shows enrollment count when prior details are unavailable", as
     }),
   }, {}, [], undefined, "/enroll.html");
 
-  await expect(page.locator("#enrollInstances")).toBeVisible();
-  await expect(page.locator("#enrollInstances")).toContainText("1 / 1");
-  await expect(page.locator("#enrollInstances")).toContainText("Enrollment recorded");
-  await expect(page.locator("#enrollInstances")).toContainText("Details unavailable for earlier template");
-  await expect(page.locator("#enrollInstances .order-instance-state")).toHaveText("Recorded");
-  await expect(page.locator("#notif")).toContainText("You have reached your maximum of 1 template for this config.");
-  await expect(page.locator("#instanceForm")).toBeHidden();
+  await expect(page.locator("#enrollInstances")).toBeHidden();
+  await expect(page.locator("#instanceForm")).toBeVisible();
 });
 
 test("enroll page shows templates created by the user", async ({ page }) => {
+  let deletedTemplate = "";
   await page.addInitScript(() => {
     window.__copiedOrderLink = "";
     Object.defineProperty(navigator, "clipboard", {
@@ -2517,6 +2662,7 @@ test("enroll page shows templates created by the user", async ({ page }) => {
   await page.route("**/enroll/limit?**", async (route) => {
     const instances = [
       { instance: "guide-template", image: "saashup/guide", version: "v1.2.3", status: "ready", source: "template", instance_count: 2 },
+      ...(deletedTemplate ? [] : [{ instance: "install-template", image: "saashup/install", version: "v4.0.0", status: "ready", source: "template", instance_count: 0 }]),
     ];
     await route.fulfill({
       status: 200,
@@ -2524,11 +2670,19 @@ test("enroll page shows templates created by the user", async ({ page }) => {
       body: JSON.stringify({
         profile: "production",
         used: instances.length,
-        max: 1,
+        max: 2,
         remaining: 0,
         reached: true,
         instances,
       }),
+    });
+  });
+  await page.route("**/enroll/template/**", async (route) => {
+    deletedTemplate = decodeURIComponent(new URL(route.request().url()).pathname.split("/").pop());
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ deleted: true, template: deletedTemplate }),
     });
   });
 
@@ -2548,17 +2702,26 @@ test("enroll page shows templates created by the user", async ({ page }) => {
   }, {}, [], undefined, "/enroll.html");
 
   await expect(page.locator("#enrollInstances")).toBeVisible();
-  await expect(page.locator("#enrollInstances")).toContainText("1 / 1");
+  await expect(page.locator("#enrollInstances")).toContainText("2 / 2");
   await expect(page.locator("#enrollInstances")).toContainText("guide-template");
+  await expect(page.locator("#enrollInstances")).toContainText("install-template");
   await expect(page.locator("#enrollInstances")).toContainText("saashup/guide");
-  await expect(page.locator("#enrollInstances .order-instance-state")).toHaveText("Ready");
-  await expect(page.locator("#enrollInstances .enroll-template-count")).toHaveText("2");
-  await expect(page.locator("#enrollInstances .order-instance-delete")).toBeDisabled();
-  await expect(page.locator("#enrollInstances .order-instance-delete svg")).toBeVisible();
-  await expect(page.locator("#enrollInstances .order-template-copy")).toBeVisible();
-  await page.locator("#enrollInstances .order-template-copy").click();
+  await expect(page.locator("#enrollInstances .order-instance-state")).toHaveText(["Ready", "Ready"]);
+  await expect(page.locator("#enrollInstances .enroll-template-count")).toHaveText(["2", "0"]);
+  await expect(page.locator("#enrollInstances .order-instance-delete").first()).toBeDisabled();
+  await expect(page.locator("#enrollInstances .order-instance-delete").nth(1)).toBeEnabled();
+  await expect(page.locator("#enrollInstances .order-instance-delete svg").first()).toBeVisible();
+  await expect(page.locator("#enrollInstances .order-template-copy").first()).toBeVisible();
+  await page.locator("#enrollInstances .order-template-copy").first().click();
   await expect(page.locator("#notif")).toContainText('Order link copied for "guide-template"');
-  await expect.poll(() => page.evaluate(() => window.__copiedOrderLink)).toBe(`${page.url().replace(/\/enroll(?:\.html)?$/, "")}/order?template=guide-template`);
+  await expect.poll(() => page.evaluate(() => window.__copiedOrderLink)).toBe(`${page.url().replace(/\/enroll(?:\.html)?$/, "")}/order?template=guide-template&profile=production`);
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toBe('Delete enrolled template "install-template"?');
+    await dialog.accept();
+  });
+  await page.locator("#enrollInstances .order-instance-delete").nth(1).click();
+  await expect(page.locator("#notif")).toContainText('Template "install-template" deleted');
+  await expect(page.locator("#enrollInstances")).not.toContainText("install-template");
   await expect(page.locator("#instanceForm")).toBeHidden();
 });
 
@@ -2650,6 +2813,26 @@ test("enroll page blocks docker compose files with multiple services", async ({ 
     "    image: saashup/worker:v1.0.0",
   ].join("\n"));
   await expect(page.locator("#notif")).toContainText("Compose files on enroll must contain a single service.");
+  await expect(page.locator("#submitBtn")).toBeDisabled();
+
+  await page.locator("#dockerComposeInput").fill([
+    "services:",
+    "  web:",
+    "    image: saashup/web",
+    "    ports:",
+    "      - \"8080:3000\"",
+  ].join("\n"));
+  await expect(page.locator("#notif")).toContainText("Compose service image version is required");
+  await expect(page.locator("#submitBtn")).toBeDisabled();
+
+  await page.locator("#dockerComposeInput").fill([
+    "services:",
+    "  web:",
+    "    image: saashup/web:latest",
+    "    ports:",
+    "      - \"8080:3000\"",
+  ].join("\n"));
+  await expect(page.locator("#notif")).toContainText("Compose service image version cannot be latest");
   await expect(page.locator("#submitBtn")).toBeDisabled();
 
   await page.locator("#dockerComposeInput").fill([
@@ -3129,6 +3312,88 @@ test("order page hides the order form when the requested template is missing", a
   await expect(page.locator("#orderStatus")).toHaveClass(/error/);
   await expect(page.locator("#orderStatus")).toHaveText('Template "missing" not foundBack to home');
   await expect(page.locator("#orderStatus .order-status-home")).toHaveAttribute("href", "/");
+});
+
+test("order page uses the server default profile for bare template links", async ({ page }) => {
+  let createBody = "";
+  await page.addInitScript(() => {
+    localStorage.setItem("current_config_profile", "stale");
+    localStorage.setItem("config_profiles", JSON.stringify({
+      stale: {
+        netbox: "https://stale.example.com",
+        token: "stale",
+        tag: "stale",
+      },
+    }));
+  });
+
+  await page.route("**/order/limit?**", async (route) => {
+    const url = new URL(route.request().url());
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        instances: [],
+        max: 1,
+        profile: url.searchParams.get("profile") || "SaaShup",
+        remaining: 1,
+        reached: false,
+        used: 0,
+        total_used: 0,
+        template: url.searchParams.get("template") || "nginx",
+      }),
+    });
+  });
+
+  await page.route("**/create", async (route) => {
+    createBody = route.request().postData() || "";
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "SaaShup",
+    profiles: JSON.stringify({
+      install: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        tag: "install",
+      },
+      SaaShup: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        domain: "",
+        tag: "saashup",
+      },
+    }),
+  }, {
+    templates: {
+      nginx: {
+        config_profile: "SaaShup",
+        image: "nginx",
+        version: "1.31.1",
+        network: "traefik-net",
+        ports: [{ value: "80" }],
+        saashup_enabled: true,
+      },
+    },
+    workflows: {},
+  }, [], undefined, "/order?template=nginx");
+
+  await expect(page.locator("#orderLoading")).toBeHidden();
+  await expect(page.locator("#orderActions")).toBeVisible();
+  await expect(page.locator("#config_profile")).toHaveValue("SaaShup");
+  await expect(page.locator("#network")).toHaveValue("traefik-net");
+  await expect(page.locator("#image")).toHaveValue("nginx");
+
+  const generatedName = await page.locator("#instance").inputValue();
+  await page.locator("#submitBtn").click();
+  await expect.poll(() => createBody).toContain(`instance=${generatedName}`);
+  expect(createBody).toContain("order_request=true");
+  expect(createBody).toContain("order_template=nginx");
 });
 
 test("order page without a template lists all owned containers", async ({ page }) => {

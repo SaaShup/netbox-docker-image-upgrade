@@ -6,6 +6,7 @@ const orderTemplateName = urlParams.get("template") || "";
 
 const form = document.getElementById("instanceForm");
 const appShell = document.querySelector(".app-shell");
+const appBootLoader = document.getElementById("appBootLoader");
 const sidebarToggle = document.getElementById("sidebarToggle");
 const formCard = document.querySelector(".form-card");
 const submitBtn = document.getElementById("submitBtn");
@@ -54,6 +55,8 @@ const profileHelpBody = document.getElementById("profileHelpBody");
 const profileHelpCloseBtn = document.getElementById("profileHelpCloseBtn");
 const profileHelpOkBtn = document.getElementById("profileHelpOkBtn");
 const formTitle = document.getElementById("form-title");
+const formTitleBadge = document.getElementById("formTitleBadge");
+const workflowTitleBadge = document.getElementById("workflowTitleBadge");
 const formDescription = document.getElementById("form-description");
 const tokenToggle = document.getElementById("tokenToggle");
 const registryWebhookSecretInput = document.getElementById("registry_webhook_secret");
@@ -107,9 +110,24 @@ const workflowSelect = document.getElementById("workflowSelect");
 const workflowSummary = document.getElementById("workflowSummary");
 const workflowTableBody = document.getElementById("workflowTableBody");
 const runWorkflowBtn = document.getElementById("runWorkflowBtn");
+const saveWorkflowBtn = document.getElementById("saveWorkflowBtn");
 const deleteWorkflowBtn = document.getElementById("deleteWorkflowBtn");
 const enrollImportNotice = "Import a Docker run command or compose with a single service.";
 const enrollMultiComposeNotice = "Compose files on enroll must contain a single service.";
+const enrollDockerRunNotices = [
+  "Docker run image and port are required",
+  "Docker run image is required",
+  "Docker run port is required",
+  "Docker run image version is required",
+  "Docker run image version cannot be latest",
+];
+const enrollComposeNotices = [
+  enrollMultiComposeNotice,
+  "Compose services with images are required",
+  "Compose service must expose one port.",
+  "Compose service image version is required",
+  "Compose service image version cannot be latest",
+];
 
 let currentAction = (isOrderPage || isEnrollPage) ? "create" : (localStorage.getItem("current_action") || "config");
 let currentConfigProfile = localStorage.getItem("current_config_profile") || "";
@@ -128,6 +146,7 @@ let workflowStepStatuses = {};
 let workflowDragIndex = null;
 let workflowPointerDrag = null;
 let workflowMouseDrag = null;
+let workflowCatalogDirty = false;
 let generatedCreateInstanceName = "";
 let generatedCreateDnsName = "";
 let orderInstanceCards = [];
@@ -835,6 +854,22 @@ function currentProfileFieldValues() {
   };
 }
 
+function normalizedProfileNetBoxUrl(value) {
+  return String(value || "").trim().replace(/\/+$/, "").toLowerCase();
+}
+
+function duplicateProfileScopeName(profileName, netbox, tag) {
+  const normalizedNetbox = normalizedProfileNetBoxUrl(netbox);
+  const normalizedTag = String(tag || "").trim().toLowerCase();
+  if (!normalizedNetbox || !normalizedTag) return "";
+
+  return Object.entries(configProfiles).find(([name, profile]) => (
+    name !== profileName
+    && normalizedProfileNetBoxUrl(profile.netbox) === normalizedNetbox
+    && String(profile.tag || "").trim().toLowerCase() === normalizedTag
+  ))?.[0] || "";
+}
+
 function profileSyncState(name = currentConfigProfile) {
   if (!name || !configProfiles[name]) return { status: "none", message: "" };
   const localSource = currentAction === "config" && name === currentConfigProfile
@@ -1055,21 +1090,33 @@ function updateTemplateOptions(selected = "") {
   });
 
   syncTemplateActions();
+  updateFormTitleBadge();
 }
 
 function updateWorkflowOptions(selected = workflowSelect?.value || "") {
-  if (!workflowSelect) return;
-
   const normalizedWorkflows = normalizeCreateWorkflows(createWorkflows);
   if (JSON.stringify(normalizedWorkflows) !== JSON.stringify(createWorkflows)) {
     createWorkflows = normalizedWorkflows;
     localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
   }
+  updateWorkflowTitleBadge();
+  if (!workflowSelect) return;
+
   const names = Object.keys(createWorkflows).sort((a, b) => workflowOptionLabel(a).localeCompare(workflowOptionLabel(b)));
   workflowSelect.replaceChildren(new Option(names.length ? "Select workflow" : "No workflows saved", ""));
   names.forEach((name) => workflowSelect.appendChild(new Option(workflowOptionLabel(name), name)));
   workflowSelect.value = names.includes(selected) ? selected : "";
   renderWorkflow();
+}
+
+function updateWorkflowTitleBadge() {
+  if (!workflowTitleBadge) return;
+
+  const count = Object.keys(createWorkflows).length;
+  const label = `${count} workflow${count === 1 ? "" : "s"}`;
+  workflowTitleBadge.textContent = String(count);
+  workflowTitleBadge.title = label;
+  workflowTitleBadge.setAttribute("aria-label", label);
 }
 
 function selectedWorkflow() {
@@ -1119,6 +1166,49 @@ function persistSelectedWorkflow() {
   localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
 }
 
+function updateWorkflowSaveState() {
+  if (saveWorkflowBtn) saveWorkflowBtn.disabled = !workflowCatalogDirty;
+}
+
+function markWorkflowCatalogDirty() {
+  workflowCatalogDirty = true;
+  updateWorkflowSaveState();
+}
+
+async function saveWorkflowCatalog() {
+  if (!workflowCatalogDirty) return;
+
+  const previousText = saveWorkflowBtn?.textContent || "Save workflow";
+  if (saveWorkflowBtn) {
+    saveWorkflowBtn.disabled = true;
+    saveWorkflowBtn.classList.add("btn-loading");
+    saveWorkflowBtn.textContent = "Saving";
+  }
+
+  try {
+    const selected = selectedWorkflowKey();
+    const savedCatalog = templateCatalogFromPayload(await persistCreateTemplates());
+    createTemplates = savedCatalog.templates;
+    createWorkflows = savedCatalog.workflows;
+    localStorage.setItem("create_templates", JSON.stringify(createTemplates));
+    localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
+    workflowCatalogDirty = false;
+    updateTemplateOptions();
+    updateWorkflowOptions(selected);
+    setNotice("Workflow saved", "success");
+  } catch {
+    workflowCatalogDirty = true;
+    updateWorkflowSaveState();
+    setNotice("Workflow save failed", "error");
+  } finally {
+    if (saveWorkflowBtn) {
+      saveWorkflowBtn.classList.remove("btn-loading");
+      saveWorkflowBtn.textContent = previousText;
+      updateWorkflowSaveState();
+    }
+  }
+}
+
 function clearWorkflowDragState() {
   workflowDragIndex = null;
   workflowPointerDrag = null;
@@ -1139,34 +1229,19 @@ function markWorkflowDropTarget(row) {
   row.classList.toggle("workflow-step-drop-target", Number(row.dataset.workflowStepIndex) !== workflowDragIndex);
 }
 
-async function moveWorkflowStep(fromIndex, toIndex) {
-  const key = selectedWorkflowKey();
+function moveWorkflowStep(fromIndex, toIndex) {
   const workflow = selectedWorkflow();
   const steps = Array.isArray(workflow?.steps) ? workflow.steps : [];
-  if (!key || !workflow || fromIndex === toIndex || !steps[fromIndex] || !steps[toIndex]) return;
+  if (!workflow || fromIndex === toIndex || !steps[fromIndex] || !steps[toIndex]) return;
 
-  const previousSteps = [...steps];
   const [movedStep] = steps.splice(fromIndex, 1);
   steps.splice(toIndex, 0, movedStep);
   workflow.steps = steps;
   workflowStepStatuses = {};
   persistSelectedWorkflow();
+  markWorkflowCatalogDirty();
   renderWorkflow();
-
-  try {
-    const savedCatalog = templateCatalogFromPayload(await persistCreateTemplates());
-    createTemplates = savedCatalog.templates;
-    createWorkflows = savedCatalog.workflows;
-    localStorage.setItem("create_templates", JSON.stringify(createTemplates));
-    localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
-    updateWorkflowOptions(key);
-    setNotice("Workflow order saved", "success");
-  } catch {
-    createWorkflows[key] = { ...workflow, steps: previousSteps };
-    localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
-    updateWorkflowOptions(key);
-    setNotice("Workflow order save failed", "error");
-  }
+  setNotice("Workflow order changed", "success");
 }
 
 function workflowStepStatusIcon(status = "pending") {
@@ -1198,8 +1273,9 @@ function renderWorkflow() {
     ? `${enabledSteps.length}/${steps.length} enabled - ${action}${profile ? ` - ${profileLabel(profile)}` : ""}`
     : "No workflow selected";
   if (runWorkflowBtn) runWorkflowBtn.disabled = !enabledSteps.length;
-  if (runWorkflowBtn) runWorkflowBtn.textContent = `Run ${action}`;
+  if (runWorkflowBtn) runWorkflowBtn.textContent = "Execute";
   if (deleteWorkflowBtn) deleteWorkflowBtn.disabled = !workflow;
+  updateWorkflowSaveState();
   workflowDeleteVolumesField?.classList.toggle("hidden", action !== "delete");
 
   if (!steps.length) {
@@ -1416,6 +1492,24 @@ function updateProfileOptions() {
   configProfileSelect.value = currentConfigProfile;
   updateReportProfileOptions();
   updateConfigDefaultControl();
+  updateFormTitleBadge();
+}
+
+function updateFormTitleBadge(actionName = currentAction) {
+  if (!formTitleBadge) return;
+
+  const isConfig = actionName === "config";
+  const isTemplate = actionName === "template";
+  formTitleBadge.classList.toggle("hidden", !isConfig && !isTemplate);
+  if (!isConfig && !isTemplate) return;
+
+  const count = isConfig ? knownProfileNames().length : Object.keys(createTemplates).length;
+  const label = isConfig
+    ? `${count} config profile${count === 1 ? "" : "s"}`
+    : `${count} template${count === 1 ? "" : "s"}`;
+  formTitleBadge.textContent = String(count);
+  formTitleBadge.title = label;
+  formTitleBadge.setAttribute("aria-label", label);
 }
 
 function updateReportProfileOptions() {
@@ -2093,6 +2187,11 @@ function setOrderBlockedStatus(message, reason) {
   setOrderActionStatus(message, "error", reason);
 }
 
+function setSubmitValidationError(message) {
+  if (isOrderPage) setOrderActionStatus(message, "error", "validation-error");
+  else setNotice(message, "error");
+}
+
 function orderCanRequestMessage(limit) {
   const remaining = Number(limit?.remaining || 0);
   if (remaining > 1) return `You can request ${remaining} more instances for this config.`;
@@ -2258,17 +2357,13 @@ function renderEnrollmentInstances(instances = enrollmentCards, limit = enrollme
     reached: Boolean(limit?.reached),
   };
 
-  if (!enrollmentCards.length && enrollmentLimit.used <= 0) {
+  if (!enrollmentCards.length) {
     enrollInstances.classList.add("hidden");
     enrollInstances.replaceChildren();
     return;
   }
 
-  const displayCards = enrollmentCards.length ? enrollmentCards : [{
-    instance: "Enrollment recorded",
-    image: "Details unavailable for earlier template",
-    status: "recorded",
-  }];
+  const displayCards = enrollmentCards;
   const maxText = enrollmentLimit.max > 0 ? ` / ${enrollmentLimit.max}` : "";
   enrollInstances.classList.remove("hidden");
   enrollInstances.innerHTML = `
@@ -2292,7 +2387,7 @@ function renderEnrollmentInstances(instances = enrollmentCards, limit = enrollme
               <button type="button" class="icon-btn order-template-copy" data-order-template-copy="${escapeHtml(item.instance)}" title="Copy order link" aria-label="Copy order link for ${escapeHtml(item.instance)}">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="10" height="10" rx="2"></rect><path d="M5 15V7a2 2 0 0 1 2-2h8"></path></svg>
               </button>
-              <button type="button" class="icon-btn icon-btn-danger order-instance-delete" title="Remove disabled" aria-label="Remove disabled" disabled>
+              <button type="button" class="icon-btn icon-btn-danger order-instance-delete" data-enroll-template-delete="${escapeHtml(item.instance)}" title="${escapeHtml(enrollTemplateDeleteTitle(item))}" aria-label="${escapeHtml(enrollTemplateDeleteTitle(item))}" ${enrollTemplateCanDelete(item) ? "" : "disabled"}>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>
               </button>
             </span>
@@ -2307,6 +2402,18 @@ function isEnrollmentTemplateCard(item) {
   return item?.source === "template" || item?.source === "netbox-template" || item?.source === "netbox-config-context";
 }
 
+function enrollTemplateCanDelete(item) {
+  const hasTemplateSource = item?.source === "template" || item?.source === "netbox-template" || item?.source === "netbox-config-context";
+  return hasTemplateSource && Number(item?.instance_count || 0) <= 0;
+}
+
+function enrollTemplateDeleteTitle(item) {
+  const name = item?.instance || "template";
+  if (Number(item?.instance_count || 0) > 0) return `${name} is used by ${Number(item.instance_count)} instance${Number(item.instance_count) === 1 ? "" : "s"}`;
+  if (enrollTemplateCanDelete(item)) return `Delete ${name}`;
+  return "Delete unavailable for this template source";
+}
+
 function enrollmentTemplateTitle(item) {
   const count = Number(item?.instance_count || 0);
   const badgeLabel = `${count} instance${count === 1 ? "" : "s"}`;
@@ -2316,6 +2423,30 @@ function enrollmentTemplateTitle(item) {
       <span class="enroll-template-count" title="${escapeHtml(badgeLabel)}" aria-label="${escapeHtml(badgeLabel)}">${count}</span>
     </span>
   `;
+}
+
+async function deleteEnrollTemplate(name) {
+  const templateName = String(name || "").trim();
+  if (!templateName) return;
+  if (!confirm(`Delete enrolled template "${templateName}"?`)) return;
+
+  try {
+    const query = new URLSearchParams();
+    const profile = selectedProfileCredentials().profile;
+    if (profile) query.set("profile", profile);
+    const response = await fetch(`/enroll/template/${encodeURIComponent(templateName)}${query.toString() ? `?${query.toString()}` : ""}`, {
+      method: "DELETE",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.detail || `Delete failed (${response.status})`);
+    }
+    await refreshEnrollLimit();
+    setNotice(`Template "${templateName}" deleted`, "success");
+  } catch (error) {
+    setNotice(error.message || "Template delete failed", "error");
+  }
 }
 
 function orderInstanceNameLink(instance, hrefTarget = "") {
@@ -2472,6 +2603,7 @@ function setAction(actionName) {
   form.classList.toggle("delete-form", actionName === "delete");
 
   if (formTitle) formTitle.textContent = config.title;
+  updateFormTitleBadge(actionName);
   if (formDescription) formDescription.textContent = config.description;
   submitBtn.textContent = config.submitLabel;
   submitBtn.className = config.buttonClass;
@@ -2668,7 +2800,7 @@ function validateEnrollComposeText(composeText, { notify = true } = {}) {
   if (!composeText.trim()) {
     if (notify) {
       const notice = document.getElementById("notif");
-      if ([enrollMultiComposeNotice, "Compose services with images are required", "Compose service must expose one port."].includes(notice?.textContent || "")) {
+      if (enrollComposeNotices.includes(notice?.textContent || "")) {
         setNotice(enrollImportNotice, "info", false);
       }
     }
@@ -2686,9 +2818,19 @@ function validateEnrollComposeText(composeText, { notify = true } = {}) {
     return false;
   }
 
+  if (!templates[0].template.version) {
+    if (notify) setNotice("Compose service image version is required", "error", false);
+    return false;
+  }
+
+  if (String(templates[0].template.version).trim().toLowerCase() === "latest") {
+    if (notify) setNotice("Compose service image version cannot be latest", "error", false);
+    return false;
+  }
+
   if (notify) {
     const notice = document.getElementById("notif");
-    if ([enrollMultiComposeNotice, "Compose services with images are required", "Compose service must expose one port."].includes(notice?.textContent || "")) {
+    if (enrollComposeNotices.includes(notice?.textContent || "")) {
       setNotice(enrollImportNotice, "info", false);
     }
   }
@@ -2707,7 +2849,7 @@ function validateEnrollRunText(runText, { notify = true } = {}) {
   if (!runText.trim()) {
     if (notify) {
       const notice = document.getElementById("notif");
-      if ([enrollMultiComposeNotice, "Docker run image and port are required"].includes(notice?.textContent || "")) {
+      if ([enrollMultiComposeNotice, ...enrollDockerRunNotices].includes(notice?.textContent || "")) {
         setNotice(enrollImportNotice, "info", false);
       }
     }
@@ -2715,16 +2857,32 @@ function validateEnrollRunText(runText, { notify = true } = {}) {
   }
 
   const parsed = parseDockerRun(runText);
-  const valid = Boolean(parsed.image && parsed.ports[0]?.value);
+  const invalidVersion = String(parsed.version || "").trim().toLowerCase() === "latest";
+  const valid = Boolean(parsed.image && parsed.ports[0]?.value && parsed.version && !invalidVersion);
   if (!valid && notify) {
-    setNotice("Docker run image and port are required", "error", false);
+    const missingImage = !parsed.image;
+    const missingPort = !parsed.ports[0]?.value;
+    let message = "Docker run image version is required";
+    if (missingImage && missingPort) message = "Docker run image and port are required";
+    else if (missingImage) message = "Docker run image is required";
+    else if (missingPort) message = "Docker run port is required";
+    else if (invalidVersion) message = "Docker run image version cannot be latest";
+    setNotice(message, "error", false);
   } else if (valid && notify) {
     const notice = document.getElementById("notif");
-    if ([enrollMultiComposeNotice, "Docker run image and port are required"].includes(notice?.textContent || "")) {
+    if ([enrollMultiComposeNotice, ...enrollDockerRunNotices].includes(notice?.textContent || "")) {
       setNotice(enrollImportNotice, "info", false);
     }
   }
   return valid;
+}
+
+function enrollImageVersionAllowed(image = "", version = "") {
+  const imageParts = splitImageRef(image);
+  const resolvedVersion = String(version || imageParts.version || "").trim();
+  if (!resolvedVersion) return { ok: false, message: "Docker run image version is required" };
+  if (resolvedVersion.toLowerCase() === "latest") return { ok: false, message: "Docker run image version cannot be latest" };
+  return { ok: true, version: resolvedVersion };
 }
 
 function updateEnrollSubmitState({ notify = true } = {}) {
@@ -2916,6 +3074,12 @@ function splitImageRef(ref) {
   }
 
   return { image: ref, version: "" };
+}
+
+function defaultTemplateNameFromImage(image = "") {
+  const imageName = splitImageRef(image).image;
+  const parts = String(imageName || "").split("/").filter(Boolean);
+  return (parts.at(-1) || imageName || "").trim();
 }
 
 function valueText(value) {
@@ -3829,7 +3993,10 @@ function openSelectedTemplateOrder() {
 function orderTemplateUrl(name) {
   const templateName = String(name || "").trim();
   if (!templateName) return "";
-  return `${window.location.origin}/order?template=${encodeURIComponent(templateName)}`;
+  const query = new URLSearchParams({ template: templateName });
+  const profile = selectedProfileCredentials().profile || defaultConfigProfileName() || "";
+  if (profile) query.set("profile", profile);
+  return `${window.location.origin}/order?${query.toString()}`;
 }
 
 function copyTextToClipboard(text) {
@@ -3957,10 +4124,19 @@ async function applyDockerComposeFile(text) {
       setNotice("Compose service must expose one port.", "error");
       return false;
     }
+    if (!first.template.version) {
+      setNotice("Compose service image version is required", "error");
+      return false;
+    }
+    if (String(first.template.version).trim().toLowerCase() === "latest") {
+      setNotice("Compose service image version cannot be latest", "error");
+      return false;
+    }
     applyCreateTemplate(first.template);
     if (!fieldValue("network")) syncCreateNetwork();
-    if (!fieldValue("version")) await ensureCreateVersion();
     enrollSetImportedSummary(`Compose service ${first.name} imported`);
+    const limit = await refreshEnrollLimit({ showLoading: false });
+    if (limit?.reached) return false;
     setNotice(`Compose service "${first.name}" imported`, "success");
     return true;
   }
@@ -4132,6 +4308,14 @@ async function applyDockerRunCommand() {
     return false;
   }
 
+  if (isEnrollPage) {
+    const versionCheck = enrollImageVersionAllowed(parsed.image, parsed.version);
+    if (!versionCheck.ok) {
+      setNotice(versionCheck.message, "error");
+      return false;
+    }
+  }
+
   if (!isTemplateAction()) setAction("template");
   templateNetworkOverride = "";
   templateVersionOverride = parsed.version || "";
@@ -4158,6 +4342,10 @@ async function applyDockerRunCommand() {
 
   closeDockerRunModal();
   enrollSetImportedSummary("Docker run imported");
+  if (isEnrollPage) {
+    const limit = await refreshEnrollLimit({ showLoading: false });
+    if (limit?.reached) return false;
+  }
   setNotice("Docker run imported", "success");
   return true;
 }
@@ -4169,7 +4357,7 @@ function loadSavedConfig() {
   })
     .then((response) => response.json())
     .then((data) => {
-      const localProfiles = isEnrollPage ? {} : applyDeletedProfileFilter(storedProfiles());
+      const localProfiles = (isEnrollPage || isOrderPage) ? {} : applyDeletedProfileFilter(storedProfiles());
       if (!data) {
         serverConfigProfiles = {};
         configProfiles = localProfiles;
@@ -4183,25 +4371,26 @@ function loadSavedConfig() {
       serverConfigProfiles = { ...serverProfiles };
       configProfiles = { ...serverProfiles, ...localProfiles };
 
-      if (data.netbox && data.token) {
-        const profile = data.profile || data.config_profile || currentConfigProfile || "";
-        if (!deletedProfiles().includes(profile)) {
-          const serverProfile = {
-            netbox: data.netbox,
-            token: data.token,
-            proxy: data.proxy || "",
-            domain: data.domain || "",
-            tag: data.tag || "",
-            max_templates: maxTemplatesValue(data),
-            enrollment_limit: normalizeMaxInstances(data.enrollment_limit),
-            cloudflare_filter: checkboxValue(data.cloudflare_filter, true),
-            smtp_config: smtpConfigValue(data),
-            ...(serverProfiles[profile]?.saashup_default === true ? { saashup_default: true } : {}),
-          };
-          serverConfigProfiles[profile] = serverProfile;
-          configProfiles[profile] = localProfiles[profile] || serverProfile;
-          currentConfigProfile = localStorage.getItem("current_config_profile") || profile;
-        }
+      const profile = String(data.profile || data.config_profile || "").trim();
+      if (profile && !deletedProfiles().includes(profile) && Object.hasOwn(serverProfiles, profile)) {
+        currentConfigProfile = (isEnrollPage || isOrderPage) ? profile : (localStorage.getItem("current_config_profile") || profile);
+      }
+
+      if (data.netbox && data.token && profile) {
+        const serverProfile = {
+          netbox: data.netbox,
+          token: data.token,
+          proxy: data.proxy || "",
+          domain: data.domain || "",
+          tag: data.tag || "",
+          max_templates: maxTemplatesValue(data),
+          enrollment_limit: normalizeMaxInstances(data.enrollment_limit),
+          cloudflare_filter: checkboxValue(data.cloudflare_filter, true),
+          smtp_config: smtpConfigValue(data),
+          ...(serverProfiles[profile]?.saashup_default === true ? { saashup_default: true } : {}),
+        };
+        serverConfigProfiles[profile] = serverProfile;
+        configProfiles[profile] = localProfiles[profile] || serverProfile;
       }
 
       updateProfileOptions();
@@ -4211,7 +4400,7 @@ function loadSavedConfig() {
     })
     .catch(() => {
       serverConfigProfiles = {};
-      configProfiles = isEnrollPage ? {} : applyDeletedProfileFilter(storedProfiles());
+      configProfiles = (isEnrollPage || isOrderPage) ? {} : applyDeletedProfileFilter(storedProfiles());
       updateProfileOptions();
       applyProfileToFields(currentConfigProfile);
       ensureRandomCreateInstanceName();
@@ -4344,6 +4533,12 @@ async function saveConfig() {
 
   if (!tag) {
     setNotice("Tag is required", "error");
+    return;
+  }
+
+  const duplicateProfile = duplicateProfileScopeName(profile, netbox, tag);
+  if (duplicateProfile) {
+    setNotice(`Profile "${profileLabel(duplicateProfile)}" already uses this NetBox URL and tag`, "error");
     return;
   }
 
@@ -4794,8 +4989,9 @@ function deleteWorkflow() {
 
   delete createWorkflows[name];
   localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
+  markWorkflowCatalogDirty();
   updateWorkflowOptions();
-  setNotice(`Workflow "${label}" deleted`, "success");
+  setNotice(`Workflow "${label}" deleted locally`, "success");
 }
 
 function setWorkflowStepEnabled(index, enabled) {
@@ -4806,6 +5002,7 @@ function setWorkflowStepEnabled(index, enabled) {
   steps[index].enabled = enabled;
   workflowStepStatuses = {};
   persistSelectedWorkflow();
+  markWorkflowCatalogDirty();
   renderWorkflow();
 }
 
@@ -4817,8 +5014,9 @@ function removeWorkflowStep(index) {
   workflow.steps = steps.filter((_, stepIndex) => stepIndex !== index);
   workflowStepStatuses = {};
   persistSelectedWorkflow();
+  markWorkflowCatalogDirty();
   renderWorkflow();
-  setNotice(`Workflow task "${name}" removed`, "success");
+  setNotice(`Workflow task "${name}" removed locally`, "success");
 }
 
 async function submitAction(config, submitter) {
@@ -4851,6 +5049,14 @@ async function submitAction(config, submitter) {
   }
   if (isEnrollPage) {
     body.set("enroll_request", "true");
+    const versionCheck = enrollImageVersionAllowed(body.get("image"), body.get("version"));
+    if (!versionCheck.ok) {
+      submitBtn.disabled = false;
+      setNotice(versionCheck.message, "error");
+      return;
+    }
+    const templateName = selectedTemplateName() || body.get("template_name") || defaultTemplateNameFromImage(body.get("image"));
+    if (templateName) body.set("template_name", templateName);
   }
 
   if (currentAction === "create") {
@@ -4917,23 +5123,9 @@ async function submitAction(config, submitter) {
   }
 
   if (isEnrollPage) {
-    if (response.status === 202) {
-      renderEnrollmentInstances([
-        ...enrollmentCards,
-        {
-          instance: createdInstanceFqdn || fieldValue("instance"),
-          dns_name: createdInstanceFqdn,
-          image: fieldValue("image"),
-          version: fieldValue("version"),
-          template_url: fieldValue("template_url"),
-          status: "creating",
-        },
-      ], {
-        ...enrollmentLimit,
-        used: Math.max(Number(enrollmentLimit.used || 0) + 1, enrollmentCards.length + 1),
-      });
-      window.setTimeout(refreshEnrollLimit, 250);
-      setNotice(`Creation requested for ${createdInstanceFqdn || fieldValue("instance")}.`, "success");
+    if (response.status === 200 || response.status === 202) {
+      await refreshEnrollLimit({ showLoading: false });
+      setNotice(`Enrollment recorded for ${createdInstanceFqdn || fieldValue("instance")}.`, "success");
     } else {
       const text = await response.text();
       let detail = "";
@@ -5349,7 +5541,7 @@ form.addEventListener("submit", async (event) => {
   }
 
   if (currentAction === "template") {
-    setNotice("Use Save template to store template changes", "error");
+    setSubmitValidationError("Use Save template to store template changes");
     return;
   }
 
@@ -5359,58 +5551,59 @@ form.addEventListener("submit", async (event) => {
   }
 
   if (currentAction === "restart" && event.submitter?.value === "instance" && !fieldValue("instance")) {
-    setNotice("Instance name is required", "error");
+    setSubmitValidationError("Instance name is required");
     return;
   }
 
   if (currentAction === "restart" && event.submitter?.value === "image") {
     if (!fieldValue("image")) {
-      setNotice("Image name is required", "error");
+      setSubmitValidationError("Image name is required");
       return;
     }
 
     if (!fieldValue("restart_version")) {
-      setNotice("Version is required", "error");
+      setSubmitValidationError("Version is required");
       return;
     }
   }
 
   if (currentAction === "delete" && event.submitter?.value === "image" && !fieldValue("image")) {
-    setNotice("Image name is required", "error");
+    setSubmitValidationError("Image name is required");
     return;
   }
 
   if (currentAction === "delete" && event.submitter?.value !== "image" && !fieldValue("instance")) {
-    setNotice("Instance name is required", "error");
+    setSubmitValidationError("Instance name is required");
     return;
   }
 
   const selectedCreateTemplate = currentAction === "create" ? createTemplateEntry(selectedTemplateName() || orderTemplateName || "") : null;
 
   if (currentAction === "create" && !selectedCreateTemplate) {
-    setNotice("Select a template first", "error");
+    setSubmitValidationError("Select a template first");
     return;
   }
 
   if (currentAction === "create" && !(fieldValue("network") || selectedCreateTemplate?.template?.network)) {
-    setNotice("Network is required", "error");
+    setSubmitValidationError("Network is required");
     return;
   }
 
   if (currentAction === "create" && !(fieldValue("image") || selectedCreateTemplate?.template?.image)) {
-    setNotice("Image name is required", "error");
+    setSubmitValidationError("Image name is required");
     return;
   }
 
   const selectedTemplatePort = selectedCreateTemplate?.template?.ports?.[0]?.value || selectedCreateTemplate?.template?.ports?.[0]?.key;
   if (currentAction === "create" && !(fieldValue("port_value") || selectedTemplatePort)) {
-    setNotice("Service port is required", "error");
+    setSubmitValidationError("Service port is required");
     return;
   }
 
   const createHasTraefik = selectedCreateTemplate?.template?.traefik ?? fieldChecked("traefik", true);
-  if (currentAction === "create" && createHasTraefik && !isFqdn(dnsParts(dnsNameFqdn(fieldValue("dns_name") || fieldValue("instance"), selectedProfileCredentials().domain)).host)) {
-    setNotice("DNS name must be a fully qualified domain name", "error");
+  const createDomain = selectedProfileCredentials().domain;
+  if (currentAction === "create" && createHasTraefik && (!isOrderPage || Boolean(createDomain)) && !isFqdn(dnsParts(dnsNameFqdn(fieldValue("dns_name") || fieldValue("instance"), createDomain)).host)) {
+    setSubmitValidationError("DNS name must be a fully qualified domain name");
     return;
   }
 
@@ -5418,7 +5611,7 @@ form.addEventListener("submit", async (event) => {
     await ensureCreateVersion();
 
     if (!fieldValue("version") && !selectedCreateTemplate?.template?.version) {
-      setNotice("Version not found for this image", "error");
+      setSubmitValidationError("Version not found for this image");
       return;
     }
   }
@@ -5600,6 +5793,7 @@ workflowTableBody?.addEventListener("drop", async (event) => {
 });
 workflowTableBody?.addEventListener("dragend", clearWorkflowDragState);
 runWorkflowBtn?.addEventListener("click", runWorkflow);
+saveWorkflowBtn?.addEventListener("click", saveWorkflowCatalog);
 deleteWorkflowBtn?.addEventListener("click", deleteWorkflow);
 reportViewButtons.forEach((button) => {
   button.addEventListener("click", () => setReportView(button.dataset.reportView));
@@ -5716,6 +5910,12 @@ orderInstances?.addEventListener("click", (event) => {
   });
 });
 enrollInstances?.addEventListener("click", (event) => {
+  const deleteButton = event.target.closest("[data-enroll-template-delete]");
+  if (deleteButton && !deleteButton.disabled) {
+    deleteEnrollTemplate(deleteButton.dataset.enrollTemplateDelete || "");
+    return;
+  }
+
   const button = event.target.closest("[data-order-template-copy]");
   if (!button) return;
 
@@ -5746,47 +5946,61 @@ window.parseDockerRun = parseDockerRun;
 window.isFqdn = isFqdn;
 window.instanceFqdn = instanceFqdn;
 
+function finishAppBoot() {
+  document.body?.classList.remove("app-booting");
+  appBootLoader?.classList.add("hidden");
+  appShell?.removeAttribute("aria-busy");
+}
+
 async function initializePage() {
-  initializeSidebar();
-  if (!isEnrollPage) await loadMailSettings();
-  if (!isEnrollPage) await loadCreateTemplates();
-  updateTemplateOptions();
-  setAction(currentAction);
-  await loadSavedConfig();
-  if (isEnrollPage) {
-    const canEnroll = configureEnrollDefaultConfig();
-    if (canEnroll) {
-      setImportTab("run");
-      await refreshEnrollLimit();
-      if (submitBtn) {
-        submitBtn.textContent = "Submit creation";
-        updateEnrollSubmitState({ notify: false });
+  try {
+    initializeSidebar();
+    if (!isEnrollPage) await loadMailSettings();
+    await loadSavedConfig();
+    if (isOrderPage) {
+      const profileName = urlParams.get("profile") || defaultConfigProfileName() || currentConfigProfile;
+      if (profileName) applyProfileToFields(profileName);
+    }
+    if (!isEnrollPage) await loadCreateTemplates({ useCache: !isOrderPage });
+    updateTemplateOptions();
+    setAction(currentAction);
+    if (isEnrollPage) {
+      const canEnroll = configureEnrollDefaultConfig();
+      if (canEnroll) {
+        setImportTab("run");
+        await refreshEnrollLimit();
+        if (submitBtn) {
+          submitBtn.textContent = "Submit creation";
+          updateEnrollSubmitState({ notify: false });
+        }
       }
     }
-  }
-  if (!isOrderPage && !isEnrollPage && currentAction === "report") refreshImageReport();
+    if (!isOrderPage && !isEnrollPage && currentAction === "report") refreshImageReport();
 
-  if (isOrderPage) {
-    hideOrderActions();
-    const orderReady = await applyOrderTemplate({ reveal: false });
-    await loadAuthUser();
-    hideOrderLoading();
-    if (orderReady) showOrderActions();
-  } else if (actionFromUrl) {
-    setNotice(actionFromUrl, "success");
+    if (isOrderPage) {
+      hideOrderActions();
+      const orderReady = await applyOrderTemplate({ reveal: false });
+      await loadAuthUser();
+      hideOrderLoading();
+      if (orderReady) showOrderActions();
+    } else if (actionFromUrl) {
+      setNotice(actionFromUrl, "success");
 
-    const actionKey = actionFromUrl.split(" ")[0].toLowerCase();
-    if (actions[actionKey]) setAction(actionKey);
+      const actionKey = actionFromUrl.split(" ")[0].toLowerCase();
+      if (actions[actionKey]) setAction(actionKey);
 
-    const cleanUrl = window.location.origin + window.location.pathname;
-    window.history.replaceState(window.history.state, "", cleanUrl);
-  }
+      const cleanUrl = window.location.origin + window.location.pathname;
+      window.history.replaceState(window.history.state, "", cleanUrl);
+    }
 
-  if (!isOrderPage) loadAuthUser();
+    if (!isOrderPage) loadAuthUser();
 
-  if (!isOrderPage && !isEnrollPage) {
-    getLogs();
-    setInterval(getLogs, 3000);
+    if (!isOrderPage && !isEnrollPage) {
+      getLogs();
+      setInterval(getLogs, 3000);
+    }
+  } finally {
+    finishAppBoot();
   }
 }
 

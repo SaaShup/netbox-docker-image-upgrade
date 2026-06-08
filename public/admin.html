@@ -9,8 +9,12 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 
-<body>
-  <div class="app-shell">
+<body class="app-booting">
+  <div class="app-boot-loader" id="appBootLoader" role="status" aria-live="polite">
+    <span class="app-boot-spinner" aria-hidden="true"></span>
+    <span>Loading</span>
+  </div>
+  <div class="app-shell" aria-busy="true">
     <aside class="sidebar">
       <div class="sidebar-top">
         <a href="/" class="brand" aria-label="Go to home page">
@@ -112,7 +116,10 @@
         <div class="card form-card">
           <div class="card-header">
             <div class="card-title-row">
-              <h3 id="form-title">Config</h3>
+              <div class="card-heading-title">
+                <h3 id="form-title">Config</h3>
+                <span class="count-badge" id="formTitleBadge" title="0 config profiles">0</span>
+              </div>
               <label class="template-creator hidden" id="templateCreatorEmailWrap">
                 <span>Creator</span>
                 <input type="email" id="templateCreatorEmail" autocomplete="email" placeholder="creator email">
@@ -470,7 +477,10 @@
           <div class="card-header">
             <div class="card-title-row">
               <div>
-                <h3>Workflow</h3>
+                <div class="card-heading-title">
+                  <h3>Workflow</h3>
+                  <span class="count-badge" id="workflowTitleBadge" title="0 workflows" aria-label="0 workflows">0</span>
+                </div>
                 <p>Run imported compose templates in order.</p>
               </div>
               <div class="workflow-actions">
@@ -518,6 +528,9 @@
                 </tr>
               </tbody>
             </table>
+          </div>
+          <div class="workflow-save-actions">
+            <button type="button" class="btn btn-primary" id="saveWorkflowBtn" disabled>Save workflow</button>
           </div>
         </div>
 
@@ -573,7 +586,7 @@
         <button type="button" class="import-tab" id="templateExportTab" data-import-tab="export" role="tab" aria-selected="false" aria-controls="templateExportPanel">From export</button>
       </div>
       <div id="dockerRunPanel" data-import-panel="run" role="tabpanel" aria-labelledby="dockerRunTab">
-        <textarea id="dockerRunInput" class="modal-textarea" spellcheck="false" placeholder="docker run --name app --network mgmt -e APP_ENV=production -v app-data:/app/data saashup/app:v1.0.0"></textarea>
+        <textarea id="dockerRunInput" class="modal-textarea" spellcheck="false" placeholder="docker run --name app --network mgmt -e APP_ENV=production -p 8080:3000 -v app-data:/app/data saashup/app:v1.0.0"></textarea>
       </div>
       <div id="dockerComposePanel" class="hidden" data-import-panel="compose" role="tabpanel" aria-labelledby="dockerComposeTab">
         <label class="modal-check">
