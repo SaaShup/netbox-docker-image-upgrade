@@ -205,6 +205,49 @@ test("config profile requires a tag before saving", async ({ page }) => {
   expect(localProfiles).toEqual({});
 });
 
+test("config profile prevents duplicate netbox url and tag", async ({ page }) => {
+  let webhookRequests = 0;
+  await page.route("**/webhook?**", async (route) => {
+    webhookRequests += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+
+  await openAdmin(page, {});
+  await page.evaluate(() => {
+    localStorage.setItem("config_profiles", JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com/",
+        token: "secret",
+        tag: "Prod",
+      },
+    }));
+    localStorage.setItem("current_config_profile", "production");
+  });
+  await page.reload();
+
+  await page.locator("#config_name").fill("staging");
+  await page.locator("#netbox").fill("https://NETBOX.example.com");
+  await page.locator("#token").fill("secret");
+  await page.locator("#tag").fill("prod");
+  await page.locator("#submitBtn").click();
+
+  await expect(page.locator("#notif")).toContainText('Profile "production" already uses this NetBox URL and tag');
+  expect(webhookRequests).toBe(0);
+  const localProfiles = await page.evaluate(() => JSON.parse(localStorage.getItem("config_profiles") || "{}"));
+  expect(localProfiles.staging).toBeUndefined();
+
+  await page.locator("#config_name").fill("");
+  await page.locator("#config_profile").selectOption("production");
+  await page.locator("#domain").fill("apps.example.com");
+  await page.locator("#submitBtn").click();
+  await expect(page.locator("#notif")).toContainText('Config "production" saved');
+  expect(webhookRequests).toBe(1);
+});
+
 test("config profile warns when local profile is not synced to server", async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("config_profiles", JSON.stringify({

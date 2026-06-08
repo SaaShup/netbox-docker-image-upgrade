@@ -854,6 +854,22 @@ function currentProfileFieldValues() {
   };
 }
 
+function normalizedProfileNetBoxUrl(value) {
+  return String(value || "").trim().replace(/\/+$/, "").toLowerCase();
+}
+
+function duplicateProfileScopeName(profileName, netbox, tag) {
+  const normalizedNetbox = normalizedProfileNetBoxUrl(netbox);
+  const normalizedTag = String(tag || "").trim().toLowerCase();
+  if (!normalizedNetbox || !normalizedTag) return "";
+
+  return Object.entries(configProfiles).find(([name, profile]) => (
+    name !== profileName
+    && normalizedProfileNetBoxUrl(profile.netbox) === normalizedNetbox
+    && String(profile.tag || "").trim().toLowerCase() === normalizedTag
+  ))?.[0] || "";
+}
+
 function profileSyncState(name = currentConfigProfile) {
   if (!name || !configProfiles[name]) return { status: "none", message: "" };
   const localSource = currentAction === "config" && name === currentConfigProfile
@@ -4448,6 +4464,12 @@ async function saveConfig() {
 
   if (!tag) {
     setNotice("Tag is required", "error");
+    return;
+  }
+
+  const duplicateProfile = duplicateProfileScopeName(profile, netbox, tag);
+  if (duplicateProfile) {
+    setNotice(`Profile "${profileLabel(duplicateProfile)}" already uses this NetBox URL and tag`, "error");
     return;
   }
 
