@@ -4509,10 +4509,17 @@ async function testEmail() {
       data = { detail: text };
     }
 
-    if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+    if (!response.ok) {
+      const detail = typeof data?.detail === "string" ? data.detail : String(text || `HTTP ${response.status}`);
+      throw new Error(detail || `HTTP ${response.status}`);
+    }
     setNotice("Test email sent", "success");
   } catch (error) {
-    setNotice(`Test email failed: ${String(error.message || "request error").slice(0, 160)}`, "error", false);
+    const msg = String(error.message || "request error");
+    const hint = msg.includes("origin_bad_gateway")
+      ? "Cloudflare returned origin_bad_gateway. This usually means the app could not complete the SMTP request." 
+      : msg;
+    setNotice(`Test email failed: ${hint.slice(0, 180)}`, "error", false);
   } finally {
     testEmailBtn.disabled = false;
   }
