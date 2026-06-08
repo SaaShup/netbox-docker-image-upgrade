@@ -54,6 +54,7 @@ const profileHelpBody = document.getElementById("profileHelpBody");
 const profileHelpCloseBtn = document.getElementById("profileHelpCloseBtn");
 const profileHelpOkBtn = document.getElementById("profileHelpOkBtn");
 const formTitle = document.getElementById("form-title");
+const formTitleBadge = document.getElementById("formTitleBadge");
 const formDescription = document.getElementById("form-description");
 const tokenToggle = document.getElementById("tokenToggle");
 const registryWebhookSecretInput = document.getElementById("registry_webhook_secret");
@@ -1055,6 +1056,7 @@ function updateTemplateOptions(selected = "") {
   });
 
   syncTemplateActions();
+  updateFormTitleBadge();
 }
 
 function updateWorkflowOptions(selected = workflowSelect?.value || "") {
@@ -1416,6 +1418,24 @@ function updateProfileOptions() {
   configProfileSelect.value = currentConfigProfile;
   updateReportProfileOptions();
   updateConfigDefaultControl();
+  updateFormTitleBadge();
+}
+
+function updateFormTitleBadge(actionName = currentAction) {
+  if (!formTitleBadge) return;
+
+  const isConfig = actionName === "config";
+  const isTemplate = actionName === "template";
+  formTitleBadge.classList.toggle("hidden", !isConfig && !isTemplate);
+  if (!isConfig && !isTemplate) return;
+
+  const count = isConfig ? knownProfileNames().length : Object.keys(createTemplates).length;
+  const label = isConfig
+    ? `${count} config profile${count === 1 ? "" : "s"}`
+    : `${count} template${count === 1 ? "" : "s"}`;
+  formTitleBadge.textContent = String(count);
+  formTitleBadge.title = label;
+  formTitleBadge.setAttribute("aria-label", label);
 }
 
 function updateReportProfileOptions() {
@@ -2472,6 +2492,7 @@ function setAction(actionName) {
   form.classList.toggle("delete-form", actionName === "delete");
 
   if (formTitle) formTitle.textContent = config.title;
+  updateFormTitleBadge(actionName);
   if (formDescription) formDescription.textContent = config.description;
   submitBtn.textContent = config.submitLabel;
   submitBtn.className = config.buttonClass;

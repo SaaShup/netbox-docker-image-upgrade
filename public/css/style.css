@@ -489,6 +489,33 @@ h2 {
   gap: 12px;
 }
 
+.card-heading-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+}
+
+.count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--button-soft);
+  color: var(--button-soft-text);
+  font-size: 0.78rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.count-badge.hidden {
+  display: none;
+}
+
 .workflow-actions {
   display: flex;
   flex-wrap: wrap;

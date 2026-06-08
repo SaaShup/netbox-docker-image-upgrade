@@ -111,6 +111,8 @@ test("config tab starts without a forced default profile", async ({ page }) => {
   await openAdmin(page, {});
 
   await expect(page.locator("#form-title")).toHaveText("Config");
+  await expect(page.locator("#formTitleBadge")).toHaveText("0");
+  await expect(page.locator("#formTitleBadge")).toHaveAttribute("aria-label", "0 config profiles");
   await expect(page.locator("#config_profile")).toHaveValue("");
   await expect(page.locator("#config_profile option")).toHaveText("No config saved");
   await expect(page.locator("#profileSyncWarning")).toBeHidden();
@@ -1474,6 +1476,8 @@ test("create import can save docker compose services as templates", async ({ pag
   await expect(page.locator("#dockerRunModal")).toBeHidden();
   await expect(page.locator("#notif")).toContainText("2 compose templates imported");
   await expect(page.locator("#templateSelect option")).toContainText(["Select template", "web", "worker"]);
+  await expect(page.locator("#formTitleBadge")).toHaveText("2");
+  await expect(page.locator("#formTitleBadge")).toHaveAttribute("aria-label", "2 templates");
   await expect(page.locator("[data-field='saashup_enabled']")).toHaveCount(0);
 
   const templates = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")));
