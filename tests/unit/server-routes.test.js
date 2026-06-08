@@ -37,6 +37,7 @@ async function loadServer({
   publicApiAllowedOrigins = "",
   publicApiSecret = "",
   recreateDelayMs = "0",
+  enrollBlockedImages = "",
   turnstileSecretKey = "",
 } = {}) {
   const dataPath = fs.mkdtempSync(path.join(os.tmpdir(), "saashup-test-"));
@@ -49,6 +50,8 @@ async function loadServer({
   process.env.CREATE_RECREATE_DELAY_MS = recreateDelayMs;
   if (registrySecret) process.env.REGISTRY_WEBHOOK_SECRET = registrySecret;
   else delete process.env.REGISTRY_WEBHOOK_SECRET;
+  if (enrollBlockedImages) process.env.SAASHUP_ENROLL_BLOCKED_IMAGES = enrollBlockedImages;
+  else delete process.env.SAASHUP_ENROLL_BLOCKED_IMAGES;
   if (ownerEmail) process.env.APP_OWNER_EMAIL = ownerEmail;
   else delete process.env.APP_OWNER_EMAIL;
   if (adminEmails) process.env.ADMIN_ALLOWED_EMAILS = adminEmails;
@@ -2056,6 +2059,74 @@ describe("server routes", () => {
       .expect((res) => {
         expect(res.body).toMatchObject({ used: 1, max: 1, remaining: 0, reached: true, instances: [] });
       });
+  });
+
+  test("rejects duplicate enrolled images from any user before creating a new enrollment", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, { expectTraefikConfig: false });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", max_templates: 3, profile: "prod", config_profile: "prod" },
+      enrollment_counts: {},
+      enrollment_instances: {
+        "other@example.com": {
+          prod: [{ instance: "nginx-existing.example.com", image: "nginx:1.25", version: "1.25", status: "ready" }],
+        },
+      },
+      logs: "",
+    });
+
+    await request.post("/create")
+      .set("x-auth-request-email", "buyer@example.com")
+      .send({
+        instance: "nginx-new.example.com",
+        image: "nginx:1.26",
+        version: "1.26",
+        port_value: "8080",
+        enroll_request: "true",
+        profile: "prod",
+      })
+      .expect(409)
+      .expect((res) => {
+        expect(res.body).toMatchObject({
+          code: "template_already_enrolled",
+          image: "nginx",
+          existing_template: "nginx-existing.example.com",
+        });
+      });
+
+    expect(parsedFetchCalls(fetchMock).some((call) => call.method === "POST" && call.url.pathname === "/api/plugins/docker/containers/")).toBe(false);
+  });
+
+  test("rejects configured not-enrollable images", async () => {
+    const { dataPath, fetchMock, request } = await loadServer({ enrollBlockedImages: "traefik,netbox-docker-agent" });
+    setupNetBoxFetch(fetchMock, { expectTraefikConfig: false });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", max_templates: 3, profile: "prod", config_profile: "prod" },
+      enrollment_counts: {},
+      enrollment_instances: {},
+      logs: "",
+    });
+
+    await request.post("/create")
+      .set("x-auth-request-email", "buyer@example.com")
+      .send({
+        instance: "agent.example.com",
+        image: "saashup/netbox-docker-agent:v1.24.0",
+        version: "v1.24.0",
+        port_value: "8080",
+        enroll_request: "true",
+        profile: "prod",
+      })
+      .expect(403)
+      .expect((res) => {
+        expect(res.body).toMatchObject({
+          code: "image_not_enrollable",
+          image: "saashup/netbox-docker-agent",
+          blocked_image: "netbox-docker-agent",
+        });
+      });
+
+    expect(parsedFetchCalls(fetchMock).some((call) => call.method === "POST" && call.url.pathname === "/api/plugins/docker/containers/")).toBe(false);
   });
 
   test("enroll limit lists templates created by the user", async () => {
