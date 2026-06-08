@@ -114,6 +114,20 @@ const saveWorkflowBtn = document.getElementById("saveWorkflowBtn");
 const deleteWorkflowBtn = document.getElementById("deleteWorkflowBtn");
 const enrollImportNotice = "Import a Docker run command or compose with a single service.";
 const enrollMultiComposeNotice = "Compose files on enroll must contain a single service.";
+const enrollDockerRunNotices = [
+  "Docker run image and port are required",
+  "Docker run image is required",
+  "Docker run port is required",
+  "Docker run image version is required",
+  "Docker run image version cannot be latest",
+];
+const enrollComposeNotices = [
+  enrollMultiComposeNotice,
+  "Compose services with images are required",
+  "Compose service must expose one port.",
+  "Compose service image version is required",
+  "Compose service image version cannot be latest",
+];
 
 let currentAction = (isOrderPage || isEnrollPage) ? "create" : (localStorage.getItem("current_action") || "config");
 let currentConfigProfile = localStorage.getItem("current_config_profile") || "";
@@ -2733,7 +2747,7 @@ function validateEnrollComposeText(composeText, { notify = true } = {}) {
   if (!composeText.trim()) {
     if (notify) {
       const notice = document.getElementById("notif");
-      if ([enrollMultiComposeNotice, "Compose services with images are required", "Compose service must expose one port."].includes(notice?.textContent || "")) {
+      if (enrollComposeNotices.includes(notice?.textContent || "")) {
         setNotice(enrollImportNotice, "info", false);
       }
     }
@@ -2751,9 +2765,19 @@ function validateEnrollComposeText(composeText, { notify = true } = {}) {
     return false;
   }
 
+  if (!templates[0].template.version) {
+    if (notify) setNotice("Compose service image version is required", "error", false);
+    return false;
+  }
+
+  if (String(templates[0].template.version).trim().toLowerCase() === "latest") {
+    if (notify) setNotice("Compose service image version cannot be latest", "error", false);
+    return false;
+  }
+
   if (notify) {
     const notice = document.getElementById("notif");
-    if ([enrollMultiComposeNotice, "Compose services with images are required", "Compose service must expose one port."].includes(notice?.textContent || "")) {
+    if (enrollComposeNotices.includes(notice?.textContent || "")) {
       setNotice(enrollImportNotice, "info", false);
     }
   }
@@ -2772,7 +2796,7 @@ function validateEnrollRunText(runText, { notify = true } = {}) {
   if (!runText.trim()) {
     if (notify) {
       const notice = document.getElementById("notif");
-      if ([enrollMultiComposeNotice, "Docker run image and port are required"].includes(notice?.textContent || "")) {
+      if ([enrollMultiComposeNotice, ...enrollDockerRunNotices].includes(notice?.textContent || "")) {
         setNotice(enrollImportNotice, "info", false);
       }
     }
@@ -2780,12 +2804,20 @@ function validateEnrollRunText(runText, { notify = true } = {}) {
   }
 
   const parsed = parseDockerRun(runText);
-  const valid = Boolean(parsed.image && parsed.ports[0]?.value);
+  const invalidVersion = String(parsed.version || "").trim().toLowerCase() === "latest";
+  const valid = Boolean(parsed.image && parsed.ports[0]?.value && parsed.version && !invalidVersion);
   if (!valid && notify) {
-    setNotice("Docker run image and port are required", "error", false);
+    const missingImage = !parsed.image;
+    const missingPort = !parsed.ports[0]?.value;
+    let message = "Docker run image version is required";
+    if (missingImage && missingPort) message = "Docker run image and port are required";
+    else if (missingImage) message = "Docker run image is required";
+    else if (missingPort) message = "Docker run port is required";
+    else if (invalidVersion) message = "Docker run image version cannot be latest";
+    setNotice(message, "error", false);
   } else if (valid && notify) {
     const notice = document.getElementById("notif");
-    if ([enrollMultiComposeNotice, "Docker run image and port are required"].includes(notice?.textContent || "")) {
+    if ([enrollMultiComposeNotice, ...enrollDockerRunNotices].includes(notice?.textContent || "")) {
       setNotice(enrollImportNotice, "info", false);
     }
   }
@@ -4022,9 +4054,16 @@ async function applyDockerComposeFile(text) {
       setNotice("Compose service must expose one port.", "error");
       return false;
     }
+    if (!first.template.version) {
+      setNotice("Compose service image version is required", "error");
+      return false;
+    }
+    if (String(first.template.version).trim().toLowerCase() === "latest") {
+      setNotice("Compose service image version cannot be latest", "error");
+      return false;
+    }
     applyCreateTemplate(first.template);
     if (!fieldValue("network")) syncCreateNetwork();
-    if (!fieldValue("version")) await ensureCreateVersion();
     enrollSetImportedSummary(`Compose service ${first.name} imported`);
     setNotice(`Compose service "${first.name}" imported`, "success");
     return true;

@@ -2097,6 +2097,73 @@ describe("server routes", () => {
     expect(parsedFetchCalls(fetchMock).some((call) => call.method === "POST" && call.url.pathname === "/api/plugins/docker/containers/")).toBe(false);
   });
 
+  test("rejects enrollment creates without an explicit non-latest version", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, { expectTraefikConfig: false });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", max_templates: 3, profile: "prod", config_profile: "prod" },
+      enrollment_counts: {},
+      enrollment_instances: {},
+      logs: "",
+    });
+
+    await request.post("/create")
+      .set("x-auth-request-email", "buyer@example.com")
+      .send({
+        instance: "nginx-missing-version.example.com",
+        image: "nginx",
+        port_value: "8080",
+        enroll_request: "true",
+        profile: "prod",
+      })
+      .expect(400)
+      .expect((res) => {
+        expect(res.body).toMatchObject({
+          code: "image_version_required",
+          image: "nginx",
+        });
+      });
+
+    await request.post("/create")
+      .set("x-auth-request-email", "buyer@example.com")
+      .send({
+        instance: "nginx-latest.example.com",
+        image: "nginx",
+        version: "latest",
+        port_value: "8080",
+        enroll_request: "true",
+        profile: "prod",
+      })
+      .expect(400)
+      .expect((res) => {
+        expect(res.body).toMatchObject({
+          code: "image_version_latest_not_allowed",
+          image: "nginx",
+          version: "latest",
+        });
+      });
+
+    await request.post("/create")
+      .set("x-auth-request-email", "buyer@example.com")
+      .send({
+        instance: "nginx-tag-latest.example.com",
+        image: "nginx:latest",
+        port_value: "8080",
+        enroll_request: "true",
+        profile: "prod",
+      })
+      .expect(400)
+      .expect((res) => {
+        expect(res.body).toMatchObject({
+          code: "image_version_latest_not_allowed",
+          image: "nginx",
+          version: "latest",
+        });
+      });
+
+    expect(parsedFetchCalls(fetchMock).some((call) => call.method === "POST" && call.url.pathname === "/api/plugins/docker/containers/")).toBe(false);
+  });
+
   test("rejects configured not-enrollable images", async () => {
     const { dataPath, fetchMock, request } = await loadServer({ enrollBlockedImages: "traefik,netbox-docker-agent" });
     setupNetBoxFetch(fetchMock, { expectTraefikConfig: false });

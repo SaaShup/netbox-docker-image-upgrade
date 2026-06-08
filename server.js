@@ -225,6 +225,14 @@ function normalizedEnrollImageName(value) {
   return withoutDigest;
 }
 
+function imageTagFromRef(value) {
+  const raw = String(value || "").trim();
+  const withoutDigest = raw.split("@")[0];
+  const slashIndex = withoutDigest.lastIndexOf("/");
+  const colonIndex = withoutDigest.lastIndexOf(":");
+  return colonIndex > slashIndex ? withoutDigest.slice(colonIndex + 1).trim() : "";
+}
+
 function enrollImageTokens(value) {
   const normalized = normalizedEnrollImageName(value);
   if (!normalized) return new Set();
@@ -249,6 +257,16 @@ function enrolledEntriesForProfile(state, profile) {
 async function validateEnrollmentTemplate(req, res, profile = "", data = {}) {
   const image = normalizedEnrollImageName(data.image);
   if (!image) return true;
+
+  const version = String(data.version || imageTagFromRef(data.image) || "").trim();
+  if (!version) {
+    res.status(400).json({ code: "image_version_required", detail: "Enrollment image version is required.", image });
+    return false;
+  }
+  if (version.toLowerCase() === "latest") {
+    res.status(400).json({ code: "image_version_latest_not_allowed", detail: "Enrollment image version cannot be latest.", image, version });
+    return false;
+  }
 
   const blocked = configuredEnrollmentImageBlock(image);
   if (blocked) {

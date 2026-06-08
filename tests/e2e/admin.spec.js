@@ -2387,6 +2387,56 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
   await expect(page.locator("#notif")).toContainText("Creation requested for guide-app.");
 });
 
+test("enroll page reports only missing port when docker run has image", async ({ page }) => {
+  await page.route("**/enroll/limit?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        profile: "production",
+        used: 0,
+        max: 1,
+        remaining: 1,
+        reached: false,
+        instances: [],
+      }),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "production",
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "example.com",
+        tag: "production",
+        enrollment_limit: 1,
+        saashup_default: true,
+      },
+    }),
+  }, {}, [], undefined, "/enroll.html");
+
+  const commandBase = "docker run --name some-nginx -v /some/content:/usr/share/nginx/html:ro -d";
+  const command = `${commandBase} nginx`;
+  await expect.poll(() => page.evaluate((value) => window.parseDockerRun(value).image, command)).toBe("nginx");
+  await page.locator("#dockerRunInput").fill(command);
+  await expect(page.locator("#submitBtn")).toBeDisabled();
+  await expect(page.locator("#notif")).toHaveText("Docker run port is required");
+
+  await page.locator("#dockerRunInput").fill(`${commandBase} -p 8080:80 nginx`);
+  await expect(page.locator("#submitBtn")).toBeDisabled();
+  await expect(page.locator("#notif")).toHaveText("Docker run image version is required");
+
+  await page.locator("#dockerRunInput").fill(`${commandBase} -p 8080:80 nginx:latest`);
+  await expect(page.locator("#submitBtn")).toBeDisabled();
+  await expect(page.locator("#notif")).toHaveText("Docker run image version cannot be latest");
+
+  await page.locator("#dockerRunInput").fill(`${commandBase} -p 8080:80 nginx:1.27`);
+  await expect(page.locator("#submitBtn")).toBeEnabled();
+});
+
 test("enroll page waits for limit before showing create panel or cards", async ({ page }) => {
   let resolveLimit;
   const limitPending = new Promise((resolve) => {
@@ -2691,6 +2741,26 @@ test("enroll page blocks docker compose files with multiple services", async ({ 
     "    image: saashup/worker:v1.0.0",
   ].join("\n"));
   await expect(page.locator("#notif")).toContainText("Compose files on enroll must contain a single service.");
+  await expect(page.locator("#submitBtn")).toBeDisabled();
+
+  await page.locator("#dockerComposeInput").fill([
+    "services:",
+    "  web:",
+    "    image: saashup/web",
+    "    ports:",
+    "      - \"8080:3000\"",
+  ].join("\n"));
+  await expect(page.locator("#notif")).toContainText("Compose service image version is required");
+  await expect(page.locator("#submitBtn")).toBeDisabled();
+
+  await page.locator("#dockerComposeInput").fill([
+    "services:",
+    "  web:",
+    "    image: saashup/web:latest",
+    "    ports:",
+    "      - \"8080:3000\"",
+  ].join("\n"));
+  await expect(page.locator("#notif")).toContainText("Compose service image version cannot be latest");
   await expect(page.locator("#submitBtn")).toBeDisabled();
 
   await page.locator("#dockerComposeInput").fill([
