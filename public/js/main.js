@@ -61,6 +61,8 @@ const registryWebhookSecretToggle = document.getElementById("registryWebhookSecr
 const smtpConfigToggle = document.getElementById("smtpConfigToggle");
 const envList = document.getElementById("envList");
 const addEnvBtn = document.getElementById("addEnvBtn");
+const loggingList = document.getElementById("loggingList");
+const addLoggingBtn = document.getElementById("addLoggingBtn");
 const labelList = document.getElementById("labelList");
 const addLabelBtn = document.getElementById("addLabelBtn");
 const portList = document.getElementById("portList");
@@ -123,6 +125,9 @@ let logsPollFailed = false;
 let createTemplates = {};
 let createWorkflows = {};
 let workflowStepStatuses = {};
+let workflowDragIndex = null;
+let workflowPointerDrag = null;
+let workflowMouseDrag = null;
 let generatedCreateInstanceName = "";
 let generatedCreateDnsName = "";
 let orderInstanceCards = [];
@@ -140,6 +145,11 @@ let currentImportTab = "run";
 let templateVersionOverride = "";
 let templateNetworkOverride = "";
 const logsPollFailureNotice = "Activity logs unavailable: network error";
+const defaultLogDriver = "syslog";
+const defaultLogDriverOptions = {
+  "syslog-address": "udp://127.0.0.1:5514",
+  tag: "{{.Name}}",
+};
 const sidebarCollapsedStorageKey = "sidebar_collapsed";
 
 const profileFieldHelp = {
@@ -296,7 +306,7 @@ const actions = {
     description: "Create and manage reusable instance templates.",
     submitLabel: "Create instance",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "network", "traefik", "template_url", "max_instances", "registry_webhook_secret", "image", "version", "env_vars", "labels", "ports", "volumes", "binds"],
+    fields: ["config_profile", "network", "traefik", "logging", "template_url", "max_instances", "registry_webhook_secret", "image", "version", "env_vars", "labels", "ports", "volumes", "binds"],
   },
   workflow: {
     endpoint: "",
@@ -377,6 +387,7 @@ const allFieldNames = [
   "config_name",
   "network",
   "traefik",
+  "logging",
   "all_hosts",
   "saashup_enabled",
   "template_url",
@@ -1108,6 +1119,56 @@ function persistSelectedWorkflow() {
   localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
 }
 
+function clearWorkflowDragState() {
+  workflowDragIndex = null;
+  workflowPointerDrag = null;
+  workflowMouseDrag = null;
+  workflowTableBody?.querySelectorAll(".workflow-step-dragging, .workflow-step-drop-target").forEach((row) => {
+    row.classList.remove("workflow-step-dragging", "workflow-step-drop-target");
+  });
+}
+
+function workflowStepRowAtPoint(clientX, clientY) {
+  const element = document.elementFromPoint(clientX, clientY);
+  return element instanceof Element ? element.closest("[data-workflow-step-index]") : null;
+}
+
+function markWorkflowDropTarget(row) {
+  workflowTableBody?.querySelectorAll(".workflow-step-drop-target").forEach((item) => item.classList.remove("workflow-step-drop-target"));
+  if (!(row instanceof HTMLElement) || workflowDragIndex === null) return;
+  row.classList.toggle("workflow-step-drop-target", Number(row.dataset.workflowStepIndex) !== workflowDragIndex);
+}
+
+async function moveWorkflowStep(fromIndex, toIndex) {
+  const key = selectedWorkflowKey();
+  const workflow = selectedWorkflow();
+  const steps = Array.isArray(workflow?.steps) ? workflow.steps : [];
+  if (!key || !workflow || fromIndex === toIndex || !steps[fromIndex] || !steps[toIndex]) return;
+
+  const previousSteps = [...steps];
+  const [movedStep] = steps.splice(fromIndex, 1);
+  steps.splice(toIndex, 0, movedStep);
+  workflow.steps = steps;
+  workflowStepStatuses = {};
+  persistSelectedWorkflow();
+  renderWorkflow();
+
+  try {
+    const savedCatalog = templateCatalogFromPayload(await persistCreateTemplates());
+    createTemplates = savedCatalog.templates;
+    createWorkflows = savedCatalog.workflows;
+    localStorage.setItem("create_templates", JSON.stringify(createTemplates));
+    localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
+    updateWorkflowOptions(key);
+    setNotice("Workflow order saved", "success");
+  } catch {
+    createWorkflows[key] = { ...workflow, steps: previousSteps };
+    localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
+    updateWorkflowOptions(key);
+    setNotice("Workflow order save failed", "error");
+  }
+}
+
 function workflowStepStatusIcon(status = "pending") {
   const normalized = ["pending", "running", "done", "failed"].includes(status) ? status : "pending";
   const labels = {
@@ -1132,12 +1193,12 @@ function renderWorkflow() {
   const steps = Array.isArray(workflow?.steps) ? workflow.steps : [];
   const enabledSteps = steps.filter(workflowStepEnabled);
   const profile = workflowProfile(workflow);
-  const action = workflowActionSelect?.value === "delete" ? "delete" : "create";
+  const action = workflowAction();
   workflowSummary.textContent = workflow
     ? `${enabledSteps.length}/${steps.length} enabled - ${action}${profile ? ` - ${profileLabel(profile)}` : ""}`
     : "No workflow selected";
   if (runWorkflowBtn) runWorkflowBtn.disabled = !enabledSteps.length;
-  if (runWorkflowBtn) runWorkflowBtn.textContent = action === "delete" ? "Run delete" : "Run create";
+  if (runWorkflowBtn) runWorkflowBtn.textContent = `Run ${action}`;
   if (deleteWorkflowBtn) deleteWorkflowBtn.disabled = !workflow;
   workflowDeleteVolumesField?.classList.toggle("hidden", action !== "delete");
 
@@ -1152,13 +1213,14 @@ function renderWorkflow() {
     const enabled = workflowStepEnabled(step);
     const status = workflowStepStatuses[index] || "pending";
     const row = document.createElement("tr");
+    row.dataset.workflowStepIndex = String(index);
     row.dataset.workflowStepStatus = status;
     row.classList.toggle("workflow-step-disabled", !enabled);
     row.innerHTML = `
+      <td><button type="button" class="icon-btn workflow-step-drag" data-workflow-step-drag="${index}" title="Drag to reorder ${escapeHtml(templateName || "workflow step")}" aria-label="Drag to reorder ${escapeHtml(templateName || "workflow step")}">↕</button></td>
       <td>${workflowStepStatusIcon(status)}</td>
       <td><input type="checkbox" data-workflow-step-enabled="${index}" aria-label="Enable ${escapeHtml(templateName || "workflow step")}" ${enabled ? "checked" : ""}></td>
       <td>${escapeHtml(templateName || "")}</td>
-      <td>${escapeHtml(template.instance || "")}</td>
       <td>${escapeHtml(template.image || "")}:${escapeHtml(template.version || "")}</td>
       <td><button type="button" class="icon-btn icon-btn-danger workflow-step-delete" data-workflow-step-delete="${index}" title="Remove ${escapeHtml(templateName || "workflow step")}" aria-label="Remove ${escapeHtml(templateName || "workflow step")}">×</button></td>
     `;
@@ -1738,6 +1800,47 @@ function updateBindRemoveButtons() {
     const button = row.querySelector(".repeat-remove");
     if (button) button.disabled = false;
   });
+}
+
+function loggingRow() {
+  return loggingList?.querySelector(".logging-row") || null;
+}
+
+function isLoggingVisible() {
+  return Boolean(loggingRow() && !loggingRow().classList.contains("hidden"));
+}
+
+function syncLoggingControls() {
+  const row = loggingRow();
+  const wrapper = loggingList?.closest("[data-field]");
+  const fieldVisible = Boolean(wrapper && !wrapper.classList.contains("hidden"));
+  const rowVisible = Boolean(row && !row.classList.contains("hidden"));
+
+  row?.querySelectorAll("input, button").forEach((control) => {
+    control.disabled = !fieldVisible || !rowVisible;
+  });
+  if (addLoggingBtn) addLoggingBtn.disabled = !fieldVisible || rowVisible;
+}
+
+function setLoggingRow(template = null) {
+  const row = loggingRow();
+  if (!row) return;
+
+  const enabled = Boolean(template);
+  row.classList.toggle("hidden", !enabled);
+
+  if (enabled) {
+    const options = normalizeLogDriverOptions(template.log_driver_options || template.log_options || template.logging_options);
+    setFieldValue("log_driver", Object.hasOwn(template, "log_driver") ? template.log_driver : defaultLogDriver);
+    setFieldValue("log_syslog_address", options["syslog-address"]);
+    setFieldValue("log_syslog_tag", options.tag);
+  } else {
+    setFieldValue("log_driver", "");
+    setFieldValue("log_syslog_address", "");
+    setFieldValue("log_syslog_tag", "");
+  }
+
+  syncLoggingControls();
 }
 
 function addEnvRow(key = "", value = "") {
@@ -2414,6 +2517,7 @@ function setAction(actionName) {
       control.disabled = !visible;
     });
   });
+  syncLoggingControls();
 
   if (refreshInstancesBtn && visibleFields.has("instance") && !isCreateFormAction(actionName)) {
     refreshInstancesBtn.disabled = false;
@@ -2502,6 +2606,7 @@ function clearActionFields() {
   clearPortRows();
   clearVolumeRows();
   clearBindRows();
+  setLoggingRow({ log_driver: defaultLogDriver, log_driver_options: defaultLogDriverOptions });
   syncCreateNetwork();
   syncCreateVersion();
   ensureRandomCreateInstanceName();
@@ -2876,6 +2981,11 @@ function parseDockerRun(command) {
       parsed.instance = readValue();
     } else if (option === "--network" || option === "--net") {
       parsed.network = readValue();
+    } else if (option === "--log-driver") {
+      parsed.log_driver = readValue();
+    } else if (option === "--log-opt") {
+      const [key, value] = splitOptionValue(readValue());
+      if (key) parsed.log_driver_options = { ...plainObject(parsed.log_driver_options), [key]: value };
     } else if (option === "-e" || option === "--env") {
       const [key, value] = splitOptionValue(readValue());
       if (key) parsed.env.push({ key, value });
@@ -3049,12 +3159,26 @@ function applySaashupTemplateLabels(template) {
   return template;
 }
 
+function normalizeLogDriverOptions(options = {}, fallback = defaultLogDriverOptions) {
+  const data = plainObject(options);
+  return {
+    ...fallback,
+    ...Object.fromEntries(Object.entries(data).map(([key, value]) => [key, String(value ?? "")])),
+  };
+}
+
+function templateLogDriverOptions(template = {}) {
+  return normalizeLogDriverOptions(template.log_driver_options || template.log_options || template.logging_options);
+}
+
 function normalizeCreateTemplate(template) {
   const normalized = { ...plainObject(template) };
   normalized.labels = Array.isArray(normalized.labels) ? normalized.labels.map((label) => ({ ...plainObject(label) })) : [];
   normalized.saashup_enabled = checkboxValue(normalized.saashup_enabled, true);
   normalized.template_url = String(normalized.template_url || normalized.saashup_template_url || "").trim();
   normalized.max_instances = templateMaxInstancesValue(normalized);
+  normalized.log_driver = String(Object.hasOwn(normalized, "log_driver") ? normalized.log_driver : defaultLogDriver).trim();
+  normalized.log_driver_options = normalized.log_driver ? templateLogDriverOptions(normalized) : {};
   return applySaashupTemplateLabels(normalized);
 }
 
@@ -3088,6 +3212,10 @@ function templateLooksLikeTemplate(template) {
     "version",
     "max_instances",
     "network",
+    "log_driver",
+    "log_driver_options",
+    "log_options",
+    "logging_options",
     "ports",
     "labels",
     "env",
@@ -3236,6 +3364,37 @@ function splitComposeMounts(inlineValue, blockLines) {
   };
 }
 
+function parseComposeLogging(blockLines) {
+  const logging = { log_driver_options: {} };
+  let optionsIndent = null;
+
+  blockLines.forEach(({ indent, text }) => {
+    const line = stripYamlComment(text).trim();
+    if (!line) return;
+
+    const match = line.match(/^([A-Za-z0-9_.-]+):\s*(.*)$/);
+    if (!match) return;
+    const [, key, value] = match;
+
+    if (key === "driver") {
+      logging.log_driver = yamlScalar(value);
+      return;
+    }
+
+    if (key === "options") {
+      optionsIndent = indent;
+      return;
+    }
+
+    if (optionsIndent !== null && indent > optionsIndent) {
+      logging.log_driver_options[key] = yamlScalar(value);
+    }
+  });
+
+  if (!Object.keys(logging.log_driver_options).length) delete logging.log_driver_options;
+  return logging;
+}
+
 function parseComposeService(lines, serviceIndent, profileName = selectedProfileCredentials().profile) {
   const template = {
     config_profile: profileName,
@@ -3284,6 +3443,8 @@ function parseComposeService(lines, serviceIndent, profileName = selectedProfile
       const mounts = splitComposeMounts(inlineValue, blockLines);
       template.volumes = mounts.volumes;
       template.binds = mounts.binds;
+    } else if (key === "logging") {
+      Object.assign(template, parseComposeLogging(blockLines));
     }
   }
 
@@ -3481,6 +3642,7 @@ function prepareBindReadOnlyForFormData() {
 function currentCreateTemplate() {
   const credentials = selectedProfileCredentials();
   const existingTemplate = createTemplates[selectedTemplateName()] || {};
+  const logDriver = isLoggingVisible() ? fieldValue("log_driver").trim() : "";
 
   return {
     config_profile: credentials.profile,
@@ -3493,6 +3655,11 @@ function currentCreateTemplate() {
     max_instances: normalizeMaxInstances(fieldValue("max_instances")),
     registry_webhook_secret: registryWebhookSecretValue(),
     network: fieldValue("network"),
+    log_driver: logDriver,
+    log_driver_options: logDriver ? normalizeLogDriverOptions({
+      "syslog-address": fieldValue("log_syslog_address").trim() || defaultLogDriverOptions["syslog-address"],
+      tag: fieldValue("log_syslog_tag").trim() || defaultLogDriverOptions.tag,
+    }) : {},
     image: fieldValue("image"),
     version: fieldValue("version") || existingTemplate.version,
     ...(templateCreatorEmailWrap && !templateCreatorEmailWrap.classList.contains("hidden") && !templateCreatorEmail?.disabled
@@ -3524,6 +3691,7 @@ function applyCreateTemplate(template) {
 
   setFieldValue("network", template.network || fieldValue("network"));
   setFieldValue("traefik", template.traefik ?? true);
+  setLoggingRow(template.log_driver ? template : null);
   setFieldValue("all_hosts", template.all_hosts ?? false);
   setFieldValue("saashup_enabled", template.saashup_enabled ?? true);
   setFieldValue("template_url", template.template_url || "");
@@ -3980,6 +4148,7 @@ async function applyDockerRunCommand() {
   setFieldValue("image", parsed.image);
   syncCreateVersion();
   if (parsed.version) setFieldValue("version", parsed.version);
+  setLoggingRow(parsed.log_driver ? parsed : { log_driver: defaultLogDriver, log_driver_options: defaultLogDriverOptions });
 
   setRepeatRows(parsed.env, clearEnvRows, addEnvRow, { key: "var_env_key", value: "var_env_value" });
   setRepeatRows(parsed.labels, clearLabelRows, addLabelRow, { key: "label_key", value: "label_value" });
@@ -4401,6 +4570,10 @@ function workflowCreateBody(template, templateName) {
     version: template.version || "",
     cloudflare_filter: credentials.cloudflare_filter ? "true" : "false",
   });
+  if (template.log_driver) {
+    body.set("log_driver", template.log_driver);
+    body.set("log_driver_options", JSON.stringify(templateLogDriverOptions(template)));
+  }
 
   appendWorkflowPairs(body, template.env || [], "var_env_key", "var_env_value", ["key", "var_name", "name"], ["value"]);
   appendWorkflowPairs(body, template.labels || [], "label_key", "label_value", ["key"], ["value"]);
@@ -4431,12 +4604,16 @@ function appendCreateTemplateBody(body, template, templateName = "") {
   const instanceName = String(body.get("instance") || template.instance || templateName || "").trim();
   const versionOverride = String(body.get("version") || "").trim();
   const templateKeys = [
-    "network", "traefik", "saashup_enabled", "template_url", "max_instances", "registry_webhook_secret",
+    "network", "log_driver", "log_driver_options", "log_syslog_address", "log_syslog_tag", "traefik", "saashup_enabled", "template_url", "max_instances", "registry_webhook_secret",
     "image", "version", "var_env_key", "var_env_value", "label_key", "label_value", "port_value",
     "volume_source", "volume_name", "bind_host_path", "bind_container_path", "bind_read_only",
   ];
   clearBodyKeys(body, templateKeys);
   body.set("network", template.network || "");
+  if (template.log_driver) {
+    body.set("log_driver", template.log_driver);
+    body.set("log_driver_options", JSON.stringify(templateLogDriverOptions(template)));
+  }
   body.set("traefik", template.traefik === false ? "false" : "true");
   body.set("saashup_enabled", template.saashup_enabled === false ? "false" : "true");
   body.set("template_url", template.template_url || "");
@@ -4485,6 +4662,33 @@ function workflowDeleteBody(template, templateName) {
   });
 }
 
+function workflowUpgradeBody(template, templateName) {
+  template = normalizeCreateTemplate(template);
+  const profileName = template.config_profile || template.profile || currentConfigProfile || "";
+  const credentials = profileCredentials(profileName);
+  if (!credentials.netbox || !credentials.token) throw new Error(`Config "${profileLabel(profileName)}" is missing NetBox URL or token`);
+
+  const image = String(template.image || "").trim();
+  if (!image) throw new Error(`Template "${templateName}" is missing an image name for upgrade`);
+  const version = String(template.version || "").trim();
+  if (!version) throw new Error(`Template "${templateName}" is missing a target version for upgrade`);
+
+  return new URLSearchParams({
+    config_profile: profileName,
+    netbox: credentials.netbox,
+    token: credentials.token,
+    proxy: credentials.proxy,
+    domain: credentials.domain,
+    tag: credentials.tag,
+    profile: credentials.profile,
+    image,
+    oldversion: template.oldversion || template.old_version || "",
+    version,
+    clean_name: "false",
+    remove_old_images: "false",
+  });
+}
+
 function workflowPaintFrame() {
   return new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
 }
@@ -4493,9 +4697,38 @@ function workflowMinimumStatusDelay(action) {
   return action === "delete" ? new Promise((resolve) => window.setTimeout(resolve, 350)) : Promise.resolve();
 }
 
+function workflowAction() {
+  return ["create", "upgrade", "delete"].includes(workflowActionSelect?.value) ? workflowActionSelect.value : "create";
+}
+
+function workflowActionEndpoint(action) {
+  if (action === "delete") return "/delete";
+  if (action === "upgrade") return "/recreate";
+  return "/create";
+}
+
+function workflowActionBody(action, template, templateName) {
+  if (action === "delete") return workflowDeleteBody(template, templateName);
+  if (action === "upgrade") return workflowUpgradeBody(template, templateName);
+  return workflowCreateBody(template, templateName);
+}
+
+function workflowActionProgressLabel(action) {
+  if (action === "delete") return "Deleting";
+  if (action === "upgrade") return "Upgrading";
+  return "Running";
+}
+
+function workflowActionNotice(action, workflowName) {
+  const label = workflowOptionLabel(workflowName);
+  if (action === "delete") return `Workflow "${label}" delete requested`;
+  if (action === "upgrade") return `Workflow "${label}" upgrade requested`;
+  return `Workflow "${label}" requested`;
+}
+
 async function runWorkflow() {
   const workflowName = workflowSelect?.value || "";
-  const action = workflowActionSelect?.value === "delete" ? "delete" : "create";
+  const action = workflowAction();
   const workflow = selectedWorkflow();
   const steps = Array.isArray(workflow?.steps) ? workflow.steps : [];
   const enabledSteps = steps.map((step, index) => ({ step, index })).filter(({ step }) => workflowStepEnabled(step));
@@ -4517,16 +4750,17 @@ async function runWorkflow() {
       const templateName = workflowStepName(step);
       const template = workflowStepTemplate(step);
       if (action === "create" && !template.image) throw new Error(`Template "${templateName}" is missing`);
+      if (action === "upgrade" && (!template.image || !template.version)) throw new Error(`Template "${templateName}" is missing image or version for upgrade`);
       if (action === "delete" && !Object.keys(template).length) throw new Error(`Template "${templateName}" is missing`);
 
       workflowStepStatuses[index] = "running";
       renderWorkflow();
-      workflowSummary.textContent = `${action === "delete" ? "Deleting" : "Running"} ${runIndex + 1}/${enabledSteps.length}: ${templateName}`;
+      workflowSummary.textContent = `${workflowActionProgressLabel(action)} ${runIndex + 1}/${enabledSteps.length}: ${templateName}`;
       await workflowPaintFrame();
       const minimumStatusDelay = workflowMinimumStatusDelay(action);
-      const body = action === "delete" ? workflowDeleteBody(template, templateName) : workflowCreateBody(template, templateName);
+      const body = workflowActionBody(action, template, templateName);
       body.set("wait", "true");
-      const response = await fetch(action === "delete" ? "/delete" : "/create", {
+      const response = await fetch(workflowActionEndpoint(action), {
         method: "POST",
         headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
         body: body.toString(),
@@ -4536,7 +4770,7 @@ async function runWorkflow() {
       workflowStepStatuses[index] = "done";
       renderWorkflow();
     }
-    setNotice(action === "delete" ? `Workflow "${workflowOptionLabel(workflowName)}" delete requested` : `Workflow "${workflowOptionLabel(workflowName)}" requested`, "success");
+    setNotice(workflowActionNotice(action, workflowName), "success");
     workflowSummary.textContent = `${enabledSteps.length} ${action} step${enabledSteps.length === 1 ? "" : "s"} requested`;
   } catch (error) {
     const failedIndex = steps.findIndex((_, index) => workflowStepStatuses[index] === "running");
@@ -5049,6 +5283,18 @@ addEnvBtn?.addEventListener("click", () => {
   envRows().at(-1)?.querySelector("input")?.focus();
 });
 
+loggingList?.addEventListener("click", (event) => {
+  const button = event.target.closest(".repeat-remove");
+  if (!button || button.disabled) return;
+
+  setLoggingRow(null);
+});
+
+addLoggingBtn?.addEventListener("click", () => {
+  setLoggingRow({ log_driver: defaultLogDriver, log_driver_options: defaultLogDriverOptions });
+  loggingRow()?.querySelector("input")?.focus();
+});
+
 labelList?.addEventListener("click", (event) => {
   const button = event.target.closest(".repeat-remove");
   if (!button || button.disabled) return;
@@ -5257,6 +5503,102 @@ workflowTableBody?.addEventListener("click", (event) => {
   if (!button) return;
   removeWorkflowStep(Number(button.dataset.workflowStepDelete));
 });
+workflowTableBody?.addEventListener("pointerdown", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const handle = target?.closest("[data-workflow-step-drag]");
+  if (!(handle instanceof HTMLElement) || event.button !== 0) return;
+
+  const row = handle.closest("[data-workflow-step-index]");
+  if (!(row instanceof HTMLElement)) return;
+  event.preventDefault();
+  workflowDragIndex = Number(row.dataset.workflowStepIndex);
+  workflowPointerDrag = { pointerId: event.pointerId, fromIndex: workflowDragIndex };
+  row.classList.add("workflow-step-dragging");
+  handle.setPointerCapture?.(event.pointerId);
+});
+workflowTableBody?.addEventListener("mousedown", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const handle = target?.closest("[data-workflow-step-drag]");
+  if (!(handle instanceof HTMLElement) || event.button !== 0) return;
+
+  const row = handle.closest("[data-workflow-step-index]");
+  if (!(row instanceof HTMLElement)) return;
+  event.preventDefault();
+  workflowDragIndex = Number(row.dataset.workflowStepIndex);
+  workflowMouseDrag = { fromIndex: workflowDragIndex };
+  row.classList.add("workflow-step-dragging");
+});
+document.addEventListener("pointermove", (event) => {
+  if (!workflowPointerDrag || workflowPointerDrag.pointerId !== event.pointerId) return;
+  event.preventDefault();
+  markWorkflowDropTarget(workflowStepRowAtPoint(event.clientX, event.clientY));
+});
+document.addEventListener("pointerup", async (event) => {
+  if (!workflowPointerDrag || workflowPointerDrag.pointerId !== event.pointerId) return;
+  const fromIndex = workflowPointerDrag.fromIndex;
+  const row = workflowStepRowAtPoint(event.clientX, event.clientY);
+  const toIndex = row instanceof HTMLElement ? Number(row.dataset.workflowStepIndex) : fromIndex;
+  clearWorkflowDragState();
+  await moveWorkflowStep(fromIndex, toIndex);
+});
+document.addEventListener("pointercancel", (event) => {
+  if (!workflowPointerDrag || workflowPointerDrag.pointerId !== event.pointerId) return;
+  clearWorkflowDragState();
+});
+document.addEventListener("mousemove", (event) => {
+  if (!workflowMouseDrag) return;
+  event.preventDefault();
+  markWorkflowDropTarget(workflowStepRowAtPoint(event.clientX, event.clientY));
+});
+document.addEventListener("mouseup", async (event) => {
+  if (!workflowMouseDrag) return;
+  const fromIndex = workflowMouseDrag.fromIndex;
+  const row = workflowStepRowAtPoint(event.clientX, event.clientY);
+  const toIndex = row instanceof HTMLElement ? Number(row.dataset.workflowStepIndex) : fromIndex;
+  clearWorkflowDragState();
+  await moveWorkflowStep(fromIndex, toIndex);
+});
+workflowTableBody?.addEventListener("dragstart", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target?.closest("[data-workflow-step-drag]")) {
+    event.preventDefault();
+    return;
+  }
+
+  const row = target.closest("[data-workflow-step-index]");
+  if (!(row instanceof HTMLElement) || !event.dataTransfer) return;
+  workflowDragIndex = Number(row.dataset.workflowStepIndex);
+  row.classList.add("workflow-step-dragging");
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("text/plain", String(workflowDragIndex));
+});
+workflowTableBody?.addEventListener("dragover", (event) => {
+  if (workflowDragIndex === null) return;
+  const target = event.target instanceof Element ? event.target : null;
+  const row = target?.closest("[data-workflow-step-index]");
+  if (!(row instanceof HTMLElement)) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  markWorkflowDropTarget(row);
+});
+workflowTableBody?.addEventListener("dragleave", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const row = target?.closest("[data-workflow-step-index]");
+  if (!row || (event.relatedTarget instanceof Node && row.contains(event.relatedTarget))) return;
+  row.classList.remove("workflow-step-drop-target");
+});
+workflowTableBody?.addEventListener("drop", async (event) => {
+  if (workflowDragIndex === null) return;
+  const target = event.target instanceof Element ? event.target : null;
+  const row = target?.closest("[data-workflow-step-index]");
+  if (!(row instanceof HTMLElement)) return;
+  event.preventDefault();
+  const fromIndex = Number(event.dataTransfer?.getData("text/plain") || workflowDragIndex);
+  const toIndex = Number(row.dataset.workflowStepIndex);
+  clearWorkflowDragState();
+  await moveWorkflowStep(fromIndex, toIndex);
+});
+workflowTableBody?.addEventListener("dragend", clearWorkflowDragState);
 runWorkflowBtn?.addEventListener("click", runWorkflow);
 deleteWorkflowBtn?.addEventListener("click", deleteWorkflow);
 reportViewButtons.forEach((button) => {

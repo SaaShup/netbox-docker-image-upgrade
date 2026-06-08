@@ -971,7 +971,22 @@ describe("server routes", () => {
         expect(res.body.enrollment_limit).toBe(2);
         expect(res.body.registry_webhook_secret).toBeUndefined();
         expect(res.body.smtp_config).toBe("mailer:smtp-secret@smtp.example.com:587");
+        expect(res.body.template_catalog_sync).toMatchObject({ action: "created" });
       });
+    const emptyTemplateCatalogContext = parsedFetchCalls(fetchMock).find((call) => (
+      call.method === "POST"
+      && call.url.pathname === "/api/extras/config-contexts/"
+      && call.body?.data?.saashup_profile === "prod"
+    ));
+    expect(emptyTemplateCatalogContext.body).toMatchObject({
+      is_active: true,
+      data: {
+        saashup_template_catalog: true,
+        saashup_profile: "prod",
+        saashup_templates: {},
+        saashup_workflows: {},
+      },
+    });
     await request.get("/webhook")
       .query({
         customer_name: "CuriooCity",

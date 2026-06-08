@@ -112,7 +112,7 @@ function registerConfigRoutes(app, {
     });
     res.json({});
   });
-  app.get("/webhook", requireAdmin, (req, res) => {
+  app.get("/webhook", requireAdmin, async (req, res) => {
     const profileName = req.query.profile || req.query.config_profile || "";
     const configProfileName = req.query.config_profile || req.query.profile || "";
     const parsedProfiles = profilesWithSingleDefault(parseProfiles(req.query.profiles));
@@ -165,7 +165,20 @@ function registerConfigRoutes(app, {
       state.config = storedConfig;
       return state;
     });
-    res.json(config);
+
+    let templateCatalogSync = null;
+    try {
+      templateCatalogSync = profileName
+        ? await syncTemplatesToNetBoxConfigContext(req, profileName, {}, {})
+        : null;
+    } catch (error) {
+      templateCatalogSync = {
+        action: "failed",
+        detail: error.message || "template catalog sync failed",
+      };
+    }
+
+    res.json(templateCatalogSync ? { ...config, template_catalog_sync: templateCatalogSync } : config);
   });
 
   app.get("/templates", async (req, res) => {

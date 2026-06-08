@@ -402,6 +402,19 @@
                 </div>
                 <button type="button" class="btn btn-secondary repeat-add" id="addBindBtn">+ Add bind</button>
               </div>
+
+              <div class="field repeat-field" data-field="logging">
+                <span>Logging</span>
+                <div class="repeat-list" id="loggingList">
+                  <div class="repeat-row logging-row">
+                    <input type="text" id="log_driver" name="log_driver" value="syslog" placeholder="syslog" aria-label="Log driver">
+                    <input type="text" id="log_syslog_address" name="log_syslog_address" value="udp://127.0.0.1:5514" placeholder="udp://127.0.0.1:5514" aria-label="Syslog address">
+                    <input type="text" id="log_syslog_tag" name="log_syslog_tag" value="{{.Name}}" placeholder="{{.Name}}" aria-label="Syslog tag">
+                    <button type="button" class="icon-btn repeat-remove" id="removeLoggingBtn" aria-label="Remove logging">&times;</button>
+                  </div>
+                </div>
+                <button type="button" class="btn btn-secondary repeat-add" id="addLoggingBtn">+ Add logging</button>
+              </div>
             </div>
 
             <div class="form-actions">
@@ -472,6 +485,7 @@
               <span>Action</span>
               <select id="workflowActionSelect" aria-label="Workflow action">
                 <option value="create" selected>Create</option>
+                <option value="upgrade">Upgrade</option>
                 <option value="delete">Delete</option>
               </select>
             </label>
@@ -490,10 +504,10 @@
             <table class="report-table">
               <thead>
                 <tr>
+                  <th>Order</th>
                   <th>Status</th>
                   <th>Enabled</th>
                   <th>Template</th>
-                  <th>Instance</th>
                   <th>Image</th>
                   <th>Actions</th>
                 </tr>

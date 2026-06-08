@@ -1179,6 +1179,8 @@ test("create form requires an fqdn DNS name when Traefik is enabled", async ({ p
       config_profile: "production",
       network: "traefik-net",
       traefik: true,
+      log_driver: "syslog",
+      log_driver_options: { "syslog-address": "udp://127.0.0.1:5514", tag: "{{.Name}}" },
       image: "saashup/guide",
       version: "v1.0.0",
       ports: [{ value: "3000" }],
@@ -1199,6 +1201,8 @@ test("create form requires an fqdn DNS name when Traefik is enabled", async ({ p
   await expect.poll(() => createBody).toContain("instance=guide-app");
   expect(createBody).toContain("dns_name=guide-app.example.com");
   expect(createBody).toContain("traefik=true");
+  expect(createBody).toContain("log_driver=syslog");
+  expect(createBody).toContain("log_driver_options=%7B%22syslog-address%22%3A%22udp%3A%2F%2F127.0.0.1%3A5514%22%2C%22tag%22%3A%22%7B%7B.Name%7D%7D%22%7D");
 });
 
 test("create form appends the configured domain to short instance names", async ({ page }) => {
@@ -1317,6 +1321,7 @@ test("create form can import a docker run command", async ({ page }) => {
 
   await page.locator("#dockerRunInput").fill([
     "docker run -d --name guide-app --network mgmt",
+    "--log-driver=syslog --log-opt syslog-address=udp://127.0.0.1:5514 --log-opt tag=\"{{.Name}}\"",
     "-e APP_ENV=production -e saashup_template_url=https://templates.example.com/guide --label traefik.enable=true -p 8080:3000",
     "-v guide-data:/app/data -v /var/run/docker.sock:/var/run/docker.sock:ro saashup/guide:v1.2.3",
   ].join(" "));
@@ -1328,6 +1333,15 @@ test("create form can import a docker run command", async ({ page }) => {
   expect(instanceRequestCount).toBe(requestsBeforeImport);
   await expect(page.locator("#image")).toHaveValue("saashup/guide");
   await expect(page.locator("#version")).toHaveValue("v1.2.3");
+  await expect(page.locator("#log_driver")).toHaveValue("syslog");
+  await expect(page.locator("#log_syslog_address")).toHaveValue("udp://127.0.0.1:5514");
+  await expect(page.locator("#log_syslog_tag")).toHaveValue("{{.Name}}");
+  await expect(page.locator("#loggingList .logging-row")).toBeVisible();
+  await page.locator("#removeLoggingBtn").click();
+  await expect(page.locator("#loggingList .logging-row")).toBeHidden();
+  await page.locator("#addLoggingBtn").click();
+  await expect(page.locator("#loggingList .logging-row")).toBeVisible();
+  await expect(page.locator("#log_driver")).toHaveValue("syslog");
   await expect(page.locator("#template_url")).toHaveValue("https://templates.example.com/guide");
   await expect(page.locator("#var_env_key")).toHaveValue("APP_ENV");
   await expect(page.locator("#var_env_value")).toHaveValue("production");
@@ -1339,10 +1353,23 @@ test("create form can import a docker run command", async ({ page }) => {
   await expect(page.locator("#bind_host_path")).toHaveValue("/var/run/docker.sock");
   await expect(page.locator("#bind_container_path")).toHaveValue("/var/run/docker.sock");
   await expect(page.locator("#bind_read_only")).toBeChecked();
+
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toBe("Template name");
+    await dialog.accept("guide");
+  });
+  await page.locator("#saveTemplateBtn").click();
+  await expect(page.locator("#notif")).toContainText('Template "guide" saved');
+  const templates = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")));
+  expect(templates.guide).toMatchObject({
+    log_driver: "syslog",
+    log_driver_options: { "syslog-address": "udp://127.0.0.1:5514", tag: "{{.Name}}" },
+  });
 });
 
 test("create import can save docker compose services as templates", async ({ page }) => {
   const createBodies = [];
+  const recreateBodies = [];
   const deleteBodies = [];
 
   await page.route("**/images?**", async (route) => {
@@ -1364,6 +1391,14 @@ test("create import can save docker compose services as templates", async ({ pag
   });
   await page.route("**/delete", async (route) => {
     deleteBodies.push(route.request().postData() || "");
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+  await page.route("**/recreate", async (route) => {
+    recreateBodies.push(route.request().postData() || "");
     await route.fulfill({
       status: 202,
       contentType: "application/json",
@@ -1417,6 +1452,11 @@ test("create import can save docker compose services as templates", async ({ pag
     "    volumes:",
     "      - web-data:/app/data",
     "      - /var/run/docker.sock:/var/run/docker.sock:ro",
+    "    logging:",
+    "      driver: syslog",
+    "      options:",
+    "        syslog-address: udp://127.0.0.1:5514",
+    "        tag: \"{{.Name}}\"",
     "  worker:",
     "    container_name: worker",
     "    image: saashup/worker:latest",
@@ -1461,6 +1501,8 @@ test("create import can save docker compose services as templates", async ({ pag
     ports: [{ value: "3000" }],
     volumes: [{ name: "web-data", source: "/app/data" }],
     binds: [{ host_path: "/var/run/docker.sock", container_path: "/var/run/docker.sock", read_only: true }],
+    log_driver: "syslog",
+    log_driver_options: { "syslog-address": "udp://127.0.0.1:5514", tag: "{{.Name}}" },
   });
   expect(templates.worker).toMatchObject({
     dns_name: "worker.staging.example.com",
@@ -1491,6 +1533,29 @@ test("create import can save docker compose services as templates", async ({ pag
   await expect(page.locator("#workflowTableBody")).toContainText("worker");
   await expect(page.locator(".workflow-step-status-pending")).toHaveCount(2);
   await expect(page.locator("#runWorkflowBtn")).toHaveText("Run create");
+  await expect(page.locator("#workflowTableBody tr")).toHaveCount(2);
+  const dragWorkflowStep = async (sourceIndex, targetIndex) => {
+    await page.locator(`[data-workflow-step-drag="${sourceIndex}"]`).scrollIntoViewIfNeeded();
+    const handle = await page.locator(`[data-workflow-step-drag="${sourceIndex}"]`).boundingBox();
+    const target = await page.locator("#workflowTableBody tr").nth(targetIndex).boundingBox();
+    const viewport = page.viewportSize();
+    expect(handle).toBeTruthy();
+    expect(target).toBeTruthy();
+    const targetY = Math.max(20, Math.min((viewport?.height || 720) - 20, target.y + target.height - 24));
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(target.x + target.width / 2, targetY, { steps: 8 });
+    await page.mouse.up();
+  };
+  await dragWorkflowStep(1, 0);
+  await expect(page.locator("#notif")).toContainText("Workflow order saved");
+  await expect.poll(() => page.evaluate(() => (
+    JSON.parse(localStorage.getItem("create_workflows"))["staging::stack"].steps.map((step) => step.template)
+  ))).toEqual(["worker", "web"]);
+  await dragWorkflowStep(0, 1);
+  await expect.poll(() => page.evaluate(() => (
+    JSON.parse(localStorage.getItem("create_workflows"))["staging::stack"].steps.map((step) => step.template)
+  ))).toEqual(["web", "worker"]);
   await page.locator("#runWorkflowBtn").click();
   await expect.poll(() => createBodies.length).toBe(2);
   expect(createBodies[0]).toContain("instance=web-container");
@@ -1498,6 +1563,8 @@ test("create import can save docker compose services as templates", async ({ pag
   expect(createBodies[0]).toContain("version=v2.0.0");
   expect(createBodies[0]).toContain("dns_name=web.staging.example.com%2Fdashboard");
   expect(createBodies[0]).toContain("traefik=true");
+  expect(createBodies[0]).toContain("log_driver=syslog");
+  expect(createBodies[0]).toContain("log_driver_options=%7B%22syslog-address%22%3A%22udp%3A%2F%2F127.0.0.1%3A5514%22%2C%22tag%22%3A%22%7B%7B.Name%7D%7D%22%7D");
   expect(createBodies[0]).toContain("wait=true");
   expect(createBodies[0]).toContain("bind_host_path=%2Fvar%2Frun%2Fdocker.sock");
   expect(createBodies[0]).toContain("bind_container_path=%2Fvar%2Frun%2Fdocker.sock");
@@ -1509,6 +1576,23 @@ test("create import can save docker compose services as templates", async ({ pag
   expect(createBodies[1]).toContain("wait=true");
   await expect(page.locator(".workflow-step-status-done")).toHaveCount(2);
   await expect(page.locator("#notif")).toContainText('Workflow "staging / stack" requested');
+
+  await page.locator("#workflowActionSelect").selectOption("upgrade");
+  await expect(page.locator("#runWorkflowBtn")).toHaveText("Run upgrade");
+  await expect(page.locator("#workflowDeleteVolumesField")).toBeHidden();
+  await page.locator("#runWorkflowBtn").click();
+  await expect.poll(() => recreateBodies.length).toBe(2);
+  expect(recreateBodies[0]).toContain("image=registry.example.com%3A5000%2Fsaashup%2Fweb");
+  expect(recreateBodies[0]).toContain("version=v2.0.0");
+  expect(recreateBodies[0]).toContain("oldversion=");
+  expect(recreateBodies[0]).toContain("clean_name=false");
+  expect(recreateBodies[0]).toContain("remove_old_images=false");
+  expect(recreateBodies[0]).toContain("wait=true");
+  expect(recreateBodies[1]).toContain("image=saashup%2Fworker");
+  expect(recreateBodies[1]).toContain("version=latest");
+  expect(recreateBodies[1]).toContain("wait=true");
+  await expect(page.locator(".workflow-step-status-done")).toHaveCount(2);
+  await expect(page.locator("#notif")).toContainText('Workflow "staging / stack" upgrade requested');
 
   await expect(page.locator("#workflowDeleteVolumesField")).toBeHidden();
   await page.locator("#workflowActionSelect").selectOption("delete");
@@ -3601,6 +3685,7 @@ test("docker run parser supports quoted values and registry ports", async ({ pag
 
   const parsed = await page.evaluate(() => window.parseDockerRun([
     "docker run --name tile-api --network proxy",
+    "--log-driver=syslog --log-opt syslog-address=udp://127.0.0.1:5514 --log-opt tag=\"{{.Name}}\"",
     "--env PUBLIC_URL=https://tiles.example.com/a?b=c",
     "--label traefik.http.routers.tile.rule=Host(`tiles.example.com`)",
     "--publish 127.0.0.1:8443:443/tcp",
@@ -3612,6 +3697,8 @@ test("docker run parser supports quoted values and registry ports", async ({ pag
   expect(parsed).toMatchObject({
     instance: "tile-api",
     network: "proxy",
+    log_driver: "syslog",
+    log_driver_options: { "syslog-address": "udp://127.0.0.1:5514", tag: "{{.Name}}" },
     image: "registry.example.com:5000/saashup/tile-api",
     version: "v2.4.1",
   });
