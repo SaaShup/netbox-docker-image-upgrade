@@ -311,7 +311,7 @@ async function validateEnrollmentTemplate(req, res, profile = "", data = {}) {
     return false;
   }
 
-  const existingEntries = await enrollmentTemplatesForUser(req, profile);
+  const existingEntries = await enrollmentTemplatesForRequest(req, profile, { ownerOnly: false });
   const duplicate = existingEntries.find((entry) => normalizedEnrollImageName(entry?.image) === image);
   if (duplicate) {
     res.status(409).json({ code: "template_already_enrolled", detail: `Image "${image}" is already enrolled for this config.`, image, existing_template: duplicate.instance || duplicate.name || duplicate.template || "" });
@@ -322,14 +322,19 @@ async function validateEnrollmentTemplate(req, res, profile = "", data = {}) {
 }
 
 async function enrollmentTemplatesForUser(req, profile) {
+  return enrollmentTemplatesForRequest(req, profile, { ownerOnly: true });
+}
+
+async function enrollmentTemplatesForRequest(req, profile, options = {}) {
   const user = authUserFromRequest(req);
   const creator = String(user.email || user.user || "").trim().toLowerCase();
   if (!creator) return [];
 
+  const ownerOnly = options.ownerOnly !== false;
   const state = readState();
   const useNetBox = profileUsesNetBoxTemplates(profile);
-  const localTemplates = useNetBox ? [] : localEnrollmentTemplatesForUser(state, creator);
-  const netboxTemplates = (await netboxTemplateEntriesForUser(req, profile, state, creator))
+  const localTemplates = useNetBox ? [] : localEnrollmentTemplatesForUser(state, creator, { ownerOnly });
+  const netboxTemplates = (await netboxTemplateEntriesForUser(req, profile, state, creator, { ownerOnly }))
     .map((entry) => enrollmentTemplateItem(entry, state, "netbox-template"));
   const merged = new Map();
 
@@ -341,10 +346,10 @@ async function enrollmentTemplatesForUser(req, profile) {
   return [...merged.values()];
 }
 
-function localEnrollmentTemplatesForUser(state, creator) {
+function localEnrollmentTemplatesForUser(state, creator, options = {}) {
   return Object.entries(plainObject(state.templates))
     .map(([name, template]) => ({ name, template: plainObject(template) }))
-    .filter(({ template }) => String(template.creator_email || "").trim().toLowerCase() === creator)
+    .filter(({ template }) => options.ownerOnly === false || String(template.creator_email || "").trim().toLowerCase() === creator)
     .map((entry) => enrollmentTemplateItem(entry, state, "template"))
     .filter((item) => item.instance);
 }
@@ -544,6 +549,7 @@ function workflowEntriesFromTemplates(data, profile) {
 function templateEntriesFromConfigContext(context, profile, scope, state) {
   const data = configContextCatalogData(context);
   if (!configContextMatchesCatalogScope(data, scope)) return [];
+  const contextOwner = String(data.saashup_owner || data.creator_email || data.owner || "").trim();
 
   return Object.entries(configContextTemplateDefinitions(data))
     .filter(([name, template]) => looksLikeTemplateDefinition(name, template))
@@ -555,6 +561,7 @@ function templateEntriesFromConfigContext(context, profile, scope, state) {
           ...entry,
           config_profile: entry.config_profile || profile,
           source: "netbox-config-context",
+          creator_email: entry.creator_email || contextOwner,
           saashup_enabled: orderTemplateEnabled(entry.saashup_enabled, true),
           max_instances: maxInstancesValue(entry.max_instances ?? 1),
           instance_count: orderInstanceCountForTemplate(state, name),
@@ -703,15 +710,19 @@ async function imageContainerCountsByImage(client, hostFilter, containers = []) 
   return { exact: counts, image: imageCounts };
 }
 
-async function netboxTemplateEntriesForUser(req, profile, state, creator) {
+async function netboxTemplateEntriesForUser(req, profile, state, creator, options = {}) {
   const config = selectedProfileConfig({ profile, config_profile: profile });
   if (!config.netbox || !config.token) return [];
 
   try {
     const client = new NetBoxClient(config);
     const templates = new Map();
+    const ownerOnly = options.ownerOnly === true;
+    const creatorKey = String(creator || "").trim().toLowerCase();
     const catalogEntries = await netboxTemplateCatalogEntries(client, profile, state, templateCatalogScope(profile, config));
-    catalogEntries.forEach((entry) => templates.set(entry.name.toLowerCase(), entry));
+    catalogEntries
+      .filter((entry) => !ownerOnly || String(entry?.template?.creator_email || "").trim().toLowerCase() === creatorKey)
+      .forEach((entry) => templates.set(entry.name.toLowerCase(), entry));
 
     if (!creator) return [...templates.values()];
 
@@ -792,27 +803,31 @@ async function syncTemplatesToNetBoxConfigContext(req, profile, templates, workf
   return { action: "created", id: payload?.id, name: contextName };
 }
 
-async function templateEntriesForRequest(req, profile = "") {
+async function templateEntriesForRequest(req, profile = "", options = {}) {
   const state = readState();
   const creator = String(authUserFromRequest(req).email || authUserFromRequest(req).user || "").trim().toLowerCase();
   const merged = new Map();
   const useNetBox = profileUsesNetBoxTemplates(profile);
 
-  (await netboxTemplateEntriesForUser(req, profile, state, creator))
+  const ownerOnly = options.ownerOnly === true;
+
+  (await netboxTemplateEntriesForUser(req, profile, state, creator, { ownerOnly }))
     .forEach((entry) => merged.set(entry.name.toLowerCase(), { name: entry.name, template: plainObject(entry.template) }));
 
   if (!useNetBox) {
-    Object.entries(plainObject(state.templates)).forEach(([name, template]) => {
-      const key = name.toLowerCase();
-      if (!merged.has(key)) merged.set(key, { name, template: plainObject(template) });
-    });
+    Object.entries(plainObject(state.templates))
+      .filter(([, template]) => !ownerOnly || String(plainObject(template).creator_email || "").trim().toLowerCase() === creator)
+      .forEach(([name, template]) => {
+        const key = name.toLowerCase();
+        if (!merged.has(key)) merged.set(key, { name, template: plainObject(template) });
+      });
   }
 
   return [...merged.values()];
 }
 
-async function templatesForRequest(req, profile = "") {
-  return Object.fromEntries((await templateEntriesForRequest(req, profile))
+async function templatesForRequest(req, profile = "", options = {}) {
+  return Object.fromEntries((await templateEntriesForRequest(req, profile, options))
     .map(({ name, template }) => [name, template]));
 }
 

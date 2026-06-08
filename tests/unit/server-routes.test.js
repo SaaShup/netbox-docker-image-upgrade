@@ -2403,7 +2403,7 @@ describe("server routes", () => {
       .query({ profile: "prod" })
       .expect(200)
       .expect((res) => {
-        expect(res.body).toMatchObject({ used: 4, max: 2, remaining: 0, reached: true });
+        expect(res.body).toMatchObject({ used: 3, max: 2, remaining: 0, reached: true });
         expect(res.body.instances).toEqual(expect.arrayContaining([
           expect.objectContaining({ instance: "Tile", image: "saashup/tile", source: "netbox-template", status: "ready", instance_count: 3 }),
           expect.objectContaining({ instance: "Install", image: "saashup/install", source: "netbox-template", status: "ready", instance_count: 0 }),
@@ -2468,6 +2468,94 @@ describe("server routes", () => {
     const state = readState(dataPath);
     expect(state.enrollment_counts).toBeUndefined();
     expect(state.enrollment_instances).toBeUndefined();
+  });
+
+  test("enroll templates are only returned to their local owner", async () => {
+    const { dataPath, request } = await loadServer();
+    writeState(dataPath, {
+      config: { enrollment_limit: 4, profile: "prod", config_profile: "prod" },
+      templates: {
+        OwnerTemplate: { image: "saashup/owner", version: "v1", creator_email: "owner@example.com", config_profile: "prod" },
+        OtherTemplate: { image: "saashup/other", version: "v1", creator_email: "other@example.com", config_profile: "prod" },
+      },
+      logs: "",
+    });
+
+    await request.get("/enroll/limit")
+      .set("x-auth-request-email", "owner@example.com")
+      .query({ profile: "prod" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.instances).toEqual([
+          expect.objectContaining({ instance: "OwnerTemplate", image: "saashup/owner", source: "template" }),
+        ]);
+      });
+
+    await request.get("/templates")
+      .set("x-auth-request-email", "owner@example.com")
+      .query({ profile: "prod", enroll: "true" })
+      .expect(200)
+      .expect((res) => {
+        expect(Object.keys(res.body)).toEqual(["OwnerTemplate"]);
+        expect(res.body.OwnerTemplate.image).toBe("saashup/owner");
+      });
+  });
+
+  test("enroll templates are only returned to their NetBox catalog owner", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, {
+      netboxTemplateContexts: [
+        {
+          id: 501,
+          name: "saashup-template-catalog-prod-owner",
+          is_active: true,
+          data: {
+            saashup_template_catalog: true,
+            saashup_profile: "prod",
+            saashup_owner: "owner@example.com",
+            saashup_templates: {
+              OwnerTemplate: { image: "saashup/owner", version: "v1" },
+            },
+          },
+        },
+        {
+          id: 502,
+          name: "saashup-template-catalog-prod-other",
+          is_active: true,
+          data: {
+            saashup_template_catalog: true,
+            saashup_profile: "prod",
+            saashup_owner: "other@example.com",
+            saashup_templates: {
+              OtherTemplate: { image: "saashup/other", version: "v1" },
+            },
+          },
+        },
+      ],
+    });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", enrollment_limit: 4, profile: "prod", config_profile: "prod" },
+      logs: "",
+    });
+
+    await request.get("/enroll/limit")
+      .set("x-auth-request-email", "owner@example.com")
+      .query({ profile: "prod" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.instances).toEqual([
+          expect.objectContaining({ instance: "OwnerTemplate", image: "saashup/owner", source: "netbox-template" }),
+        ]);
+      });
+
+    await request.get("/templates")
+      .set("x-auth-request-email", "owner@example.com")
+      .query({ profile: "prod", enroll: "true" })
+      .expect(200)
+      .expect((res) => {
+        expect(Object.keys(res.body)).toEqual(["OwnerTemplate"]);
+        expect(res.body.OwnerTemplate.image).toBe("saashup/owner");
+      });
   });
 
   test("enroll limit discovers owner templates from NetBox labels before local fallback", async () => {
