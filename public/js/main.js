@@ -61,6 +61,8 @@ const registryWebhookSecretToggle = document.getElementById("registryWebhookSecr
 const smtpConfigToggle = document.getElementById("smtpConfigToggle");
 const envList = document.getElementById("envList");
 const addEnvBtn = document.getElementById("addEnvBtn");
+const loggingList = document.getElementById("loggingList");
+const addLoggingBtn = document.getElementById("addLoggingBtn");
 const labelList = document.getElementById("labelList");
 const addLabelBtn = document.getElementById("addLabelBtn");
 const portList = document.getElementById("portList");
@@ -143,6 +145,11 @@ let currentImportTab = "run";
 let templateVersionOverride = "";
 let templateNetworkOverride = "";
 const logsPollFailureNotice = "Activity logs unavailable: network error";
+const defaultLogDriver = "syslog";
+const defaultLogDriverOptions = {
+  "syslog-address": "udp://127.0.0.1:5514",
+  tag: "{{.Name}}",
+};
 const sidebarCollapsedStorageKey = "sidebar_collapsed";
 
 const profileFieldHelp = {
@@ -299,7 +306,7 @@ const actions = {
     description: "Create and manage reusable instance templates.",
     submitLabel: "Create instance",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "network", "traefik", "template_url", "max_instances", "registry_webhook_secret", "image", "version", "env_vars", "labels", "ports", "volumes", "binds"],
+    fields: ["config_profile", "network", "traefik", "logging", "template_url", "max_instances", "registry_webhook_secret", "image", "version", "env_vars", "labels", "ports", "volumes", "binds"],
   },
   workflow: {
     endpoint: "",
@@ -380,6 +387,7 @@ const allFieldNames = [
   "config_name",
   "network",
   "traefik",
+  "logging",
   "all_hosts",
   "saashup_enabled",
   "template_url",
@@ -1795,6 +1803,47 @@ function updateBindRemoveButtons() {
   });
 }
 
+function loggingRow() {
+  return loggingList?.querySelector(".logging-row") || null;
+}
+
+function isLoggingVisible() {
+  return Boolean(loggingRow() && !loggingRow().classList.contains("hidden"));
+}
+
+function syncLoggingControls() {
+  const row = loggingRow();
+  const wrapper = loggingList?.closest("[data-field]");
+  const fieldVisible = Boolean(wrapper && !wrapper.classList.contains("hidden"));
+  const rowVisible = Boolean(row && !row.classList.contains("hidden"));
+
+  row?.querySelectorAll("input, button").forEach((control) => {
+    control.disabled = !fieldVisible || !rowVisible;
+  });
+  if (addLoggingBtn) addLoggingBtn.disabled = !fieldVisible || rowVisible;
+}
+
+function setLoggingRow(template = null) {
+  const row = loggingRow();
+  if (!row) return;
+
+  const enabled = Boolean(template);
+  row.classList.toggle("hidden", !enabled);
+
+  if (enabled) {
+    const options = normalizeLogDriverOptions(template.log_driver_options || template.log_options || template.logging_options);
+    setFieldValue("log_driver", Object.hasOwn(template, "log_driver") ? template.log_driver : defaultLogDriver);
+    setFieldValue("log_syslog_address", options["syslog-address"]);
+    setFieldValue("log_syslog_tag", options.tag);
+  } else {
+    setFieldValue("log_driver", "");
+    setFieldValue("log_syslog_address", "");
+    setFieldValue("log_syslog_tag", "");
+  }
+
+  syncLoggingControls();
+}
+
 function addEnvRow(key = "", value = "") {
   if (!envList) return;
 
@@ -2469,6 +2518,7 @@ function setAction(actionName) {
       control.disabled = !visible;
     });
   });
+  syncLoggingControls();
 
   if (refreshInstancesBtn && visibleFields.has("instance") && !isCreateFormAction(actionName)) {
     refreshInstancesBtn.disabled = false;
@@ -2557,6 +2607,7 @@ function clearActionFields() {
   clearPortRows();
   clearVolumeRows();
   clearBindRows();
+  setLoggingRow({ log_driver: defaultLogDriver, log_driver_options: defaultLogDriverOptions });
   syncCreateNetwork();
   syncCreateVersion();
   ensureRandomCreateInstanceName();
@@ -2931,6 +2982,11 @@ function parseDockerRun(command) {
       parsed.instance = readValue();
     } else if (option === "--network" || option === "--net") {
       parsed.network = readValue();
+    } else if (option === "--log-driver") {
+      parsed.log_driver = readValue();
+    } else if (option === "--log-opt") {
+      const [key, value] = splitOptionValue(readValue());
+      if (key) parsed.log_driver_options = { ...plainObject(parsed.log_driver_options), [key]: value };
     } else if (option === "-e" || option === "--env") {
       const [key, value] = splitOptionValue(readValue());
       if (key) parsed.env.push({ key, value });
@@ -3104,12 +3160,26 @@ function applySaashupTemplateLabels(template) {
   return template;
 }
 
+function normalizeLogDriverOptions(options = {}, fallback = defaultLogDriverOptions) {
+  const data = plainObject(options);
+  return {
+    ...fallback,
+    ...Object.fromEntries(Object.entries(data).map(([key, value]) => [key, String(value ?? "")])),
+  };
+}
+
+function templateLogDriverOptions(template = {}) {
+  return normalizeLogDriverOptions(template.log_driver_options || template.log_options || template.logging_options);
+}
+
 function normalizeCreateTemplate(template) {
   const normalized = { ...plainObject(template) };
   normalized.labels = Array.isArray(normalized.labels) ? normalized.labels.map((label) => ({ ...plainObject(label) })) : [];
   normalized.saashup_enabled = checkboxValue(normalized.saashup_enabled, true);
   normalized.template_url = String(normalized.template_url || normalized.saashup_template_url || "").trim();
   normalized.max_instances = templateMaxInstancesValue(normalized);
+  normalized.log_driver = String(Object.hasOwn(normalized, "log_driver") ? normalized.log_driver : defaultLogDriver).trim();
+  normalized.log_driver_options = normalized.log_driver ? templateLogDriverOptions(normalized) : {};
   return applySaashupTemplateLabels(normalized);
 }
 
@@ -3143,6 +3213,10 @@ function templateLooksLikeTemplate(template) {
     "version",
     "max_instances",
     "network",
+    "log_driver",
+    "log_driver_options",
+    "log_options",
+    "logging_options",
     "ports",
     "labels",
     "env",
@@ -3291,6 +3365,37 @@ function splitComposeMounts(inlineValue, blockLines) {
   };
 }
 
+function parseComposeLogging(blockLines) {
+  const logging = { log_driver_options: {} };
+  let optionsIndent = null;
+
+  blockLines.forEach(({ indent, text }) => {
+    const line = stripYamlComment(text).trim();
+    if (!line) return;
+
+    const match = line.match(/^([A-Za-z0-9_.-]+):\s*(.*)$/);
+    if (!match) return;
+    const [, key, value] = match;
+
+    if (key === "driver") {
+      logging.log_driver = yamlScalar(value);
+      return;
+    }
+
+    if (key === "options") {
+      optionsIndent = indent;
+      return;
+    }
+
+    if (optionsIndent !== null && indent > optionsIndent) {
+      logging.log_driver_options[key] = yamlScalar(value);
+    }
+  });
+
+  if (!Object.keys(logging.log_driver_options).length) delete logging.log_driver_options;
+  return logging;
+}
+
 function parseComposeService(lines, serviceIndent, profileName = selectedProfileCredentials().profile) {
   const template = {
     config_profile: profileName,
@@ -3339,6 +3444,8 @@ function parseComposeService(lines, serviceIndent, profileName = selectedProfile
       const mounts = splitComposeMounts(inlineValue, blockLines);
       template.volumes = mounts.volumes;
       template.binds = mounts.binds;
+    } else if (key === "logging") {
+      Object.assign(template, parseComposeLogging(blockLines));
     }
   }
 
@@ -3536,6 +3643,7 @@ function prepareBindReadOnlyForFormData() {
 function currentCreateTemplate() {
   const credentials = selectedProfileCredentials();
   const existingTemplate = createTemplates[selectedTemplateName()] || {};
+  const logDriver = isLoggingVisible() ? fieldValue("log_driver").trim() : "";
 
   return {
     config_profile: credentials.profile,
@@ -3548,6 +3656,11 @@ function currentCreateTemplate() {
     max_instances: normalizeMaxInstances(fieldValue("max_instances")),
     registry_webhook_secret: registryWebhookSecretValue(),
     network: fieldValue("network"),
+    log_driver: logDriver,
+    log_driver_options: logDriver ? normalizeLogDriverOptions({
+      "syslog-address": fieldValue("log_syslog_address").trim() || defaultLogDriverOptions["syslog-address"],
+      tag: fieldValue("log_syslog_tag").trim() || defaultLogDriverOptions.tag,
+    }) : {},
     image: fieldValue("image"),
     version: fieldValue("version") || existingTemplate.version,
     ...(templateCreatorEmailWrap && !templateCreatorEmailWrap.classList.contains("hidden") && !templateCreatorEmail?.disabled
@@ -3579,6 +3692,7 @@ function applyCreateTemplate(template) {
 
   setFieldValue("network", template.network || fieldValue("network"));
   setFieldValue("traefik", template.traefik ?? true);
+  setLoggingRow(template.log_driver ? template : null);
   setFieldValue("all_hosts", template.all_hosts ?? false);
   setFieldValue("saashup_enabled", template.saashup_enabled ?? true);
   setFieldValue("template_url", template.template_url || "");
@@ -4035,6 +4149,7 @@ async function applyDockerRunCommand() {
   setFieldValue("image", parsed.image);
   syncCreateVersion();
   if (parsed.version) setFieldValue("version", parsed.version);
+  setLoggingRow(parsed.log_driver ? parsed : { log_driver: defaultLogDriver, log_driver_options: defaultLogDriverOptions });
 
   setRepeatRows(parsed.env, clearEnvRows, addEnvRow, { key: "var_env_key", value: "var_env_value" });
   setRepeatRows(parsed.labels, clearLabelRows, addLabelRow, { key: "label_key", value: "label_value" });
@@ -4456,6 +4571,10 @@ function workflowCreateBody(template, templateName) {
     version: template.version || "",
     cloudflare_filter: credentials.cloudflare_filter ? "true" : "false",
   });
+  if (template.log_driver) {
+    body.set("log_driver", template.log_driver);
+    body.set("log_driver_options", JSON.stringify(templateLogDriverOptions(template)));
+  }
 
   appendWorkflowPairs(body, template.env || [], "var_env_key", "var_env_value", ["key", "var_name", "name"], ["value"]);
   appendWorkflowPairs(body, template.labels || [], "label_key", "label_value", ["key"], ["value"]);
@@ -4486,12 +4605,16 @@ function appendCreateTemplateBody(body, template, templateName = "") {
   const instanceName = String(body.get("instance") || template.instance || templateName || "").trim();
   const versionOverride = String(body.get("version") || "").trim();
   const templateKeys = [
-    "network", "traefik", "saashup_enabled", "template_url", "max_instances", "registry_webhook_secret",
+    "network", "log_driver", "log_driver_options", "log_syslog_address", "log_syslog_tag", "traefik", "saashup_enabled", "template_url", "max_instances", "registry_webhook_secret",
     "image", "version", "var_env_key", "var_env_value", "label_key", "label_value", "port_value",
     "volume_source", "volume_name", "bind_host_path", "bind_container_path", "bind_read_only",
   ];
   clearBodyKeys(body, templateKeys);
   body.set("network", template.network || "");
+  if (template.log_driver) {
+    body.set("log_driver", template.log_driver);
+    body.set("log_driver_options", JSON.stringify(templateLogDriverOptions(template)));
+  }
   body.set("traefik", template.traefik === false ? "false" : "true");
   body.set("saashup_enabled", template.saashup_enabled === false ? "false" : "true");
   body.set("template_url", template.template_url || "");
@@ -5102,6 +5225,18 @@ envList?.addEventListener("click", (event) => {
 addEnvBtn?.addEventListener("click", () => {
   addEnvRow();
   envRows().at(-1)?.querySelector("input")?.focus();
+});
+
+loggingList?.addEventListener("click", (event) => {
+  const button = event.target.closest(".repeat-remove");
+  if (!button || button.disabled) return;
+
+  setLoggingRow(null);
+});
+
+addLoggingBtn?.addEventListener("click", () => {
+  setLoggingRow({ log_driver: defaultLogDriver, log_driver_options: defaultLogDriverOptions });
+  loggingRow()?.querySelector("input")?.focus();
 });
 
 labelList?.addEventListener("click", (event) => {

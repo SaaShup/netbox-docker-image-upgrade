@@ -334,12 +334,21 @@ function looksLikeWorkflowDefinition(value) {
   return Array.isArray(entry.steps) || Object.hasOwn(entry, "delete_volumes");
 }
 
+function plainJsonObject(value) {
+  if (typeof value !== "string") return plainObject(value);
+  try {
+    return plainObject(JSON.parse(value));
+  } catch {
+    return {};
+  }
+}
+
 function looksLikeTemplateDefinition(name, value) {
   if (templateCatalogReservedKeys.has(String(name || "").trim().toLowerCase())) return false;
   const entry = plainObject(value);
   if (!Object.keys(entry).length || looksLikeWorkflowDefinition(entry)) return false;
 
-  const templateKeys = ["image", "template_url", "saashup_template_url", "version", "network", "ports", "labels", "env", "binds", "volumes", "dns_name", "traefik", "instance", "port_value"];
+  const templateKeys = ["image", "template_url", "saashup_template_url", "version", "network", "log_driver", "log_driver_options", "log_options", "logging_options", "ports", "labels", "env", "binds", "volumes", "dns_name", "traefik", "instance", "port_value"];
   return templateKeys.some((key) => Object.hasOwn(entry, key));
 }
 
@@ -722,6 +731,8 @@ function recordEnrollment(req, profile, data) {
         max_instances: maxInstancesValue(data.max_instances ?? existing.max_instances),
         template_url: data.template_url || data.saashup_template_url || existing.template_url || existing.saashup_template_url || "",
         network: data.network || existing.network || "",
+        log_driver: data.log_driver || existing.log_driver || "",
+        log_driver_options: plainJsonObject(data.log_driver_options || existing.log_driver_options),
         traefik: data.traefik ?? existing.traefik ?? true,
         all_hosts: data.all_hosts ?? existing.all_hosts ?? false,
         creator_email: existing.creator_email || creatorEmail,

@@ -1123,8 +1123,17 @@ input[type="checkbox"]:disabled {
   gap: 10px;
 }
 
+.env-row.hidden,
+.repeat-row.hidden {
+  display: none;
+}
+
 .bind-row {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 72px 44px;
+}
+
+.logging-row {
+  grid-template-columns: minmax(120px, 0.7fr) minmax(0, 1.4fr) minmax(120px, 1fr) 44px;
 }
 
 .mini-check {

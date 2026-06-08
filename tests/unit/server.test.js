@@ -393,11 +393,15 @@ describe("server helpers", () => {
     expect(containerConfigPayloadFromForm({
       instance: "api.example.com",
       host_id: 7,
+      log_driver: "syslog",
+      log_driver_options: JSON.stringify({ "syslog-address": "udp://127.0.0.1:5514", tag: "{{.Name}}" }),
       label_key: ["empty.value"],
       volume_source: ["/cache", "/var/run/docker.sock"],
       volume_name: ["", "/var/run/docker.sock"],
     }, 9)).toMatchObject({
       network_settings: [],
+      log_driver: "syslog",
+      log_driver_options: { "syslog-address": "udp://127.0.0.1:5514", tag: "{{.Name}}" },
       ports: [],
       env: [],
       binds: [{ host_path: "/var/run/docker.sock", container_path: "/var/run/docker.sock", read_only: false }],
