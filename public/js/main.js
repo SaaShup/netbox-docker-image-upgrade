@@ -56,6 +56,7 @@ const profileHelpCloseBtn = document.getElementById("profileHelpCloseBtn");
 const profileHelpOkBtn = document.getElementById("profileHelpOkBtn");
 const formTitle = document.getElementById("form-title");
 const formTitleBadge = document.getElementById("formTitleBadge");
+const workflowTitleBadge = document.getElementById("workflowTitleBadge");
 const formDescription = document.getElementById("form-description");
 const tokenToggle = document.getElementById("tokenToggle");
 const registryWebhookSecretInput = document.getElementById("registry_webhook_secret");
@@ -109,6 +110,7 @@ const workflowSelect = document.getElementById("workflowSelect");
 const workflowSummary = document.getElementById("workflowSummary");
 const workflowTableBody = document.getElementById("workflowTableBody");
 const runWorkflowBtn = document.getElementById("runWorkflowBtn");
+const saveWorkflowBtn = document.getElementById("saveWorkflowBtn");
 const deleteWorkflowBtn = document.getElementById("deleteWorkflowBtn");
 const enrollImportNotice = "Import a Docker run command or compose with a single service.";
 const enrollMultiComposeNotice = "Compose files on enroll must contain a single service.";
@@ -130,6 +132,7 @@ let workflowStepStatuses = {};
 let workflowDragIndex = null;
 let workflowPointerDrag = null;
 let workflowMouseDrag = null;
+let workflowCatalogDirty = false;
 let generatedCreateInstanceName = "";
 let generatedCreateDnsName = "";
 let orderInstanceCards = [];
@@ -1061,18 +1064,29 @@ function updateTemplateOptions(selected = "") {
 }
 
 function updateWorkflowOptions(selected = workflowSelect?.value || "") {
-  if (!workflowSelect) return;
-
   const normalizedWorkflows = normalizeCreateWorkflows(createWorkflows);
   if (JSON.stringify(normalizedWorkflows) !== JSON.stringify(createWorkflows)) {
     createWorkflows = normalizedWorkflows;
     localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
   }
+  updateWorkflowTitleBadge();
+  if (!workflowSelect) return;
+
   const names = Object.keys(createWorkflows).sort((a, b) => workflowOptionLabel(a).localeCompare(workflowOptionLabel(b)));
   workflowSelect.replaceChildren(new Option(names.length ? "Select workflow" : "No workflows saved", ""));
   names.forEach((name) => workflowSelect.appendChild(new Option(workflowOptionLabel(name), name)));
   workflowSelect.value = names.includes(selected) ? selected : "";
   renderWorkflow();
+}
+
+function updateWorkflowTitleBadge() {
+  if (!workflowTitleBadge) return;
+
+  const count = Object.keys(createWorkflows).length;
+  const label = `${count} workflow${count === 1 ? "" : "s"}`;
+  workflowTitleBadge.textContent = String(count);
+  workflowTitleBadge.title = label;
+  workflowTitleBadge.setAttribute("aria-label", label);
 }
 
 function selectedWorkflow() {
@@ -1122,6 +1136,49 @@ function persistSelectedWorkflow() {
   localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
 }
 
+function updateWorkflowSaveState() {
+  if (saveWorkflowBtn) saveWorkflowBtn.disabled = !workflowCatalogDirty;
+}
+
+function markWorkflowCatalogDirty() {
+  workflowCatalogDirty = true;
+  updateWorkflowSaveState();
+}
+
+async function saveWorkflowCatalog() {
+  if (!workflowCatalogDirty) return;
+
+  const previousText = saveWorkflowBtn?.textContent || "Save workflow";
+  if (saveWorkflowBtn) {
+    saveWorkflowBtn.disabled = true;
+    saveWorkflowBtn.classList.add("btn-loading");
+    saveWorkflowBtn.textContent = "Saving";
+  }
+
+  try {
+    const selected = selectedWorkflowKey();
+    const savedCatalog = templateCatalogFromPayload(await persistCreateTemplates());
+    createTemplates = savedCatalog.templates;
+    createWorkflows = savedCatalog.workflows;
+    localStorage.setItem("create_templates", JSON.stringify(createTemplates));
+    localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
+    workflowCatalogDirty = false;
+    updateTemplateOptions();
+    updateWorkflowOptions(selected);
+    setNotice("Workflow saved", "success");
+  } catch {
+    workflowCatalogDirty = true;
+    updateWorkflowSaveState();
+    setNotice("Workflow save failed", "error");
+  } finally {
+    if (saveWorkflowBtn) {
+      saveWorkflowBtn.classList.remove("btn-loading");
+      saveWorkflowBtn.textContent = previousText;
+      updateWorkflowSaveState();
+    }
+  }
+}
+
 function clearWorkflowDragState() {
   workflowDragIndex = null;
   workflowPointerDrag = null;
@@ -1142,34 +1199,19 @@ function markWorkflowDropTarget(row) {
   row.classList.toggle("workflow-step-drop-target", Number(row.dataset.workflowStepIndex) !== workflowDragIndex);
 }
 
-async function moveWorkflowStep(fromIndex, toIndex) {
-  const key = selectedWorkflowKey();
+function moveWorkflowStep(fromIndex, toIndex) {
   const workflow = selectedWorkflow();
   const steps = Array.isArray(workflow?.steps) ? workflow.steps : [];
-  if (!key || !workflow || fromIndex === toIndex || !steps[fromIndex] || !steps[toIndex]) return;
+  if (!workflow || fromIndex === toIndex || !steps[fromIndex] || !steps[toIndex]) return;
 
-  const previousSteps = [...steps];
   const [movedStep] = steps.splice(fromIndex, 1);
   steps.splice(toIndex, 0, movedStep);
   workflow.steps = steps;
   workflowStepStatuses = {};
   persistSelectedWorkflow();
+  markWorkflowCatalogDirty();
   renderWorkflow();
-
-  try {
-    const savedCatalog = templateCatalogFromPayload(await persistCreateTemplates());
-    createTemplates = savedCatalog.templates;
-    createWorkflows = savedCatalog.workflows;
-    localStorage.setItem("create_templates", JSON.stringify(createTemplates));
-    localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
-    updateWorkflowOptions(key);
-    setNotice("Workflow order saved", "success");
-  } catch {
-    createWorkflows[key] = { ...workflow, steps: previousSteps };
-    localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
-    updateWorkflowOptions(key);
-    setNotice("Workflow order save failed", "error");
-  }
+  setNotice("Workflow order changed", "success");
 }
 
 function workflowStepStatusIcon(status = "pending") {
@@ -1201,8 +1243,9 @@ function renderWorkflow() {
     ? `${enabledSteps.length}/${steps.length} enabled - ${action}${profile ? ` - ${profileLabel(profile)}` : ""}`
     : "No workflow selected";
   if (runWorkflowBtn) runWorkflowBtn.disabled = !enabledSteps.length;
-  if (runWorkflowBtn) runWorkflowBtn.textContent = `Run ${action}`;
+  if (runWorkflowBtn) runWorkflowBtn.textContent = "Execute";
   if (deleteWorkflowBtn) deleteWorkflowBtn.disabled = !workflow;
+  updateWorkflowSaveState();
   workflowDeleteVolumesField?.classList.toggle("hidden", action !== "delete");
 
   if (!steps.length) {
@@ -4816,8 +4859,9 @@ function deleteWorkflow() {
 
   delete createWorkflows[name];
   localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
+  markWorkflowCatalogDirty();
   updateWorkflowOptions();
-  setNotice(`Workflow "${label}" deleted`, "success");
+  setNotice(`Workflow "${label}" deleted locally`, "success");
 }
 
 function setWorkflowStepEnabled(index, enabled) {
@@ -4828,6 +4872,7 @@ function setWorkflowStepEnabled(index, enabled) {
   steps[index].enabled = enabled;
   workflowStepStatuses = {};
   persistSelectedWorkflow();
+  markWorkflowCatalogDirty();
   renderWorkflow();
 }
 
@@ -4839,8 +4884,9 @@ function removeWorkflowStep(index) {
   workflow.steps = steps.filter((_, stepIndex) => stepIndex !== index);
   workflowStepStatuses = {};
   persistSelectedWorkflow();
+  markWorkflowCatalogDirty();
   renderWorkflow();
-  setNotice(`Workflow task "${name}" removed`, "success");
+  setNotice(`Workflow task "${name}" removed locally`, "success");
 }
 
 async function submitAction(config, submitter) {
@@ -5622,6 +5668,7 @@ workflowTableBody?.addEventListener("drop", async (event) => {
 });
 workflowTableBody?.addEventListener("dragend", clearWorkflowDragState);
 runWorkflowBtn?.addEventListener("click", runWorkflow);
+saveWorkflowBtn?.addEventListener("click", saveWorkflowCatalog);
 deleteWorkflowBtn?.addEventListener("click", deleteWorkflow);
 reportViewButtons.forEach((button) => {
   button.addEventListener("click", () => setReportView(button.dataset.reportView));

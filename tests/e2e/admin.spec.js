@@ -1533,6 +1533,8 @@ test("create import can save docker compose services as templates", async ({ pag
   await expect(page.locator("#notif")).toContainText('Template "web" saved');
 
   await page.getByRole("link", { name: "Workflow" }).click();
+  await expect(page.locator("#workflowTitleBadge")).toHaveText("1");
+  await expect(page.locator("#workflowTitleBadge")).toHaveAttribute("aria-label", "1 workflow");
   await expect(page.locator("#workflowSelect")).toHaveValue("staging::stack");
   await expect(page.locator("#workflowSelect option:checked")).toHaveText("staging / stack");
   await expect(page.locator("#workflowSummary")).toContainText("staging");
@@ -1540,7 +1542,8 @@ test("create import can save docker compose services as templates", async ({ pag
   await expect(page.locator("#workflowTableBody")).toContainText("v2.0.0");
   await expect(page.locator("#workflowTableBody")).toContainText("worker");
   await expect(page.locator(".workflow-step-status-pending")).toHaveCount(2);
-  await expect(page.locator("#runWorkflowBtn")).toHaveText("Run create");
+  await expect(page.locator("#runWorkflowBtn")).toHaveText("Execute");
+  await expect(page.locator("#saveWorkflowBtn")).toBeDisabled();
   await expect(page.locator("#workflowTableBody tr")).toHaveCount(2);
   const dragWorkflowStep = async (sourceIndex, targetIndex) => {
     await page.locator(`[data-workflow-step-drag="${sourceIndex}"]`).scrollIntoViewIfNeeded();
@@ -1556,7 +1559,8 @@ test("create import can save docker compose services as templates", async ({ pag
     await page.mouse.up();
   };
   await dragWorkflowStep(1, 0);
-  await expect(page.locator("#notif")).toContainText("Workflow order saved");
+  await expect(page.locator("#notif")).toContainText("Workflow order changed");
+  await expect(page.locator("#saveWorkflowBtn")).toBeEnabled();
   await expect.poll(() => page.evaluate(() => (
     JSON.parse(localStorage.getItem("create_workflows"))["staging::stack"].steps.map((step) => step.template)
   ))).toEqual(["worker", "web"]);
@@ -1564,6 +1568,35 @@ test("create import can save docker compose services as templates", async ({ pag
   await expect.poll(() => page.evaluate(() => (
     JSON.parse(localStorage.getItem("create_workflows"))["staging::stack"].steps.map((step) => step.template)
   ))).toEqual(["web", "worker"]);
+  const workflowSavePayloads = [];
+  await page.route("**/templates?**", async (route) => {
+    if (route.request().method() === "POST") {
+      const payload = JSON.parse(route.request().postData() || "{}");
+      workflowSavePayloads.push(payload);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(payload),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+  await page.locator("[data-workflow-step-enabled='1']").uncheck();
+  await expect(page.locator("#saveWorkflowBtn")).toBeEnabled();
+  await page.locator("#saveWorkflowBtn").scrollIntoViewIfNeeded();
+  await page.locator("#saveWorkflowBtn").click();
+  await expect(page.locator("#notif")).toContainText("Workflow saved");
+  await expect(page.locator("#saveWorkflowBtn")).toBeDisabled();
+  await expect.poll(() => workflowSavePayloads.length).toBe(1);
+  expect(workflowSavePayloads[0].workflows["staging::stack"].steps.map((step) => ({
+    template: step.template,
+    enabled: step.enabled,
+  }))).toEqual([
+    { template: "web", enabled: true },
+    { template: "worker", enabled: false },
+  ]);
+  await page.locator("[data-workflow-step-enabled='1']").check();
   await page.locator("#runWorkflowBtn").click();
   await expect.poll(() => createBodies.length).toBe(2);
   expect(createBodies[0]).toContain("instance=web-container");
@@ -1586,7 +1619,7 @@ test("create import can save docker compose services as templates", async ({ pag
   await expect(page.locator("#notif")).toContainText('Workflow "staging / stack" requested');
 
   await page.locator("#workflowActionSelect").selectOption("upgrade");
-  await expect(page.locator("#runWorkflowBtn")).toHaveText("Run upgrade");
+  await expect(page.locator("#runWorkflowBtn")).toHaveText("Execute");
   await expect(page.locator("#workflowDeleteVolumesField")).toBeHidden();
   await page.locator("#runWorkflowBtn").click();
   await expect.poll(() => recreateBodies.length).toBe(2);
@@ -1604,7 +1637,7 @@ test("create import can save docker compose services as templates", async ({ pag
 
   await expect(page.locator("#workflowDeleteVolumesField")).toBeHidden();
   await page.locator("#workflowActionSelect").selectOption("delete");
-  await expect(page.locator("#runWorkflowBtn")).toHaveText("Run delete");
+  await expect(page.locator("#runWorkflowBtn")).toHaveText("Execute");
   await expect(page.locator("#workflowDeleteVolumesField")).toBeVisible();
   await page.locator("#workflowDeleteVolumesInput").check();
   await page.locator("#runWorkflowBtn").click();

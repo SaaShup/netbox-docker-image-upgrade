@@ -477,7 +477,10 @@
           <div class="card-header">
             <div class="card-title-row">
               <div>
-                <h3>Workflow</h3>
+                <div class="card-heading-title">
+                  <h3>Workflow</h3>
+                  <span class="count-badge" id="workflowTitleBadge" title="0 workflows" aria-label="0 workflows">0</span>
+                </div>
                 <p>Run imported compose templates in order.</p>
               </div>
               <div class="workflow-actions">
@@ -525,6 +528,9 @@
                 </tr>
               </tbody>
             </table>
+          </div>
+          <div class="workflow-save-actions">
+            <button type="button" class="btn btn-primary" id="saveWorkflowBtn" disabled>Save workflow</button>
           </div>
         </div>
 
