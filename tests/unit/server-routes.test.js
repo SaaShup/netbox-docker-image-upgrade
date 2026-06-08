@@ -136,6 +136,7 @@ function setupNetBoxFetch(fetchMock, {
   createHostSelectionContainers,
   fuzzyImageNameMatches = false,
   existingVolumes = [],
+  dockerRegistries = [],
 } = {}) {
   let deleteContainerGetCount = 0;
   let stopRequested = false;
@@ -194,6 +195,10 @@ function setupNetBoxFetch(fetchMock, {
           { id: 2, name: "host-b", tags: [{ slug: "guide" }] },
         ],
       });
+    }
+
+    if (pathname === "/api/plugins/docker/registries/" && method === "GET") {
+      return jsonResponse({ results: dockerRegistries });
     }
 
     if (pathname === "/api/plugins/docker/images/" && method === "GET") {
@@ -594,6 +599,8 @@ function setupOrderWorkflowNetBoxFetch(fetchMock) {
 
     if (parsed.pathname === "/api/plugins/docker/containers/" && method === "PATCH") {
       if (body.some((item) => item.id === 31 && !item.operation)) {
+        const current = containers.get(31) || {};
+        containers.set(31, { ...current, ...itemWithId(body, 31) });
         expect(itemWithId(body, 31)).toMatchObject({
           host: 1,
           ports: [{ public_port: -1, private_port: 8080, type: "tcp" }],
@@ -606,6 +613,11 @@ function setupOrderWorkflowNetBoxFetch(fetchMock) {
         expect(itemWithId(body, 31).labels).toEqual(expect.arrayContaining([
           { key: "traefik.enable", value: "true" },
           { key: "custom.label", value: "custom-value" },
+          { key: "saashup.template.name", value: "Tiles" },
+          { key: "saashup.template.image", value: "saashup/tile" },
+          { key: "saashup.template.owner", value: "buyer@example.com" },
+          { key: "saashup.template.owner_env_var", value: "SAASHUP_OWNER" },
+          { key: "saashup.template.dns_name", value: "tiles-order.example.com" },
         ]));
       }
       if (body.some((item) => item.id === 31 && item.operation === "recreate")) {
@@ -990,6 +1002,27 @@ describe("server routes", () => {
         saashup_workflows: {},
       },
     });
+
+    setupNetBoxFetch(fetchMock, {
+      netboxTemplateContexts: [{
+        id: 700,
+        name: "saashup-template-catalog-prod-9a0a63e8463f",
+        is_active: true,
+        data: {
+          saashup_template_catalog: true,
+          saashup_profile: "prod",
+          saashup_scope: "9a0a63e8463f",
+          saashup_netbox_url: "https://netbox.example.com",
+          saashup_tag: "tile",
+          saashup_templates: {
+            nginx: { image: "nginx", version: "1.31.1" },
+          },
+          saashup_workflows: {
+            "prod::templates": { name: "templates", steps: [{ template: "nginx", enabled: true }] },
+          },
+        },
+      }],
+    });
     await request.get("/webhook")
       .query({
         customer_name: "CuriooCity",
@@ -1007,6 +1040,12 @@ describe("server routes", () => {
         expect(res.body.max_templates).toBe(20);
         expect(res.body.enrollment_limit).toBe(20);
       });
+    const preservedCatalogPatch = parsedFetchCalls(fetchMock).find((call) => (
+      call.method === "PATCH"
+      && call.url.pathname === "/api/extras/config-contexts/700/"
+    ));
+    expect(preservedCatalogPatch.body.data.saashup_templates.nginx).toMatchObject({ image: "nginx", version: "1.31.1" });
+    expect(preservedCatalogPatch.body.data.saashup_workflows["prod::templates"].steps).toEqual([{ template: "nginx", enabled: true }]);
     expect(readState(dataPath).config.max_templates).toBeUndefined();
     expect(readState(dataPath).config.enrollment_limit).toBeUndefined();
     expect(parseProfiles(readState(dataPath).config.profiles).prod.max_templates).toBe(20);
@@ -1246,6 +1285,30 @@ describe("server routes", () => {
             },
           },
         },
+        {
+          id: 505,
+          name: "case-mismatch-catalog",
+          is_active: true,
+          data: {
+            saashup_template_catalog: true,
+            saashup_scope: "stale-scope-key",
+            saashup_profile: "PROD",
+            saashup_netbox_url: "https://netbox.example.com/",
+            saashup_tag: "MISSING",
+            saashup_templates: {
+              Nginx: {
+                image: "nginx",
+                version: "1.31.1",
+              },
+            },
+            saashup_workflows: {
+              "prod::nginx": {
+                name: "nginx",
+                steps: [{ template: "Nginx", enabled: true }],
+              },
+            },
+          },
+        },
       ],
     });
     writeState(dataPath, {
@@ -1270,7 +1333,7 @@ describe("server routes", () => {
           version: "v1.2.3",
           template_url: "https://templates.example.com/guide",
           max_instances: 3,
-          instance_count: 1,
+          instance_count: 0,
         });
         expect(res.body.Legacy).toMatchObject({
           source: "netbox-config-context",
@@ -1287,6 +1350,11 @@ describe("server routes", () => {
           source: "netbox-config-context",
           image: "saashup/solo",
           version: "v2.0.0",
+        });
+        expect(res.body.Nginx).toMatchObject({
+          source: "netbox-config-context",
+          image: "nginx",
+          version: "1.31.1",
         });
         expect(res.body.creator_email).toBeUndefined();
         expect(res.body.config_profile).toBeUndefined();
@@ -1877,15 +1945,49 @@ describe("server routes", () => {
   });
 
   test("enforces order limits before create", async () => {
-    const { dataPath, request } = await loadServer();
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, {
+      netboxTemplateContainers: [
+        {
+          id: 30,
+          name: "tiles",
+          display: "tiles.example.com",
+          image: { name: "saashup/tile", version: "v2.0.0" },
+          host: { id: 1 },
+          state: "running",
+          status: "running",
+          operation: "none",
+          env: [{ var_name: "SAASHUP_OWNER", value: "buyer@example.com" }],
+          labels: [
+            { key: "saashup.template.name", value: "Tiles" },
+            { key: "saashup.template.owner", value: "buyer@example.com" },
+            { key: "saashup.template.owner_env_var", value: "SAASHUP_OWNER" },
+            { key: "saashup.template.max_instances", value: "1" },
+            { key: "saashup.template.image", value: "saashup/tile" },
+            { key: "saashup.template.version", value: "v2.0.0" },
+            { key: "saashup.template.dns_name", value: "tiles.example.com" },
+          ],
+        },
+        {
+          id: 31,
+          name: "guide",
+          display: "guide.example.com",
+          image: { name: "saashup/guide", version: "v1.0.0" },
+          host: { id: 1 },
+          state: "running",
+          status: "running",
+          operation: "none",
+          env: [{ var_name: "SAASHUP_OWNER", value: "buyer@example.com" }],
+          labels: [
+            { key: "saashup.template.name", value: "Guide" },
+            { key: "saashup.template.owner", value: "buyer@example.com" },
+            { key: "saashup.template.dns_name", value: "guide.example.com" },
+          ],
+        },
+      ],
+    });
     writeState(dataPath, {
-      config: { max_templates: 4, profile: "prod", config_profile: "prod" },
-      templates: { Tiles: { max_instances: 1 } },
-      order_counts: { "buyer@example.com": { prod: 2 } },
-      order_instances: { "buyer@example.com": { prod: [
-        { instance: "tiles.example.com", template: "Tiles" },
-        { instance: "guide.example.com", template: "Guide" },
-      ] } },
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_templates: 4, profile: "prod", config_profile: "prod" },
       logs: "",
     });
 
@@ -1898,10 +2000,10 @@ describe("server routes", () => {
       ]);
     });
     await request.get("/order/limit").set("x-auth-request-email", "buyer@example.com").query({ profile: "prod" }).expect(200).expect((res) => {
-      expect(res.body.instances).toEqual([
+      expect(res.body.instances).toEqual(expect.arrayContaining([
         expect.objectContaining({ instance: "tiles.example.com" }),
         expect.objectContaining({ instance: "guide.example.com" }),
-      ]);
+      ]));
       expect(res.body.total_used).toBe(2);
     });
     await request.get("/order/limit").expect(200).expect((res) => {
@@ -1916,9 +2018,7 @@ describe("server routes", () => {
       });
 
     writeState(dataPath, {
-      config: { max_templates: 4, profile: "prod", config_profile: "prod" },
-      templates: { Tiles: { max_instances: 2 } },
-      order_counts: { "buyer@example.com": { prod: 2 } },
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_templates: 4, profile: "prod", config_profile: "prod" },
       logs: "",
     });
     await request.post("/create")
@@ -1926,7 +2026,7 @@ describe("server routes", () => {
       .send({ order_request: "true", order_template: "Tiles", profile: "prod" })
       .expect(429)
       .expect((res) => {
-        expect(res.body.detail).toContain("maximum of 2 instances");
+        expect(res.body.detail).toContain("maximum of 1 instance");
       });
   });
 
@@ -1937,6 +2037,7 @@ describe("server routes", () => {
         {
           id: 30,
           name: "guide-one",
+          display: "guide-one.example.com",
           image: { name: "saashup/guide", version: "v1.2.3" },
           env: [{ var_name: "SAASHUP_OWNER", value: "buyer@example.com" }],
           labels: [
@@ -1949,15 +2050,6 @@ describe("server routes", () => {
     writeState(dataPath, {
       config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", profile: "prod", config_profile: "prod" },
       templates: {},
-      order_counts: { "buyer@example.com": { prod: 2 } },
-      order_instances: {
-        "buyer@example.com": {
-          prod: [
-            { instance: "guide-one.example.com", template: "Guide" },
-            { instance: "guide-two.example.com", template: "Guide" },
-          ],
-        },
-      },
       logs: "",
     });
 
@@ -1966,10 +2058,9 @@ describe("server routes", () => {
       .query({ profile: "prod", template: "Guide" })
       .expect(200)
       .expect((res) => {
-        expect(res.body).toMatchObject({ used: 2, max: 3, remaining: 1, reached: false });
+        expect(res.body).toMatchObject({ used: 1, max: 3, remaining: 2, reached: false });
         expect(res.body.instances).toEqual([
           expect.objectContaining({ instance: "guide-one.example.com" }),
-          expect.objectContaining({ instance: "guide-two.example.com" }),
         ]);
       });
   });
@@ -1981,8 +2072,6 @@ describe("server routes", () => {
       config: { netbox: "https://netbox.example.com", token: "secret", max_templates: 1, profile: "prod", config_profile: "prod" },
       templates: {},
       order_counts: {},
-      enrollment_counts: {},
-      enrollment_instances: {},
       order_instances: {},
       logs: "",
     });
@@ -1999,12 +2088,28 @@ describe("server routes", () => {
       })
       .expect(202);
 
-    expect(readState(dataPath).enrollment_counts["buyer@example.com"]?.prod).toBe(1);
-    expect(readState(dataPath).enrollment_instances["buyer@example.com"]?.prod).toEqual([
-      expect.objectContaining({ instance: "enroll-one.example.com", image: "saashup/tile", version: "v2.0.0" }),
-    ]);
+    expect(readState(dataPath).enrollment_counts).toBeUndefined();
+    expect(readState(dataPath).enrollment_instances).toBeUndefined();
     expect(readState(dataPath).templates?.["enroll-one.example.com"]).toBeUndefined();
     expect(readState(dataPath).order_counts?.["buyer@example.com"]?.prod).toBeUndefined();
+    const contextPost = parsedFetchCalls(fetchMock).find((call) => call.method === "POST" && call.url.pathname === "/api/extras/config-contexts/");
+    expect(contextPost.body.data.saashup_templates.tile).toMatchObject({
+      image: "saashup/tile",
+      version: "v2.0.0",
+      creator_email: "buyer@example.com",
+      saashup_enabled: true,
+    });
+    expect(contextPost.body.data.saashup_workflows["prod::templates"]).toMatchObject({
+      name: "templates",
+      config_profile: "prod",
+      steps: [
+        expect.objectContaining({
+          template: "tile",
+          enabled: true,
+          template_data: expect.objectContaining({ image: "saashup/tile", saashup_enabled: true }),
+        }),
+      ],
+    });
     await vi.waitFor(() => {
       const configPatch = parsedFetchCalls(fetchMock).find((call) => (
         call.url.pathname === "/api/plugins/docker/containers/"
@@ -2013,7 +2118,7 @@ describe("server routes", () => {
         && call.body.some((item) => item.id === 31 && !item.operation)
       ));
       expect(configPatch?.body[0].labels).toEqual(expect.arrayContaining([
-        { key: "saashup.template.name", value: "enroll-one.example.com" },
+        { key: "saashup.template.name", value: "tile" },
         { key: "saashup.template.owner", value: "buyer@example.com" },
         { key: "saashup.template.image", value: "saashup/tile" },
         { key: "saashup.template.version", value: "v2.0.0" },
@@ -2026,7 +2131,10 @@ describe("server routes", () => {
       .query({ profile: "prod", template: "Tiles" })
       .expect(200)
       .expect((res) => {
-        expect(res.body).toMatchObject({ used: 1, max: 1, remaining: 0, reached: true, instances: [] });
+        expect(res.body).toMatchObject({ used: 1, max: 1, remaining: 0, reached: true });
+        expect(res.body.instances).toEqual([
+          expect.objectContaining({ instance: "tile", image: "saashup/tile", source: "netbox-template" }),
+        ]);
       });
 
     await request.post("/create")
@@ -2046,32 +2154,34 @@ describe("server routes", () => {
         expect(res.body.used_templates).toBe(1);
       });
 
-    writeState(dataPath, {
-      config: { enrollment_limit: 1, profile: "prod", config_profile: "prod" },
-      enrollment_counts: { "legacy@example.com": { prod: 1 } },
-      enrollment_instances: {},
-      logs: "",
-    });
-    await request.get("/enroll/limit")
-      .set("x-auth-request-email", "legacy@example.com")
-      .query({ profile: "prod", template: "Tiles" })
-      .expect(200)
-      .expect((res) => {
-        expect(res.body).toMatchObject({ used: 1, max: 1, remaining: 0, reached: true, instances: [] });
-      });
+    expect(readState(dataPath).enrollment_counts).toBeUndefined();
+    expect(readState(dataPath).enrollment_instances).toBeUndefined();
   });
 
   test("rejects duplicate enrolled images from any user before creating a new enrollment", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
-    setupNetBoxFetch(fetchMock, { expectTraefikConfig: false });
+    setupNetBoxFetch(fetchMock, {
+      expectTraefikConfig: false,
+      netboxTemplateContexts: [{
+        id: 800,
+        name: "saashup-template-catalog-prod-existing",
+        is_active: true,
+        data: {
+          saashup_template_catalog: true,
+          saashup_profile: "prod",
+          saashup_netbox_url: "https://netbox.example.com",
+          saashup_templates: {
+            "nginx-existing.example.com": {
+              image: "nginx",
+              version: "1.25",
+              creator_email: "other@example.com",
+            },
+          },
+        },
+      }],
+    });
     writeState(dataPath, {
       config: { netbox: "https://netbox.example.com", token: "secret", max_templates: 3, profile: "prod", config_profile: "prod" },
-      enrollment_counts: {},
-      enrollment_instances: {
-        "other@example.com": {
-          prod: [{ instance: "nginx-existing.example.com", image: "nginx:1.25", version: "1.25", status: "ready" }],
-        },
-      },
       logs: "",
     });
 
@@ -2102,8 +2212,6 @@ describe("server routes", () => {
     setupNetBoxFetch(fetchMock, { expectTraefikConfig: false });
     writeState(dataPath, {
       config: { netbox: "https://netbox.example.com", token: "secret", max_templates: 3, profile: "prod", config_profile: "prod" },
-      enrollment_counts: {},
-      enrollment_instances: {},
       logs: "",
     });
 
@@ -2164,13 +2272,64 @@ describe("server routes", () => {
     expect(parsedFetchCalls(fetchMock).some((call) => call.method === "POST" && call.url.pathname === "/api/plugins/docker/containers/")).toBe(false);
   });
 
+  test("enrollment create can use Docker Hub registry for official images", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, {
+      expectTraefikConfig: false,
+      emptyImagesForName: "nginx",
+      dockerRegistries: [{ id: 6, name: "dockerhub", serveraddress: "https://registry.hub.docker.com/v2/", host: { id: 1, name: "saashup1" } }],
+    });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", max_templates: 3, profile: "prod", config_profile: "prod" },
+      logs: "",
+    });
+
+    await request.post("/create")
+      .set("x-auth-request-email", "buyer@example.com")
+      .send({
+        instance: "nginx.example.com",
+        image: "nginx",
+        version: "1.27",
+        port_value: "8080",
+        traefik: "false",
+        enroll_request: "true",
+        profile: "prod",
+        wait: "true",
+      })
+      .expect(200);
+
+    const calls = parsedFetchCalls(fetchMock);
+    const registryLookup = calls.find((call) => call.url.pathname === "/api/plugins/docker/registries/" && call.method === "GET");
+    expect(registryLookup).toBeTruthy();
+
+    const imageCreate = calls.find((call) => call.url.pathname === "/api/plugins/docker/images/" && call.method === "POST");
+    expect(imageCreate.body).toMatchObject({ name: "nginx", version: "1.27", registry: 6 });
+    const contextPost = calls.find((call) => call.url.pathname === "/api/extras/config-contexts/" && call.method === "POST");
+    expect(contextPost.body.data.saashup_templates.nginx).toMatchObject({
+      config_profile: "prod",
+      image: "nginx",
+      version: "1.27",
+      creator_email: "buyer@example.com",
+      saashup_enabled: true,
+      ports: [{ value: "8080" }],
+    });
+    expect(contextPost.body.data.saashup_workflows["prod::templates"].steps).toEqual([
+      expect.objectContaining({
+        template: "nginx",
+        enabled: true,
+        template_data: expect.objectContaining({ image: "nginx", saashup_enabled: true }),
+      }),
+    ]);
+    expect(readState(dataPath).logs).toContain("ENROLL : template nginx synced to config context");
+    expect(readState(dataPath).logs).toContain("CREATE : created image nginx:1.27 on");
+    expect(readState(dataPath).logs).not.toContain("registry not found for image nginx");
+  });
+
   test("rejects configured not-enrollable images", async () => {
     const { dataPath, fetchMock, request } = await loadServer({ enrollBlockedImages: "traefik,netbox-docker-agent" });
     setupNetBoxFetch(fetchMock, { expectTraefikConfig: false });
     writeState(dataPath, {
       config: { netbox: "https://netbox.example.com", token: "secret", max_templates: 3, profile: "prod", config_profile: "prod" },
-      enrollment_counts: {},
-      enrollment_instances: {},
       logs: "",
     });
 
@@ -2197,31 +2356,34 @@ describe("server routes", () => {
   });
 
   test("enroll limit lists templates created by the user", async () => {
-    const { dataPath, request } = await loadServer();
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, {
+      netboxTemplateContexts: [{
+        id: 610,
+        name: "saashup-template-catalog-prod",
+        is_active: true,
+        data: {
+          saashup_template_catalog: true,
+          saashup_profile: "prod",
+          saashup_netbox_url: "https://netbox.example.com",
+          saashup_tag: "tile",
+          saashup_templates: {
+            Tile: { config_profile: "prod", image: "saashup/tile", version: "v1", creator_email: "owner@example.com" },
+            Guide: { config_profile: "prod", image: "saashup/guide", version: "v2", creator_email: "other@example.com" },
+            Install: { config_profile: "prod", image: "saashup/install", version: "v4", creator_email: "owner@example.com" },
+            Shared: { image: "saashup/shared", version: "v3", creator_email: "owner@example.com" },
+          },
+        },
+      }],
+      netboxTemplateContainers: [
+        { id: 30, name: "tile-one", image: { name: "saashup/tile", version: "v1" }, host: { id: 1 }, labels: [{ key: "saashup.template.name", value: "Tile" }, { key: "saashup.template.owner", value: "buyer@example.com" }] },
+        { id: 31, name: "tile-two", image: { name: "saashup/tile", version: "v1" }, host: { id: 1 }, labels: [{ key: "saashup.template.name", value: "Tile" }, { key: "saashup.template.owner", value: "buyer@example.com" }] },
+        { id: 32, name: "tile-dev", image: { name: "saashup/tile", version: "v1" }, host: { id: 1 }, labels: [{ key: "saashup.template.name", value: "Tile" }, { key: "saashup.template.owner", value: "second@example.com" }] },
+        { id: 33, name: "guide", image: { name: "saashup/guide", version: "v2" }, host: { id: 1 }, labels: [{ key: "saashup.template.name", value: "Guide" }, { key: "saashup.template.owner", value: "buyer@example.com" }] },
+      ],
+    });
     writeState(dataPath, {
-      config: { enrollment_limit: 2, profile: "prod", config_profile: "prod" },
-      templates: {
-        Tile: { config_profile: "prod", image: "saashup/tile", version: "v1", creator_email: "owner@example.com" },
-        Guide: { config_profile: "prod", image: "saashup/guide", version: "v2", creator_email: "other@example.com" },
-        Install: { config_profile: "install", image: "saashup/install", version: "v4", creator_email: "owner@example.com" },
-        Shared: { image: "saashup/shared", version: "v3", creator_email: "owner@example.com" },
-      },
-      order_instances: {
-        "buyer@example.com": {
-          prod: [
-            { instance: "tile-one.example.com", template: "Tile" },
-            { instance: "tile-two.example.com", template: "tile" },
-            { instance: "guide.example.com", template: "Guide" },
-          ],
-        },
-        "second@example.com": {
-          dev: [
-            { instance: "tile-dev.example.com", template: "Tile" },
-          ],
-        },
-      },
-      enrollment_counts: {},
-      enrollment_instances: {},
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", enrollment_limit: 2, profile: "prod", config_profile: "prod" },
       logs: "",
     });
 
@@ -2230,13 +2392,71 @@ describe("server routes", () => {
       .query({ profile: "prod" })
       .expect(200)
       .expect((res) => {
-        expect(res.body).toMatchObject({ used: 3, max: 2, remaining: 0, reached: true });
-        expect(res.body.instances).toEqual([
-          expect.objectContaining({ instance: "Tile", image: "saashup/tile", source: "template", status: "ready", instance_count: 3 }),
-          expect.objectContaining({ instance: "Install", image: "saashup/install", source: "template", status: "ready", instance_count: 0 }),
-          expect.objectContaining({ instance: "Shared", image: "saashup/shared", source: "template", status: "ready", instance_count: 0 }),
-        ]);
+        expect(res.body).toMatchObject({ used: 4, max: 2, remaining: 0, reached: true });
+        expect(res.body.instances).toEqual(expect.arrayContaining([
+          expect.objectContaining({ instance: "Tile", image: "saashup/tile", source: "netbox-template", status: "ready", instance_count: 3 }),
+          expect.objectContaining({ instance: "Install", image: "saashup/install", source: "netbox-template", status: "ready", instance_count: 0 }),
+          expect.objectContaining({ instance: "Shared", image: "saashup/shared", source: "netbox-template", status: "ready", instance_count: 0 }),
+        ]));
       });
+  });
+
+  test("enroll template delete is allowed when no other owner uses it", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, {
+      netboxTemplateContexts: [{
+        id: 620,
+        name: "saashup-template-catalog-prod",
+        is_active: true,
+        data: {
+          saashup_template_catalog: true,
+          saashup_profile: "prod",
+          saashup_netbox_url: "https://netbox.example.com",
+          saashup_tag: "tile",
+          saashup_templates: {
+            Tile: { config_profile: "prod", image: "saashup/tile", version: "v1", creator_email: "owner@example.com" },
+            Owned: { config_profile: "prod", image: "saashup/owned", version: "v2", creator_email: "owner@example.com" },
+            Install: { config_profile: "prod", image: "saashup/install", version: "v4", creator_email: "owner@example.com" },
+          },
+        },
+      }],
+      netboxTemplateContainers: [
+        { id: 40, name: "owned-one", image: { name: "saashup/owned", version: "v2" }, host: { id: 1 }, env: [{ var_name: "SAASHUP_OWNER", value: "owner@example.com" }], labels: [{ key: "saashup.template.name", value: "Owned" }, { key: "saashup.template.owner", value: "owner@example.com" }] },
+        { id: 41, name: "tile-one", image: { name: "saashup/tile", version: "v1" }, host: { id: 1 }, env: [{ var_name: "SAASHUP_OWNER", value: "buyer@example.com" }], labels: [{ key: "saashup.template.name", value: "Tile" }, { key: "saashup.template.owner", value: "buyer@example.com" }] },
+      ],
+    });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", enrollment_limit: 3, profile: "prod", config_profile: "prod" },
+      logs: "",
+    });
+
+    await request.delete("/enroll/template/Tile")
+      .set("x-auth-request-email", "owner@example.com")
+      .query({ profile: "prod" })
+      .expect(409)
+      .expect((res) => {
+        expect(res.body).toMatchObject({ code: "template_in_use", template: "Tile", instance_count: 1, blocking_instance_count: 1, owned_instance_count: 0 });
+      });
+
+    await request.delete("/enroll/template/Owned")
+      .set("x-auth-request-email", "owner@example.com")
+      .query({ profile: "prod" })
+      .expect(409)
+      .expect((res) => {
+        expect(res.body).toMatchObject({ code: "template_in_use", template: "Owned", instance_count: 1, blocking_instance_count: 0, owned_instance_count: 1 });
+      });
+
+    await request.delete("/enroll/template/Install")
+      .set("x-auth-request-email", "owner@example.com")
+      .query({ profile: "prod" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toMatchObject({ deleted: true, template: "Install" });
+      });
+
+    const state = readState(dataPath);
+    expect(state.enrollment_counts).toBeUndefined();
+    expect(state.enrollment_instances).toBeUndefined();
   });
 
   test("enroll limit discovers owner templates from NetBox labels before local fallback", async () => {
@@ -2279,8 +2499,6 @@ describe("server routes", () => {
         Local: { image: "saashup/local", version: "v1", creator_email: "owner@example.com" },
         Guide: { image: "saashup/local-guide", version: "old", creator_email: "owner@example.com" },
       },
-      enrollment_counts: {},
-      enrollment_instances: {},
       order_counts: {},
       order_instances: {},
       logs: "",
@@ -2323,8 +2541,6 @@ describe("server routes", () => {
     });
     writeState(dataPath, {
       config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", enrollment_limit: 4, profile: "prod", config_profile: "prod" },
-      enrollment_counts: {},
-      enrollment_instances: {},
       order_counts: {},
       order_instances: {},
       logs: "",
@@ -2399,8 +2615,6 @@ describe("server routes", () => {
     });
     writeState(dataPath, {
       config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", enrollment_limit: 4, profile: "prod", config_profile: "prod" },
-      enrollment_counts: {},
-      enrollment_instances: {},
       order_counts: {},
       order_instances: {},
       logs: "",
@@ -2458,8 +2672,6 @@ describe("server routes", () => {
     });
     writeState(dataPath, {
       config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", enrollment_limit: 4, profile: "prod", config_profile: "prod" },
-      enrollment_counts: {},
-      enrollment_instances: {},
       order_counts: {},
       order_instances: {},
       logs: "",
@@ -2594,8 +2806,8 @@ describe("server routes", () => {
       })
       .expect(202);
 
-    await vi.waitFor(() => expect(readState(dataPath).order_counts["buyer@example.com"].prod).toBe(0));
-    await vi.waitFor(() => expect(readState(dataPath).order_instances["buyer@example.com"].prod).toEqual([]));
+    expect(readState(dataPath).order_counts).toBeUndefined();
+    expect(readState(dataPath).order_instances).toBeUndefined();
 
     const netboxPaths = netboxCalls.map((call) => `${call.method} ${call.path}`);
     expect(netboxPaths).toEqual(expect.arrayContaining([
@@ -2790,14 +3002,12 @@ describe("server routes", () => {
     expect(readState(dataPath).logs).toContain("CREATE : image saashup/missing:v3.0.0 on host-a pulled identifier=sha256:20");
   });
 
-  test("reserves order slots immediately when create is accepted", async () => {
+  test("does not persist order slots when async create is accepted", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock);
     writeState(dataPath, {
       config: { netbox: "https://netbox.example.com", token: "secret", max_instances: 1, profile: "prod", config_profile: "prod" },
       templates: {},
-      order_counts: {},
-      order_instances: {},
       logs: "",
     });
 
@@ -2814,10 +3024,8 @@ describe("server routes", () => {
       })
       .expect(202);
 
-    expect(readState(dataPath).order_counts["buyer@example.com"]?.prod).toBe(1);
-    expect(readState(dataPath).order_instances["buyer@example.com"]?.prod).toEqual([
-      expect.objectContaining({ instance: "tiles.example.com", template: "Tiles", status: expect.stringMatching(/^(creating|failed)$/) }),
-    ]);
+    expect(readState(dataPath).order_counts).toBeUndefined();
+    expect(readState(dataPath).order_instances).toBeUndefined();
 
     await request.post("/create")
       .set("x-auth-request-email", "buyer@example.com")
@@ -2830,11 +3038,10 @@ describe("server routes", () => {
         order_template: "Tiles",
         profile: "prod",
       })
-      .expect(429)
-      .expect((res) => {
-        expect(res.body.code).toBe("max_instances_reached");
-        expect(res.body.used_instances).toBe(1);
-      });
+      .expect(202);
+
+    expect(readState(dataPath).order_counts).toBeUndefined();
+    expect(readState(dataPath).order_instances).toBeUndefined();
   });
 
   test("records sparse order reservations before async create work", async () => {

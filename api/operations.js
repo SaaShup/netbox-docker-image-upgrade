@@ -16,13 +16,10 @@ function registerOperationRoutes(app, {
   NetBoxClient,
   oidcAuth,
   recordEnrollment,
-  recordOrderInstance,
   recreateContainers,
-  removeOrderInstance,
   requestContainerOperation,
   selectedProfileConfig,
   updateEnrollmentInstanceStatus,
-  updateOrderInstanceStatus,
   validateEnrollmentTemplate,
   validateOrderTemplate,
   valueText,
@@ -107,7 +104,6 @@ function registerOperationRoutes(app, {
     const matches = exactContainerNameMatches(await client.list("/api/plugins/docker/containers/", { name: instanceShort(data.instance), ...hostFilter }), data.instance);
     if (matches.length !== 1) return logLine(`DELETE : cannot delete ${instanceShort(data.instance)}, expected 1 container got ${matches.length}`);
     await deleteOneContainer(client, data, matches[0], data.instance);
-    if (req.body.order_request === "true") removeOrderInstance(req, data.profile || data.config_profile || "", data.instance || "");
   }
 
   app.post("/create", oidcAuth.loginRequired, async (req, res) => {
@@ -127,8 +123,13 @@ function registerOperationRoutes(app, {
       return res.status(429).json({ code: "max_templates_reached", detail: `You have reached your maximum of ${enrollUsage.max} template${enrollUsage.max === 1 ? "" : "s"} for this config.`, max_templates: enrollUsage.max, used_templates: enrollUsage.used });
     }
     if (isEnrollRequest && !await validateEnrollmentTemplate(req, res, orderProfile, data)) return;
-    if (isOrderRequest) recordOrderInstance(req, orderProfile, data);
-    if (isEnrollRequest) recordEnrollment(req, orderProfile, data);
+    if (isEnrollRequest) {
+      try {
+        await recordEnrollment(req, orderProfile, data);
+      } catch (error) {
+        return res.status(502).json({ code: "template_catalog_sync_failed", detail: error.message || "Template catalog sync failed." });
+      }
+    }
 
     const operationContext = { isOrderRequest, isEnrollRequest, orderProfile, authUser };
     if (waitForRequest(data)) {
@@ -136,7 +137,6 @@ function registerOperationRoutes(app, {
         const ready = await createInstance(req, data, operationContext);
         return res.status(ready ? 200 : 422).json({ status: ready ? "finished" : "failed" });
       } catch (error) {
-        if (isOrderRequest) updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
         if (isEnrollRequest) updateEnrollmentInstanceStatus(req, orderProfile, data.instance || "", "failed");
         logLine(`ERROR : ${error.message || "operation failed"} payload=${JSON.stringify(error.payload || {}).slice(0, 240)}`);
         return res.status(error.statusCode || 502).json({ detail: error.message || "operation failed", payload: error.payload });
@@ -147,7 +147,6 @@ function registerOperationRoutes(app, {
       try {
         await createInstance(req, data, operationContext);
       } catch (error) {
-        if (isOrderRequest) updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
         if (isEnrollRequest) updateEnrollmentInstanceStatus(req, orderProfile, data.instance || "", "failed");
         throw error;
       }

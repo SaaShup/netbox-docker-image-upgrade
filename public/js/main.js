@@ -2187,6 +2187,11 @@ function setOrderBlockedStatus(message, reason) {
   setOrderActionStatus(message, "error", reason);
 }
 
+function setSubmitValidationError(message) {
+  if (isOrderPage) setOrderActionStatus(message, "error", "validation-error");
+  else setNotice(message, "error");
+}
+
 function orderCanRequestMessage(limit) {
   const remaining = Number(limit?.remaining || 0);
   if (remaining > 1) return `You can request ${remaining} more instances for this config.`;
@@ -2352,17 +2357,13 @@ function renderEnrollmentInstances(instances = enrollmentCards, limit = enrollme
     reached: Boolean(limit?.reached),
   };
 
-  if (!enrollmentCards.length && enrollmentLimit.used <= 0) {
+  if (!enrollmentCards.length) {
     enrollInstances.classList.add("hidden");
     enrollInstances.replaceChildren();
     return;
   }
 
-  const displayCards = enrollmentCards.length ? enrollmentCards : [{
-    instance: "Enrollment recorded",
-    image: "Details unavailable for earlier template",
-    status: "recorded",
-  }];
+  const displayCards = enrollmentCards;
   const maxText = enrollmentLimit.max > 0 ? ` / ${enrollmentLimit.max}` : "";
   enrollInstances.classList.remove("hidden");
   enrollInstances.innerHTML = `
@@ -2386,7 +2387,7 @@ function renderEnrollmentInstances(instances = enrollmentCards, limit = enrollme
               <button type="button" class="icon-btn order-template-copy" data-order-template-copy="${escapeHtml(item.instance)}" title="Copy order link" aria-label="Copy order link for ${escapeHtml(item.instance)}">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="10" height="10" rx="2"></rect><path d="M5 15V7a2 2 0 0 1 2-2h8"></path></svg>
               </button>
-              <button type="button" class="icon-btn icon-btn-danger order-instance-delete" title="Remove disabled" aria-label="Remove disabled" disabled>
+              <button type="button" class="icon-btn icon-btn-danger order-instance-delete" data-enroll-template-delete="${escapeHtml(item.instance)}" title="${escapeHtml(enrollTemplateDeleteTitle(item))}" aria-label="${escapeHtml(enrollTemplateDeleteTitle(item))}" ${enrollTemplateCanDelete(item) ? "" : "disabled"}>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>
               </button>
             </span>
@@ -2401,6 +2402,18 @@ function isEnrollmentTemplateCard(item) {
   return item?.source === "template" || item?.source === "netbox-template" || item?.source === "netbox-config-context";
 }
 
+function enrollTemplateCanDelete(item) {
+  const hasTemplateSource = item?.source === "template" || item?.source === "netbox-template" || item?.source === "netbox-config-context";
+  return hasTemplateSource && Number(item?.instance_count || 0) <= 0;
+}
+
+function enrollTemplateDeleteTitle(item) {
+  const name = item?.instance || "template";
+  if (Number(item?.instance_count || 0) > 0) return `${name} is used by ${Number(item.instance_count)} instance${Number(item.instance_count) === 1 ? "" : "s"}`;
+  if (enrollTemplateCanDelete(item)) return `Delete ${name}`;
+  return "Delete unavailable for this template source";
+}
+
 function enrollmentTemplateTitle(item) {
   const count = Number(item?.instance_count || 0);
   const badgeLabel = `${count} instance${count === 1 ? "" : "s"}`;
@@ -2410,6 +2423,30 @@ function enrollmentTemplateTitle(item) {
       <span class="enroll-template-count" title="${escapeHtml(badgeLabel)}" aria-label="${escapeHtml(badgeLabel)}">${count}</span>
     </span>
   `;
+}
+
+async function deleteEnrollTemplate(name) {
+  const templateName = String(name || "").trim();
+  if (!templateName) return;
+  if (!confirm(`Delete enrolled template "${templateName}"?`)) return;
+
+  try {
+    const query = new URLSearchParams();
+    const profile = selectedProfileCredentials().profile;
+    if (profile) query.set("profile", profile);
+    const response = await fetch(`/enroll/template/${encodeURIComponent(templateName)}${query.toString() ? `?${query.toString()}` : ""}`, {
+      method: "DELETE",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.detail || `Delete failed (${response.status})`);
+    }
+    await refreshEnrollLimit();
+    setNotice(`Template "${templateName}" deleted`, "success");
+  } catch (error) {
+    setNotice(error.message || "Template delete failed", "error");
+  }
 }
 
 function orderInstanceNameLink(instance, hrefTarget = "") {
@@ -2840,6 +2877,14 @@ function validateEnrollRunText(runText, { notify = true } = {}) {
   return valid;
 }
 
+function enrollImageVersionAllowed(image = "", version = "") {
+  const imageParts = splitImageRef(image);
+  const resolvedVersion = String(version || imageParts.version || "").trim();
+  if (!resolvedVersion) return { ok: false, message: "Docker run image version is required" };
+  if (resolvedVersion.toLowerCase() === "latest") return { ok: false, message: "Docker run image version cannot be latest" };
+  return { ok: true, version: resolvedVersion };
+}
+
 function updateEnrollSubmitState({ notify = true } = {}) {
   if (!isEnrollPage) return true;
 
@@ -3029,6 +3074,12 @@ function splitImageRef(ref) {
   }
 
   return { image: ref, version: "" };
+}
+
+function defaultTemplateNameFromImage(image = "") {
+  const imageName = splitImageRef(image).image;
+  const parts = String(imageName || "").split("/").filter(Boolean);
+  return (parts.at(-1) || imageName || "").trim();
 }
 
 function valueText(value) {
@@ -3942,7 +3993,10 @@ function openSelectedTemplateOrder() {
 function orderTemplateUrl(name) {
   const templateName = String(name || "").trim();
   if (!templateName) return "";
-  return `${window.location.origin}/order?template=${encodeURIComponent(templateName)}`;
+  const query = new URLSearchParams({ template: templateName });
+  const profile = selectedProfileCredentials().profile || defaultConfigProfileName() || "";
+  if (profile) query.set("profile", profile);
+  return `${window.location.origin}/order?${query.toString()}`;
 }
 
 function copyTextToClipboard(text) {
@@ -4081,6 +4135,8 @@ async function applyDockerComposeFile(text) {
     applyCreateTemplate(first.template);
     if (!fieldValue("network")) syncCreateNetwork();
     enrollSetImportedSummary(`Compose service ${first.name} imported`);
+    const limit = await refreshEnrollLimit({ showLoading: false });
+    if (limit?.reached) return false;
     setNotice(`Compose service "${first.name}" imported`, "success");
     return true;
   }
@@ -4252,6 +4308,14 @@ async function applyDockerRunCommand() {
     return false;
   }
 
+  if (isEnrollPage) {
+    const versionCheck = enrollImageVersionAllowed(parsed.image, parsed.version);
+    if (!versionCheck.ok) {
+      setNotice(versionCheck.message, "error");
+      return false;
+    }
+  }
+
   if (!isTemplateAction()) setAction("template");
   templateNetworkOverride = "";
   templateVersionOverride = parsed.version || "";
@@ -4278,6 +4342,10 @@ async function applyDockerRunCommand() {
 
   closeDockerRunModal();
   enrollSetImportedSummary("Docker run imported");
+  if (isEnrollPage) {
+    const limit = await refreshEnrollLimit({ showLoading: false });
+    if (limit?.reached) return false;
+  }
   setNotice("Docker run imported", "success");
   return true;
 }
@@ -4289,7 +4357,7 @@ function loadSavedConfig() {
   })
     .then((response) => response.json())
     .then((data) => {
-      const localProfiles = isEnrollPage ? {} : applyDeletedProfileFilter(storedProfiles());
+      const localProfiles = (isEnrollPage || isOrderPage) ? {} : applyDeletedProfileFilter(storedProfiles());
       if (!data) {
         serverConfigProfiles = {};
         configProfiles = localProfiles;
@@ -4320,7 +4388,7 @@ function loadSavedConfig() {
           };
           serverConfigProfiles[profile] = serverProfile;
           configProfiles[profile] = localProfiles[profile] || serverProfile;
-          currentConfigProfile = localStorage.getItem("current_config_profile") || profile;
+          currentConfigProfile = (isEnrollPage || isOrderPage) ? profile : (localStorage.getItem("current_config_profile") || profile);
         }
       }
 
@@ -4331,7 +4399,7 @@ function loadSavedConfig() {
     })
     .catch(() => {
       serverConfigProfiles = {};
-      configProfiles = isEnrollPage ? {} : applyDeletedProfileFilter(storedProfiles());
+      configProfiles = (isEnrollPage || isOrderPage) ? {} : applyDeletedProfileFilter(storedProfiles());
       updateProfileOptions();
       applyProfileToFields(currentConfigProfile);
       ensureRandomCreateInstanceName();
@@ -4980,6 +5048,14 @@ async function submitAction(config, submitter) {
   }
   if (isEnrollPage) {
     body.set("enroll_request", "true");
+    const versionCheck = enrollImageVersionAllowed(body.get("image"), body.get("version"));
+    if (!versionCheck.ok) {
+      submitBtn.disabled = false;
+      setNotice(versionCheck.message, "error");
+      return;
+    }
+    const templateName = selectedTemplateName() || body.get("template_name") || defaultTemplateNameFromImage(body.get("image"));
+    if (templateName) body.set("template_name", templateName);
   }
 
   if (currentAction === "create") {
@@ -5046,23 +5122,9 @@ async function submitAction(config, submitter) {
   }
 
   if (isEnrollPage) {
-    if (response.status === 202) {
-      renderEnrollmentInstances([
-        ...enrollmentCards,
-        {
-          instance: createdInstanceFqdn || fieldValue("instance"),
-          dns_name: createdInstanceFqdn,
-          image: fieldValue("image"),
-          version: fieldValue("version"),
-          template_url: fieldValue("template_url"),
-          status: "creating",
-        },
-      ], {
-        ...enrollmentLimit,
-        used: Math.max(Number(enrollmentLimit.used || 0) + 1, enrollmentCards.length + 1),
-      });
-      window.setTimeout(refreshEnrollLimit, 250);
-      setNotice(`Creation requested for ${createdInstanceFqdn || fieldValue("instance")}.`, "success");
+    if (response.status === 200 || response.status === 202) {
+      await refreshEnrollLimit({ showLoading: false });
+      setNotice(`Enrollment recorded for ${createdInstanceFqdn || fieldValue("instance")}.`, "success");
     } else {
       const text = await response.text();
       let detail = "";
@@ -5478,7 +5540,7 @@ form.addEventListener("submit", async (event) => {
   }
 
   if (currentAction === "template") {
-    setNotice("Use Save template to store template changes", "error");
+    setSubmitValidationError("Use Save template to store template changes");
     return;
   }
 
@@ -5488,58 +5550,59 @@ form.addEventListener("submit", async (event) => {
   }
 
   if (currentAction === "restart" && event.submitter?.value === "instance" && !fieldValue("instance")) {
-    setNotice("Instance name is required", "error");
+    setSubmitValidationError("Instance name is required");
     return;
   }
 
   if (currentAction === "restart" && event.submitter?.value === "image") {
     if (!fieldValue("image")) {
-      setNotice("Image name is required", "error");
+      setSubmitValidationError("Image name is required");
       return;
     }
 
     if (!fieldValue("restart_version")) {
-      setNotice("Version is required", "error");
+      setSubmitValidationError("Version is required");
       return;
     }
   }
 
   if (currentAction === "delete" && event.submitter?.value === "image" && !fieldValue("image")) {
-    setNotice("Image name is required", "error");
+    setSubmitValidationError("Image name is required");
     return;
   }
 
   if (currentAction === "delete" && event.submitter?.value !== "image" && !fieldValue("instance")) {
-    setNotice("Instance name is required", "error");
+    setSubmitValidationError("Instance name is required");
     return;
   }
 
   const selectedCreateTemplate = currentAction === "create" ? createTemplateEntry(selectedTemplateName() || orderTemplateName || "") : null;
 
   if (currentAction === "create" && !selectedCreateTemplate) {
-    setNotice("Select a template first", "error");
+    setSubmitValidationError("Select a template first");
     return;
   }
 
   if (currentAction === "create" && !(fieldValue("network") || selectedCreateTemplate?.template?.network)) {
-    setNotice("Network is required", "error");
+    setSubmitValidationError("Network is required");
     return;
   }
 
   if (currentAction === "create" && !(fieldValue("image") || selectedCreateTemplate?.template?.image)) {
-    setNotice("Image name is required", "error");
+    setSubmitValidationError("Image name is required");
     return;
   }
 
   const selectedTemplatePort = selectedCreateTemplate?.template?.ports?.[0]?.value || selectedCreateTemplate?.template?.ports?.[0]?.key;
   if (currentAction === "create" && !(fieldValue("port_value") || selectedTemplatePort)) {
-    setNotice("Service port is required", "error");
+    setSubmitValidationError("Service port is required");
     return;
   }
 
   const createHasTraefik = selectedCreateTemplate?.template?.traefik ?? fieldChecked("traefik", true);
-  if (currentAction === "create" && createHasTraefik && !isFqdn(dnsParts(dnsNameFqdn(fieldValue("dns_name") || fieldValue("instance"), selectedProfileCredentials().domain)).host)) {
-    setNotice("DNS name must be a fully qualified domain name", "error");
+  const createDomain = selectedProfileCredentials().domain;
+  if (currentAction === "create" && createHasTraefik && createDomain && !isFqdn(dnsParts(dnsNameFqdn(fieldValue("dns_name") || fieldValue("instance"), createDomain)).host)) {
+    setSubmitValidationError("DNS name must be a fully qualified domain name");
     return;
   }
 
@@ -5547,7 +5610,7 @@ form.addEventListener("submit", async (event) => {
     await ensureCreateVersion();
 
     if (!fieldValue("version") && !selectedCreateTemplate?.template?.version) {
-      setNotice("Version not found for this image", "error");
+      setSubmitValidationError("Version not found for this image");
       return;
     }
   }
@@ -5846,6 +5909,12 @@ orderInstances?.addEventListener("click", (event) => {
   });
 });
 enrollInstances?.addEventListener("click", (event) => {
+  const deleteButton = event.target.closest("[data-enroll-template-delete]");
+  if (deleteButton && !deleteButton.disabled) {
+    deleteEnrollTemplate(deleteButton.dataset.enrollTemplateDelete || "");
+    return;
+  }
+
   const button = event.target.closest("[data-order-template-copy]");
   if (!button) return;
 
@@ -5886,10 +5955,14 @@ async function initializePage() {
   try {
     initializeSidebar();
     if (!isEnrollPage) await loadMailSettings();
-    if (!isEnrollPage) await loadCreateTemplates();
+    await loadSavedConfig();
+    if (isOrderPage) {
+      const profileName = urlParams.get("profile") || defaultConfigProfileName() || currentConfigProfile;
+      if (profileName) applyProfileToFields(profileName);
+    }
+    if (!isEnrollPage) await loadCreateTemplates({ useCache: !isOrderPage });
     updateTemplateOptions();
     setAction(currentAction);
-    await loadSavedConfig();
     if (isEnrollPage) {
       const canEnroll = configureEnrollDefaultConfig();
       if (canEnroll) {

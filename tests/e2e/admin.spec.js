@@ -2336,6 +2336,7 @@ test("create template order button opens the selected order page", async ({ page
 
 test("enroll page imports docker run and submits creation", async ({ page }) => {
   let createBody = "";
+  let enrolledGuide = false;
 
   await page.route("**/session/user", async (route) => {
     await route.fulfill({
@@ -2347,6 +2348,7 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
 
   await page.route("**/create", async (route) => {
     createBody = route.request().postData() || "";
+    enrolledGuide = true;
     await route.fulfill({
       status: 202,
       contentType: "application/json",
@@ -2359,10 +2361,10 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
       contentType: "application/json",
       body: JSON.stringify({
         profile: "production",
-        used: 1,
+        used: enrolledGuide ? 2 : 1,
         max: 2,
-        remaining: 1,
-        reached: false,
+        remaining: enrolledGuide ? 0 : 1,
+        reached: enrolledGuide,
         instances: [
           {
             instance: "existing-guide.example.com",
@@ -2371,6 +2373,15 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
             version: "v1.0.0",
             status: "ready",
           },
+          ...(enrolledGuide ? [{
+            instance: "guide-app",
+            dns_name: "guide-app.example.com",
+            image: "saashup/guide",
+            version: "v1.2.3",
+            status: "ready",
+            source: "template",
+            instance_count: 0,
+          }] : []),
         ],
       }),
     });
@@ -2399,6 +2410,7 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
   await expect(page.getByRole("link", { name: "Back to home" })).toHaveClass(/btn-secondary/);
   await expect(page.getByRole("link", { name: "Back to home" })).toHaveAttribute("href", "/");
   await expect(page.locator("#submitBtn")).toBeDisabled();
+  await expect(page.locator("#dockerRunInput")).toHaveAttribute("placeholder", /-p 8080:3000/);
   await expect(page.locator("#importProfileSelect")).toBeHidden();
   await expect(page.locator("#config_profile")).toHaveValue("production");
   await expect(page.locator("#enrollInstances")).toBeVisible();
@@ -2427,7 +2439,10 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
   expect(createBody).toContain("profile=production");
   expect(createBody).toContain("enroll_request=true");
   expect(createBody).toContain("enrollment_limit=2");
-  await expect(page.locator("#notif")).toContainText("Creation requested for guide-app.");
+  await expect(page.locator("#notif")).toContainText("Enrollment recorded for guide-app.");
+  await expect(page.locator("#enrollInstances")).toContainText("2 / 2");
+  await expect(page.locator("#enrollInstances")).toContainText("guide-app");
+  await expect(page.locator("#instanceForm")).toBeHidden();
 });
 
 test("enroll page reports only missing port when docker run has image", async ({ page }) => {
@@ -2582,7 +2597,7 @@ test("enroll page keeps submit disabled before import content", async ({ page })
   await expect(page.locator("#submitBtn")).toBeDisabled();
 });
 
-test("enroll page shows enrollment count when prior details are unavailable", async ({ page }) => {
+test("enroll page hides enrollment panel when no templates are returned", async ({ page }) => {
   await page.route("**/session/user", async (route) => {
     await route.fulfill({
       status: 200,
@@ -2596,10 +2611,10 @@ test("enroll page shows enrollment count when prior details are unavailable", as
       contentType: "application/json",
       body: JSON.stringify({
         profile: "production",
-        used: 1,
+        used: 0,
         max: 1,
-        remaining: 0,
-        reached: true,
+        remaining: 1,
+        reached: false,
         instances: [],
       }),
     });
@@ -2620,16 +2635,12 @@ test("enroll page shows enrollment count when prior details are unavailable", as
     }),
   }, {}, [], undefined, "/enroll.html");
 
-  await expect(page.locator("#enrollInstances")).toBeVisible();
-  await expect(page.locator("#enrollInstances")).toContainText("1 / 1");
-  await expect(page.locator("#enrollInstances")).toContainText("Enrollment recorded");
-  await expect(page.locator("#enrollInstances")).toContainText("Details unavailable for earlier template");
-  await expect(page.locator("#enrollInstances .order-instance-state")).toHaveText("Recorded");
-  await expect(page.locator("#notif")).toContainText("You have reached your maximum of 1 template for this config.");
-  await expect(page.locator("#instanceForm")).toBeHidden();
+  await expect(page.locator("#enrollInstances")).toBeHidden();
+  await expect(page.locator("#instanceForm")).toBeVisible();
 });
 
 test("enroll page shows templates created by the user", async ({ page }) => {
+  let deletedTemplate = "";
   await page.addInitScript(() => {
     window.__copiedOrderLink = "";
     Object.defineProperty(navigator, "clipboard", {
@@ -2651,6 +2662,7 @@ test("enroll page shows templates created by the user", async ({ page }) => {
   await page.route("**/enroll/limit?**", async (route) => {
     const instances = [
       { instance: "guide-template", image: "saashup/guide", version: "v1.2.3", status: "ready", source: "template", instance_count: 2 },
+      ...(deletedTemplate ? [] : [{ instance: "install-template", image: "saashup/install", version: "v4.0.0", status: "ready", source: "template", instance_count: 0 }]),
     ];
     await route.fulfill({
       status: 200,
@@ -2658,11 +2670,19 @@ test("enroll page shows templates created by the user", async ({ page }) => {
       body: JSON.stringify({
         profile: "production",
         used: instances.length,
-        max: 1,
+        max: 2,
         remaining: 0,
         reached: true,
         instances,
       }),
+    });
+  });
+  await page.route("**/enroll/template/**", async (route) => {
+    deletedTemplate = decodeURIComponent(new URL(route.request().url()).pathname.split("/").pop());
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ deleted: true, template: deletedTemplate }),
     });
   });
 
@@ -2682,17 +2702,26 @@ test("enroll page shows templates created by the user", async ({ page }) => {
   }, {}, [], undefined, "/enroll.html");
 
   await expect(page.locator("#enrollInstances")).toBeVisible();
-  await expect(page.locator("#enrollInstances")).toContainText("1 / 1");
+  await expect(page.locator("#enrollInstances")).toContainText("2 / 2");
   await expect(page.locator("#enrollInstances")).toContainText("guide-template");
+  await expect(page.locator("#enrollInstances")).toContainText("install-template");
   await expect(page.locator("#enrollInstances")).toContainText("saashup/guide");
-  await expect(page.locator("#enrollInstances .order-instance-state")).toHaveText("Ready");
-  await expect(page.locator("#enrollInstances .enroll-template-count")).toHaveText("2");
-  await expect(page.locator("#enrollInstances .order-instance-delete")).toBeDisabled();
-  await expect(page.locator("#enrollInstances .order-instance-delete svg")).toBeVisible();
-  await expect(page.locator("#enrollInstances .order-template-copy")).toBeVisible();
-  await page.locator("#enrollInstances .order-template-copy").click();
+  await expect(page.locator("#enrollInstances .order-instance-state")).toHaveText(["Ready", "Ready"]);
+  await expect(page.locator("#enrollInstances .enroll-template-count")).toHaveText(["2", "0"]);
+  await expect(page.locator("#enrollInstances .order-instance-delete").first()).toBeDisabled();
+  await expect(page.locator("#enrollInstances .order-instance-delete").nth(1)).toBeEnabled();
+  await expect(page.locator("#enrollInstances .order-instance-delete svg").first()).toBeVisible();
+  await expect(page.locator("#enrollInstances .order-template-copy").first()).toBeVisible();
+  await page.locator("#enrollInstances .order-template-copy").first().click();
   await expect(page.locator("#notif")).toContainText('Order link copied for "guide-template"');
-  await expect.poll(() => page.evaluate(() => window.__copiedOrderLink)).toBe(`${page.url().replace(/\/enroll(?:\.html)?$/, "")}/order?template=guide-template`);
+  await expect.poll(() => page.evaluate(() => window.__copiedOrderLink)).toBe(`${page.url().replace(/\/enroll(?:\.html)?$/, "")}/order?template=guide-template&profile=production`);
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toBe('Delete enrolled template "install-template"?');
+    await dialog.accept();
+  });
+  await page.locator("#enrollInstances .order-instance-delete").nth(1).click();
+  await expect(page.locator("#notif")).toContainText('Template "install-template" deleted');
+  await expect(page.locator("#enrollInstances")).not.toContainText("install-template");
   await expect(page.locator("#instanceForm")).toBeHidden();
 });
 
@@ -3283,6 +3312,70 @@ test("order page hides the order form when the requested template is missing", a
   await expect(page.locator("#orderStatus")).toHaveClass(/error/);
   await expect(page.locator("#orderStatus")).toHaveText('Template "missing" not foundBack to home');
   await expect(page.locator("#orderStatus .order-status-home")).toHaveAttribute("href", "/");
+});
+
+test("order page uses the server default profile for bare template links", async ({ page }) => {
+  let createBody = "";
+  await page.addInitScript(() => {
+    localStorage.setItem("current_config_profile", "stale");
+    localStorage.setItem("config_profiles", JSON.stringify({
+      stale: {
+        netbox: "https://stale.example.com",
+        token: "stale",
+        tag: "stale",
+      },
+    }));
+  });
+
+  await page.route("**/create", async (route) => {
+    createBody = route.request().postData() || "";
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "SaaShup",
+    profiles: JSON.stringify({
+      install: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        tag: "install",
+      },
+      SaaShup: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        domain: "",
+        tag: "saashup",
+      },
+    }),
+  }, {
+    templates: {
+      nginx: {
+        config_profile: "SaaShup",
+        image: "nginx",
+        version: "1.31.1",
+        network: "traefik-net",
+        ports: [{ value: "80" }],
+        saashup_enabled: true,
+      },
+    },
+    workflows: {},
+  }, [], undefined, "/order?template=nginx");
+
+  await expect(page.locator("#orderLoading")).toBeHidden();
+  await expect(page.locator("#orderActions")).toBeVisible();
+  await expect(page.locator("#config_profile")).toHaveValue("SaaShup");
+  await expect(page.locator("#network")).toHaveValue("traefik-net");
+  await expect(page.locator("#image")).toHaveValue("nginx");
+
+  const generatedName = await page.locator("#instance").inputValue();
+  await page.locator("#submitBtn").click();
+  await expect.poll(() => createBody).toContain(`instance=${generatedName}`);
+  expect(createBody).toContain("order_request=true");
+  expect(createBody).toContain("order_template=nginx");
 });
 
 test("order page without a template lists all owned containers", async ({ page }) => {

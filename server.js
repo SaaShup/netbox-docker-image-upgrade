@@ -85,7 +85,7 @@ const oidcAuth = createOidcAuth({
 
 const metrics = createMetrics();
 const { readState, writeState, logLine } = createStateStore(dataPath);
-const { isAdminAllowed, selectedProfileConfig, userOrderKey } = createAuthHelpers({ adminAllowedEmails, readState });
+const { isAdminAllowed, selectedProfileConfig } = createAuthHelpers({ adminAllowedEmails, readState });
 let smtpSender = sendSmtpMail;
 let turnstileFetch = undiciFetch;
 const {
@@ -175,21 +175,12 @@ async function missingDockerVolumes(client, volumes) {
 }
 
 async function currentUsage(req, profile) {
-  const state = readState();
-  const counts = plainObject(state.order_counts);
-  const instances = plainObject(state.order_instances);
-  const userKey = userOrderKey(req);
-  const emailKey = String(authUserFromRequest(req).email || "").trim().toLowerCase();
   const body = plainObject(req.body);
   const requestedTemplate = String(req.query.template || body.order_template || "").trim();
   const template = plainObject((await templateEntryForRequest(req, profile, requestedTemplate))?.template);
   const max = maxInstancesValue(template.max_instances ?? body.max_instances ?? 1);
-  const userInstances = emailKey && Array.isArray(instances[emailKey]?.[profile]) ? instances[emailKey][profile] : [];
-  const templateInstances = requestedTemplate
-    ? userInstances.filter((item) => String(item?.template || "").trim().toLowerCase() === requestedTemplate.toLowerCase())
-    : userInstances;
-  const used = templateInstances.length || (userInstances.length ? 0 : Number(counts[userKey]?.[profile] || 0));
-  const visibleInstances = requestedTemplate ? templateInstances : userInstances;
+  const visibleInstances = await orderInstancesForUser(req, profile, requestedTemplate);
+  const used = visibleInstances.length;
   return {
     profile,
     template: requestedTemplate,
@@ -202,13 +193,64 @@ async function currentUsage(req, profile) {
   };
 }
 
+function orderInstanceStatus(container) {
+  if (isReadyContainer(container)) return "ready";
+  if (isContainerStopped(container)) return "failed";
+  return "creating";
+}
+
+function orderInstanceFromContainer(container, labels, ownerEnvNameValue, profile) {
+  const labelOwnerEnvName = templateLabelValue(labels, "owner_env_var") || ownerEnvNameValue;
+  const owner = String(templateLabelValue(labels, "owner") || templateLabelValue(labels, "creator") || containerEnvValue(container, labelOwnerEnvName)).trim().toLowerCase();
+  const { image, version } = imagePartsFromContainer(container, labels);
+  const name = templateLabelValue(labels, "dns_name") || valueText(container.display || container.name || container.id);
+  return {
+    instance: name,
+    dns_name: name,
+    template: templateLabelValue(labels, "name") || templateLabelValue(labels, "template") || "",
+    image,
+    version,
+    status: orderInstanceStatus(container),
+    profile,
+    owner,
+    source: "netbox-label",
+  };
+}
+
+async function orderInstancesForUser(req, profile, requestedTemplate = "") {
+  const creator = String(authUserFromRequest(req).email || authUserFromRequest(req).user || "").trim().toLowerCase();
+  if (!creator) return [];
+
+  const config = selectedProfileConfig({ profile, config_profile: profile });
+  if (!config.netbox || !config.token) return [];
+
+  try {
+    const client = new NetBoxClient(config);
+    const hostFilter = await hostIdQuery(client, config.tag);
+    if (hostFilter.host_id === "__none__") return [];
+
+    const requested = String(requestedTemplate || "").trim().toLowerCase();
+    const ownerEnvNameValue = ownerEnvVarName(config);
+    const containers = await client.list("/api/plugins/docker/containers/", { limit: 1000, ...hostFilter });
+    return containers
+      .map((container) => {
+        const labels = labelMapFromContainer(container);
+        return orderInstanceFromContainer(container, labels, ownerEnvNameValue, profile);
+      })
+      .filter((item) => item.owner === creator)
+      .filter((item) => item.template)
+      .filter((item) => !requested || String(item.template || "").trim().toLowerCase() === requested)
+      .map(({ owner, ...item }) => item)
+      .sort((left, right) => String(left.instance || "").localeCompare(String(right.instance || "")));
+  } catch (error) {
+    logLine(`ORDER : NetBox label discovery failed ${error.message || "unknown error"}`);
+    return [];
+  }
+}
+
 async function currentEnrollmentUsage(req, profile) {
   const instances = await enrollmentTemplatesForUser(req, profile);
-  const state = readState();
-  const userKey = userOrderKey(req);
-  const pendingInstances = Array.isArray(state.enrollment_instances?.[userKey]?.[profile]) ? state.enrollment_instances[userKey][profile] : [];
-  const pendingCount = pendingInstances.length || Number(state.enrollment_counts?.[userKey]?.[profile] || 0);
-  const used = Math.max(instances.length, pendingCount);
+  const used = instances.length;
   const config = selectedProfileConfig({ profile, config_profile: profile });
   const max = maxInstancesValue(config.max_templates ?? config.enrollment_limit);
   return { profile, used, max, remaining: Math.max(0, max - used), reached: used >= max, instances };
@@ -249,11 +291,6 @@ function configuredEnrollmentImageBlock(image) {
   return blockedEnrollmentImages.find((blocked) => enrollImageMatches(image, blocked)) || "";
 }
 
-function enrolledEntriesForProfile(state, profile) {
-  return Object.values(plainObject(state.enrollment_instances))
-    .flatMap((profileEntries) => asArray(plainObject(profileEntries)[profile]));
-}
-
 async function validateEnrollmentTemplate(req, res, profile = "", data = {}) {
   const image = normalizedEnrollImageName(data.image);
   if (!image) return true;
@@ -275,8 +312,7 @@ async function validateEnrollmentTemplate(req, res, profile = "", data = {}) {
   }
 
   const existingEntries = await enrollmentTemplatesForUser(req, profile);
-  const pendingEntries = enrolledEntriesForProfile(readState(), profile);
-  const duplicate = [...existingEntries, ...pendingEntries].find((entry) => normalizedEnrollImageName(entry?.image) === image);
+  const duplicate = existingEntries.find((entry) => normalizedEnrollImageName(entry?.image) === image);
   if (duplicate) {
     res.status(409).json({ code: "template_already_enrolled", detail: `Image "${image}" is already enrolled for this config.`, image, existing_template: duplicate.instance || duplicate.name || duplicate.template || "" });
     return false;
@@ -462,10 +498,14 @@ function configContextMatchesCatalogScope(data, scope) {
   const contextProfile = String(data.saashup_profile || data.profile || "").trim();
   const contextNetbox = normalizedCatalogNetBoxUrl(data.saashup_netbox_url || data.netbox_url || data.netbox);
   const contextTag = String(data.saashup_tag || data.tag || "").trim();
-  if (contextScope && contextScope !== scope.key) return false;
-  if (contextProfile && contextProfile !== scope.profile) return false;
+  const contextProfileKey = contextProfile.toLowerCase();
+  const scopeProfileKey = String(scope.profile || "").trim().toLowerCase();
+  const contextTagKey = contextTag.toLowerCase();
+  const scopeTagKey = String(scope.tag || "").trim().toLowerCase();
+  if (contextScope && contextScope !== scope.key && !contextProfile && !contextNetbox && !contextTag) return false;
+  if (contextProfile && contextProfileKey !== scopeProfileKey) return false;
   if (contextNetbox && contextNetbox !== scope.netbox) return false;
-  if (contextTag && contextTag !== scope.tag) return false;
+  if (contextTag && contextTagKey !== scopeTagKey) return false;
   return true;
 }
 
@@ -598,6 +638,14 @@ function imageNameKey(ref) {
   return imageRef ? imageNameFromRef(imageRef) : "";
 }
 
+function templateNameFromEnrollmentData(data) {
+  const explicit = String(data.order_template || data.template_name || "").trim();
+  if (explicit) return explicit;
+  const imageName = imageNameFromRef(data.image || "");
+  const parts = imageName.split("/").filter(Boolean);
+  return (parts.at(-1) || imageName || String(data.instance || "").trim()).trim();
+}
+
 function imageKeyFromRefAndVersion(ref, versionValue = "") {
   const imageRef = String(ref || "").trim();
   if (!imageRef) return "";
@@ -708,7 +756,7 @@ async function netboxTemplateEntriesForUser(req, profile, state, creator) {
   }
 }
 
-async function syncTemplatesToNetBoxConfigContext(req, profile, templates, workflows = {}) {
+async function syncTemplatesToNetBoxConfigContext(req, profile, templates, workflows = {}, options = {}) {
   const config = selectedProfileConfig({ profile, config_profile: profile });
   if (!config.netbox || !config.token) return null;
 
@@ -717,18 +765,21 @@ async function syncTemplatesToNetBoxConfigContext(req, profile, templates, workf
   const contextName = templateCatalogContextName(profile, config);
   const contexts = await client.list("/api/extras/config-contexts/", { q: contextName, limit: 20 });
   const existing = contexts.find((context) => String(context?.name || "") === contextName);
+  const existingData = plainObject(existing?.data);
+  const preserveExisting = options.preserveExisting === true && existing?.id;
   const body = {
     name: contextName,
     weight: 1000,
     is_active: true,
     data: {
+      ...(preserveExisting ? existingData : {}),
       saashup_template_catalog: true,
       saashup_profile: String(profile || "").trim(),
       saashup_scope: scope.key,
       saashup_netbox_url: scope.netbox,
       saashup_tag: scope.tag,
-      saashup_templates: templates,
-      saashup_workflows: plainObject(workflows),
+      saashup_templates: preserveExisting ? configContextTemplateDefinitions(existingData) : templates,
+      saashup_workflows: preserveExisting ? configContextWorkflowDefinitions(existingData) : plainObject(workflows),
     },
   };
 
@@ -792,66 +843,132 @@ async function workflowsForRequest(req, profile = "") {
 }
 
 function orderInstanceCountForTemplate(state, templateName) {
-  const requestedName = String(templateName || "").trim().toLowerCase();
-  if (!requestedName) return 0;
-
-  return Object.values(plainObject(state.order_instances)).reduce((total, profileInstances) => (
-    total + Object.values(plainObject(profileInstances)).reduce((profileTotal, instances) => {
-      if (!Array.isArray(instances)) return profileTotal;
-      return profileTotal + instances.filter((item) => String(item?.template || "").trim().toLowerCase() === requestedName).length;
-    }, 0)
-  ), 0);
+  return 0;
 }
 
-function recordEnrollment(req, profile, data) {
-  writeState((state) => {
-    const userKey = userOrderKey(req);
-    const user = authUserFromRequest(req);
-    const creatorEmail = String(user.email || user.user || "").trim();
-    const templateName = String(data.order_template || data.template_name || data.instance || data.image || "").trim();
-    if (templateName && !profileUsesNetBoxTemplates(profile)) {
+async function enrollmentTemplateDeleteUsage(req, profile, templateName, ownerEmail) {
+  const requestedName = String(templateName || "").trim().toLowerCase();
+  const requestedOwner = String(ownerEmail || "").trim().toLowerCase();
+  const usage = { owned: 0, blocked: 0, total: 0 };
+  if (!requestedName) return usage;
+
+  const config = selectedProfileConfig({ profile, config_profile: profile });
+  if (!config.netbox || !config.token) return usage;
+
+  try {
+    const client = new NetBoxClient(config);
+    const hostFilter = await hostIdQuery(client, config.tag);
+    if (hostFilter.host_id === "__none__") return usage;
+
+    const entry = await templateEntryForRequest(req, profile, templateName);
+    const template = plainObject(entry?.template);
+    const templateKey = templateImageKey(template);
+    const templateImageName = templateImageNameKey(template);
+    const ownerEnvNameValue = ownerEnvVarName(config);
+    const containers = await client.list("/api/plugins/docker/containers/", { limit: 1000, ...hostFilter });
+
+    containers.forEach((container) => {
+      const labels = labelMapFromContainer(container);
+      const labelTemplateName = String(templateLabelValue(labels, "name") || templateLabelValue(labels, "template") || "").trim().toLowerCase();
+      const containerKey = imageKeyFromImageObject(container?.image)
+        || imageKeyFromRefAndVersion(container?.image_name || container?.image_display, container?.image_version || container?.image_tag);
+      const containerImageName = imageNameKeyFromImageObject(container?.image)
+        || imageNameKey(container?.image_name || container?.image_display);
+      const matchesTemplate = labelTemplateName === requestedName
+        || (templateKey && containerKey === templateKey)
+        || (templateImageName && containerImageName === templateImageName);
+      if (!matchesTemplate) return;
+
+      const containerOwner = String(templateLabelValue(labels, "owner") || templateLabelValue(labels, "creator") || containerEnvValue(container, ownerEnvNameValue)).trim().toLowerCase();
+      usage.total += 1;
+      if (containerOwner && containerOwner === requestedOwner) usage.owned += 1;
+      else usage.blocked += 1;
+    });
+  } catch (error) {
+    logLine(`ENROLL : template delete usage check failed ${error.message || "unknown error"}`);
+    usage.blocked += 1;
+    usage.total += 1;
+  }
+
+  return usage;
+}
+
+function enrollmentTemplateFromData(data, existing = {}, profile = "", creatorEmail = "") {
+  const requestedEnabled = data.saashup_enabled;
+  return {
+    ...existing,
+    config_profile: profile || data.config_profile || data.profile || existing.config_profile || existing.profile || "",
+    instance: data.instance || existing.instance || "",
+    dns_name: data.dns_name || existing.dns_name || "",
+    image: data.image || existing.image || "",
+    version: data.version || existing.version || "",
+    max_instances: maxInstancesValue(data.max_instances ?? existing.max_instances),
+    template_url: data.template_url || data.saashup_template_url || existing.template_url || existing.saashup_template_url || "",
+    network: data.network || existing.network || "",
+    log_driver: data.log_driver || existing.log_driver || "",
+    log_driver_options: plainJsonObject(data.log_driver_options || existing.log_driver_options),
+    traefik: data.traefik ?? existing.traefik ?? true,
+    all_hosts: data.all_hosts ?? existing.all_hosts ?? false,
+    saashup_enabled: requestedEnabled === false || requestedEnabled === "false" ? false : (existing.saashup_enabled ?? true),
+    creator_email: existing.creator_email || creatorEmail,
+    env: asArray(data.var_env_key).map((key, index) => ({ key, value: asArray(data.var_env_value)[index] || "" })).filter((item) => item.key),
+    labels: asArray(data.label_key).map((key, index) => ({ key, value: asArray(data.label_value)[index] || "" })).filter((item) => item.key),
+    ports: asArray(data.port_value).filter(Boolean).map((value) => ({ value })),
+  };
+}
+
+function workflowsWithEnrollmentTemplate(workflows, profile, templateName, template) {
+  const workflowKey = profile ? `${profile}::templates` : "templates";
+  const existingWorkflow = plainObject(workflows[workflowKey]);
+  const existingSteps = Array.isArray(existingWorkflow.steps) ? existingWorkflow.steps : [];
+  const stepExists = existingSteps.some((step) => String((typeof step === "string" ? step : step?.template) || "").trim().toLowerCase() === templateName.toLowerCase());
+  const steps = stepExists
+    ? existingSteps.map((step) => {
+      if (String((typeof step === "string" ? step : step?.template) || "").trim().toLowerCase() !== templateName.toLowerCase()) return step;
+      return typeof step === "string"
+        ? { template: templateName, template_data: { ...template, saashup_enabled: true }, enabled: true }
+        : { ...plainObject(step), template: templateName, template_data: { ...plainObject(step.template_data), ...template, saashup_enabled: true }, enabled: step.enabled !== false };
+    })
+    : [...existingSteps, { template: templateName, template_data: { ...template, saashup_enabled: true }, enabled: true }];
+
+  return {
+    ...plainObject(workflows),
+    [workflowKey]: {
+      name: existingWorkflow.name || "templates",
+      config_profile: existingWorkflow.config_profile || profile || "",
+      ...existingWorkflow,
+      steps,
+    },
+  };
+}
+
+async function recordEnrollment(req, profile, data) {
+  const user = authUserFromRequest(req);
+  const creatorEmail = String(user.email || user.user || "").trim();
+  const templateName = templateNameFromEnrollmentData(data);
+  const useNetBox = profileUsesNetBoxTemplates(profile);
+
+  if (templateName && useNetBox) {
+    const templates = await templatesForRequest(req, profile);
+    const existing = plainObject(templates[templateName]);
+    const nextTemplate = enrollmentTemplateFromData(data, existing, profile, creatorEmail);
+    const nextTemplates = {
+      ...templates,
+      [templateName]: nextTemplate,
+    };
+    const nextWorkflows = workflowsWithEnrollmentTemplate(await workflowsForRequest(req, profile), profile, templateName, nextTemplate);
+    const syncResult = await syncTemplatesToNetBoxConfigContext(req, profile, nextTemplates, nextWorkflows);
+    logLine(`ENROLL : template ${templateName} synced to config context ${syncResult?.name || ""} action=${syncResult?.action || "none"}`);
+  }
+
+  if (templateName && !useNetBox) {
+    writeState((state) => {
       state.templates = plainObject(state.templates);
       const existing = plainObject(state.templates[templateName]);
-      state.templates[templateName] = {
-        ...existing,
-        config_profile: profile || data.config_profile || data.profile || existing.config_profile || existing.profile || "",
-        instance: data.instance || existing.instance || "",
-        dns_name: data.dns_name || existing.dns_name || "",
-        image: data.image || existing.image || "",
-        version: data.version || existing.version || "",
-        max_instances: maxInstancesValue(data.max_instances ?? existing.max_instances),
-        template_url: data.template_url || data.saashup_template_url || existing.template_url || existing.saashup_template_url || "",
-        network: data.network || existing.network || "",
-        log_driver: data.log_driver || existing.log_driver || "",
-        log_driver_options: plainJsonObject(data.log_driver_options || existing.log_driver_options),
-        traefik: data.traefik ?? existing.traefik ?? true,
-        all_hosts: data.all_hosts ?? existing.all_hosts ?? false,
-        creator_email: existing.creator_email || creatorEmail,
-        env: asArray(data.var_env_key).map((key, index) => ({ key, value: asArray(data.var_env_value)[index] || "" })).filter((item) => item.key),
-        labels: asArray(data.label_key).map((key, index) => ({ key, value: asArray(data.label_value)[index] || "" })).filter((item) => item.key),
-        ports: asArray(data.port_value).filter(Boolean).map((value) => ({ value })),
-      };
-    }
-
-    state.enrollment_counts = plainObject(state.enrollment_counts);
-    if (!state.enrollment_counts[userKey]) state.enrollment_counts[userKey] = {};
-    state.enrollment_counts[userKey][profile] = Number(state.enrollment_counts[userKey][profile] || 0) + 1;
-
-    state.enrollment_instances = plainObject(state.enrollment_instances);
-    if (!state.enrollment_instances[userKey]) state.enrollment_instances[userKey] = {};
-    const instances = Array.isArray(state.enrollment_instances[userKey][profile]) ? state.enrollment_instances[userKey][profile] : [];
-    instances.push({
-      instance: data.instance || "",
-      dns_name: data.dns_name || "",
-      image: data.image || "",
-      version: data.version || "",
-      template_url: data.template_url || data.saashup_template_url || "",
-      status: "creating",
-      created_at: new Date().toISOString(),
+      state.templates[templateName] = enrollmentTemplateFromData(data, existing, profile, creatorEmail);
+      return state;
     });
-    state.enrollment_instances[userKey][profile] = instances;
-    return state;
-  });
+  }
 }
 
 function orderTemplateEnabled(value, defaultValue = true) {
@@ -929,81 +1046,7 @@ function profilesWithSingleDefault(profiles) {
   }));
 }
 
-function recordOrderInstance(req, profile, data) {
-  writeState((state) => {
-    const userKey = userOrderKey(req);
-    const emailKey = String(authUserFromRequest(req).email || "").trim().toLowerCase();
-    state.order_counts = plainObject(state.order_counts);
-    if (!state.order_counts[userKey]) state.order_counts[userKey] = {};
-    state.order_counts[userKey][profile] = Number(state.order_counts[userKey][profile] || 0) + 1;
-
-    if (emailKey) {
-      state.order_instances = plainObject(state.order_instances);
-      if (!state.order_instances[emailKey]) state.order_instances[emailKey] = {};
-      const instances = Array.isArray(state.order_instances[emailKey][profile]) ? state.order_instances[emailKey][profile] : [];
-      instances.push({
-        instance: data.instance || "",
-        dns_name: data.dns_name || "",
-        template: data.order_template || "",
-        image: data.image || "",
-        version: data.version || "",
-        status: "creating",
-        created_at: new Date().toISOString(),
-      });
-      state.order_instances[emailKey][profile] = instances;
-    }
-    return state;
-  });
-}
-
-function updateOrderInstanceStatus(req, profile, instance, status) {
-  const emailKey = String(authUserFromRequest(req).email || "").trim().toLowerCase();
-  if (!emailKey) return;
-
-  writeState((state) => {
-    state.order_instances = plainObject(state.order_instances);
-    const instances = Array.isArray(state.order_instances[emailKey]?.[profile]) ? state.order_instances[emailKey][profile] : [];
-    const target = instances.find((item) => item.instance === instance);
-    if (target) {
-      target.status = status;
-      target.updated_at = new Date().toISOString();
-    }
-    return state;
-  });
-}
-
 function updateEnrollmentInstanceStatus(req, profile, instance, status) {
-  const userKey = userOrderKey(req);
-
-  writeState((state) => {
-    state.enrollment_instances = plainObject(state.enrollment_instances);
-    const instances = Array.isArray(state.enrollment_instances[userKey]?.[profile]) ? state.enrollment_instances[userKey][profile] : [];
-    const target = instances.find((item) => item.instance === instance);
-    if (target) {
-      target.status = status;
-      target.updated_at = new Date().toISOString();
-    }
-    return state;
-  });
-}
-
-function removeOrderInstance(req, profile, instance) {
-  writeState((state) => {
-    const userKey = userOrderKey(req);
-    const emailKey = String(authUserFromRequest(req).email || "").trim().toLowerCase();
-    state.order_counts = plainObject(state.order_counts);
-    if (state.order_counts[userKey]) {
-      state.order_counts[userKey][profile] = Math.max(0, Number(state.order_counts[userKey][profile] || 0) - 1);
-    }
-    if (emailKey) {
-      state.order_instances = plainObject(state.order_instances);
-      const instances = Array.isArray(state.order_instances[emailKey]?.[profile]) ? state.order_instances[emailKey][profile] : [];
-      if (state.order_instances[emailKey]) {
-        state.order_instances[emailKey][profile] = instances.filter((item) => item.instance !== instance);
-      }
-    }
-    return state;
-  });
 }
 
 function exactContainerNameMatches(containers, name) {
@@ -1492,6 +1535,7 @@ registerConfigRoutes(app, {
   sendContactEmail,
   sendTestEmail,
   syncTemplatesToNetBoxConfigContext,
+  enrollmentTemplateDeleteUsage,
   templatesForRequest,
   templatesWithCreatorEmails,
   verifyContactTurnstile,
@@ -1540,41 +1584,7 @@ function reportProfiles(source) {
 }
 
 function localOrderReportUsers(profile, profiles) {
-  const state = readState();
-  const counts = plainObject(state.order_counts);
-  const instances = plainObject(state.order_instances);
-  const profileNames = profile === "all" ? profiles.map((item) => item.name).filter(Boolean) : [profile || ""];
-  const includeAllProfiles = profile === "all" && !profileNames.length;
-
-  return Object.entries(counts).flatMap(([user, userCounts]) => {
-    const normalizedCounts = plainObject(userCounts);
-    const names = includeAllProfiles
-      ? Object.keys(normalizedCounts).filter((name) => Number(normalizedCounts[name] || 0) > 0)
-      : profileNames.filter((name) => Number(normalizedCounts[name] || 0) > 0);
-
-    if (!names.length) return [];
-
-    const items = names.flatMap((name) => {
-      const profileInstances = Array.isArray(instances[user]?.[name]) ? instances[user][name] : [];
-      return profileInstances.map((item) => ({
-        profile: name || "default",
-        container: valueText(item.instance || item.name),
-        image: valueText(item.image || item.template),
-        version: valueText(item.version),
-      }));
-    });
-
-    const containers = items.length || names.reduce((total, name) => total + Number(normalizedCounts[name] || 0), 0);
-    const imageKeys = new Set(items.map((item) => `${item.image}\u0000${item.version}`).filter((key) => key !== "\u0000"));
-
-    return [{
-      user,
-      profiles: names.map((name) => name || "default").sort((left, right) => left.localeCompare(right)),
-      containers,
-      images: imageKeys.size,
-      items: items.sort((left, right) => left.profile.localeCompare(right.profile) || left.container.localeCompare(right.container)),
-    }];
-  }).sort((left, right) => left.user.localeCompare(right.user));
+  return [];
 }
 
 function containerEnvValue(container, name) {
@@ -1766,7 +1776,6 @@ async function createInstance(req, data, { isOrderRequest, isEnrollRequest, orde
   const hosts = await dockerHosts(client, data.tag);
   if (!hosts.length) {
     logLine(`CREATE : no Docker hosts found${data.tag ? ` with tag ${data.tag}` : ""}`);
-    if (isOrderRequest) updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
     if (isEnrollRequest) updateEnrollmentInstanceStatus(req, orderProfile, data.instance || "", "failed");
     return false;
   }
@@ -1817,9 +1826,6 @@ async function createInstance(req, data, { isOrderRequest, isEnrollRequest, orde
     } catch (error) {
       logLine(`EMAIL : ready notification failed for ${authUser.email || ""} ${error.message || "smtp error"}`);
     }
-    updateOrderInstanceStatus(req, orderProfile, data.instance || "", "ready");
-  } else if (isOrderRequest) {
-    updateOrderInstanceStatus(req, orderProfile, data.instance || "", "failed");
   }
   if (isEnrollRequest) {
     updateEnrollmentInstanceStatus(req, orderProfile, data.instance || "", allReady ? "ready" : "failed");
@@ -1916,13 +1922,10 @@ registerOperationRoutes(app, {
   NetBoxClient,
   oidcAuth,
   recordEnrollment,
-  recordOrderInstance,
   recreateContainers,
-  removeOrderInstance,
   requestContainerOperation,
   selectedProfileConfig,
   updateEnrollmentInstanceStatus,
-  updateOrderInstanceStatus,
   validateEnrollmentTemplate,
   validateOrderTemplate,
   valueText,

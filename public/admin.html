@@ -586,7 +586,7 @@
         <button type="button" class="import-tab" id="templateExportTab" data-import-tab="export" role="tab" aria-selected="false" aria-controls="templateExportPanel">From export</button>
       </div>
       <div id="dockerRunPanel" data-import-panel="run" role="tabpanel" aria-labelledby="dockerRunTab">
-        <textarea id="dockerRunInput" class="modal-textarea" spellcheck="false" placeholder="docker run --name app --network mgmt -e APP_ENV=production -v app-data:/app/data saashup/app:v1.0.0"></textarea>
+        <textarea id="dockerRunInput" class="modal-textarea" spellcheck="false" placeholder="docker run --name app --network mgmt -e APP_ENV=production -p 8080:3000 -v app-data:/app/data saashup/app:v1.0.0"></textarea>
       </div>
       <div id="dockerComposePanel" class="hidden" data-import-panel="compose" role="tabpanel" aria-labelledby="dockerComposeTab">
         <label class="modal-check">

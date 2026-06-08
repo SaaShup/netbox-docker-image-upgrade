@@ -450,13 +450,14 @@ describe("server helpers", () => {
       label_value: ["spoofed", "custom-value"],
     }, 12);
     expect(enrollConfig.labels).toEqual(expect.arrayContaining([
-      { key: "saashup.template.name", value: "guide.example.com" },
+      { key: "saashup.template.name", value: "guide" },
       { key: "saashup.template.owner", value: "owner@example.com" },
       { key: "saashup.template.enabled", value: "true" },
       { key: "saashup.template.url", value: "https://templates.example.com/guide" },
       { key: "saashup.template.max_instances", value: "4" },
       { key: "saashup.template.image", value: "saashup/guide" },
       { key: "saashup.template.version", value: "v1.2.3" },
+      { key: "saashup.template.dns_name", value: "guide.example.com" },
       { key: "saashup.template.network", value: "traefik" },
       { key: "saashup.template.port", value: "3000" },
       { key: "saashup.template.traefik", value: "true" },
@@ -1021,6 +1022,26 @@ describe("server helpers", () => {
       }),
     };
     await expect(helpers.ensureImageOnHost(createImageClient, { host: 8, registry: 4 }, "app", "v3")).resolves.toEqual({ id: 99, Digest: "sha256:abc" });
+    const dockerHubRegistryClient = {
+      list: vi.fn(async (apiPath) => {
+        if (apiPath.includes("/registries/")) return [{ id: 6, name: "Docker Hub", url: "https://index.docker.io/v1/" }];
+        return [];
+      }),
+      request: vi.fn(async (method, apiPath) => {
+        if (method === "GET" && apiPath === "/api/plugins/docker/images/106/") return { payload: { id: 106, Digest: "sha256:nginx" }, statusCode: 200 };
+        return { payload: { id: 106 }, statusCode: 201 };
+      }),
+    };
+    await expect(helpers.ensureImageOnHost(dockerHubRegistryClient, { host: { id: 8, name: "host-b" } }, "nginx", "1.27")).resolves.toEqual({ id: 106, Digest: "sha256:nginx" });
+    expect(dockerHubRegistryClient.request).toHaveBeenCalledWith("POST", "/api/plugins/docker/images/", {
+      body: {
+        host: 8,
+        name: "nginx",
+        version: "1.27",
+        registry: 6,
+      },
+      expected: [200, 201, 202],
+    });
     expect(helpers.imagePullIdentifier({ imageID: "sha256:id" })).toBe("sha256:id");
     expect(helpers.imagePullIdentifier({ repoDigest: ["app@sha256:def"] })).toEqual(["app@sha256:def"]);
     await expect(helpers.waitForImagePulled({ request: vi.fn() }, { id: 101, imageID: "sha256:ready" }, "app:v5 on host-c")).resolves.toEqual({ id: 101, imageID: "sha256:ready" });

@@ -36,6 +36,20 @@ function expandedConfigForResponse(config, selectedProfileConfig, parseProfiles,
   };
 }
 
+function enrollmentTemplateUsage(state, profile, templateName) {
+  return 0;
+}
+
+function templateEntryByName(templates, name) {
+  const requested = String(name || "").trim();
+  const objectValue = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const templateMap = objectValue(templates);
+  const direct = templateMap[requested];
+  if (direct) return { name: requested, template: objectValue(direct) };
+  const match = Object.keys(templateMap).find((templateName) => templateName.toLowerCase() === requested.toLowerCase());
+  return match ? { name: match, template: objectValue(templateMap[match]) } : null;
+}
+
 function registerConfigRoutes(app, {
   appOwnerEmail,
   authUserFromRequest,
@@ -52,6 +66,7 @@ function registerConfigRoutes(app, {
   sendContactEmail,
   sendTestEmail,
   syncTemplatesToNetBoxConfigContext,
+  enrollmentTemplateDeleteUsage,
   templatesForRequest,
   templatesWithCreatorEmails,
   verifyContactTurnstile,
@@ -169,7 +184,7 @@ function registerConfigRoutes(app, {
     let templateCatalogSync = null;
     try {
       templateCatalogSync = profileName
-        ? await syncTemplatesToNetBoxConfigContext(req, profileName, {}, {})
+        ? await syncTemplatesToNetBoxConfigContext(req, profileName, {}, {}, { preserveExisting: true })
         : null;
     } catch (error) {
       templateCatalogSync = {
@@ -219,6 +234,55 @@ function registerConfigRoutes(app, {
     } catch (error) {
       res.status(error.statusCode || 502).json({ detail: error.message || "template sync failed", payload: error.payload });
     }
+  });
+
+  app.delete("/enroll/template/:name", async (req, res) => {
+    const name = String(req.params.name || "").trim();
+    const profile = req.query.profile || req.query.config_profile || readState().config?.profile || readState().config?.config_profile || "";
+    const creator = String(authUserFromRequest(req).email || authUserFromRequest(req).user || "").trim().toLowerCase();
+    if (!creator) return res.status(401).json({ code: "auth_required", detail: "Authentication is required." });
+    if (!name) return res.status(400).json({ code: "template_required", detail: "Template name is required." });
+
+    const state = readState();
+    const usage = enrollmentTemplateDeleteUsage
+      ? await enrollmentTemplateDeleteUsage(req, profile, name, creator)
+      : { blocked: enrollmentTemplateUsage(state, profile, name), owned: 0, total: enrollmentTemplateUsage(state, profile, name) };
+    if (usage.total > 0) {
+      return res.status(409).json({
+        code: "template_in_use",
+        detail: `Template "${name}" is used by ${usage.total} instance${usage.total === 1 ? "" : "s"}.`,
+        template: name,
+        instance_count: usage.total,
+        blocking_instance_count: usage.blocked,
+        owned_instance_count: usage.owned,
+      });
+    }
+
+    const catalogTemplates = await templatesForRequest(req, profile);
+    const catalogEntry = templateEntryByName(catalogTemplates, name);
+    const localEntry = templateEntryByName(state.templates, name);
+    const entry = catalogEntry || localEntry;
+    const template = plainObject(entry?.template);
+    if (!Object.keys(template).length) return res.status(404).json({ code: "template_not_found", detail: `Template "${name}" was not found.`, template: name });
+    if (String(template.creator_email || "").trim().toLowerCase() !== creator) return res.status(403).json({ code: "template_not_owned", detail: `Template "${name}" is not owned by the current user.`, template: name });
+    const templateProfile = String(template.config_profile || template.profile || "");
+    if (templateProfile && templateProfile !== String(profile || "")) return res.status(404).json({ code: "template_not_found", detail: `Template "${name}" was not found for this profile.`, template: name });
+
+    const profileConfig = selectedProfileConfig({ profile, config_profile: profile });
+    if (profileConfig.netbox && profileConfig.token) {
+      const nextCatalogTemplates = { ...catalogTemplates };
+      delete nextCatalogTemplates[entry.name];
+      const syncResult = await syncTemplatesToNetBoxConfigContext(req, profile, nextCatalogTemplates, await workflowsForRequest(req, profile));
+      return res.json({ deleted: true, template: entry.name, template_catalog_sync: syncResult });
+    }
+
+    writeState((state) => {
+      state.templates = plainObject(state.templates);
+      delete state.templates[entry.name];
+      return state;
+    });
+
+    return res.json({ deleted: true, template: entry.name });
   });
 
   app.get("/portable-config", requireAdmin, (req, res) => {
