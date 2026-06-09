@@ -2078,10 +2078,12 @@ describe("server routes", () => {
   });
 
   test("enforces enrollment limits separately from order requests", async () => {
-    const { dataPath, fetchMock, request } = await loadServer();
+    const { dataPath, fetchMock, request, setSmtpSenderForTests } = await loadServer({ ownerEmail: "owner@example.com" });
     setupNetBoxFetch(fetchMock, { expectTraefikConfig: false });
+    const smtpSender = vi.fn().mockResolvedValue({ messageId: "enroll-ready-message", accepted: ["buyer@example.com"], response: "250 queued" });
+    setSmtpSenderForTests(smtpSender);
     writeState(dataPath, {
-      config: { netbox: "https://netbox.example.com", token: "secret", max_templates: 1, profile: "prod", config_profile: "prod" },
+      config: { netbox: "https://netbox.example.com", token: "secret", max_templates: 1, profile: "prod", config_profile: "prod", smtp_config: "mailer:smtp-secret@smtp.example.com:587" },
       templates: {},
       order_counts: {},
       order_instances: {},
@@ -2136,6 +2138,17 @@ describe("server routes", () => {
         { key: "saashup.template.port", value: "8080" },
       ]));
     });
+    await vi.waitFor(() => expect(smtpSender).toHaveBeenCalledWith(
+      expect.objectContaining({ user: "mailer", password: "smtp-secret", host: "smtp.example.com", port: 587 }),
+      expect.objectContaining({
+        from: "owner@example.com",
+        to: "buyer@example.com",
+        cc: ["owner@example.com"],
+        subject: "enroll-one.example.com is ready",
+        text: expect.stringContaining("Your instance is now running: enroll-one.example.com"),
+      }),
+    ));
+    expect(readState(dataPath).logs).toContain("EMAIL : ready notification sent to buyer@example.com for enroll-one.example.com");
 
     await request.get("/enroll/limit")
       .set("x-auth-request-email", "buyer@example.com")

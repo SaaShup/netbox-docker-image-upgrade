@@ -1835,7 +1835,7 @@ async function createInstance(req, data, { isOrderRequest, isEnrollRequest, orde
   }
 
   const allReady = readyCount === targetHosts.length;
-  if (isOrderRequest && allReady) {
+  if ((isOrderRequest || isEnrollRequest) && allReady) {
     try {
       await sendOrderReadyEmail(data, authUser.email || "");
     } catch (error) {
