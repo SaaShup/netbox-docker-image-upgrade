@@ -21,6 +21,7 @@ const {
   plainObject,
   routeLabel,
   sendSmtpMail,
+  smtpClientName,
   smtpMessage,
   smtpSenderAddress,
   smtpTransportOptions,
@@ -147,7 +148,11 @@ describe("server helpers", () => {
     expect(smtpSenderAddress({})).toBe("no-reply@localhost");
     expect(smtpSenderAddress({ host: "" })).toBe("no-reply@localhost");
     expect(smtpSenderAddress({ host: "smtp." })).toBe("no-reply@localhost");
+    expect(smtpClientName(parseSmtpConfig("contact@example.com:smtp-secret@smtp.example.com:587"))).toBe("example.com");
+    expect(smtpClientName(parseSmtpConfig("mailer:smtp-secret@smtp.example.com:587"))).toBe("example.com");
+    expect(smtpClientName({ host: "localhost" })).toBe("localhost.localdomain");
     expect(smtpTransportOptions(config, 1234)).toMatchObject({
+      name: "example.com",
       host: "smtp.example.com",
       port: 587,
       secure: false,
@@ -198,6 +203,7 @@ describe("server helpers", () => {
     )).resolves.toEqual({ messageId: "queued" });
 
     expect(createTransport).toHaveBeenCalledWith(expect.objectContaining({
+      name: "example.com",
       host: "smtp.example.com",
       port: 587,
       requireTLS: true,
@@ -210,6 +216,30 @@ describe("server helpers", () => {
       subject: "Subject",
       attachments: [expect.objectContaining({ cid: "logo", encoding: "base64" })],
     }));
+
+    createTransport.mockRestore();
+  });
+
+  test("retries transient smtp failures with a fresh transport", async () => {
+    const firstSendMail = vi.fn().mockRejectedValue(Object.assign(new Error("421-4.7.0 Try again later, closing connection. (EHLO)"), { responseCode: 421 }));
+    const secondSendMail = vi.fn().mockResolvedValue({ messageId: "queued-after-retry" });
+    const firstClose = vi.fn();
+    const secondClose = vi.fn();
+    const createTransport = vi.spyOn(nodemailer, "createTransport")
+      .mockReturnValueOnce({ sendMail: firstSendMail, close: firstClose })
+      .mockReturnValueOnce({ sendMail: secondSendMail, close: secondClose });
+
+    await expect(sendSmtpMail(
+      parseSmtpConfig("contact@example.com:smtp-secret@smtp.example.com:587"),
+      { to: "to@example.com", subject: "Subject", text: "Text" },
+      { retries: 1, retryDelayMs: 1 },
+    )).resolves.toEqual({ messageId: "queued-after-retry" });
+
+    expect(createTransport).toHaveBeenCalledTimes(2);
+    expect(firstSendMail).toHaveBeenCalledTimes(1);
+    expect(secondSendMail).toHaveBeenCalledTimes(1);
+    expect(firstClose).toHaveBeenCalledTimes(1);
+    expect(secondClose).toHaveBeenCalledTimes(1);
 
     createTransport.mockRestore();
   });

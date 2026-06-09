@@ -2423,12 +2423,22 @@ function enrollTemplateDeleteTitle(item) {
   return "Delete unavailable for this template source";
 }
 
+function enrollmentTemplateNameLink(item) {
+  const name = String(item?.instance || "").trim();
+  if (!name) return "<strong>SaaShup template</strong>";
+
+  const href = orderTemplateUrl(name);
+  if (!href) return `<strong>${escapeHtml(name)}</strong>`;
+
+  return `<a class="order-instance-link" href="${escapeHtml(href)}">${escapeHtml(name)}</a>`;
+}
+
 function enrollmentTemplateTitle(item) {
   const count = Number(item?.instance_count || 0);
   const badgeLabel = `${count} instance${count === 1 ? "" : "s"}`;
   return `
     <span class="enroll-template-title">
-      ${orderInstanceNameLink(item.instance, item.dns_name)}
+      ${enrollmentTemplateNameLink(item)}
       <span class="enroll-template-count" title="${escapeHtml(badgeLabel)}" aria-label="${escapeHtml(badgeLabel)}">${count}</span>
     </span>
   `;

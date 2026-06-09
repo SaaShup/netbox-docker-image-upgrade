@@ -39,7 +39,7 @@ const { NetBoxClient, dockerHosts, hostIdQuery, setNetBoxFetchForTests } = requi
 const { createOidcAuth, setOidcFetchForTests } = require("./lib/oidc");
 const { createOperationHelpers, delay } = require("./lib/operations");
 const { checkRegistryImageExists, setRegistryFetchForTests } = require("./lib/registry");
-const { parseSmtpConfig, sendSmtpMail, smtpMessage, smtpSenderAddress, smtpTransportOptions } = require("./lib/smtp");
+const { parseSmtpConfig, sendSmtpMail, smtpClientName, smtpMessage, smtpSenderAddress, smtpTransportOptions } = require("./lib/smtp");
 const { createStateStore, parseProfiles, plainObject } = require("./lib/state");
 
 const app = express();
@@ -1992,6 +1992,7 @@ module.exports = {
   setTurnstileFetchForTests: (fetcher) => {
     turnstileFetch = fetcher || undiciFetch;
   },
+  smtpClientName,
   smtpMessage,
   smtpSenderAddress,
   smtpTransportOptions,
