@@ -2712,6 +2712,7 @@ test("enroll page shows templates created by the user", async ({ page }) => {
   await expect(page.locator("#enrollInstances .order-instance-delete").nth(1)).toBeEnabled();
   await expect(page.locator("#enrollInstances .order-instance-delete svg").first()).toBeVisible();
   await expect(page.locator("#enrollInstances .order-template-copy").first()).toBeVisible();
+  await expect(page.locator("#enrollInstances .enroll-template-title a").first()).toHaveAttribute("href", `${page.url().replace(/\/enroll(?:\.html)?$/, "")}/order?template=guide-template&profile=production`);
   await page.locator("#enrollInstances .order-template-copy").first().click();
   await expect(page.locator("#notif")).toContainText('Order link copied for "guide-template"');
   await expect.poll(() => page.evaluate(() => window.__copiedOrderLink)).toBe(`${page.url().replace(/\/enroll(?:\.html)?$/, "")}/order?template=guide-template&profile=production`);
