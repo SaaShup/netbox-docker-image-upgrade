@@ -2642,7 +2642,7 @@ function collapseLogs() {
 
 function setAction(actionName) {
   const config = actions[actionName];
-  if (!config) return;
+  if (!config || !form) return;
 
   collapseLogs();
 
@@ -5679,7 +5679,7 @@ addBindBtn?.addEventListener("click", () => {
   repeatRows(bindList, ".repeat-row").at(-1)?.querySelector("input")?.focus();
 });
 
-form.addEventListener("submit", async (event) => {
+form?.addEventListener("submit", async (event) => {
   const config = actions[currentAction];
   event.preventDefault();
   if (isEnrollPage) setEnrollSubmitInProgress(true);

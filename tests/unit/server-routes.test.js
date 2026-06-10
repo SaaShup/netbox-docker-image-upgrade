@@ -2928,6 +2928,11 @@ describe("server routes", () => {
       expect(res.text).toContain('id="submitBtn" disabled');
       expect(res.headers["cache-control"]).toContain("no-store");
     });
+    await request.get("/catalog").set("x-auth-request-email", "buyer@example.com").expect(200).expect((res) => {
+      expect(res.text).toContain("Saashup Catalog");
+      expect(res.text).toContain('href="/catalog" aria-current="page"');
+      expect(res.headers["cache-control"]).toContain("no-store");
+    });
 
     await request.get("/order/limit")
       .set("x-auth-request-email", "buyer@example.com")

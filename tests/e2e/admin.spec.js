@@ -2427,6 +2427,7 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
   await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My instances" })).toHaveAttribute("href", "/order");
   await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My images" })).toHaveAttribute("href", "/enroll");
   await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My images" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "Catalog" })).toHaveAttribute("href", "/catalog");
   await expect(page.locator("#dockerRunApplyBtn")).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Back to home" })).toHaveCount(0);
   await expect(page.locator("#submitBtn")).toBeDisabled();
@@ -2475,6 +2476,37 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
   await expect(page.locator("#enrollInstances .order-instance-delete")).toHaveCount(1);
   await expect(page.locator("#enrollInstances .order-instance-delete").first()).toBeEnabled();
   await expect(page.locator("#instanceForm")).toBeHidden();
+});
+
+test("catalog page shows the account menu", async ({ page }) => {
+  await page.route("**/session/user", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ email: "ada@example.com", user: "ada", name: "Ada Lovelace" }),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "production",
+    config_profile: "production",
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        domain: "example.com",
+        tag: "production",
+        saashup_default: true,
+      },
+    }),
+  }, {}, [], undefined, "/catalog");
+
+  await expect(page).toHaveURL(/\/catalog$/);
+  await expect(page.locator("#catalogTitle")).toHaveText("Template catalog");
+  await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My instances" })).toHaveAttribute("href", "/order");
+  await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My images" })).toHaveAttribute("href", "/enroll");
+  await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "Catalog" })).toHaveAttribute("href", "/catalog");
+  await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "Catalog" })).toHaveAttribute("aria-current", "page");
 });
 
 test("enroll page reports only missing port when docker run has image", async ({ page }) => {
@@ -3915,6 +3947,7 @@ test("order page without a template lists all owned containers", async ({ page }
   await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My instances" })).toHaveAttribute("href", "/order");
   await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My instances" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My images" })).toHaveAttribute("href", "/enroll");
+  await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "Catalog" })).toHaveAttribute("href", "/catalog");
   await expect(page.locator("#orderInstances")).toContainText("2");
   await expect(page.locator("#orderInstances")).toContainText("tile.daily.paashup.cloud");
   await expect(page.locator("#orderInstances")).toContainText("guide.daily.paashup.cloud");

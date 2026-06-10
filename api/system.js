@@ -27,6 +27,8 @@ function registerSystemRoutes(app, {
   app.get("/order", oidcAuth.loginRequired, (req, res) => res.sendFile(path.join(publicPath, "order.html")));
   app.get("/enroll", oidcAuth.loginRequired, (req, res) => sendNoCachePage(publicPath, res, "enroll.html"));
   app.get("/enroll.html", oidcAuth.loginRequired, (req, res) => sendNoCachePage(publicPath, res, "enroll.html"));
+  app.get("/catalog", oidcAuth.loginRequired, (req, res) => sendNoCachePage(publicPath, res, "catalog.html"));
+  app.get("/catalog.html", oidcAuth.loginRequired, (req, res) => sendNoCachePage(publicPath, res, "catalog.html"));
 }
 
 module.exports = { registerSystemRoutes };

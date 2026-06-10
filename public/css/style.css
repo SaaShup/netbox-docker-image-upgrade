@@ -1631,7 +1631,8 @@ body.order-page {
   background: var(--bg);
 }
 
-body.enroll-page {
+body.enroll-page,
+body.catalog-page {
   background: var(--bg);
 }
 
@@ -1668,14 +1669,16 @@ body.order-page .order-footer {
   margin: 0;
 }
 
-body.order-page .order-auth {
+body.order-page .order-auth,
+body.catalog-page .order-auth {
   position: fixed;
   top: 18px;
   right: 18px;
   z-index: 10;
 }
 
-body.order-page .order-theme {
+body.order-page .order-theme,
+body.catalog-page .order-theme {
   position: fixed;
   top: 18px;
   left: 18px;
@@ -1683,7 +1686,8 @@ body.order-page .order-theme {
 }
 
 body.order-page .order-page-menu,
-body.enroll-page .order-page-menu {
+body.enroll-page .order-page-menu,
+body.catalog-page .order-page-menu {
   position: fixed;
   top: 18px;
   left: 50%;
@@ -1699,7 +1703,8 @@ body.enroll-page .order-page-menu {
 }
 
 body.order-page .order-page-menu a,
-body.enroll-page .order-page-menu a {
+body.enroll-page .order-page-menu a,
+body.catalog-page .order-page-menu a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1714,13 +1719,15 @@ body.enroll-page .order-page-menu a {
 }
 
 body.order-page .order-page-menu a:hover,
-body.enroll-page .order-page-menu a:hover {
+body.enroll-page .order-page-menu a:hover,
+body.catalog-page .order-page-menu a:hover {
   color: var(--text);
   background: var(--button-soft);
 }
 
 body.order-page .order-page-menu a[aria-current="page"],
-body.enroll-page .order-page-menu a[aria-current="page"] {
+body.enroll-page .order-page-menu a[aria-current="page"],
+body.catalog-page .order-page-menu a[aria-current="page"] {
   color: #fff;
   background: var(--primary);
 }
@@ -1779,6 +1786,53 @@ body.enroll-page .order-footer {
   bottom: 18px;
   left: 24px;
   margin: 0;
+}
+
+body.catalog-page .main {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 96px 28px 82px;
+}
+
+body.catalog-page .order-footer {
+  position: fixed;
+  right: 24px;
+  bottom: 18px;
+  left: 24px;
+  margin: 0;
+}
+
+body.catalog-page .catalog-panel {
+  width: min(860px, 100%);
+  padding: 34px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 18px 44px rgba(21, 32, 51, 0.10);
+}
+
+body.catalog-page .catalog-panel .eyebrow {
+  margin: 0 0 10px;
+  color: var(--primary);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+body.catalog-page .catalog-panel h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: 2rem;
+}
+
+body.catalog-page .catalog-panel p:last-child {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.6;
 }
 
 body.enroll-page .notice {
@@ -2372,7 +2426,8 @@ body.order-page #orderCancelBtn {
     flex-wrap: wrap;
   }
 
-  body.order-page .order-theme {
+  body.order-page .order-theme,
+  body.catalog-page .order-theme {
     position: static;
     margin-bottom: 18px;
   }
@@ -2382,7 +2437,8 @@ body.order-page #orderCancelBtn {
     margin-bottom: 18px;
   }
 
-  body.order-page .order-auth {
+  body.order-page .order-auth,
+  body.catalog-page .order-auth {
     position: static;
     width: 100%;
     margin-bottom: 18px;
@@ -2395,10 +2451,12 @@ body.order-page #orderCancelBtn {
   }
 
   body.order-page .order-page-menu,
-  body.enroll-page .order-page-menu {
+  body.enroll-page .order-page-menu,
+  body.catalog-page .order-page-menu {
     position: static;
     width: 100%;
     justify-content: center;
+    flex-wrap: wrap;
     margin-bottom: 18px;
     transform: none;
   }
@@ -2407,7 +2465,8 @@ body.order-page #orderCancelBtn {
     flex-direction: column;
   }
 
-  body.enroll-page .main {
+  body.enroll-page .main,
+  body.catalog-page .main {
     justify-content: flex-start;
     padding: 20px;
   }
@@ -2418,10 +2477,15 @@ body.order-page #orderCancelBtn {
     margin-top: 18px;
   }
 
-  body.enroll-page .order-footer {
+  body.enroll-page .order-footer,
+  body.catalog-page .order-footer {
     position: static;
     width: 100%;
     margin-top: 18px;
+  }
+
+  body.catalog-page .catalog-panel {
+    padding: 24px;
   }
 
   .enroll-card {
