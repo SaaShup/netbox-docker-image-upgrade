@@ -153,6 +153,7 @@ let orderInstanceCards = [];
 let orderInstanceLimit = { max: 0, used: 0 };
 let enrollmentCards = [];
 let enrollmentLimit = { max: 0, used: 0, reached: false };
+let enrollSubmitInProgress = false;
 const orderDeletingInstances = new Set();
 let currentReportView = "images";
 let lastReportData = null;
@@ -2199,6 +2200,7 @@ function setOrderBlockedStatus(message, reason) {
 function setSubmitValidationError(message) {
   if (isOrderPage) setOrderActionStatus(message, "error", "validation-error");
   else setNotice(message, "error");
+  if (isEnrollPage) updateEnrollSubmitState({ notify: false });
 }
 
 function orderCanRequestMessage(limit) {
@@ -2393,7 +2395,7 @@ function renderEnrollmentInstances(instances = enrollmentCards, limit = enrollme
           </span>
           ${isEnrollmentTemplateCard(item) ? `
             <span class="order-instance-actions">
-              <button type="button" class="icon-btn order-template-copy" data-order-template-copy="${escapeHtml(item.instance)}" title="Copy order link" aria-label="Copy order link for ${escapeHtml(item.instance)}">
+              <button type="button" class="icon-btn order-template-copy" data-order-template-copy="${escapeHtml(item.instance)}" title="Copy order button HTML" aria-label="Copy order button HTML for ${escapeHtml(item.instance)}">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="10" height="10" rx="2"></rect><path d="M5 15V7a2 2 0 0 1 2-2h8"></path></svg>
               </button>
               <button type="button" class="icon-btn icon-btn-danger order-instance-delete" data-enroll-template-delete="${escapeHtml(item.instance)}" title="${escapeHtml(enrollTemplateDeleteTitle(item))}" aria-label="${escapeHtml(enrollTemplateDeleteTitle(item))}" ${enrollTemplateCanDelete(item) ? "" : "disabled"}>
@@ -2624,9 +2626,11 @@ function setAction(actionName) {
   if (formTitle) formTitle.textContent = config.title;
   updateFormTitleBadge(actionName);
   if (formDescription) formDescription.textContent = config.description;
-  submitBtn.textContent = config.submitLabel;
+  submitBtn.textContent = isEnrollPage && actionName === "create" ? "Enroll image" : config.submitLabel;
   submitBtn.className = config.buttonClass;
-  submitBtn.classList.toggle("hidden", actionName === "delete" || actionName === "template");
+  submitBtn.classList.toggle("hidden", actionName === "delete" || actionName === "template" || enrollSubmitInProgress);
+  submitBtn.hidden = Boolean(enrollSubmitInProgress);
+  submitBtn.style.display = enrollSubmitInProgress ? "none" : "";
   submitBtn.name = actionName === "restart" ? "restart_mode" : "";
   submitBtn.value = actionName === "restart" ? "image" : "";
 
@@ -2771,7 +2775,8 @@ function clearActionFields() {
 function openDockerRunModal() {
   if (!dockerRunModal || !dockerRunInput) return;
 
-  if (!isTemplateAction()) setAction("template");
+  if (isEnrollPage) setAction("create");
+  else if (!isTemplateAction()) setAction("template");
   updateImportProfileOptions();
   setImportTab("run");
   dockerRunInput.value = "";
@@ -2923,6 +2928,27 @@ function updateEnrollSubmitState({ notify = true } = {}) {
 function enrollmentLimitMessage(limit) {
   const max = Number(limit?.max || 0);
   return `You have reached your maximum of ${max} template${max === 1 ? "" : "s"} for this config.`;
+}
+
+function setEnrollCheckingImage(checking) {
+  if (!isEnrollPage) return;
+  if (checking) setNotice("Checking image", "info", false);
+  if (submitBtn) {
+    submitBtn.disabled = checking || submitBtn.disabled;
+    submitBtn.hidden = Boolean(enrollSubmitInProgress);
+    submitBtn.style.display = enrollSubmitInProgress ? "none" : "";
+  }
+}
+
+function setEnrollSubmitInProgress(inProgress) {
+  if (!isEnrollPage || !submitBtn) return;
+  enrollSubmitInProgress = inProgress;
+  submitBtn.classList.toggle("hidden", inProgress);
+  submitBtn.hidden = inProgress;
+  submitBtn.style.display = inProgress ? "none" : "";
+  if (inProgress) submitBtn.setAttribute("aria-hidden", "true");
+  else submitBtn.removeAttribute("aria-hidden");
+  submitBtn.disabled = inProgress || submitBtn.disabled;
 }
 
 async function refreshEnrollLimit({ showLoading = true } = {}) {
@@ -4018,6 +4044,14 @@ function orderTemplateUrl(name) {
   return `${window.location.origin}/order?${query.toString()}`;
 }
 
+function orderTemplateEmbedHtml(name) {
+  const url = orderTemplateUrl(name);
+  if (!url) return "";
+
+  const imageUrl = `${window.location.origin}/assets/deploy.svg`;
+  return `<a href="${escapeHtml(url)}"><img src="${escapeHtml(imageUrl)}" alt="Deploy with SaaShup"></a>`;
+}
+
 function copyTextToClipboard(text) {
   if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
 
@@ -4335,7 +4369,8 @@ async function applyDockerRunCommand() {
     }
   }
 
-  if (!isTemplateAction()) setAction("template");
+  if (isEnrollPage) setAction("create");
+  else if (!isTemplateAction()) setAction("template");
   templateNetworkOverride = "";
   templateVersionOverride = parsed.version || "";
   generatedCreateDnsName = "";
@@ -5129,6 +5164,7 @@ async function submitAction(config, submitter) {
 
   const endpoint = request.method === "GET" ? `${config.endpoint}?${body.toString()}` : config.endpoint;
   if (isOrderPage || isEnrollPage) submitBtn.disabled = true;
+  if (isEnrollPage) form?.classList.add("hidden");
 
   const response = await fetch(endpoint, request);
   if (isOrderPage) {
@@ -5169,6 +5205,8 @@ async function submitAction(config, submitter) {
       }
 
       submitBtn.disabled = false;
+      form?.classList.remove("hidden");
+      setEnrollSubmitInProgress(false);
       setNotice(detail || `Creation request failed (${response.status})`, "error");
     }
     return;
@@ -5305,6 +5343,50 @@ function versionsForImage(image) {
     .map(imageVersionFromItem)
     .filter(Boolean)))
     .sort(compareVersionsDesc);
+}
+
+function providerHasImageVersion(image, version) {
+  const imageRef = splitImageRef(image);
+  const requestedImage = imageRef.image;
+  const requestedVersion = String(version || imageRef.version || "").trim();
+  if (!requestedImage || !requestedVersion) return false;
+
+  return imageRecords.some((item) => (
+    imageNameFromItem(item) === requestedImage
+    && imageVersionFromItem(item) === requestedVersion
+  ));
+}
+
+async function verifyEnrollImageAvailable() {
+  const image = fieldValue("image");
+  const version = fieldValue("version");
+  const imageRef = splitImageRef(image);
+  const requestedImage = imageRef.image;
+  const requestedVersion = String(version || imageRef.version || "").trim();
+
+  setEnrollCheckingImage(true);
+
+  try {
+    const loaded = await refreshImages({ notify: false });
+    if (!loaded) {
+      setNotice("Image registry check failed", "error", false);
+      return false;
+    }
+
+    if (!providerHasImageVersion(requestedImage, requestedVersion)) {
+      setNotice(`Image ${requestedImage}:${requestedVersion} was not found in the provider registry.`, "error", false);
+      return false;
+    }
+
+    if (enrollSummary) {
+      enrollSummary.textContent = `Image found - ${requestedImage}:${requestedVersion}`;
+      enrollSummary.classList.remove("hidden");
+    }
+    setNotice(`Image found - ${requestedImage}:${requestedVersion}`, "success", false);
+    return true;
+  } finally {
+    setEnrollCheckingImage(false);
+  }
 }
 
 function highestVersionForImage(image = fieldValue("image")) {
@@ -5565,20 +5647,25 @@ addBindBtn?.addEventListener("click", () => {
 form.addEventListener("submit", async (event) => {
   const config = actions[currentAction];
   event.preventDefault();
+  if (isEnrollPage) setEnrollSubmitInProgress(true);
 
   if (currentAction === "config") {
     saveConfig();
     return;
   }
 
+  if (isEnrollPage) {
+    const imported = await applyDockerRunCommand();
+    if (!imported) {
+      setEnrollSubmitInProgress(false);
+      updateEnrollSubmitState({ notify: false });
+      return;
+    }
+  }
+
   if (currentAction === "template") {
     setSubmitValidationError("Use Save template to store template changes");
     return;
-  }
-
-  if (isEnrollPage) {
-    const imported = await applyDockerRunCommand();
-    if (!imported) return;
   }
 
   if (currentAction === "restart" && event.submitter?.value === "instance" && !fieldValue("instance")) {
@@ -5610,7 +5697,7 @@ form.addEventListener("submit", async (event) => {
 
   const selectedCreateTemplate = currentAction === "create" ? createTemplateEntry(selectedTemplateName() || orderTemplateName || "") : null;
 
-  if (currentAction === "create" && !selectedCreateTemplate) {
+  if (currentAction === "create" && !isEnrollPage && !selectedCreateTemplate) {
     setSubmitValidationError("Select a template first");
     return;
   }
@@ -5654,11 +5741,24 @@ form.addEventListener("submit", async (event) => {
     return;
   }
 
+  if (isEnrollPage) {
+    const imageAvailable = await verifyEnrollImageAvailable();
+    if (!imageAvailable) {
+      setEnrollSubmitInProgress(false);
+      updateEnrollSubmitState({ notify: false });
+      return;
+    }
+  }
+
   submitAction(config, event.submitter).catch(() => {
     if (isOrderPage || isEnrollPage) {
       submitBtn.disabled = false;
       if (isOrderPage) setOrderStatus("Installation request failed", "error");
-      else setNotice("Creation request failed", "error");
+      else {
+        form?.classList.remove("hidden");
+        setEnrollSubmitInProgress(false);
+        setNotice("Creation request failed", "error");
+      }
       return;
     }
 
@@ -5951,15 +6051,15 @@ enrollInstances?.addEventListener("click", (event) => {
   if (!button) return;
 
   const templateName = button.dataset.orderTemplateCopy || "";
-  const url = orderTemplateUrl(templateName);
-  if (!url) {
-    setNotice("Order link unavailable", "error");
+  const html = orderTemplateEmbedHtml(templateName);
+  if (!html) {
+    setNotice("Order button HTML unavailable", "error");
     return;
   }
 
-  copyTextToClipboard(url)
-    .then(() => setNotice(`Order link copied for "${templateName}"`, "success"))
-    .catch(() => setNotice(url, "info", false));
+  copyTextToClipboard(html)
+    .then(() => setNotice(`Order button HTML copied for "${templateName}"`, "success"))
+    .catch(() => setNotice(html, "info", false));
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !dockerRunModal?.classList.contains("hidden")) {
@@ -6001,7 +6101,7 @@ async function initializePage() {
         setImportTab("run");
         await refreshEnrollLimit();
         if (submitBtn) {
-          submitBtn.textContent = "Submit creation";
+          submitBtn.textContent = "Enroll image";
           updateEnrollSubmitState({ notify: false });
         }
       }
