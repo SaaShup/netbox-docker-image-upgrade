@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Saashup Catalog</title>
+  <link rel="icon" href="saashup_logo.svg">
+  <script src="js/theme.js"></script>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body class="catalog-page">
+  <main class="main catalog-main">
+    <button type="button" class="theme-toggle order-theme" data-theme-toggle aria-label="Toggle theme" title="Toggle theme">☾</button>
+    <nav class="order-page-menu" aria-label="Account pages">
+      <a href="/order">My instances</a>
+      <a href="/enroll">My images</a>
+      <a href="/catalog" aria-current="page">Catalog</a>
+    </nav>
+    <div class="auth-user order-auth hidden" id="authUser">
+      <div class="auth-avatar" id="authAvatar" aria-hidden="true">?</div>
+      <div class="auth-copy">
+        <span id="authName">Signed in</span>
+        <small id="authEmail"></small>
+      </div>
+      <button type="button" class="btn btn-secondary auth-cache" id="clearCacheBtn">Clear cache</button>
+      <button type="button" class="btn btn-secondary auth-logout" id="logoutBtn">Logout</button>
+    </div>
+
+    <section class="catalog-panel" aria-labelledby="catalogTitle">
+      <p class="eyebrow">Catalog</p>
+      <h1 id="catalogTitle">Template catalog</h1>
+      <p>Browse available images from your SaaShup catalog.</p>
+    </section>
+
+    <footer class="app-footer order-footer">
+      <span>SaaShup © 2026</span>
+      <span data-app-version></span>
+    </footer>
+  </main>
+
+  <script src="js/main.js"></script>
+  <script src="js/version.js"></script>
+</body>
+</html>

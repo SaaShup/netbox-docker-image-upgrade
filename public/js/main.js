@@ -120,6 +120,7 @@ const enrollDockerRunNotices = [
   "Docker run port is required",
   "Docker run image version is required",
   "Docker run image version cannot be latest",
+  "Bind mounts are not allowed for enrollment. Use a named Docker volume like flowg-data:/data.",
 ];
 const enrollComposeNotices = [
   enrollMultiComposeNotice,
@@ -127,6 +128,7 @@ const enrollComposeNotices = [
   "Compose service must expose one port.",
   "Compose service image version is required",
   "Compose service image version cannot be latest",
+  "Bind mounts are not allowed for enrollment. Use a named Docker volume like flowg-data:/data.",
 ];
 
 let currentAction = (isOrderPage || isEnrollPage) ? "create" : (localStorage.getItem("current_action") || "config");
@@ -153,10 +155,12 @@ let orderInstanceCards = [];
 let orderInstanceLimit = { max: 0, used: 0 };
 let enrollmentCards = [];
 let enrollmentLimit = { max: 0, used: 0, reached: false };
+let enrollSubmitInProgress = false;
 const orderDeletingInstances = new Set();
 let currentReportView = "images";
 let lastReportData = null;
 let orderStatusPollTimer = null;
+let enrollmentStatusPollTimer = null;
 let mailSettings = { owner_email_configured: false };
 let registryWebhookDefaultSecret = "";
 let registryWebhookDefaultLoaded = false;
@@ -204,17 +208,13 @@ const profileFieldHelp = {
     title: "Tag",
     body: "Filters Docker hosts and image lookups to the matching NetBox tag, so each profile can target a specific environment or host group.",
   },
-  max_templates: {
-    title: "Max templates",
-    body: "Limits how many enroll-page templates a user can create for this profile. Set it to 0 to block new enrollments for the profile.",
-  },
   max_instances: {
     title: "Max instances",
     body: "Limits how many order-page containers a user can request from this template. Set it to 0 to block new orders for the template.",
   },
   enrollment_limit: {
     title: "Enrollment limit",
-    body: "Limits how many enroll-page creation requests each user can submit for this profile. The default is 1.",
+    body: "Limits how many images each user can enroll for this profile. Set it to 0 to block new enrollments for the profile.",
   },
   owner_env_var: {
     title: "Owner env var",
@@ -282,7 +282,7 @@ const profileFieldHelp = {
   },
 };
 
-const configFields = ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_templates", "owner_env_var", "cloudflare_filter", "smtp_config"];
+const configFields = ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "enrollment_limit", "owner_env_var", "cloudflare_filter", "smtp_config"];
 
 function isCreateFormAction(action = currentAction) {
   return action === "create" || action === "template";
@@ -305,7 +305,7 @@ const actions = {
     description: "Save the NetBox URL, token, optional proxy, domain and host tag used by the automation.",
     submitLabel: "Save config",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_templates", "owner_env_var", "cloudflare_filter", "smtp_config"],
+    fields: ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "enrollment_limit", "owner_env_var", "cloudflare_filter", "smtp_config"],
   },
   create: {
     endpoint: "/create",
@@ -396,7 +396,6 @@ const allFieldNames = [
   "proxy",
   "domain",
   "tag",
-  "max_templates",
   "max_instances",
   "enrollment_limit",
   "owner_env_var",
@@ -774,8 +773,7 @@ function knownProfileEntries() {
       proxy: savedConfig.proxy || "",
       domain: savedConfig.domain || "",
       tag: savedConfig.tag || "",
-      max_templates: maxTemplatesValue(savedConfig),
-      enrollment_limit: normalizeMaxInstances(savedConfig.enrollment_limit),
+      enrollment_limit: enrollmentLimitValue(savedConfig),
       owner_env_var: ownerEnvVarValue(savedConfig.owner_env_var),
       cloudflare_filter: checkboxValue(savedConfig.cloudflare_filter, true),
       smtp_config: smtpConfigValue(savedConfig),
@@ -830,8 +828,7 @@ function normalizedProfileForSync(profile = {}) {
     proxy: profile.proxy || "",
     domain: normalizeDomain(profile.domain || ""),
     tag: profile.tag || "",
-    max_templates: maxTemplatesValue(profile),
-    enrollment_limit: normalizeMaxInstances(profile.enrollment_limit),
+    enrollment_limit: enrollmentLimitValue(profile),
     owner_env_var: ownerEnvVarValue(profile.owner_env_var),
     cloudflare_filter: checkboxValue(profile.cloudflare_filter, true),
     smtp_config: smtpConfigValue(profile),
@@ -846,7 +843,6 @@ function currentProfileFieldValues() {
     proxy: fieldValue("proxy"),
     domain: fieldValue("domain"),
     tag: fieldValue("tag"),
-    max_templates: fieldValue("max_templates"),
     enrollment_limit: fieldValue("enrollment_limit"),
     owner_env_var: fieldValue("owner_env_var"),
     cloudflare_filter: fieldChecked("cloudflare_filter", true),
@@ -1411,8 +1407,7 @@ function profileCredentials(name = currentConfigProfile) {
     proxy: profile.proxy || "",
     domain: profile.domain || "",
     tag: profile.tag || "",
-    max_templates: maxTemplatesValue(profile),
-    enrollment_limit: normalizeMaxInstances(profile.enrollment_limit),
+    enrollment_limit: enrollmentLimitValue(profile),
     owner_env_var: ownerEnvVarValue(profile.owner_env_var),
     cloudflare_filter: checkboxValue(profile.cloudflare_filter, true),
     smtp_config: smtpConfigValue(profile),
@@ -1426,19 +1421,18 @@ function normalizeMaxInstances(value) {
   return Math.min(100, Math.max(0, Math.floor(number)));
 }
 
-function maxTemplatesValue(profile = {}) {
-  return normalizeMaxInstances(profile.max_templates ?? profile.enrollment_limit);
+function enrollmentLimitValue(profile = {}) {
+  return normalizeMaxInstances(profile.enrollment_limit ?? profile.max_templates ?? profile.max_instances);
 }
 
 function normalizeImportedProfiles(profiles = {}) {
   return Object.fromEntries(Object.entries(plainObject(profiles)).map(([name, profile]) => {
     const normalized = plainObject(profile);
-    if (normalized.max_templates === undefined && normalized.max_instances !== undefined) {
-      normalized.max_templates = normalizeMaxInstances(normalized.max_instances);
+    if (normalized.enrollment_limit === undefined) {
+      const legacyLimit = normalized.max_templates ?? normalized.max_instances;
+      if (legacyLimit !== undefined) normalized.enrollment_limit = normalizeMaxInstances(legacyLimit);
     }
-    if (normalized.enrollment_limit === undefined && normalized.max_templates !== undefined) {
-      normalized.enrollment_limit = normalizeMaxInstances(normalized.max_templates);
-    }
+    delete normalized.max_templates;
     return [name, normalized];
   }));
 }
@@ -1543,7 +1537,6 @@ function applyProfileToFields(name = currentConfigProfile) {
   setFieldValue("proxy", credentials.proxy);
   setFieldValue("domain", credentials.domain);
   setFieldValue("tag", credentials.tag);
-  setFieldValue("max_templates", credentials.max_templates);
   setFieldValue("max_instances", "1");
   setFieldValue("enrollment_limit", credentials.enrollment_limit);
   setFieldValue("owner_env_var", credentials.owner_env_var);
@@ -2161,22 +2154,14 @@ function orderHomeUrl() {
   return safeNavigationUrl(createTemplateEntry(orderTemplateName)?.template?.template_url);
 }
 
-function orderHomeLink() {
-  const homeLink = document.createElement("a");
-  homeLink.href = orderHomeUrl();
-  homeLink.className = "btn btn-secondary order-status-home";
-  homeLink.textContent = "Back to home";
-  return homeLink;
-}
-
 function setOrderActionStatus(messageText, type, reason) {
   if (!orderStatus) return;
 
   const message = document.createElement("span");
   message.textContent = messageText;
-  orderStatus.className = `order-status ${type} has-action`;
+  orderStatus.className = `order-status ${type}`;
   orderStatus.dataset.reason = reason;
-  orderStatus.replaceChildren(message, orderHomeLink());
+  orderStatus.replaceChildren(message);
 }
 
 function setOrderDeleteStatus(instance) {
@@ -2199,6 +2184,7 @@ function setOrderBlockedStatus(message, reason) {
 function setSubmitValidationError(message) {
   if (isOrderPage) setOrderActionStatus(message, "error", "validation-error");
   else setNotice(message, "error");
+  if (isEnrollPage) updateEnrollSubmitState({ notify: false });
 }
 
 function orderCanRequestMessage(limit) {
@@ -2313,6 +2299,31 @@ function syncOrderStatusPolling() {
   }
 }
 
+async function refreshEnrollmentInstanceStatuses() {
+  if (!isEnrollPage || !enrollInstances) return;
+
+  try {
+    await refreshEnrollLimit({ showLoading: false, updateNotice: false });
+  } catch {
+    // Keep the current cards visible if a background refresh fails.
+  }
+}
+
+function syncEnrollmentStatusPolling() {
+  if (!isEnrollPage) return;
+  const hasPending = enrollmentCards.some(isPendingOrderInstance);
+
+  if (!hasPending && enrollmentStatusPollTimer) {
+    clearInterval(enrollmentStatusPollTimer);
+    enrollmentStatusPollTimer = null;
+    return;
+  }
+
+  if (hasPending && !enrollmentStatusPollTimer) {
+    enrollmentStatusPollTimer = setInterval(refreshEnrollmentInstanceStatuses, 3000);
+  }
+}
+
 function renderOrderInstances(instances = orderInstanceCards, limit = orderInstanceLimit) {
   if (!orderInstances) return;
 
@@ -2369,6 +2380,7 @@ function renderEnrollmentInstances(instances = enrollmentCards, limit = enrollme
   if (!enrollmentCards.length) {
     enrollInstances.classList.add("hidden");
     enrollInstances.replaceChildren();
+    syncEnrollmentStatusPolling();
     return;
   }
 
@@ -2391,11 +2403,13 @@ function renderEnrollmentInstances(instances = enrollmentCards, limit = enrollme
             <small>${escapeHtml(item.template_url || item.image || "SaaShup template")}</small>
             <small class="${orderInstanceStatusTextClass(item)}">${orderInstanceStatusText(item)}</small>
           </span>
-          ${isEnrollmentTemplateCard(item) ? `
+          ${isEnrollmentTemplateTerminal(item) ? `
             <span class="order-instance-actions">
-              <button type="button" class="icon-btn order-template-copy" data-order-template-copy="${escapeHtml(item.instance)}" title="Copy order link" aria-label="Copy order link for ${escapeHtml(item.instance)}">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="10" height="10" rx="2"></rect><path d="M5 15V7a2 2 0 0 1 2-2h8"></path></svg>
-              </button>
+              ${isEnrollmentTemplateReady(item) ? `
+                <button type="button" class="icon-btn order-template-copy" data-order-template-copy="${escapeHtml(item.instance)}" title="Copy order button HTML" aria-label="Copy order button HTML for ${escapeHtml(item.instance)}">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="10" height="10" rx="2"></rect><path d="M5 15V7a2 2 0 0 1 2-2h8"></path></svg>
+                </button>
+              ` : ""}
               <button type="button" class="icon-btn icon-btn-danger order-instance-delete" data-enroll-template-delete="${escapeHtml(item.instance)}" title="${escapeHtml(enrollTemplateDeleteTitle(item))}" aria-label="${escapeHtml(enrollTemplateDeleteTitle(item))}" ${enrollTemplateCanDelete(item) ? "" : "disabled"}>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>
               </button>
@@ -2405,15 +2419,24 @@ function renderEnrollmentInstances(instances = enrollmentCards, limit = enrollme
       `).join("")}
     </div>
   `;
+  syncEnrollmentStatusPolling();
 }
 
 function isEnrollmentTemplateCard(item) {
   return item?.source === "template" || item?.source === "netbox-template" || item?.source === "netbox-config-context";
 }
 
+function isEnrollmentTemplateReady(item) {
+  return isEnrollmentTemplateCard(item) && normalizedOrderInstanceStatus(item) === "ready";
+}
+
+function isEnrollmentTemplateTerminal(item) {
+  return isEnrollmentTemplateCard(item) && ["ready", "failed"].includes(normalizedOrderInstanceStatus(item));
+}
+
 function enrollTemplateCanDelete(item) {
   const hasTemplateSource = item?.source === "template" || item?.source === "netbox-template" || item?.source === "netbox-config-context";
-  return hasTemplateSource && Number(item?.instance_count || 0) <= 0;
+  return hasTemplateSource && ["ready", "failed"].includes(normalizedOrderInstanceStatus(item)) && Number(item?.instance_count || 0) <= 0;
 }
 
 function enrollTemplateDeleteTitle(item) {
@@ -2449,6 +2472,17 @@ async function deleteEnrollTemplate(name) {
   if (!templateName) return;
   if (!confirm(`Delete enrolled template "${templateName}"?`)) return;
 
+  const previousCards = enrollmentCards;
+  const previousLimit = enrollmentLimit;
+  const nextCards = previousCards.filter((item) => String(item?.instance || "").trim().toLowerCase() !== templateName.toLowerCase());
+  if (nextCards.length !== previousCards.length) {
+    renderEnrollmentInstances(nextCards, {
+      ...previousLimit,
+      used: Math.max(0, Number(previousLimit.used || previousCards.length) - (previousCards.length - nextCards.length)),
+      reached: false,
+    });
+  }
+
   try {
     const query = new URLSearchParams();
     const profile = selectedProfileCredentials().profile;
@@ -2464,6 +2498,8 @@ async function deleteEnrollTemplate(name) {
     await refreshEnrollLimit();
     setNotice(`Template "${templateName}" deleted`, "success");
   } catch (error) {
+    renderEnrollmentInstances(previousCards, previousLimit);
+    await refreshEnrollLimit({ showLoading: false, updateNotice: false });
     setNotice(error.message || "Template delete failed", "error");
   }
 }
@@ -2606,7 +2642,7 @@ function collapseLogs() {
 
 function setAction(actionName) {
   const config = actions[actionName];
-  if (!config) return;
+  if (!config || !form) return;
 
   collapseLogs();
 
@@ -2624,9 +2660,11 @@ function setAction(actionName) {
   if (formTitle) formTitle.textContent = config.title;
   updateFormTitleBadge(actionName);
   if (formDescription) formDescription.textContent = config.description;
-  submitBtn.textContent = config.submitLabel;
+  submitBtn.textContent = isEnrollPage && actionName === "create" ? "Enroll image" : config.submitLabel;
   submitBtn.className = config.buttonClass;
-  submitBtn.classList.toggle("hidden", actionName === "delete" || actionName === "template");
+  submitBtn.classList.toggle("hidden", actionName === "delete" || actionName === "template" || enrollSubmitInProgress);
+  submitBtn.hidden = Boolean(enrollSubmitInProgress);
+  submitBtn.style.display = enrollSubmitInProgress ? "none" : "";
   submitBtn.name = actionName === "restart" ? "restart_mode" : "";
   submitBtn.value = actionName === "restart" ? "image" : "";
 
@@ -2771,7 +2809,8 @@ function clearActionFields() {
 function openDockerRunModal() {
   if (!dockerRunModal || !dockerRunInput) return;
 
-  if (!isTemplateAction()) setAction("template");
+  if (isEnrollPage) setAction("create");
+  else if (!isTemplateAction()) setAction("template");
   updateImportProfileOptions();
   setImportTab("run");
   dockerRunInput.value = "";
@@ -2847,6 +2886,11 @@ function validateEnrollComposeText(composeText, { notify = true } = {}) {
     return false;
   }
 
+  if (templates[0].template.binds?.length) {
+    if (notify) setNotice("Bind mounts are not allowed for enrollment. Use a named Docker volume like flowg-data:/data.", "error", false);
+    return false;
+  }
+
   if (notify) {
     const notice = document.getElementById("notif");
     if (enrollComposeNotices.includes(notice?.textContent || "")) {
@@ -2877,7 +2921,8 @@ function validateEnrollRunText(runText, { notify = true } = {}) {
 
   const parsed = parseDockerRun(runText);
   const invalidVersion = String(parsed.version || "").trim().toLowerCase() === "latest";
-  const valid = Boolean(parsed.image && parsed.ports[0]?.value && parsed.version && !invalidVersion);
+  const hasBindMount = parsed.binds.length > 0;
+  const valid = Boolean(parsed.image && parsed.ports[0]?.value && parsed.version && !invalidVersion && !hasBindMount);
   if (!valid && notify) {
     const missingImage = !parsed.image;
     const missingPort = !parsed.ports[0]?.value;
@@ -2886,6 +2931,7 @@ function validateEnrollRunText(runText, { notify = true } = {}) {
     else if (missingImage) message = "Docker run image is required";
     else if (missingPort) message = "Docker run port is required";
     else if (invalidVersion) message = "Docker run image version cannot be latest";
+    else if (hasBindMount) message = "Bind mounts are not allowed for enrollment. Use a named Docker volume like flowg-data:/data.";
     setNotice(message, "error", false);
   } else if (valid && notify) {
     const notice = document.getElementById("notif");
@@ -2925,7 +2971,28 @@ function enrollmentLimitMessage(limit) {
   return `You have reached your maximum of ${max} template${max === 1 ? "" : "s"} for this config.`;
 }
 
-async function refreshEnrollLimit({ showLoading = true } = {}) {
+function setEnrollCheckingImage(checking) {
+  if (!isEnrollPage) return;
+  if (checking) setNotice("Checking image", "info", false);
+  if (submitBtn) {
+    submitBtn.disabled = checking || submitBtn.disabled;
+    submitBtn.hidden = Boolean(enrollSubmitInProgress);
+    submitBtn.style.display = enrollSubmitInProgress ? "none" : "";
+  }
+}
+
+function setEnrollSubmitInProgress(inProgress) {
+  if (!isEnrollPage || !submitBtn) return;
+  enrollSubmitInProgress = inProgress;
+  submitBtn.classList.toggle("hidden", inProgress);
+  submitBtn.hidden = inProgress;
+  submitBtn.style.display = inProgress ? "none" : "";
+  if (inProgress) submitBtn.setAttribute("aria-hidden", "true");
+  else submitBtn.removeAttribute("aria-hidden");
+  submitBtn.disabled = inProgress || submitBtn.disabled;
+}
+
+async function refreshEnrollLimit({ showLoading = true, updateNotice = true } = {}) {
   if (!isEnrollPage) return null;
 
   if (showLoading) showEnrollLoading();
@@ -2934,8 +3001,8 @@ async function refreshEnrollLimit({ showLoading = true } = {}) {
     const limit = await enrollLimitForProfile(selectedProfileCredentials().profile);
     renderEnrollmentInstances(limit.instances, limit);
     form?.classList.toggle("hidden", Boolean(limit.reached));
-    if (limit.reached) setNotice(enrollmentLimitMessage(limit), "error", false);
-    else if (!dockerRunInput?.value && !dockerComposeInput?.value) setNotice(enrollImportNotice, "info", false);
+    if (updateNotice && limit.reached) setNotice(enrollmentLimitMessage(limit), "error", false);
+    else if (updateNotice && !dockerRunInput?.value && !dockerComposeInput?.value) setNotice(enrollImportNotice, "info", false);
     updateEnrollSubmitState({ notify: false });
     hideEnrollLoading();
     return limit;
@@ -4018,6 +4085,14 @@ function orderTemplateUrl(name) {
   return `${window.location.origin}/order?${query.toString()}`;
 }
 
+function orderTemplateEmbedHtml(name) {
+  const url = orderTemplateUrl(name);
+  if (!url) return "";
+
+  const imageUrl = `${window.location.origin}/assets/deploy.svg`;
+  return `<a href="${escapeHtml(url)}"><img src="${escapeHtml(imageUrl)}" alt="Deploy with SaaShup"></a>`;
+}
+
 function copyTextToClipboard(text) {
   if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
 
@@ -4335,7 +4410,8 @@ async function applyDockerRunCommand() {
     }
   }
 
-  if (!isTemplateAction()) setAction("template");
+  if (isEnrollPage) setAction("create");
+  else if (!isTemplateAction()) setAction("template");
   templateNetworkOverride = "";
   templateVersionOverride = parsed.version || "";
   generatedCreateDnsName = "";
@@ -4402,8 +4478,7 @@ function loadSavedConfig() {
           proxy: data.proxy || "",
           domain: data.domain || "",
           tag: data.tag || "",
-          max_templates: maxTemplatesValue(data),
-          enrollment_limit: normalizeMaxInstances(data.enrollment_limit),
+          enrollment_limit: enrollmentLimitValue(data),
           cloudflare_filter: checkboxValue(data.cloudflare_filter, true),
           smtp_config: smtpConfigValue(data),
           ...(serverProfiles[profile]?.saashup_default === true ? { saashup_default: true } : {}),
@@ -4545,8 +4620,7 @@ async function saveConfig() {
   const proxy = fieldValue("proxy");
   const domain = normalizeDomain(fieldValue("domain"));
   const tag = fieldValue("tag").trim();
-  const max_templates = normalizeMaxInstances(fieldValue("max_templates"));
-  const enrollment_limit = max_templates;
+  const enrollment_limit = normalizeMaxInstances(fieldValue("enrollment_limit"));
   const owner_env_var = ownerEnvVarValue(fieldValue("owner_env_var"));
   const cloudflare_filter = fieldChecked("cloudflare_filter", true);
   const smtp_config = fieldValue("smtp_config");
@@ -4575,10 +4649,9 @@ async function saveConfig() {
 
   forgetDeletedProfile(profile);
   setFieldValue("tag", tag);
-  setFieldValue("max_templates", max_templates);
   setFieldValue("enrollment_limit", enrollment_limit);
   setFieldValue("owner_env_var", owner_env_var);
-  configProfiles[profile] = { netbox, token, proxy, domain, tag, max_templates, enrollment_limit, owner_env_var, cloudflare_filter, smtp_config, ...(saashup_default ? { saashup_default: true } : {}) };
+  configProfiles[profile] = { netbox, token, proxy, domain, tag, enrollment_limit, owner_env_var, cloudflare_filter, smtp_config, ...(saashup_default ? { saashup_default: true } : {}) };
   if (saashup_default) enforceSingleDefaultConfig(profile);
   currentConfigProfile = profile;
   updateProfileOptions();
@@ -4591,7 +4664,6 @@ async function saveConfig() {
     customer_name,
     domain,
     tag,
-    max_templates: String(max_templates),
     enrollment_limit: String(enrollment_limit),
     owner_env_var,
     cloudflare_filter: cloudflare_filter ? "true" : "false",
@@ -4614,7 +4686,7 @@ async function saveConfig() {
 
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-    savedConfig = { customer_name, netbox, token, proxy, domain, tag, max_templates, enrollment_limit, owner_env_var, cloudflare_filter, smtp_config, profile, profiles: configProfiles };
+    savedConfig = { customer_name, netbox, token, proxy, domain, tag, enrollment_limit, owner_env_var, cloudflare_filter, smtp_config, profile, profiles: configProfiles };
     serverConfigProfiles = { ...configProfiles };
     applyProfileToFields(profile);
     try {
@@ -4664,7 +4736,6 @@ async function deleteConfig() {
       setFieldValue("proxy", "");
       setFieldValue("domain", "");
       setFieldValue("tag", "");
-      setFieldValue("max_templates", "1");
       setFieldValue("max_instances", "1");
       setFieldValue("enrollment_limit", "1");
       setFieldValue("owner_env_var", "SAASHUP_OWNER");
@@ -4678,7 +4749,6 @@ async function deleteConfig() {
         customer_name,
         domain: "",
         tag: "",
-        max_templates: "1",
         enrollment_limit: "1",
         owner_env_var: "SAASHUP_OWNER",
         cloudflare_filter: "true",
@@ -4713,7 +4783,6 @@ async function deleteConfig() {
       customer_name,
       domain: credentials.domain,
       tag: credentials.tag,
-      max_templates: String(credentials.max_templates),
       enrollment_limit: String(credentials.enrollment_limit),
       owner_env_var: credentials.owner_env_var,
       cloudflare_filter: credentials.cloudflare_filter ? "true" : "false",
@@ -4782,7 +4851,6 @@ function workflowCreateBody(template, templateName) {
     proxy: credentials.proxy,
     domain: credentials.domain,
     tag: credentials.tag,
-    max_templates: String(credentials.max_templates),
     max_instances: String(templateMaxInstancesValue(template)),
     enrollment_limit: String(credentials.enrollment_limit),
     owner_env_var: credentials.owner_env_var,
@@ -5069,7 +5137,6 @@ async function submitAction(config, submitter) {
   body.set("proxy", credentials.proxy);
   body.set("domain", credentials.domain);
   body.set("tag", credentials.tag);
-  body.set("max_templates", String(credentials.max_templates));
   body.set("max_instances", String(normalizeMaxInstances(body.get("max_instances"))));
   body.set("enrollment_limit", String(credentials.enrollment_limit));
   body.set("owner_env_var", credentials.owner_env_var);
@@ -5129,6 +5196,7 @@ async function submitAction(config, submitter) {
 
   const endpoint = request.method === "GET" ? `${config.endpoint}?${body.toString()}` : config.endpoint;
   if (isOrderPage || isEnrollPage) submitBtn.disabled = true;
+  if (isEnrollPage) form?.classList.add("hidden");
 
   const response = await fetch(endpoint, request);
   if (isOrderPage) {
@@ -5169,6 +5237,8 @@ async function submitAction(config, submitter) {
       }
 
       submitBtn.disabled = false;
+      form?.classList.remove("hidden");
+      setEnrollSubmitInProgress(false);
       setNotice(detail || `Creation request failed (${response.status})`, "error");
     }
     return;
@@ -5305,6 +5375,53 @@ function versionsForImage(image) {
     .map(imageVersionFromItem)
     .filter(Boolean)))
     .sort(compareVersionsDesc);
+}
+
+async function readRegistryLookupPayload(response) {
+  const text = await response.text().catch(() => "");
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { detail: text.trim() };
+  }
+}
+
+async function verifyEnrollImageAvailable() {
+  const image = fieldValue("image");
+  const version = fieldValue("version");
+  const imageRef = splitImageRef(image);
+  const requestedImage = imageRef.image;
+  const requestedVersion = String(version || imageRef.version || "").trim();
+
+  setEnrollCheckingImage(true);
+
+  try {
+    const query = new URLSearchParams({ image: `${requestedImage}:${requestedVersion}` });
+    const response = await fetch(`/registry/lookup?${query.toString()}`, {
+      headers: { Accept: "application/json" },
+    });
+    const data = await readRegistryLookupPayload(response);
+
+    if (!response.ok) {
+      setNotice(data.detail || `Image registry check failed (${response.status})`, "error", false);
+      return false;
+    }
+
+    if (!data.exists) {
+      setNotice(`Image ${requestedImage}:${requestedVersion} was not found in the provider registry.`, "error", false);
+      return false;
+    }
+
+    if (enrollSummary) {
+      enrollSummary.textContent = `Image found - ${requestedImage}:${requestedVersion}`;
+      enrollSummary.classList.remove("hidden");
+    }
+    setNotice(`Image found - ${requestedImage}:${requestedVersion}`, "success", false);
+    return true;
+  } finally {
+    setEnrollCheckingImage(false);
+  }
 }
 
 function highestVersionForImage(image = fieldValue("image")) {
@@ -5562,23 +5679,28 @@ addBindBtn?.addEventListener("click", () => {
   repeatRows(bindList, ".repeat-row").at(-1)?.querySelector("input")?.focus();
 });
 
-form.addEventListener("submit", async (event) => {
+form?.addEventListener("submit", async (event) => {
   const config = actions[currentAction];
   event.preventDefault();
+  if (isEnrollPage) setEnrollSubmitInProgress(true);
 
   if (currentAction === "config") {
     saveConfig();
     return;
   }
 
+  if (isEnrollPage) {
+    const imported = await applyDockerRunCommand();
+    if (!imported) {
+      setEnrollSubmitInProgress(false);
+      updateEnrollSubmitState({ notify: false });
+      return;
+    }
+  }
+
   if (currentAction === "template") {
     setSubmitValidationError("Use Save template to store template changes");
     return;
-  }
-
-  if (isEnrollPage) {
-    const imported = await applyDockerRunCommand();
-    if (!imported) return;
   }
 
   if (currentAction === "restart" && event.submitter?.value === "instance" && !fieldValue("instance")) {
@@ -5610,7 +5732,7 @@ form.addEventListener("submit", async (event) => {
 
   const selectedCreateTemplate = currentAction === "create" ? createTemplateEntry(selectedTemplateName() || orderTemplateName || "") : null;
 
-  if (currentAction === "create" && !selectedCreateTemplate) {
+  if (currentAction === "create" && !isEnrollPage && !selectedCreateTemplate) {
     setSubmitValidationError("Select a template first");
     return;
   }
@@ -5654,11 +5776,24 @@ form.addEventListener("submit", async (event) => {
     return;
   }
 
+  if (isEnrollPage) {
+    const imageAvailable = await verifyEnrollImageAvailable();
+    if (!imageAvailable) {
+      setEnrollSubmitInProgress(false);
+      updateEnrollSubmitState({ notify: false });
+      return;
+    }
+  }
+
   submitAction(config, event.submitter).catch(() => {
     if (isOrderPage || isEnrollPage) {
       submitBtn.disabled = false;
       if (isOrderPage) setOrderStatus("Installation request failed", "error");
-      else setNotice("Creation request failed", "error");
+      else {
+        form?.classList.remove("hidden");
+        setEnrollSubmitInProgress(false);
+        setNotice("Creation request failed", "error");
+      }
       return;
     }
 
@@ -5951,15 +6086,15 @@ enrollInstances?.addEventListener("click", (event) => {
   if (!button) return;
 
   const templateName = button.dataset.orderTemplateCopy || "";
-  const url = orderTemplateUrl(templateName);
-  if (!url) {
-    setNotice("Order link unavailable", "error");
+  const html = orderTemplateEmbedHtml(templateName);
+  if (!html) {
+    setNotice("Order button HTML unavailable", "error");
     return;
   }
 
-  copyTextToClipboard(url)
-    .then(() => setNotice(`Order link copied for "${templateName}"`, "success"))
-    .catch(() => setNotice(url, "info", false));
+  copyTextToClipboard(html)
+    .then(() => setNotice(`Order button HTML copied for "${templateName}"`, "success"))
+    .catch(() => setNotice(html, "info", false));
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !dockerRunModal?.classList.contains("hidden")) {
@@ -6001,7 +6136,7 @@ async function initializePage() {
         setImportTab("run");
         await refreshEnrollLimit();
         if (submitBtn) {
-          submitBtn.textContent = "Submit creation";
+          submitBtn.textContent = "Enroll image";
           updateEnrollSubmitState({ notify: false });
         }
       }
@@ -6010,8 +6145,9 @@ async function initializePage() {
 
     if (isOrderPage) {
       hideOrderActions();
+      const authReady = loadAuthUser();
       const orderReady = await applyOrderTemplate({ reveal: false });
-      await loadAuthUser();
+      await authReady;
       hideOrderLoading();
       if (orderReady) showOrderActions();
     } else if (actionFromUrl) {

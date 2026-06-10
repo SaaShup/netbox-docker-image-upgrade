@@ -899,6 +899,7 @@ describe("server helpers", () => {
     expect(helpers.userOrderKey({ headers: {}, ip: "127.0.0.1" })).toBe("127.0.0.1");
     expect(helpers.userOrderKey({ headers: {} })).toBe("anonymous");
     expect(helpers.selectedProfileConfig({ image: "app" })).toMatchObject({ profile: "prod", config_profile: "prod", tag: "prod-tag", token: "profile-token", image: "app" });
+    expect(helpers.selectedProfileConfig({ profile: "prod", netbox: "", token: "" })).toMatchObject({ profile: "prod", config_profile: "prod", tag: "prod-tag", token: "profile-token" });
     expect(helpers.selectedProfileConfig({ profile: "missing" })).toMatchObject({ profile: "missing", config_profile: "missing", token: "base-token" });
   });
 
@@ -970,6 +971,11 @@ describe("server helpers", () => {
       "https://netbox.example.com/api/paged/?limit=1",
       "https://netbox.example.com/api/paged/?page=2",
     ]);
+    calls.length = 0;
+    await expect(client.list("/api/paged/", { limit: 1 }, { paginate: false })).resolves.toEqual([{ id: 3 }]);
+    expect(calls.filter((call) => call.url.includes("/api/paged/")).map((call) => call.url)).toEqual([
+      "https://netbox.example.com/api/paged/?limit=1",
+    ]);
 
     const proxyClient = new NetBoxClient({ netbox: "https://netbox.example.com", token: "secret", proxy: "http://127.0.0.1:3128" });
     await expect(proxyClient.request("GET", "/api/items/")).resolves.toMatchObject({ statusCode: 200 });
@@ -1021,7 +1027,7 @@ describe("server helpers", () => {
     await expect(helpers.createDnsRecord(readyClient, { instance: "app", dns_name: "app.example.com/dashboard" }, { name: "host" })).resolves.toBeUndefined();
     expect(logs).toContain("CREATE : Cloudflare DNS record skipped for app.example.com/dashboard because it includes path info");
     expect(readyClient.request).toHaveBeenCalledWith("POST", "/api/plugins/cloudflare/dns/records/", expect.objectContaining({
-      body: expect.objectContaining({ name: "app.example.com" }),
+      body: expect.objectContaining({ name: "app" }),
     }));
     await expect(helpers.deleteDnsRecord(readyClient, { instance: "app.example.com" })).resolves.toBeUndefined();
 
@@ -1097,6 +1103,13 @@ describe("server helpers", () => {
 
     await expect(helpers.createDnsRecord(readyClient, { instance: "shortname" }, { name: "host" })).resolves.toBeUndefined();
     await expect(helpers.createDnsRecord(readyClient, { instance: "primitive.example.com" }, "primitive-host")).resolves.toBeUndefined();
+    const wrongZoneClient = {
+      list: vi.fn(async () => [{ id: 52, name: "paashup.cloud" }]),
+      request: vi.fn(),
+    };
+    await expect(helpers.createDnsRecord(wrongZoneClient, { instance: "app.saashup.cloud" }, { name: "host" })).resolves.toBeUndefined();
+    expect(wrongZoneClient.request).not.toHaveBeenCalled();
+    expect(logs.join("\n")).toContain("Cloudflare zone not found for saashup.cloud while creating app.saashup.cloud count=1 returned=paashup.cloud");
     await expect(helpers.createDnsRecord({ list: vi.fn(async () => []) }, { instance: "app.missing" }, { name: "host" })).resolves.toBeUndefined();
     await expect(helpers.createDnsRecord({ list: vi.fn(async () => { throw new Error("zone down"); }) }, { instance: "app.example.com" }, { name: "host" })).resolves.toBeUndefined();
     await expect(helpers.createDnsRecord({ list: vi.fn(async () => { throw {}; }) }, { instance: "app.example.com" }, { name: "host" })).resolves.toBeUndefined();

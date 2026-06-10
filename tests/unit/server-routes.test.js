@@ -584,7 +584,7 @@ function setupOrderWorkflowNetBoxFetch(fetchMock) {
       dnsRecordCreated = true;
       expect(body).toMatchObject({
         zone: 51,
-        name: "tiles-order.example.com",
+        name: "tiles-order",
         type: "CNAME",
         content: "host-a.example.com",
         proxied: true,
@@ -873,6 +873,32 @@ describe("server routes", () => {
       });
   });
 
+  test("app registry lookup works without public API configuration", async () => {
+    const { request, setRegistryFetchForTests } = await loadServer();
+    setRegistryFetchForTests(vi.fn(async (url, options = {}) => {
+      const parsed = new URL(String(url));
+      if (parsed.hostname === "auth.docker.io") return jsonResponse({ token: "registry-token" });
+      if (parsed.hostname === "registry-1.docker.io") {
+        return options?.headers?.Authorization
+          ? jsonResponse({ schemaVersion: 2 })
+          : registryChallengeResponse('Bearer realm="https://auth.docker.io/token",service="registry.docker.io",scope="repository:linksociety/flowg:pull"');
+      }
+      return jsonResponse({}, 404);
+    }));
+
+    await request.get("/registry/lookup")
+      .query({ image: "linksociety/flowg:v0.58.0" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toMatchObject({
+          registry: "docker.io",
+          name: "linksociety/flowg",
+          tag: "v0.58.0",
+          exists: true,
+        });
+      });
+  });
+
   test("public APIs allow configured Hugo origin and reject other origins", async () => {
     const { request, setRegistryFetchForTests } = await loadServer({ publicApiAllowedOrigins: "https://www.saashup.com" });
     setRegistryFetchForTests(vi.fn(async (url, options = {}) => {
@@ -1014,7 +1040,6 @@ describe("server routes", () => {
         proxy: "",
         domain: "example.com",
         tag: "tile",
-        max_templates: "3",
         enrollment_limit: "2",
         smtp_config: "mailer:smtp-secret@smtp.example.com:587",
         profile: "prod",
@@ -1022,7 +1047,7 @@ describe("server routes", () => {
       })
       .expect(200)
       .expect((res) => {
-        expect(res.body.max_templates).toBe(3);
+        expect(res.body.max_templates).toBeUndefined();
         expect(res.body.enrollment_limit).toBe(2);
         expect(res.body.registry_webhook_secret).toBeUndefined();
         expect(res.body.smtp_config).toBe("mailer:smtp-secret@smtp.example.com:587");
@@ -1070,14 +1095,13 @@ describe("server routes", () => {
         token: "secret",
         domain: "example.com",
         tag: "tile",
-        max_templates: "10",
         enrollment_limit: "10",
         profile: "prod",
-        profiles: JSON.stringify({ prod: { tag: "tile", max_templates: 20, enrollment_limit: 20 } }),
+        profiles: JSON.stringify({ prod: { tag: "tile", max_templates: 20 } }),
       })
       .expect(200)
       .expect((res) => {
-        expect(res.body.max_templates).toBe(20);
+        expect(res.body.max_templates).toBeUndefined();
         expect(res.body.enrollment_limit).toBe(20);
       });
     const preservedCatalogPatch = parsedFetchCalls(fetchMock).find((call) => (
@@ -1088,7 +1112,7 @@ describe("server routes", () => {
     expect(preservedCatalogPatch.body.data.saashup_workflows["prod::templates"].steps).toEqual([{ template: "nginx", enabled: true }]);
     expect(readState(dataPath).config.max_templates).toBeUndefined();
     expect(readState(dataPath).config.enrollment_limit).toBeUndefined();
-    expect(parseProfiles(readState(dataPath).config.profiles).prod.max_templates).toBe(20);
+    expect(parseProfiles(readState(dataPath).config.profiles).prod.max_templates).toBeUndefined();
     expect(parseProfiles(readState(dataPath).config.profiles).prod.enrollment_limit).toBe(20);
     await request.get("/webhook")
       .query({
@@ -1896,7 +1920,7 @@ describe("server routes", () => {
 
     fetchMock.mockResolvedValueOnce(jsonResponse({ detail: "bad token" }, 403));
     await request.get("/test").expect(403).expect((res) => {
-      expect(res.body.detail).toBe("NetBox request failed 403");
+      expect(res.body.detail).toBe("NetBox request failed 403 GET /api/status/");
       expect(res.body.payload.detail).toBe("bad token");
     });
 
@@ -1999,7 +2023,7 @@ describe("server routes", () => {
       ],
     });
     writeState(dataPath, {
-      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_templates: 4, profile: "prod", config_profile: "prod" },
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", enrollment_limit: 4, profile: "prod", config_profile: "prod" },
       logs: "",
     });
 
@@ -2030,7 +2054,7 @@ describe("server routes", () => {
       });
 
     writeState(dataPath, {
-      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_templates: 4, profile: "prod", config_profile: "prod" },
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", enrollment_limit: 4, profile: "prod", config_profile: "prod" },
       logs: "",
     });
     await request.post("/create")
@@ -2083,7 +2107,7 @@ describe("server routes", () => {
     const smtpSender = vi.fn().mockResolvedValue({ messageId: "enroll-ready-message", accepted: ["buyer@example.com"], response: "250 queued" });
     setSmtpSenderForTests(smtpSender);
     writeState(dataPath, {
-      config: { netbox: "https://netbox.example.com", token: "secret", max_templates: 1, profile: "prod", config_profile: "prod", smtp_config: "mailer:smtp-secret@smtp.example.com:587" },
+      config: { netbox: "https://netbox.example.com", token: "secret", enrollment_limit: 1, profile: "prod", config_profile: "prod", smtp_config: "mailer:smtp-secret@smtp.example.com:587" },
       templates: {},
       order_counts: {},
       order_instances: {},
@@ -2111,6 +2135,7 @@ describe("server routes", () => {
       version: "v2.0.0",
       creator_email: "buyer@example.com",
       saashup_enabled: true,
+      status: "creating",
     });
     expect(contextPost.body.data.saashup_workflows["prod::templates"]).toMatchObject({
       name: "templates",
@@ -2149,6 +2174,7 @@ describe("server routes", () => {
       }),
     ));
     expect(readState(dataPath).logs).toContain("EMAIL : ready notification sent to buyer@example.com for enroll-one.example.com");
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("ENROLL : template tile status ready synced"));
 
     await request.get("/enroll/limit")
       .set("x-auth-request-email", "buyer@example.com")
@@ -2157,7 +2183,7 @@ describe("server routes", () => {
       .expect((res) => {
         expect(res.body).toMatchObject({ used: 1, max: 1, remaining: 0, reached: true });
         expect(res.body.instances).toEqual([
-          expect.objectContaining({ instance: "tile", image: "saashup/tile", source: "netbox-template" }),
+          expect.objectContaining({ instance: "tile", image: "saashup/tile", source: "netbox-template", status: "ready" }),
         ]);
       });
 
@@ -2173,9 +2199,9 @@ describe("server routes", () => {
       })
       .expect(429)
       .expect((res) => {
-        expect(res.body.code).toBe("max_templates_reached");
-        expect(res.body.max_templates).toBe(1);
-        expect(res.body.used_templates).toBe(1);
+        expect(res.body.code).toBe("enrollment_limit_reached");
+        expect(res.body.enrollment_limit).toBe(1);
+        expect(res.body.used_enrollments).toBe(1);
       });
 
     expect(readState(dataPath).enrollment_counts).toBeUndefined();
@@ -2205,7 +2231,7 @@ describe("server routes", () => {
       }],
     });
     writeState(dataPath, {
-      config: { netbox: "https://netbox.example.com", token: "secret", max_templates: 3, profile: "prod", config_profile: "prod" },
+      config: { netbox: "https://netbox.example.com", token: "secret", enrollment_limit: 3, profile: "prod", config_profile: "prod" },
       logs: "",
     });
 
@@ -2235,7 +2261,7 @@ describe("server routes", () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock, { expectTraefikConfig: false });
     writeState(dataPath, {
-      config: { netbox: "https://netbox.example.com", token: "secret", max_templates: 3, profile: "prod", config_profile: "prod" },
+      config: { netbox: "https://netbox.example.com", token: "secret", enrollment_limit: 3, profile: "prod", config_profile: "prod" },
       logs: "",
     });
 
@@ -2304,7 +2330,7 @@ describe("server routes", () => {
       dockerRegistries: [{ id: 6, name: "dockerhub", serveraddress: "https://registry.hub.docker.com/v2/", host: { id: 1, name: "saashup1" } }],
     });
     writeState(dataPath, {
-      config: { netbox: "https://netbox.example.com", token: "secret", max_templates: 3, profile: "prod", config_profile: "prod" },
+      config: { netbox: "https://netbox.example.com", token: "secret", enrollment_limit: 3, profile: "prod", config_profile: "prod" },
       logs: "",
     });
 
@@ -2353,7 +2379,7 @@ describe("server routes", () => {
     const { dataPath, fetchMock, request } = await loadServer({ enrollBlockedImages: "traefik,netbox-docker-agent" });
     setupNetBoxFetch(fetchMock, { expectTraefikConfig: false });
     writeState(dataPath, {
-      config: { netbox: "https://netbox.example.com", token: "secret", max_templates: 3, profile: "prod", config_profile: "prod" },
+      config: { netbox: "https://netbox.example.com", token: "secret", enrollment_limit: 3, profile: "prod", config_profile: "prod" },
       logs: "",
     });
 
@@ -2442,6 +2468,21 @@ describe("server routes", () => {
             Owned: { config_profile: "prod", image: "saashup/owned", version: "v2", creator_email: "owner@example.com" },
             Install: { config_profile: "prod", image: "saashup/install", version: "v4", creator_email: "owner@example.com" },
           },
+          saashup_workflows: {
+            "prod::templates": {
+              name: "templates",
+              config_profile: "prod",
+              steps: [
+                { template: "Tile", enabled: true },
+                { template: "Install", enabled: true },
+              ],
+            },
+            "prod::install-only": {
+              name: "install-only",
+              config_profile: "prod",
+              steps: [{ template: "Install", enabled: true }],
+            },
+          },
         },
       }],
       netboxTemplateContainers: [
@@ -2481,6 +2522,54 @@ describe("server routes", () => {
     const state = readState(dataPath);
     expect(state.enrollment_counts).toBeUndefined();
     expect(state.enrollment_instances).toBeUndefined();
+    const catalogSync = parsedFetchCalls(fetchMock)
+      .filter((call) => (
+        (call.method === "POST" && call.url.pathname === "/api/extras/config-contexts/")
+        || (call.method === "PATCH" && /^\/api\/extras\/config-contexts\/\d+\/$/.test(call.url.pathname))
+      ))
+      .at(-1);
+    expect(catalogSync.body.data.saashup_templates.Install).toBeUndefined();
+    expect(catalogSync.body.data.saashup_workflows["prod::templates"].steps).toEqual([{ template: "Tile", enabled: true }]);
+    expect(catalogSync.body.data.saashup_workflows["prod::install-only"]).toBeUndefined();
+  });
+
+  test("local enroll template delete removes workflow steps for that template", async () => {
+    const { dataPath, request } = await loadServer();
+    writeState(dataPath, {
+      config: { enrollment_limit: 4, profile: "prod", config_profile: "prod" },
+      templates: {
+        Tile: { config_profile: "prod", image: "saashup/tile", version: "v1", creator_email: "owner@example.com" },
+        Install: { config_profile: "prod", image: "saashup/install", version: "v4", creator_email: "owner@example.com" },
+      },
+      workflows: {
+        "prod::templates": {
+          name: "templates",
+          config_profile: "prod",
+          steps: [
+            { template: "Tile", enabled: true },
+            { template: "Install", enabled: true },
+          ],
+        },
+        "prod::install-only": {
+          name: "install-only",
+          config_profile: "prod",
+          steps: [{ template: "Install", enabled: true }],
+        },
+      },
+    });
+
+    await request.delete("/enroll/template/Install")
+      .set("x-auth-request-email", "owner@example.com")
+      .query({ profile: "prod" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toMatchObject({ deleted: true, template: "Install" });
+      });
+
+    const state = readState(dataPath);
+    expect(state.templates.Install).toBeUndefined();
+    expect(state.workflows["prod::templates"].steps).toEqual([{ template: "Tile", enabled: true }]);
+    expect(state.workflows["prod::install-only"]).toBeUndefined();
   });
 
   test("enroll templates are only returned to their local owner", async () => {
@@ -2810,7 +2899,7 @@ describe("server routes", () => {
         token: "secret",
         domain: "example.com",
         tag: "prod",
-        max_templates: 4,
+        enrollment_limit: 4,
         profile: "prod",
         config_profile: "prod",
         owner_env_var: "SAASHUP_OWNER",
@@ -2837,6 +2926,11 @@ describe("server routes", () => {
     await request.get("/enroll.html").set("x-auth-request-email", "buyer@example.com").expect(200).expect((res) => {
       expect(res.text).toContain("Enroll Saashup Instance");
       expect(res.text).toContain('id="submitBtn" disabled');
+      expect(res.headers["cache-control"]).toContain("no-store");
+    });
+    await request.get("/catalog").set("x-auth-request-email", "buyer@example.com").expect(200).expect((res) => {
+      expect(res.text).toContain("Saashup Catalog");
+      expect(res.text).toContain('href="/catalog" aria-current="page"');
       expect(res.headers["cache-control"]).toContain("no-store");
     });
 
@@ -3169,6 +3263,80 @@ describe("server routes", () => {
       .expect(202);
 
     expect(readState(dataPath).logs).toContain("ERROR : NetBox URL and token are required");
+  });
+
+  test("create uses saved profile credentials when posted credential fields are blank", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock);
+    writeState(dataPath, {
+      config: {
+        profile: "prod",
+        config_profile: "prod",
+        profiles: {
+          prod: {
+            netbox: "https://netbox.example.com",
+            token: "profile-secret",
+            tag: "tile",
+          },
+        },
+      },
+      logs: "",
+    });
+
+    await request.post("/create").send({
+      profile: "prod",
+      config_profile: "prod",
+      netbox: "",
+      token: "",
+      instance: "profile-creds.example.com",
+      image: "saashup/tile",
+      version: "v2.0.0",
+      network: "traefik-net",
+      port_value: "8080",
+    }).expect(202);
+
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("CREATE : container profile-creds configured on host-a"));
+    expect(fetchMock.mock.calls.some(([, options = {}]) => options.headers?.Authorization === "Token profile-secret")).toBe(true);
+  });
+
+  test("enroll create rejects bind mounts before recording template", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock);
+    writeState(dataPath, {
+      config: {
+        profile: "prod",
+        config_profile: "prod",
+        profiles: {
+          prod: {
+            netbox: "https://netbox.example.com",
+            token: "profile-secret",
+            tag: "tile",
+            enrollment_limit: 2,
+          },
+        },
+      },
+      logs: "",
+    });
+
+    await request.post("/create")
+      .set("x-auth-request-email", "buyer@example.com")
+      .send({
+        profile: "prod",
+        enroll_request: "true",
+        instance: "flowg.example.com",
+        image: "linksociety/flowg",
+        version: "v0.58.0",
+        port_value: "5080",
+        volume_name: "./data",
+        volume_source: "/data",
+      })
+      .expect(400)
+      .expect((res) => {
+        expect(res.body).toMatchObject({ code: "bind_mount_not_allowed" });
+        expect(res.body.detail).toContain("Bind mounts are not allowed");
+      });
+
+    expect(parsedFetchCalls(fetchMock).some((call) => call.url.pathname === "/api/extras/config-contexts/" && call.method === "POST")).toBe(false);
   });
 
   test("reports users across all stored orders when no report profiles exist", async () => {
@@ -3529,16 +3697,47 @@ describe("server routes", () => {
     await request.post("/create").send({
       instance: "least-loaded",
       image: "saashup/tile",
+      version: "v3.0.0",
+      port_value: "8080",
+      traefik: "false",
+      wait: "true",
+    }).expect(200);
+
+    expect(readState(dataPath).logs).toContain("CREATE : host selection hosts=2 containers=2 loads=host-a=2,host-b=0 image_hosts=none selected=host-b count=0");
+    expect(readState(dataPath).logs).toContain("CREATE : container least-loaded created on host-b");
+    const createCall = fetchMock.mock.calls.find(([url, options]) => String(url).endsWith("/api/plugins/docker/containers/") && options?.method === "POST");
+    expect(JSON.parse(createCall[1].body).host).toBe(2);
+  });
+
+  test("create selects the least loaded host that already has the requested image", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, {
+      expectTraefikConfig: false,
+      createHostSelectionContainers: [
+        { id: 80, name: "existing-a", host: "1" },
+        { id: 81, name: "existing-b", host: { id: "1", display: "host-a" } },
+      ],
+    });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/create").send({
+      instance: "image-local",
+      image: "saashup/tile",
       version: "v2.0.0",
       port_value: "8080",
       traefik: "false",
       wait: "true",
     }).expect(200);
 
-    expect(readState(dataPath).logs).toContain("CREATE : host selection hosts=2 containers=2 loads=host-a=2,host-b=0 selected=host-b count=0");
-    expect(readState(dataPath).logs).toContain("CREATE : container least-loaded created on host-b");
+    expect(readState(dataPath).logs).toContain("CREATE : host selection hosts=2 containers=2 loads=host-a=2,host-b=0 image_hosts=host-a selected=host-a count=2");
+    expect(readState(dataPath).logs).toContain("CREATE : container image-local created on host-a");
     const createCall = fetchMock.mock.calls.find(([url, options]) => String(url).endsWith("/api/plugins/docker/containers/") && options?.method === "POST");
-    expect(JSON.parse(createCall[1].body).host).toBe(2);
+    expect(JSON.parse(createCall[1].body).host).toBe(1);
   });
 
   test("accepts write operations and records logs", async () => {

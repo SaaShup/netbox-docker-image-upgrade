@@ -1,12 +1,11 @@
 function normalizeImportedProfiles(profiles, maxInstancesValue, plainObject) {
   return Object.fromEntries(Object.entries(plainObject(profiles)).map(([name, profile]) => {
     const normalized = plainObject(profile);
-    if (normalized.max_templates === undefined && normalized.max_instances !== undefined) {
-      normalized.max_templates = maxInstancesValue(normalized.max_instances);
+    if (normalized.enrollment_limit === undefined) {
+      const legacyLimit = normalized.max_templates ?? normalized.max_instances;
+      if (legacyLimit !== undefined) normalized.enrollment_limit = maxInstancesValue(legacyLimit);
     }
-    if (normalized.enrollment_limit === undefined && normalized.max_templates !== undefined) {
-      normalized.enrollment_limit = maxInstancesValue(normalized.max_templates);
-    }
+    delete normalized.max_templates;
     return [name, normalized];
   }));
 }
@@ -66,6 +65,21 @@ function templateEntryByName(templates, name) {
   if (direct) return { name: requested, template: objectValue(direct) };
   const match = Object.keys(templateMap).find((templateName) => templateName.toLowerCase() === requested.toLowerCase());
   return match ? { name: match, template: objectValue(templateMap[match]) } : null;
+}
+
+function workflowsWithoutTemplate(workflows, templateName, plainObject) {
+  const deleted = String(templateName || "").trim().toLowerCase();
+  if (!deleted) return plainObject(workflows);
+  return Object.fromEntries(Object.entries(plainObject(workflows))
+    .map(([name, workflow]) => {
+      const entry = plainObject(workflow);
+      if (!Array.isArray(entry.steps)) return [name, entry];
+      const steps = entry.steps.filter((step) => (
+        String((typeof step === "string" ? step : plainObject(step).template) || "").trim().toLowerCase() !== deleted
+      ));
+      return [name, { ...entry, steps }];
+    })
+    .filter(([, workflow]) => !Array.isArray(workflow.steps) || workflow.steps.length));
 }
 
 function registerConfigRoutes(app, {
@@ -149,13 +163,12 @@ function registerConfigRoutes(app, {
   app.get("/webhook", requireAdmin, async (req, res) => {
     const profileName = req.query.profile || req.query.config_profile || "";
     const configProfileName = req.query.config_profile || req.query.profile || "";
-    const parsedProfiles = profilesWithSingleDefault(parseProfiles(req.query.profiles));
+    const parsedProfiles = profilesWithSingleDefault(normalizeImportedProfiles(parseProfiles(req.query.profiles), maxInstancesValue, plainObject));
     const selectedInputProfile = plainObject(parsedProfiles[profileName]);
-    const selectedProfileMax = selectedInputProfile.max_templates
-      ?? selectedInputProfile.max_instances
-      ?? selectedInputProfile.enrollment_limit;
-    const maxTemplates = maxInstancesValue(selectedProfileMax ?? req.query.max_templates ?? req.query.max_instances ?? req.query.enrollment_limit);
-    const enrollmentLimit = maxInstancesValue(selectedInputProfile.enrollment_limit ?? selectedProfileMax ?? req.query.enrollment_limit ?? maxTemplates);
+    const selectedProfileLimit = selectedInputProfile.enrollment_limit
+      ?? selectedInputProfile.max_templates
+      ?? selectedInputProfile.max_instances;
+    const enrollmentLimit = maxInstancesValue(selectedProfileLimit ?? req.query.enrollment_limit ?? req.query.max_templates ?? req.query.max_instances);
     const ownerEnvVar = String(req.query.owner_env_var ?? selectedInputProfile.owner_env_var ?? "SAASHUP_OWNER").trim() || "SAASHUP_OWNER";
     const cloudflareFilter = req.query.cloudflare_filter !== undefined
       ? req.query.cloudflare_filter !== "false"
@@ -168,7 +181,6 @@ function registerConfigRoutes(app, {
         proxy: req.query.proxy ?? selectedInputProfile.proxy ?? "",
         domain: req.query.domain ?? selectedInputProfile.domain ?? "",
         tag: req.query.tag ?? selectedInputProfile.tag ?? "",
-        max_templates: maxTemplates,
         enrollment_limit: enrollmentLimit,
         owner_env_var: ownerEnvVar,
         cloudflare_filter: cloudflareFilter,
@@ -185,7 +197,6 @@ function registerConfigRoutes(app, {
       proxy: profileValue("proxy", req.query.proxy || ""),
       domain: profileValue("domain", req.query.domain || ""),
       tag: profileValue("tag", req.query.tag || ""),
-      max_templates: maxInstancesValue(profileValue("max_templates", maxTemplates)),
       enrollment_limit: maxInstancesValue(profileValue("enrollment_limit", enrollmentLimit)),
       owner_env_var: String(profileValue("owner_env_var", ownerEnvVar)).trim() || "SAASHUP_OWNER",
       cloudflare_filter: profileValue("cloudflare_filter", cloudflareFilter) !== false,
@@ -293,12 +304,14 @@ function registerConfigRoutes(app, {
     if (profileConfig.netbox && profileConfig.token) {
       const nextCatalogTemplates = { ...catalogTemplates };
       delete nextCatalogTemplates[entry.name];
-      const syncResult = await syncTemplatesToNetBoxConfigContext(req, profile, nextCatalogTemplates, await workflowsForRequest(req, profile));
+      const nextCatalogWorkflows = workflowsWithoutTemplate(await workflowsForRequest(req, profile), entry.name, plainObject);
+      const syncResult = await syncTemplatesToNetBoxConfigContext(req, profile, nextCatalogTemplates, nextCatalogWorkflows);
       return res.json({ deleted: true, template: entry.name, template_catalog_sync: syncResult });
     }
 
     writeState((state) => {
       state.templates = plainObject(state.templates);
+      state.workflows = workflowsWithoutTemplate(state.workflows, entry.name, plainObject);
       delete state.templates[entry.name];
       return state;
     });
