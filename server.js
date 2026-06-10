@@ -5,11 +5,13 @@ const express = require("express");
 const { fetch: undiciFetch } = require("undici");
 const packageJson = require("./package.json");
 const { registerConfigRoutes } = require("./api/config");
+const { createCreateHelpers } = require("./api/create");
 const { createEnrollHelpers, registerEnrollRoutes } = require("./api/enroll");
 const { registerNetBoxRoutes } = require("./api/netbox");
 const { registerOperationRoutes } = require("./api/operations");
 const { createOrderHelpers, registerOrderRoutes } = require("./api/order");
 const { registerRegistryWebhookRoutes } = require("./api/registry-webhooks");
+const { createReportHandlers } = require("./api/reports");
 const { registerSystemRoutes } = require("./api/system");
 const { authUserFromRequest, createAuthHelpers, maxInstancesValue } = require("./lib/auth");
 const {
@@ -120,59 +122,6 @@ function asyncOperation(res, fn) {
 
 function waitForRequest(data) {
   return data.wait === true || data.wait === "true" || data.wait === "on";
-}
-
-function allHostsEnabled(data) {
-  return data.all_hosts === true || data.all_hosts === "true" || data.all_hosts === "on";
-}
-
-function hostIdValue(value) {
-  return String(value?.id || value || "");
-}
-
-function hostLoadStats(hosts, containers) {
-  return hosts.map((host) => {
-    const hostId = hostIdValue(host.id);
-    return {
-      host,
-      count: containers.filter((container) => hostIdValue(container.host) === hostId).length,
-    };
-  });
-}
-
-function leastLoadedHost(hosts, containers) {
-  return hostLoadStats(hosts, containers)
-    .sort((left, right) => left.count - right.count)[0]?.host;
-}
-
-function hostLoadSummary(stats) {
-  return stats.map((item) => `${hostName(item.host)}=${item.count}`).join(",");
-}
-
-function dockerVolumeHostId(volume) {
-  const host = volume?.host;
-  return String(host?.id || host || "");
-}
-
-async function existingDockerVolume(client, volume) {
-  const volumes = await client.list("/api/plugins/docker/volumes/", { host_id: volume.host, name: volume.name, limit: 10 });
-  return volumes.find((item) => (
-    String(item?.name || "") === String(volume.name || "")
-    && (!volume.host || dockerVolumeHostId(item) === String(volume.host))
-  ));
-}
-
-async function missingDockerVolumes(client, volumes) {
-  const missing = [];
-  let reused = 0;
-  for (const volume of volumes) {
-    if (await existingDockerVolume(client, volume)) {
-      reused += 1;
-    } else {
-      missing.push(volume);
-    }
-  }
-  return { missing, reused };
 }
 
 function profileUsesNetBoxTemplates(profile) {
@@ -1258,40 +1207,6 @@ async function testConnection(req, res) {
   }
 }
 
-function reportProfiles(source) {
-  const state = readState();
-  const config = plainObject(state.config);
-  const profiles = parseProfiles(config.profiles);
-  const requested = source.profile || source.config_profile || "";
-  const profileConfig = (name) => ({
-    ...config,
-    ...plainObject(profiles[name]),
-    ...plainObject(source),
-    profile: name,
-    config_profile: name,
-  });
-
-  if (requested && requested !== "all") {
-    return [{ name: requested, config: profileConfig(requested) }];
-  }
-
-  const names = Object.keys(profiles).sort((a, b) => a.localeCompare(b));
-  if (requested === "all" && names.length) {
-    return names.map((name) => ({ name, config: profileConfig(name) }));
-  }
-
-  const selected = config.profile || config.config_profile || names[0] || "";
-  if (selected) {
-    return [{ name: selected, config: profileConfig(selected) }];
-  }
-
-  return [{ name: "", config: selectedProfileConfig(source) }];
-}
-
-function localOrderReportUsers(profile, profiles) {
-  return [];
-}
-
 function containerEnvValue(container, name) {
   const entries = [
     ...(Array.isArray(container?.env) ? container.env : []),
@@ -1308,155 +1223,19 @@ function containerEnvValue(container, name) {
   return "";
 }
 
-async function imageReportForProfile(name, config) {
-  const label = name || "default";
-  if (!config.netbox || !config.token) {
-    logLine(`REPORT_IMAGE : ${label} skipped missing NetBox config`);
-    return { hosts: 0, rows: [] };
-  }
-
-  const client = new NetBoxClient(config);
-  const hosts = await dockerHosts(client, config.tag);
-  if (!hosts.length) {
-    logLine(`REPORT_IMAGE : ${label} no Docker hosts found${config.tag ? ` with tag ${config.tag}` : ""}`);
-    return { hosts: 0, rows: [] };
-  }
-
-  logLine(`REPORT_IMAGE : ${label} scanning ${hosts.length} host${hosts.length === 1 ? "" : "s"}${config.tag ? ` tag=${config.tag}` : ""}`);
-  const images = await client.list("/api/plugins/docker/images/", { limit: 1000, host_id: hosts.map((host) => host.id) });
-  logLine(`REPORT_IMAGE : ${label} found ${images.length} image record${images.length === 1 ? "" : "s"}`);
-  const groups = new Map();
-  const ownerEnvName = ownerEnvVarName(config);
-  const owners = new Set();
-  const usersByOwner = new Map();
-
-  for (const image of images) {
-    const imageName = imageNameFromRef(image.name || image.display || "");
-    const version = valueText(image.version || image.tag);
-    if (!imageName || !version || !image.id) continue;
-
-    const key = `${imageName}\u0000${version}`;
-    if (!groups.has(key)) {
-      groups.set(key, {
-        profile: name,
-        image: imageName,
-        version,
-        image_ids: [],
-        containers: 0,
-      });
-    }
-    groups.get(key).image_ids.push(image.id);
-  }
-
-  for (const row of groups.values()) {
-    const containers = await client.list("/api/plugins/docker/containers/", { limit: 1000, image_id: row.image_ids });
-    row.containers = containers.length;
-    containers.forEach((container) => {
-      const owner = containerEnvValue(container, ownerEnvName);
-      if (!owner) return;
-
-      owners.add(owner);
-      if (!usersByOwner.has(owner)) {
-        usersByOwner.set(owner, {
-          user: owner,
-          profiles: new Set(),
-          items: [],
-          imageKeys: new Set(),
-        });
-      }
-
-      const user = usersByOwner.get(owner);
-      user.profiles.add(name || "default");
-      user.imageKeys.add(`${row.image}\u0000${row.version}`);
-      user.items.push({
-        profile: name || "default",
-        container: valueText(container.display || container.name || container.id),
-        image: row.image,
-        version: row.version,
-      });
-    });
-    logLine(`REPORT_IMAGE : ${label} ${row.image}:${row.version} containers=${row.containers}`);
-  }
-
-  const rows = Array.from(groups.values())
-    .map(({ image_ids, ...row }) => row)
-    .sort((left, right) => left.profile.localeCompare(right.profile) || left.image.localeCompare(right.image) || left.version.localeCompare(right.version, undefined, { numeric: true, sensitivity: "base" }));
-
-  const users = Array.from(usersByOwner.values())
-    .map((user) => ({
-      user: user.user,
-      profiles: [...user.profiles],
-      containers: user.items.length,
-      images: user.imageKeys.size,
-      items: user.items.sort((left, right) => left.profile.localeCompare(right.profile) || left.container.localeCompare(right.container) || left.image.localeCompare(right.image)),
-    }))
-    .sort((left, right) => left.user.localeCompare(right.user));
-
-  logLine(`REPORT_IMAGE : ${label} found ${owners.size} owner${owners.size === 1 ? "" : "s"} from ${ownerEnvName}`);
-  return { hosts: hosts.length, rows, owners: [...owners], users };
-}
-
-async function reportImages(req, res) {
-  try {
-    const profiles = reportProfiles(req.query);
-    const requestedProfile = req.query.profile || req.query.config_profile || "";
-    logLine(`REPORT_IMAGE : starting profile=${requestedProfile || "selected"} profiles=${profiles.map((item) => item.name || "default").join(",") || "default"}`);
-    const results = [];
-    const owners = new Set();
-    const usersByOwner = new Map();
-    let totalHosts = 0;
-
-    for (const item of profiles) {
-      const report = await imageReportForProfile(item.name, item.config);
-      totalHosts += report.hosts;
-      results.push(...report.rows);
-      (report.owners || []).forEach((owner) => owners.add(owner));
-      (report.users || []).forEach((user) => {
-        if (!usersByOwner.has(user.user)) {
-          usersByOwner.set(user.user, {
-            user: user.user,
-            profiles: new Set(),
-            items: [],
-            imageKeys: new Set(),
-          });
-        }
-
-        const target = usersByOwner.get(user.user);
-        (user.profiles || []).forEach((profile) => target.profiles.add(profile));
-        for (const owned of user.items || []) {
-          target.items.push(owned);
-          target.imageKeys.add(`${owned.image}\u0000${owned.version}`);
-        }
-      });
-    }
-
-    const netboxUsers = Array.from(usersByOwner.values())
-      .map((user) => ({
-        user: user.user,
-        profiles: [...user.profiles].sort((left, right) => left.localeCompare(right)),
-        containers: user.items.length,
-        images: user.imageKeys.size,
-        items: user.items.sort((left, right) => left.profile.localeCompare(right.profile) || left.container.localeCompare(right.container) || left.image.localeCompare(right.image)),
-      }))
-      .sort((left, right) => left.user.localeCompare(right.user));
-    const users = netboxUsers.length ? netboxUsers : localOrderReportUsers(requestedProfile, profiles);
-
-    const payload = {
-      profile: requestedProfile,
-      rows: results,
-      users,
-      total_hosts: totalHosts,
-      total_images: results.length,
-      total_containers: results.reduce((total, row) => total + Number(row.containers || 0), 0),
-      total_users: users.length,
-    };
-    logLine(`REPORT_IMAGE : finished profile=${requestedProfile || "selected"} hosts=${payload.total_hosts} images=${payload.total_images} containers=${payload.total_containers} users=${payload.total_users}`);
-    res.json(payload);
-  } catch (error) {
-    logLine(`REPORT_IMAGE : failed ${error.message || "report error"}`);
-    res.status(error.statusCode || 502).json({ detail: error.message, payload: error.payload });
-  }
-}
+const { reportImages } = createReportHandlers({
+  containerEnvValue,
+  dockerHosts,
+  imageNameFromRef,
+  logLine,
+  NetBoxClient,
+  ownerEnvVarName,
+  parseProfiles,
+  plainObject,
+  readState,
+  selectedProfileConfig,
+  valueText,
+});
 
 registerNetBoxRoutes(app, {
   checkRegistryImageExists,
@@ -1500,71 +1279,6 @@ registerOrderRoutes(app, {
 registerEnrollRoutes(app, {
   currentEnrollmentUsage,
 });
-
-async function createInstance(req, data, { isOrderRequest, isEnrollRequest, orderProfile, authUser }) {
-  data = normalizedSaashupLabelConfig(data);
-  const enrollTemplateName = isEnrollRequest ? templateNameFromEnrollmentData(data) : "";
-  const client = new NetBoxClient(data);
-  const hosts = await dockerHosts(client, data.tag);
-  if (!hosts.length) {
-    logLine(`CREATE : no Docker hosts found${data.tag ? ` with tag ${data.tag}` : ""}`);
-    if (isEnrollRequest) await updateEnrollmentInstanceStatus(req, orderProfile, enrollTemplateName, "failed");
-    return false;
-  }
-  let targetHosts = hosts;
-  if (allHostsEnabled(data)) {
-    logLine(`CREATE : host selection all_hosts=true hosts=${hosts.length} selected=${hosts.map(hostName).join(",")}`);
-  } else {
-    const existingContainers = await client.list("/api/plugins/docker/containers/", { limit: 1000, host_id: hosts.map((host) => host.id) });
-    const loadStats = hostLoadStats(hosts, existingContainers);
-    const selected = leastLoadedHost(hosts, existingContainers);
-    const selectedStats = loadStats.find((item) => item.host === selected);
-    logLine(`CREATE : host selection hosts=${hosts.length} containers=${existingContainers.length} loads=${hostLoadSummary(loadStats)} selected=${hostName(selected)} count=${selectedStats?.count ?? 0}`);
-    targetHosts = [selected].filter(Boolean);
-  }
-  let readyCount = 0;
-
-  for (const [index, selectedHost] of targetHosts.entries()) {
-    data.host_id = selectedHost.id;
-    const image = await ensureImageOnHost(client, selectedHost, data.image, data.version, "CREATE");
-    if (traefikEnabled(data) && index === 0) await createDnsRecord(client, data, selectedHost);
-    const volumes = volumePayloadsFromForm(data);
-    if (volumes.length) {
-      const { missing, reused } = await missingDockerVolumes(client, volumes);
-      if (missing.length) {
-        await client.request("POST", "/api/plugins/docker/volumes/", { body: missing.length === 1 ? missing[0] : missing, expected: [200, 201, 202] });
-      }
-      const details = reused ? ` (${reused} reused, ${missing.length} created)` : "";
-      logLine(`CREATE : ${volumes.length} volume${volumes.length === 1 ? "" : "s"} prepared on ${hostName(selectedHost)}${details}`);
-    }
-    const containerPayload = containerCreatePayloadFromForm(data, image.id);
-    const { payload } = await client.request("POST", "/api/plugins/docker/containers/", { body: containerPayload, expected: [200, 201, 202] });
-    const container = Array.isArray(payload) ? payload[0] : payload;
-    logLine(`CREATE : container ${containerPayload.name} created on ${hostName(selectedHost)}`);
-    if (createConfigureDelayMs > 0) await delay(createConfigureDelayMs);
-    const containerConfig = containerConfigPayloadFromForm(data, container.id);
-    await client.request("PATCH", "/api/plugins/docker/containers/", { body: [containerConfig] });
-    logLine(`CREATE : container ${containerPayload.name} configured on ${hostName(selectedHost)} env=${containerConfig.env.length} labels=${containerConfig.labels.length} mounts=${containerConfig.mounts.length}`);
-    if (createRecreateDelayMs > 0) await delay(createRecreateDelayMs);
-    await waitForContainerConfigured(client, container.id, `${hostName(container)}/${valueText(container.display || container.name)}`);
-    const ready = await requestContainerOperation(client, container, "recreate", "CREATE");
-    if (ready) readyCount += 1;
-  }
-
-  const allReady = readyCount === targetHosts.length;
-  if ((isOrderRequest || isEnrollRequest) && allReady) {
-    try {
-      await sendOrderReadyEmail(data, authUser.email || "");
-    } catch (error) {
-      logLine(`EMAIL : ready notification failed for ${authUser.email || ""} ${error.message || "smtp error"}`);
-    }
-  }
-  if (isEnrollRequest) {
-    await updateEnrollmentInstanceStatus(req, orderProfile, enrollTemplateName, allReady ? "ready" : "failed");
-  }
-  if (allHostsEnabled(data)) logLine(`CREATE : finished all hosts ready=${readyCount}/${targetHosts.length}`);
-  return allReady;
-}
 
 async function recreateContainers(data) {
   const client = new NetBoxClient(data);
@@ -1634,6 +1348,29 @@ async function deleteContainerVolumes(client, container) {
     }
   }
 }
+
+const { createInstance } = createCreateHelpers({
+  containerConfigPayloadFromForm,
+  containerCreatePayloadFromForm,
+  createConfigureDelayMs,
+  createDnsRecord,
+  createRecreateDelayMs,
+  delay,
+  dockerHosts,
+  ensureImageOnHost,
+  hostName,
+  logLine,
+  NetBoxClient,
+  normalizedSaashupLabelConfig,
+  requestContainerOperation,
+  sendOrderReadyEmail,
+  templateNameFromEnrollmentData,
+  traefikEnabled,
+  updateEnrollmentInstanceStatus,
+  valueText,
+  volumePayloadsFromForm,
+  waitForContainerConfigured,
+});
 
 registerOperationRoutes(app, {
   asyncOperation,

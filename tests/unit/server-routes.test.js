@@ -3692,16 +3692,47 @@ describe("server routes", () => {
     await request.post("/create").send({
       instance: "least-loaded",
       image: "saashup/tile",
+      version: "v3.0.0",
+      port_value: "8080",
+      traefik: "false",
+      wait: "true",
+    }).expect(200);
+
+    expect(readState(dataPath).logs).toContain("CREATE : host selection hosts=2 containers=2 loads=host-a=2,host-b=0 image_hosts=none selected=host-b count=0");
+    expect(readState(dataPath).logs).toContain("CREATE : container least-loaded created on host-b");
+    const createCall = fetchMock.mock.calls.find(([url, options]) => String(url).endsWith("/api/plugins/docker/containers/") && options?.method === "POST");
+    expect(JSON.parse(createCall[1].body).host).toBe(2);
+  });
+
+  test("create selects the least loaded host that already has the requested image", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, {
+      expectTraefikConfig: false,
+      createHostSelectionContainers: [
+        { id: 80, name: "existing-a", host: "1" },
+        { id: 81, name: "existing-b", host: { id: "1", display: "host-a" } },
+      ],
+    });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/create").send({
+      instance: "image-local",
+      image: "saashup/tile",
       version: "v2.0.0",
       port_value: "8080",
       traefik: "false",
       wait: "true",
     }).expect(200);
 
-    expect(readState(dataPath).logs).toContain("CREATE : host selection hosts=2 containers=2 loads=host-a=2,host-b=0 selected=host-b count=0");
-    expect(readState(dataPath).logs).toContain("CREATE : container least-loaded created on host-b");
+    expect(readState(dataPath).logs).toContain("CREATE : host selection hosts=2 containers=2 loads=host-a=2,host-b=0 image_hosts=host-a selected=host-a count=2");
+    expect(readState(dataPath).logs).toContain("CREATE : container image-local created on host-a");
     const createCall = fetchMock.mock.calls.find(([url, options]) => String(url).endsWith("/api/plugins/docker/containers/") && options?.method === "POST");
-    expect(JSON.parse(createCall[1].body).host).toBe(2);
+    expect(JSON.parse(createCall[1].body).host).toBe(1);
   });
 
   test("accepts write operations and records logs", async () => {
