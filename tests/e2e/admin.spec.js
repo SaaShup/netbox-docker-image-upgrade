@@ -2497,8 +2497,8 @@ test("catalog page shows the account menu", async ({ page }) => {
         remaining: 2,
         reached: false,
         instances: [
-          { instance: "flowg", image: "linksociety/flowg", version: "v0.58.0", status: "ready", instance_count: 1 },
-          { instance: "nginx", image: "nginx", version: "1.27", status: "failed", instance_count: 0 },
+          { instance: "flowg", image: "linksociety/flowg", version: "v0.58.0", status: "ready", source: "netbox-template", instance_count: 1 },
+          { instance: "nginx", image: "nginx", version: "1.27", status: "failed", source: "template", instance_count: 0 },
         ],
       }),
     });
@@ -2526,7 +2526,21 @@ test("catalog page shows the account menu", async ({ page }) => {
   await expect(page.locator("#catalogList")).toContainText("Ready");
   await expect(page.locator("#catalogList")).toContainText("nginx:1.27");
   await expect(page.locator("#catalogList")).toContainText("Failed");
+  await expect(page.locator("#clearCacheBtn")).toHaveCount(0);
+  await expect(page.locator("#logoutBtn")).toBeVisible();
+  await expect(page.locator(".catalog-card").first()).toContainText("production");
+  await expect(page.locator(".catalog-card").first()).toContainText("Template");
+  await expect(page.locator(".catalog-status-ready")).toHaveText("Ready");
+  await expect(page.locator(".catalog-status-failed")).toHaveText("Failed");
   await expect(page.locator(".catalog-card").first().getByRole("link", { name: "flowg" })).toHaveAttribute("href", /\/order\?template=flowg&profile=production$/);
+  await page.locator("#catalogSearch").fill("nginx");
+  await expect(page.locator(".catalog-card")).toHaveCount(1);
+  await expect(page.locator(".catalog-card")).toContainText("nginx:1.27");
+  await page.locator("#catalogSearch").fill("");
+  await page.locator("#catalogSort").selectOption("usage");
+  await expect(page.locator(".catalog-card").first()).toContainText("flowg");
+  await page.locator("#catalogSort").selectOption("image");
+  await expect(page.locator(".catalog-card").first()).toContainText("linksociety/flowg:v0.58.0");
   await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My instances" })).toHaveAttribute("href", "/order");
   await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My images" })).toHaveAttribute("href", "/enroll");
   await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "Catalog" })).toHaveAttribute("href", "/catalog");

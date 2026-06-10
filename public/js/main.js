@@ -91,6 +91,8 @@ const orderStatus = document.getElementById("orderStatus");
 const orderInstances = document.getElementById("orderInstances");
 const enrollInstances = document.getElementById("enrollInstances");
 const catalogList = document.getElementById("catalogList");
+const catalogSearch = document.getElementById("catalogSearch");
+const catalogSort = document.getElementById("catalogSort");
 const authUser = document.getElementById("authUser");
 const authAvatar = document.getElementById("authAvatar");
 const authName = document.getElementById("authName");
@@ -157,6 +159,8 @@ let orderInstanceCards = [];
 let orderInstanceLimit = { max: 0, used: 0 };
 let enrollmentCards = [];
 let enrollmentLimit = { max: 0, used: 0, reached: false };
+let catalogCards = [];
+let catalogLimit = {};
 let enrollSubmitInProgress = false;
 const orderDeletingInstances = new Set();
 let currentReportView = "images";
@@ -2481,18 +2485,68 @@ function catalogTemplateUrl(item) {
   return name ? orderTemplateUrl(name) : "";
 }
 
-function renderCatalogItems(items = [], limit = {}) {
+function catalogSourceLabel(source) {
+  return ({
+    "netbox-config-context": "Catalog",
+    "netbox-template": "Template",
+    template: "Template",
+  }[String(source || "")] || "Template");
+}
+
+function catalogStatusBadge(item) {
+  const status = normalizedOrderInstanceStatus(item);
+  return `<span class="catalog-status catalog-status-${status}">${orderInstanceStatusText(item)}</span>`;
+}
+
+function catalogSearchText(item, profile) {
+  return [
+    item?.instance,
+    item?.image,
+    item?.version,
+    item?.template_url,
+    orderInstanceStatusText(item),
+    catalogSourceLabel(item?.source),
+    profile,
+  ].join(" ").toLowerCase();
+}
+
+function sortedCatalogItems(items) {
+  const sort = catalogSort?.value || "name";
+  const statusOrder = { ready: 0, creating: 1, recorded: 2, failed: 3, deleting: 4 };
+  return [...items].sort((left, right) => {
+    if (sort === "image") return catalogImageVersion(left).localeCompare(catalogImageVersion(right), undefined, { sensitivity: "base" });
+    if (sort === "usage") return Number(right?.instance_count || 0) - Number(left?.instance_count || 0)
+      || String(left?.instance || "").localeCompare(String(right?.instance || ""), undefined, { sensitivity: "base" });
+    if (sort === "status") return (statusOrder[normalizedOrderInstanceStatus(left)] ?? 99) - (statusOrder[normalizedOrderInstanceStatus(right)] ?? 99)
+      || String(left?.instance || "").localeCompare(String(right?.instance || ""), undefined, { sensitivity: "base" });
+    return String(left?.instance || "").localeCompare(String(right?.instance || ""), undefined, { sensitivity: "base" });
+  });
+}
+
+function renderCatalogItems(items = catalogCards, limit = catalogLimit) {
   if (!catalogList) return;
 
-  const catalogItems = Array.isArray(items) ? items : [];
-  if (!catalogItems.length) {
+  catalogCards = Array.isArray(items) ? items : [];
+  catalogLimit = limit || {};
+  const profile = String(catalogLimit.profile || selectedProfileCredentials().profile || defaultConfigProfileName() || "").trim() || "default";
+  const query = String(catalogSearch?.value || "").trim().toLowerCase();
+  const visibleItems = sortedCatalogItems(query
+    ? catalogCards.filter((item) => catalogSearchText(item, profile).includes(query))
+    : catalogCards);
+
+  if (!catalogCards.length) {
     catalogList.innerHTML = '<div class="catalog-empty">No enrolled images found in the default profile.</div>';
+    return;
+  }
+
+  if (!visibleItems.length) {
+    catalogList.innerHTML = '<div class="catalog-empty">No catalog images match your search.</div>';
     return;
   }
 
   catalogList.innerHTML = `
     <div class="catalog-grid">
-      ${catalogItems.map((item) => {
+      ${visibleItems.map((item) => {
         const name = String(item?.instance || "").trim() || "SaaShup template";
         const href = catalogTemplateUrl(item);
         const title = href
@@ -2503,9 +2557,13 @@ function renderCatalogItems(items = [], limit = {}) {
             <div>
               <p class="catalog-card-title">${title}</p>
               <p class="catalog-card-image">${escapeHtml(catalogImageVersion(item))}</p>
+              <p class="catalog-card-detail">
+                <span>${escapeHtml(profile)}</span>
+                <span>${escapeHtml(catalogSourceLabel(item?.source))}</span>
+              </p>
             </div>
             <div class="catalog-card-meta">
-              <span class="${orderInstanceStatusTextClass(item)}">${orderInstanceStatusText(item)}</span>
+              ${catalogStatusBadge(item)}
               <span>${Number(item?.instance_count || 0)} instance${Number(item?.instance_count || 0) === 1 ? "" : "s"}</span>
             </div>
           </article>
@@ -6042,6 +6100,8 @@ dockerRunCancelBtn?.addEventListener("click", closeDockerRunModal);
 dockerRunCloseBtn?.addEventListener("click", closeDockerRunModal);
 dockerRunInput?.addEventListener("input", updateEnrollSubmitState);
 dockerComposeInput?.addEventListener("input", updateEnrollSubmitState);
+catalogSearch?.addEventListener("input", () => renderCatalogItems());
+catalogSort?.addEventListener("change", () => renderCatalogItems());
 templateExportFile?.addEventListener("change", updateTemplateExportFileName);
 importTabButtons.forEach((button) => {
   button.addEventListener("click", () => setImportTab(button.dataset.importTab));
