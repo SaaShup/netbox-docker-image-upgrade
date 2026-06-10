@@ -1,6 +1,6 @@
 {
     "name": "netbox-docker-image-upgrade",
-    "version": "3.9.0",
+    "version": "3.9.1",
     "description": "App to deploy new image to all containers",
     "author": "vincent@saashup.com",
     "homepage": "https://github.com/SaaShup/netbox-docker-image-upgrade",

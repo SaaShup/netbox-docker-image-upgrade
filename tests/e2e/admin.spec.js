@@ -2479,6 +2479,7 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
 });
 
 test("catalog page shows the account menu", async ({ page }) => {
+  let catalogLimitUrl = "";
   await page.route("**/session/user", async (route) => {
     await route.fulfill({
       status: 200,
@@ -2487,6 +2488,7 @@ test("catalog page shows the account menu", async ({ page }) => {
     });
   });
   await page.route("**/enroll/limit**", async (route) => {
+    catalogLimitUrl = route.request().url();
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -2521,6 +2523,7 @@ test("catalog page shows the account menu", async ({ page }) => {
   await expect(page).toHaveURL(/\/catalog$/);
   await expect(page.locator(".catalog-eyebrow")).toHaveText("Template catalog");
   await expect(page.locator(".catalog-summary")).toHaveCount(0);
+  expect(new URL(catalogLimitUrl).searchParams.get("owner_only")).toBe("false");
   await expect(page.locator("#catalogList")).toContainText("flowg");
   await expect(page.locator("#catalogList")).toContainText("linksociety/flowg:v0.58.0");
   await expect(page.locator("#catalogList")).toContainText("Ready");

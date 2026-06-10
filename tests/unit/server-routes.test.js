@@ -2593,6 +2593,17 @@ describe("server routes", () => {
         ]);
       });
 
+    await request.get("/enroll/limit")
+      .set("x-auth-request-email", "owner@example.com")
+      .query({ profile: "prod", owner_only: "false" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.instances).toEqual([
+          expect.objectContaining({ instance: "OwnerTemplate", image: "saashup/owner", source: "template" }),
+          expect.objectContaining({ instance: "OtherTemplate", image: "saashup/other", source: "template" }),
+        ]);
+      });
+
     await request.get("/templates")
       .set("x-auth-request-email", "owner@example.com")
       .query({ profile: "prod", enroll: "true" })
@@ -2647,6 +2658,17 @@ describe("server routes", () => {
       .expect((res) => {
         expect(res.body.instances).toEqual([
           expect.objectContaining({ instance: "OwnerTemplate", image: "saashup/owner", source: "netbox-template" }),
+        ]);
+      });
+
+    await request.get("/enroll/limit")
+      .set("x-auth-request-email", "owner@example.com")
+      .query({ profile: "prod", owner_only: "false" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.instances).toEqual([
+          expect.objectContaining({ instance: "OwnerTemplate", image: "saashup/owner", source: "netbox-template" }),
+          expect.objectContaining({ instance: "OtherTemplate", image: "saashup/other", source: "netbox-template" }),
         ]);
       });
 
