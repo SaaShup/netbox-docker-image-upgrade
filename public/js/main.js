@@ -1457,8 +1457,9 @@ async function orderLimitForProfile(profile) {
   return response.json();
 }
 
-async function enrollLimitForProfile(profile) {
+async function enrollLimitForProfile(profile, { ownerOnly = true } = {}) {
   const query = new URLSearchParams({ profile: profile || "" });
+  if (!ownerOnly) query.set("owner_only", "false");
   const response = await fetch(`/enroll/limit?${query.toString()}`, {
     headers: { Accept: "application/json" },
   });
@@ -2583,7 +2584,7 @@ async function refreshCatalog() {
   try {
     const profile = defaultConfigProfileName() || currentConfigProfile || selectedProfileCredentials().profile || "";
     if (profile) applyProfileToFields(profile);
-    const limit = await enrollLimitForProfile(selectedProfileCredentials().profile || profile);
+    const limit = await enrollLimitForProfile(selectedProfileCredentials().profile || profile, { ownerOnly: false });
     renderCatalogItems(limit.instances, limit);
   } catch {
     catalogList.innerHTML = '<div class="catalog-empty catalog-empty-error">Catalog unavailable.</div>';

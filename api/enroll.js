@@ -27,8 +27,8 @@ function createEnrollHelpers({
   workflowsForRequest,
   writeState,
 }) {
-  async function currentEnrollmentUsage(req, profile) {
-    const instances = await enrollmentTemplatesForUser(req, profile);
+  async function currentEnrollmentUsage(req, profile, options = {}) {
+    const instances = await enrollmentTemplatesForRequest(req, profile, { ownerOnly: options.ownerOnly !== false });
     const used = instances.length;
     const config = selectedProfileConfig({ profile, config_profile: profile });
     const max = maxInstancesValue(config.enrollment_limit ?? config.max_templates);
@@ -343,7 +343,8 @@ function registerEnrollRoutes(app, {
   currentEnrollmentUsage,
 }) {
   app.get("/enroll/limit", async (req, res) => {
-    res.json(await currentEnrollmentUsage(req, req.query.profile || ""));
+    const ownerOnly = req.query.owner_only === "false" || req.query.all === "true" ? false : true;
+    res.json(await currentEnrollmentUsage(req, req.query.profile || "", { ownerOnly }));
   });
 }
 
