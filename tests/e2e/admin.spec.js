@@ -2486,6 +2486,23 @@ test("catalog page shows the account menu", async ({ page }) => {
       body: JSON.stringify({ email: "ada@example.com", user: "ada", name: "Ada Lovelace" }),
     });
   });
+  await page.route("**/enroll/limit**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        profile: "production",
+        used: 2,
+        max: 4,
+        remaining: 2,
+        reached: false,
+        instances: [
+          { instance: "flowg", image: "linksociety/flowg", version: "v0.58.0", status: "ready", instance_count: 1 },
+          { instance: "nginx", image: "nginx", version: "1.27", status: "failed", instance_count: 0 },
+        ],
+      }),
+    });
+  });
 
   await openAdmin(page, {
     profile: "production",
@@ -2502,7 +2519,14 @@ test("catalog page shows the account menu", async ({ page }) => {
   }, {}, [], undefined, "/catalog");
 
   await expect(page).toHaveURL(/\/catalog$/);
-  await expect(page.locator("#catalogTitle")).toHaveText("Template catalog");
+  await expect(page.locator(".catalog-eyebrow")).toHaveText("Template catalog");
+  await expect(page.locator(".catalog-summary")).toHaveCount(0);
+  await expect(page.locator("#catalogList")).toContainText("flowg");
+  await expect(page.locator("#catalogList")).toContainText("linksociety/flowg:v0.58.0");
+  await expect(page.locator("#catalogList")).toContainText("Ready");
+  await expect(page.locator("#catalogList")).toContainText("nginx:1.27");
+  await expect(page.locator("#catalogList")).toContainText("Failed");
+  await expect(page.locator(".catalog-card").first().getByRole("link", { name: "flowg" })).toHaveAttribute("href", /\/order\?template=flowg&profile=production$/);
   await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My instances" })).toHaveAttribute("href", "/order");
   await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My images" })).toHaveAttribute("href", "/enroll");
   await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "Catalog" })).toHaveAttribute("href", "/catalog");

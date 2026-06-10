@@ -27,10 +27,11 @@
       <button type="button" class="btn btn-secondary auth-logout" id="logoutBtn">Logout</button>
     </div>
 
-    <section class="catalog-panel" aria-labelledby="catalogTitle">
-      <p class="eyebrow">Catalog</p>
-      <h1 id="catalogTitle">Template catalog</h1>
-      <p>Browse available images from your SaaShup catalog.</p>
+    <section class="catalog-panel" aria-label="Catalog">
+      <p class="catalog-eyebrow">Template catalog</p>
+      <div class="catalog-list" id="catalogList" aria-live="polite">
+        <div class="catalog-empty">Loading catalog...</div>
+      </div>
     </section>
 
     <footer class="app-footer order-footer">

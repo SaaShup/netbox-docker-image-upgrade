@@ -2,6 +2,7 @@ const urlParams = new URLSearchParams(window.location.search);
 const actionFromUrl = urlParams.get("action");
 const isOrderPage = document.body?.classList.contains("order-page");
 const isEnrollPage = document.body?.classList.contains("enroll-page");
+const isCatalogPage = document.body?.classList.contains("catalog-page");
 const orderTemplateName = urlParams.get("template") || "";
 
 const form = document.getElementById("instanceForm");
@@ -89,6 +90,7 @@ const orderLoading = document.getElementById("orderLoading");
 const orderStatus = document.getElementById("orderStatus");
 const orderInstances = document.getElementById("orderInstances");
 const enrollInstances = document.getElementById("enrollInstances");
+const catalogList = document.getElementById("catalogList");
 const authUser = document.getElementById("authUser");
 const authAvatar = document.getElementById("authAvatar");
 const authName = document.getElementById("authName");
@@ -2465,6 +2467,66 @@ function enrollmentTemplateTitle(item) {
       <span class="enroll-template-count" title="${escapeHtml(badgeLabel)}" aria-label="${escapeHtml(badgeLabel)}">${count}</span>
     </span>
   `;
+}
+
+function catalogImageVersion(item) {
+  const image = String(item?.image || "").trim();
+  const version = String(item?.version || "").trim();
+  if (image && version) return `${image}:${version}`;
+  return image || version || "Image unavailable";
+}
+
+function catalogTemplateUrl(item) {
+  const name = String(item?.instance || "").trim();
+  return name ? orderTemplateUrl(name) : "";
+}
+
+function renderCatalogItems(items = [], limit = {}) {
+  if (!catalogList) return;
+
+  const catalogItems = Array.isArray(items) ? items : [];
+  if (!catalogItems.length) {
+    catalogList.innerHTML = '<div class="catalog-empty">No enrolled images found in the default profile.</div>';
+    return;
+  }
+
+  catalogList.innerHTML = `
+    <div class="catalog-grid">
+      ${catalogItems.map((item) => {
+        const name = String(item?.instance || "").trim() || "SaaShup template";
+        const href = catalogTemplateUrl(item);
+        const title = href
+          ? `<a href="${escapeHtml(href)}">${escapeHtml(name)}</a>`
+          : `<strong>${escapeHtml(name)}</strong>`;
+        return `
+          <article class="catalog-card">
+            <div>
+              <p class="catalog-card-title">${title}</p>
+              <p class="catalog-card-image">${escapeHtml(catalogImageVersion(item))}</p>
+            </div>
+            <div class="catalog-card-meta">
+              <span class="${orderInstanceStatusTextClass(item)}">${orderInstanceStatusText(item)}</span>
+              <span>${Number(item?.instance_count || 0)} instance${Number(item?.instance_count || 0) === 1 ? "" : "s"}</span>
+            </div>
+          </article>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+async function refreshCatalog() {
+  if (!isCatalogPage || !catalogList) return;
+
+  catalogList.innerHTML = '<div class="catalog-empty">Loading catalog...</div>';
+  try {
+    const profile = defaultConfigProfileName() || currentConfigProfile || selectedProfileCredentials().profile || "";
+    if (profile) applyProfileToFields(profile);
+    const limit = await enrollLimitForProfile(selectedProfileCredentials().profile || profile);
+    renderCatalogItems(limit.instances, limit);
+  } catch {
+    catalogList.innerHTML = '<div class="catalog-empty catalog-empty-error">Catalog unavailable.</div>';
+  }
 }
 
 async function deleteEnrollTemplate(name) {
@@ -6123,11 +6185,11 @@ async function initializePage() {
     initializeSidebar();
     if (!isEnrollPage) await loadMailSettings();
     await loadSavedConfig();
-    if (isOrderPage) {
+    if (isOrderPage || isCatalogPage) {
       const profileName = urlParams.get("profile") || defaultConfigProfileName() || currentConfigProfile;
       if (profileName) applyProfileToFields(profileName);
     }
-    if (!isEnrollPage) await loadCreateTemplates({ useCache: !isOrderPage });
+    if (!isEnrollPage && !isCatalogPage) await loadCreateTemplates({ useCache: !isOrderPage });
     updateTemplateOptions();
     setAction(currentAction);
     if (isEnrollPage) {
@@ -6141,7 +6203,7 @@ async function initializePage() {
         }
       }
     }
-    if (!isOrderPage && !isEnrollPage && currentAction === "report") refreshImageReport();
+    if (!isOrderPage && !isEnrollPage && !isCatalogPage && currentAction === "report") refreshImageReport();
 
     if (isOrderPage) {
       hideOrderActions();
@@ -6150,6 +6212,10 @@ async function initializePage() {
       await authReady;
       hideOrderLoading();
       if (orderReady) showOrderActions();
+    } else if (isCatalogPage) {
+      const authReady = loadAuthUser();
+      await refreshCatalog();
+      await authReady;
     } else if (actionFromUrl) {
       setNotice(actionFromUrl, "success");
 
@@ -6160,9 +6226,9 @@ async function initializePage() {
       window.history.replaceState(window.history.state, "", cleanUrl);
     }
 
-    if (!isOrderPage) loadAuthUser();
+    if (!isOrderPage && !isCatalogPage) loadAuthUser();
 
-    if (!isOrderPage && !isEnrollPage) {
+    if (!isOrderPage && !isEnrollPage && !isCatalogPage) {
       getLogs();
       setInterval(getLogs, 3000);
     }
