@@ -12,6 +12,10 @@
 <body class="enroll-page">
   <main class="main enroll-main">
     <button type="button" class="theme-toggle order-theme" data-theme-toggle aria-label="Toggle theme" title="Toggle theme">☾</button>
+    <nav class="order-page-menu" aria-label="Account pages">
+      <a href="/order">My instances</a>
+      <a href="/enroll" aria-current="page">My images</a>
+    </nav>
     <div class="auth-user order-auth hidden" id="authUser">
       <div class="auth-avatar" id="authAvatar" aria-hidden="true">?</div>
       <div class="auth-copy">
@@ -78,7 +82,6 @@
           <input type="url" id="proxy" name="proxy">
           <input type="text" id="domain" name="domain">
           <input type="text" id="tag" name="tag">
-          <input type="number" id="max_templates" name="max_templates" min="0" max="100" value="1">
           <input type="number" id="max_instances" name="max_instances" min="0" max="100" value="1">
           <input type="number" id="enrollment_limit" name="enrollment_limit" min="0" max="100" value="1">
           <input type="text" id="owner_env_var" name="owner_env_var" value="SAASHUP_OWNER">

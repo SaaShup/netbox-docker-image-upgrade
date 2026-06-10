@@ -252,7 +252,7 @@ async function currentEnrollmentUsage(req, profile) {
   const instances = await enrollmentTemplatesForUser(req, profile);
   const used = instances.length;
   const config = selectedProfileConfig({ profile, config_profile: profile });
-  const max = maxInstancesValue(config.max_templates ?? config.enrollment_limit);
+  const max = maxInstancesValue(config.enrollment_limit ?? config.max_templates);
   return { profile, used, max, remaining: Math.max(0, max - used), reached: used >= max, instances };
 }
 

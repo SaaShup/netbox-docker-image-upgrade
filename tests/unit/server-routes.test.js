@@ -1040,7 +1040,6 @@ describe("server routes", () => {
         proxy: "",
         domain: "example.com",
         tag: "tile",
-        max_templates: "3",
         enrollment_limit: "2",
         smtp_config: "mailer:smtp-secret@smtp.example.com:587",
         profile: "prod",
@@ -1048,7 +1047,7 @@ describe("server routes", () => {
       })
       .expect(200)
       .expect((res) => {
-        expect(res.body.max_templates).toBe(3);
+        expect(res.body.max_templates).toBeUndefined();
         expect(res.body.enrollment_limit).toBe(2);
         expect(res.body.registry_webhook_secret).toBeUndefined();
         expect(res.body.smtp_config).toBe("mailer:smtp-secret@smtp.example.com:587");
@@ -1096,14 +1095,13 @@ describe("server routes", () => {
         token: "secret",
         domain: "example.com",
         tag: "tile",
-        max_templates: "10",
         enrollment_limit: "10",
         profile: "prod",
-        profiles: JSON.stringify({ prod: { tag: "tile", max_templates: 20, enrollment_limit: 20 } }),
+        profiles: JSON.stringify({ prod: { tag: "tile", max_templates: 20 } }),
       })
       .expect(200)
       .expect((res) => {
-        expect(res.body.max_templates).toBe(20);
+        expect(res.body.max_templates).toBeUndefined();
         expect(res.body.enrollment_limit).toBe(20);
       });
     const preservedCatalogPatch = parsedFetchCalls(fetchMock).find((call) => (
@@ -1114,7 +1112,7 @@ describe("server routes", () => {
     expect(preservedCatalogPatch.body.data.saashup_workflows["prod::templates"].steps).toEqual([{ template: "nginx", enabled: true }]);
     expect(readState(dataPath).config.max_templates).toBeUndefined();
     expect(readState(dataPath).config.enrollment_limit).toBeUndefined();
-    expect(parseProfiles(readState(dataPath).config.profiles).prod.max_templates).toBe(20);
+    expect(parseProfiles(readState(dataPath).config.profiles).prod.max_templates).toBeUndefined();
     expect(parseProfiles(readState(dataPath).config.profiles).prod.enrollment_limit).toBe(20);
     await request.get("/webhook")
       .query({
@@ -2025,7 +2023,7 @@ describe("server routes", () => {
       ],
     });
     writeState(dataPath, {
-      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_templates: 4, profile: "prod", config_profile: "prod" },
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", enrollment_limit: 4, profile: "prod", config_profile: "prod" },
       logs: "",
     });
 
@@ -2056,7 +2054,7 @@ describe("server routes", () => {
       });
 
     writeState(dataPath, {
-      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_templates: 4, profile: "prod", config_profile: "prod" },
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", enrollment_limit: 4, profile: "prod", config_profile: "prod" },
       logs: "",
     });
     await request.post("/create")
@@ -2109,7 +2107,7 @@ describe("server routes", () => {
     const smtpSender = vi.fn().mockResolvedValue({ messageId: "enroll-ready-message", accepted: ["buyer@example.com"], response: "250 queued" });
     setSmtpSenderForTests(smtpSender);
     writeState(dataPath, {
-      config: { netbox: "https://netbox.example.com", token: "secret", max_templates: 1, profile: "prod", config_profile: "prod", smtp_config: "mailer:smtp-secret@smtp.example.com:587" },
+      config: { netbox: "https://netbox.example.com", token: "secret", enrollment_limit: 1, profile: "prod", config_profile: "prod", smtp_config: "mailer:smtp-secret@smtp.example.com:587" },
       templates: {},
       order_counts: {},
       order_instances: {},
@@ -2201,9 +2199,9 @@ describe("server routes", () => {
       })
       .expect(429)
       .expect((res) => {
-        expect(res.body.code).toBe("max_templates_reached");
-        expect(res.body.max_templates).toBe(1);
-        expect(res.body.used_templates).toBe(1);
+        expect(res.body.code).toBe("enrollment_limit_reached");
+        expect(res.body.enrollment_limit).toBe(1);
+        expect(res.body.used_enrollments).toBe(1);
       });
 
     expect(readState(dataPath).enrollment_counts).toBeUndefined();
@@ -2233,7 +2231,7 @@ describe("server routes", () => {
       }],
     });
     writeState(dataPath, {
-      config: { netbox: "https://netbox.example.com", token: "secret", max_templates: 3, profile: "prod", config_profile: "prod" },
+      config: { netbox: "https://netbox.example.com", token: "secret", enrollment_limit: 3, profile: "prod", config_profile: "prod" },
       logs: "",
     });
 
@@ -2263,7 +2261,7 @@ describe("server routes", () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock, { expectTraefikConfig: false });
     writeState(dataPath, {
-      config: { netbox: "https://netbox.example.com", token: "secret", max_templates: 3, profile: "prod", config_profile: "prod" },
+      config: { netbox: "https://netbox.example.com", token: "secret", enrollment_limit: 3, profile: "prod", config_profile: "prod" },
       logs: "",
     });
 
@@ -2332,7 +2330,7 @@ describe("server routes", () => {
       dockerRegistries: [{ id: 6, name: "dockerhub", serveraddress: "https://registry.hub.docker.com/v2/", host: { id: 1, name: "saashup1" } }],
     });
     writeState(dataPath, {
-      config: { netbox: "https://netbox.example.com", token: "secret", max_templates: 3, profile: "prod", config_profile: "prod" },
+      config: { netbox: "https://netbox.example.com", token: "secret", enrollment_limit: 3, profile: "prod", config_profile: "prod" },
       logs: "",
     });
 
@@ -2381,7 +2379,7 @@ describe("server routes", () => {
     const { dataPath, fetchMock, request } = await loadServer({ enrollBlockedImages: "traefik,netbox-docker-agent" });
     setupNetBoxFetch(fetchMock, { expectTraefikConfig: false });
     writeState(dataPath, {
-      config: { netbox: "https://netbox.example.com", token: "secret", max_templates: 3, profile: "prod", config_profile: "prod" },
+      config: { netbox: "https://netbox.example.com", token: "secret", enrollment_limit: 3, profile: "prod", config_profile: "prod" },
       logs: "",
     });
 
@@ -2901,7 +2899,7 @@ describe("server routes", () => {
         token: "secret",
         domain: "example.com",
         tag: "prod",
-        max_templates: 4,
+        enrollment_limit: 4,
         profile: "prod",
         config_profile: "prod",
         owner_env_var: "SAASHUP_OWNER",
@@ -3308,7 +3306,6 @@ describe("server routes", () => {
             netbox: "https://netbox.example.com",
             token: "profile-secret",
             tag: "tile",
-            max_templates: 2,
             enrollment_limit: 2,
           },
         },

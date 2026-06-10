@@ -208,17 +208,13 @@ const profileFieldHelp = {
     title: "Tag",
     body: "Filters Docker hosts and image lookups to the matching NetBox tag, so each profile can target a specific environment or host group.",
   },
-  max_templates: {
-    title: "Max templates",
-    body: "Limits how many enroll-page templates a user can create for this profile. Set it to 0 to block new enrollments for the profile.",
-  },
   max_instances: {
     title: "Max instances",
     body: "Limits how many order-page containers a user can request from this template. Set it to 0 to block new orders for the template.",
   },
   enrollment_limit: {
     title: "Enrollment limit",
-    body: "Limits how many enroll-page creation requests each user can submit for this profile. The default is 1.",
+    body: "Limits how many images each user can enroll for this profile. Set it to 0 to block new enrollments for the profile.",
   },
   owner_env_var: {
     title: "Owner env var",
@@ -286,7 +282,7 @@ const profileFieldHelp = {
   },
 };
 
-const configFields = ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_templates", "owner_env_var", "cloudflare_filter", "smtp_config"];
+const configFields = ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "enrollment_limit", "owner_env_var", "cloudflare_filter", "smtp_config"];
 
 function isCreateFormAction(action = currentAction) {
   return action === "create" || action === "template";
@@ -309,7 +305,7 @@ const actions = {
     description: "Save the NetBox URL, token, optional proxy, domain and host tag used by the automation.",
     submitLabel: "Save config",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "max_templates", "owner_env_var", "cloudflare_filter", "smtp_config"],
+    fields: ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "enrollment_limit", "owner_env_var", "cloudflare_filter", "smtp_config"],
   },
   create: {
     endpoint: "/create",
@@ -400,7 +396,6 @@ const allFieldNames = [
   "proxy",
   "domain",
   "tag",
-  "max_templates",
   "max_instances",
   "enrollment_limit",
   "owner_env_var",
@@ -778,8 +773,7 @@ function knownProfileEntries() {
       proxy: savedConfig.proxy || "",
       domain: savedConfig.domain || "",
       tag: savedConfig.tag || "",
-      max_templates: maxTemplatesValue(savedConfig),
-      enrollment_limit: normalizeMaxInstances(savedConfig.enrollment_limit),
+      enrollment_limit: enrollmentLimitValue(savedConfig),
       owner_env_var: ownerEnvVarValue(savedConfig.owner_env_var),
       cloudflare_filter: checkboxValue(savedConfig.cloudflare_filter, true),
       smtp_config: smtpConfigValue(savedConfig),
@@ -834,8 +828,7 @@ function normalizedProfileForSync(profile = {}) {
     proxy: profile.proxy || "",
     domain: normalizeDomain(profile.domain || ""),
     tag: profile.tag || "",
-    max_templates: maxTemplatesValue(profile),
-    enrollment_limit: normalizeMaxInstances(profile.enrollment_limit),
+    enrollment_limit: enrollmentLimitValue(profile),
     owner_env_var: ownerEnvVarValue(profile.owner_env_var),
     cloudflare_filter: checkboxValue(profile.cloudflare_filter, true),
     smtp_config: smtpConfigValue(profile),
@@ -850,7 +843,6 @@ function currentProfileFieldValues() {
     proxy: fieldValue("proxy"),
     domain: fieldValue("domain"),
     tag: fieldValue("tag"),
-    max_templates: fieldValue("max_templates"),
     enrollment_limit: fieldValue("enrollment_limit"),
     owner_env_var: fieldValue("owner_env_var"),
     cloudflare_filter: fieldChecked("cloudflare_filter", true),
@@ -1415,8 +1407,7 @@ function profileCredentials(name = currentConfigProfile) {
     proxy: profile.proxy || "",
     domain: profile.domain || "",
     tag: profile.tag || "",
-    max_templates: maxTemplatesValue(profile),
-    enrollment_limit: normalizeMaxInstances(profile.enrollment_limit),
+    enrollment_limit: enrollmentLimitValue(profile),
     owner_env_var: ownerEnvVarValue(profile.owner_env_var),
     cloudflare_filter: checkboxValue(profile.cloudflare_filter, true),
     smtp_config: smtpConfigValue(profile),
@@ -1430,19 +1421,18 @@ function normalizeMaxInstances(value) {
   return Math.min(100, Math.max(0, Math.floor(number)));
 }
 
-function maxTemplatesValue(profile = {}) {
-  return normalizeMaxInstances(profile.max_templates ?? profile.enrollment_limit);
+function enrollmentLimitValue(profile = {}) {
+  return normalizeMaxInstances(profile.enrollment_limit ?? profile.max_templates ?? profile.max_instances);
 }
 
 function normalizeImportedProfiles(profiles = {}) {
   return Object.fromEntries(Object.entries(plainObject(profiles)).map(([name, profile]) => {
     const normalized = plainObject(profile);
-    if (normalized.max_templates === undefined && normalized.max_instances !== undefined) {
-      normalized.max_templates = normalizeMaxInstances(normalized.max_instances);
+    if (normalized.enrollment_limit === undefined) {
+      const legacyLimit = normalized.max_templates ?? normalized.max_instances;
+      if (legacyLimit !== undefined) normalized.enrollment_limit = normalizeMaxInstances(legacyLimit);
     }
-    if (normalized.enrollment_limit === undefined && normalized.max_templates !== undefined) {
-      normalized.enrollment_limit = normalizeMaxInstances(normalized.max_templates);
-    }
+    delete normalized.max_templates;
     return [name, normalized];
   }));
 }
@@ -1547,7 +1537,6 @@ function applyProfileToFields(name = currentConfigProfile) {
   setFieldValue("proxy", credentials.proxy);
   setFieldValue("domain", credentials.domain);
   setFieldValue("tag", credentials.tag);
-  setFieldValue("max_templates", credentials.max_templates);
   setFieldValue("max_instances", "1");
   setFieldValue("enrollment_limit", credentials.enrollment_limit);
   setFieldValue("owner_env_var", credentials.owner_env_var);
@@ -4497,8 +4486,7 @@ function loadSavedConfig() {
           proxy: data.proxy || "",
           domain: data.domain || "",
           tag: data.tag || "",
-          max_templates: maxTemplatesValue(data),
-          enrollment_limit: normalizeMaxInstances(data.enrollment_limit),
+          enrollment_limit: enrollmentLimitValue(data),
           cloudflare_filter: checkboxValue(data.cloudflare_filter, true),
           smtp_config: smtpConfigValue(data),
           ...(serverProfiles[profile]?.saashup_default === true ? { saashup_default: true } : {}),
@@ -4640,8 +4628,7 @@ async function saveConfig() {
   const proxy = fieldValue("proxy");
   const domain = normalizeDomain(fieldValue("domain"));
   const tag = fieldValue("tag").trim();
-  const max_templates = normalizeMaxInstances(fieldValue("max_templates"));
-  const enrollment_limit = max_templates;
+  const enrollment_limit = normalizeMaxInstances(fieldValue("enrollment_limit"));
   const owner_env_var = ownerEnvVarValue(fieldValue("owner_env_var"));
   const cloudflare_filter = fieldChecked("cloudflare_filter", true);
   const smtp_config = fieldValue("smtp_config");
@@ -4670,10 +4657,9 @@ async function saveConfig() {
 
   forgetDeletedProfile(profile);
   setFieldValue("tag", tag);
-  setFieldValue("max_templates", max_templates);
   setFieldValue("enrollment_limit", enrollment_limit);
   setFieldValue("owner_env_var", owner_env_var);
-  configProfiles[profile] = { netbox, token, proxy, domain, tag, max_templates, enrollment_limit, owner_env_var, cloudflare_filter, smtp_config, ...(saashup_default ? { saashup_default: true } : {}) };
+  configProfiles[profile] = { netbox, token, proxy, domain, tag, enrollment_limit, owner_env_var, cloudflare_filter, smtp_config, ...(saashup_default ? { saashup_default: true } : {}) };
   if (saashup_default) enforceSingleDefaultConfig(profile);
   currentConfigProfile = profile;
   updateProfileOptions();
@@ -4686,7 +4672,6 @@ async function saveConfig() {
     customer_name,
     domain,
     tag,
-    max_templates: String(max_templates),
     enrollment_limit: String(enrollment_limit),
     owner_env_var,
     cloudflare_filter: cloudflare_filter ? "true" : "false",
@@ -4709,7 +4694,7 @@ async function saveConfig() {
 
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-    savedConfig = { customer_name, netbox, token, proxy, domain, tag, max_templates, enrollment_limit, owner_env_var, cloudflare_filter, smtp_config, profile, profiles: configProfiles };
+    savedConfig = { customer_name, netbox, token, proxy, domain, tag, enrollment_limit, owner_env_var, cloudflare_filter, smtp_config, profile, profiles: configProfiles };
     serverConfigProfiles = { ...configProfiles };
     applyProfileToFields(profile);
     try {
@@ -4759,7 +4744,6 @@ async function deleteConfig() {
       setFieldValue("proxy", "");
       setFieldValue("domain", "");
       setFieldValue("tag", "");
-      setFieldValue("max_templates", "1");
       setFieldValue("max_instances", "1");
       setFieldValue("enrollment_limit", "1");
       setFieldValue("owner_env_var", "SAASHUP_OWNER");
@@ -4773,7 +4757,6 @@ async function deleteConfig() {
         customer_name,
         domain: "",
         tag: "",
-        max_templates: "1",
         enrollment_limit: "1",
         owner_env_var: "SAASHUP_OWNER",
         cloudflare_filter: "true",
@@ -4808,7 +4791,6 @@ async function deleteConfig() {
       customer_name,
       domain: credentials.domain,
       tag: credentials.tag,
-      max_templates: String(credentials.max_templates),
       enrollment_limit: String(credentials.enrollment_limit),
       owner_env_var: credentials.owner_env_var,
       cloudflare_filter: credentials.cloudflare_filter ? "true" : "false",
@@ -4877,7 +4859,6 @@ function workflowCreateBody(template, templateName) {
     proxy: credentials.proxy,
     domain: credentials.domain,
     tag: credentials.tag,
-    max_templates: String(credentials.max_templates),
     max_instances: String(templateMaxInstancesValue(template)),
     enrollment_limit: String(credentials.enrollment_limit),
     owner_env_var: credentials.owner_env_var,
@@ -5164,7 +5145,6 @@ async function submitAction(config, submitter) {
   body.set("proxy", credentials.proxy);
   body.set("domain", credentials.domain);
   body.set("tag", credentials.tag);
-  body.set("max_templates", String(credentials.max_templates));
   body.set("max_instances", String(normalizeMaxInstances(body.get("max_instances"))));
   body.set("enrollment_limit", String(credentials.enrollment_limit));
   body.set("owner_env_var", credentials.owner_env_var);

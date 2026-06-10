@@ -152,7 +152,6 @@ test("config tab starts without a forced default profile", async ({ page }) => {
   await expect(page.locator('[data-field="registry_webhook_secret"]')).toBeHidden();
   await expect(page.locator("#domain")).toHaveValue("");
   await expect(page.locator("#tag")).toHaveValue("");
-  await expect(page.locator("#max_templates")).toHaveValue("1");
   await expect(page.locator("#enrollment_limit")).toHaveValue("1");
   await expect(page.locator("#owner_env_var")).toHaveValue("SAASHUP_OWNER");
   await expect(page.locator("#cloudflare_filter")).toBeChecked();
@@ -468,7 +467,7 @@ test("config page imports config profiles", async ({ page }) => {
   await expect(page.locator("#notif")).toContainText("Config import complete");
   await expect(page.locator("#config_profile")).toHaveValue("production");
   await expect(page.locator("#netbox")).toHaveValue("https://netbox.example.com");
-  await expect(page.locator("#max_templates")).toHaveValue("3");
+  await expect(page.locator("#enrollment_limit")).toHaveValue("3");
   await expect(page.locator("#owner_env_var")).toHaveValue("OWNER");
   await expect(page.locator("#cloudflare_filter")).not.toBeChecked();
 
@@ -921,7 +920,7 @@ test("create form preloads a profile-based random instance name on page load", a
     proxy: "",
     domain: "example.com",
     tag: "production",
-    max_templates: 10,
+    enrollment_limit: 10,
     max_instances: 1,
     profiles: JSON.stringify({
       production: {
@@ -2425,6 +2424,9 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
 
   await expect(page).toHaveURL(/\/enroll\.html$/);
   await expect(page.locator("#authUser")).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My instances" })).toHaveAttribute("href", "/order");
+  await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My images" })).toHaveAttribute("href", "/enroll");
+  await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My images" })).toHaveAttribute("aria-current", "page");
   await expect(page.locator("#dockerRunApplyBtn")).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Back to home" })).toHaveClass(/btn-secondary/);
   await expect(page.getByRole("link", { name: "Back to home" })).toHaveAttribute("href", "/");
@@ -2996,7 +2998,7 @@ test("enroll page keeps submit disabled before import content", async ({ page })
         proxy: "",
         domain: "example.com",
         tag: "production",
-        max_templates: 10,
+        enrollment_limit: 10,
         saashup_default: true,
       },
     }),
@@ -3254,7 +3256,7 @@ test("enroll page blocks docker compose files with multiple services", async ({ 
     proxy: "",
     domain: "example.com",
     tag: "production",
-    max_templates: 10,
+    enrollment_limit: 10,
     max_instances: 1,
     profiles: JSON.stringify({
       production: {
@@ -3263,7 +3265,7 @@ test("enroll page blocks docker compose files with multiple services", async ({ 
         proxy: "",
         domain: "example.com",
         tag: "production",
-        max_templates: 10,
+        enrollment_limit: 10,
         saashup_default: true,
       },
     }),
@@ -3349,7 +3351,7 @@ test("enroll page flags multi-service compose pasted in run input", async ({ pag
     proxy: "",
     domain: "example.com",
     tag: "production",
-    max_templates: 10,
+    enrollment_limit: 10,
     max_instances: 1,
     profiles: JSON.stringify({
       production: {
@@ -3358,7 +3360,7 @@ test("enroll page flags multi-service compose pasted in run input", async ({ pag
         proxy: "",
         domain: "example.com",
         tag: "production",
-        max_templates: 10,
+        enrollment_limit: 10,
         saashup_default: true,
       },
     }),
@@ -3914,6 +3916,9 @@ test("order page without a template lists all owned containers", async ({ page }
   }, {}, [], undefined, "/order");
 
   await expect(page.locator("#orderActions")).toBeHidden();
+  await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My instances" })).toHaveAttribute("href", "/order");
+  await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My instances" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My images" })).toHaveAttribute("href", "/enroll");
   await expect(page.locator("#orderInstances")).toContainText("2");
   await expect(page.locator("#orderInstances")).toContainText("tile.daily.paashup.cloud");
   await expect(page.locator("#orderInstances")).toContainText("guide.daily.paashup.cloud");
