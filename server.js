@@ -920,7 +920,7 @@ function registryWebhookEvents(payload) {
 
 function registryWebhookAllowed(req, events = registryWebhookEvents(req.body)) {
   const profile = String(req.params.profile || "");
-  const template = String(req.params.template || "");
+  const template = String(req.params.template || req.query.template || "");
   const matchingSecrets = template
     ? [registryWebhookTemplateSecret(profile, template, events)].filter(Boolean)
     : events.flatMap((event) => registryWebhookTemplates(profile, event.image)

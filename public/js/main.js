@@ -2415,6 +2415,9 @@ function renderEnrollmentInstances(instances = enrollmentCards, limit = enrollme
                 <button type="button" class="icon-btn order-template-copy" data-order-template-copy="${escapeHtml(item.instance)}" title="Copy order button HTML" aria-label="Copy order button HTML for ${escapeHtml(item.instance)}">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="10" height="10" rx="2"></rect><path d="M5 15V7a2 2 0 0 1 2-2h8"></path></svg>
                 </button>
+                <button type="button" class="icon-btn template-webhook-copy" data-template-webhook-copy="${escapeHtml(item.instance)}" title="Copy webhook URL" aria-label="Copy webhook URL for ${escapeHtml(item.instance)}">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.07 0l2.12-2.12a5 5 0 0 0-7.07-7.07L10.9 5.03"></path><path d="M14 11a5 5 0 0 0-7.07 0L4.81 13.12a5 5 0 0 0 7.07 7.07l1.22-1.22"></path></svg>
+                </button>
               ` : ""}
               <button type="button" class="icon-btn icon-btn-danger order-instance-delete" data-enroll-template-delete="${escapeHtml(item.instance)}" title="${escapeHtml(enrollTemplateDeleteTitle(item))}" aria-label="${escapeHtml(enrollTemplateDeleteTitle(item))}" ${enrollTemplateCanDelete(item) ? "" : "disabled"}>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>
@@ -4211,6 +4214,22 @@ function orderTemplateEmbedHtml(name) {
 
   const imageUrl = `${window.location.origin}/assets/deploy.svg`;
   return `<a href="${escapeHtml(url)}"><img src="${escapeHtml(imageUrl)}" alt="Deploy with SaaShup"></a>`;
+}
+
+function enrolledTemplateEntry(name) {
+  const requested = String(name || "").trim().toLowerCase();
+  return enrollmentCards.find((item) => String(item?.instance || "").trim().toLowerCase() === requested) || null;
+}
+
+function templateWebhookUrl(name) {
+  const templateName = String(name || "").trim();
+  const profile = selectedProfileCredentials().profile || defaultConfigProfileName() || "";
+  if (!profile || !templateName) return "";
+
+  const entry = enrolledTemplateEntry(templateName);
+  const secret = String(entry?.registry_webhook_secret || entry?.dockerhub_webhook_secret || registryWebhookDefaultSecret || "").trim();
+  if (!secret) return "";
+  return `${window.location.origin}/registry-webhook/${encodeURIComponent(profile)}/${encodeURIComponent(templateName)}/${encodeURIComponent(secret)}`;
 }
 
 function copyTextToClipboard(text) {
@@ -6218,6 +6237,21 @@ enrollInstances?.addEventListener("click", (event) => {
     .then(() => setNotice(`Order button HTML copied for "${templateName}"`, "success"))
     .catch(() => setNotice(html, "info", false));
 });
+enrollInstances?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-template-webhook-copy]");
+  if (!button) return;
+
+  const templateName = button.dataset.templateWebhookCopy || "";
+  const url = templateWebhookUrl(templateName);
+  if (!url) {
+    setNotice("Webhook URL unavailable", "error");
+    return;
+  }
+
+  copyTextToClipboard(url)
+    .then(() => setNotice(`Webhook URL copied for "${templateName}"`, "success"))
+    .catch(() => setNotice(url, "info", false));
+});
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !dockerRunModal?.classList.contains("hidden")) {
     closeDockerRunModal();
@@ -6256,6 +6290,7 @@ async function initializePage() {
       const canEnroll = configureEnrollDefaultConfig();
       if (canEnroll) {
         setImportTab("run");
+        await loadRegistryDefaultSecret();
         await refreshEnrollLimit();
         if (submitBtn) {
           submitBtn.textContent = "Enroll image";

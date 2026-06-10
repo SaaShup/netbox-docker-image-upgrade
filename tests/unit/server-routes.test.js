@@ -2418,7 +2418,7 @@ describe("server routes", () => {
           saashup_netbox_url: "https://netbox.example.com",
           saashup_tag: "tile",
           saashup_templates: {
-            Tile: { config_profile: "prod", image: "saashup/tile", version: "v1", creator_email: "owner@example.com" },
+            Tile: { config_profile: "prod", image: "saashup/tile", version: "v1", creator_email: "owner@example.com", registry_webhook_secret: "tile-secret" },
             Guide: { config_profile: "prod", image: "saashup/guide", version: "v2", creator_email: "other@example.com" },
             Install: { config_profile: "prod", image: "saashup/install", version: "v4", creator_email: "owner@example.com" },
             Shared: { image: "saashup/shared", version: "v3", creator_email: "owner@example.com" },
@@ -2444,7 +2444,7 @@ describe("server routes", () => {
       .expect((res) => {
         expect(res.body).toMatchObject({ used: 3, max: 2, remaining: 0, reached: true });
         expect(res.body.instances).toEqual(expect.arrayContaining([
-          expect.objectContaining({ instance: "Tile", image: "saashup/tile", source: "netbox-template", status: "ready", instance_count: 3 }),
+          expect.objectContaining({ instance: "Tile", image: "saashup/tile", source: "netbox-template", registry_webhook_secret: "tile-secret", status: "ready", instance_count: 3 }),
           expect.objectContaining({ instance: "Install", image: "saashup/install", source: "netbox-template", status: "ready", instance_count: 0 }),
           expect.objectContaining({ instance: "Shared", image: "saashup/shared", source: "netbox-template", status: "ready", instance_count: 0 }),
         ]));
@@ -3491,6 +3491,7 @@ describe("server routes", () => {
     await request.post("/registry-webhook/prod/Tile/env-secret").send(body).expect(403);
     await request.post("/registry-webhook/prod/Other/other-secret").send(body).expect(403);
     await request.post("/registry-webhook/prod/Tile/template-secret").send(body).expect(202);
+    await request.post("/registry-webhook/prod").query({ template: "Tile", secret: "template-secret" }).send(body).expect(202);
     await request.post("/registry-webhook/dev/env-secret").send(body).expect(202);
   });
 

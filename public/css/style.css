@@ -2265,7 +2265,8 @@ body.enroll-page .order-instances.hidden {
   border-radius: 10px;
 }
 
-.order-template-copy {
+.order-template-copy,
+.template-webhook-copy {
   display: grid;
   place-items: center;
   flex: 0 0 34px;
@@ -2294,7 +2295,8 @@ body.enroll-page .order-instances.hidden {
 
 .order-instance-delete svg,
 .order-instance-open svg,
-.order-template-copy svg {
+.order-template-copy svg,
+.template-webhook-copy svg {
   width: 18px;
   height: 18px;
   fill: none;
@@ -2394,6 +2396,7 @@ body.enroll-page .order-instance-card {
 body.enroll-page .order-instance-icon,
 body.enroll-page .order-instance-delete,
 body.enroll-page .order-template-copy,
+body.enroll-page .template-webhook-copy,
 body.enroll-page .order-instance-status {
   flex-basis: 42px;
   width: 42px;
@@ -2403,6 +2406,7 @@ body.enroll-page .order-instance-status {
 body.enroll-page .order-instance-icon svg,
 body.enroll-page .order-instance-delete svg,
 body.enroll-page .order-template-copy svg,
+body.enroll-page .template-webhook-copy svg,
 body.enroll-page .order-instance-status svg {
   width: 22px;
   height: 22px;
@@ -2721,7 +2725,8 @@ body.order-page #orderCancelBtn {
     width: 42px;
   }
 
-  body.enroll-page .order-template-copy {
+  body.enroll-page .order-template-copy,
+  body.enroll-page .template-webhook-copy {
     width: 42px;
   }
 

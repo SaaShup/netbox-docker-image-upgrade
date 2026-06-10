@@ -3129,11 +3129,13 @@ test("enroll page shows templates created by the user", async ({ page }) => {
   });
   await page.addInitScript(() => {
     window.__copiedOrderLink = "";
+    window.__copiedText = "";
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: {
         writeText: async (text) => {
           window.__copiedOrderLink = text;
+          window.__copiedText = text;
         },
       },
     });
@@ -3147,7 +3149,7 @@ test("enroll page shows templates created by the user", async ({ page }) => {
   });
   await page.route("**/enroll/limit?**", async (route) => {
     const instances = [
-      { instance: "guide-template", image: "saashup/guide", version: "v1.2.3", status: "ready", source: "template", instance_count: 2 },
+      { instance: "guide-template", image: "saashup/guide", version: "v1.2.3", status: "ready", source: "template", registry_webhook_secret: "guide-secret", instance_count: 2 },
       ...(deletedTemplate === "install-template" ? [] : [{ instance: "install-template", image: "saashup/install", version: "v4.0.0", status: "ready", source: "template", instance_count: 0 }]),
       ...(deletedTemplate === "failed-template" ? [] : [{ instance: "failed-template", image: "saashup/failed", version: "v9.0.0", status: "failed", source: "template", instance_count: 0 }]),
     ];
@@ -3202,12 +3204,20 @@ test("enroll page shows templates created by the user", async ({ page }) => {
   await expect(page.locator("#enrollInstances .order-instance-delete").nth(2)).toBeEnabled();
   await expect(page.locator("#enrollInstances .order-instance-delete svg").first()).toBeVisible();
   await expect(page.locator("#enrollInstances .order-template-copy")).toHaveCount(2);
+  await expect(page.locator("#enrollInstances [data-template-webhook-copy]")).toHaveCount(2);
   const guideOrderUrl = `${page.url().replace(/\/enroll(?:\.html)?$/, "")}/order?template=guide-template&profile=production`;
   const guideOrderHtml = `<a href="${guideOrderUrl.replaceAll("&", "&amp;")}"><img src="${new URL(page.url()).origin}/assets/deploy.svg" alt="Deploy with SaaShup"></a>`;
+  const guideWebhookUrl = `${new URL(page.url()).origin}/registry-webhook/production/guide-template/guide-secret`;
   await expect(page.locator("#enrollInstances .enroll-template-title a").first()).toHaveAttribute("href", guideOrderUrl);
   await page.locator("#enrollInstances .order-template-copy").first().click();
   await expect(page.locator("#notif")).toContainText('Order button HTML copied for "guide-template"');
   await expect.poll(() => page.evaluate(() => window.__copiedOrderLink)).toBe(guideOrderHtml);
+  await page.locator("#enrollInstances [data-template-webhook-copy]").first().click();
+  await expect(page.locator("#notif")).toContainText('Webhook URL copied for "guide-template"');
+  await expect.poll(() => page.evaluate(() => window.__copiedText)).toBe(guideWebhookUrl);
+  await page.locator("#enrollInstances [data-template-webhook-copy]").nth(1).click();
+  await expect(page.locator("#notif")).toContainText('Webhook URL copied for "install-template"');
+  await expect.poll(() => page.evaluate(() => window.__copiedText)).toBe(`${new URL(page.url()).origin}/registry-webhook/production/install-template/hook-secret`);
   page.once("dialog", async (dialog) => {
     expect(dialog.message()).toBe('Delete enrolled template "install-template"?');
     await dialog.accept();
