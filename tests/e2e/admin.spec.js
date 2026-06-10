@@ -2470,6 +2470,9 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
   await expect(page.locator("#enrollInstances")).toBeVisible();
   await expect(page.locator("#enrollInstances")).toContainText("2 / 2");
   await expect(page.locator("#enrollInstances")).toContainText("guide-app");
+  await expect(page.locator("#enrollInstances .order-instance-state")).toHaveText(["Ready", "Ready"]);
+  await expect(page.locator("#enrollInstances .order-instance-delete")).toHaveCount(1);
+  await expect(page.locator("#enrollInstances .order-instance-delete").first()).toBeEnabled();
   await expect(page.locator("#instanceForm")).toBeHidden();
 });
 
@@ -2506,7 +2509,7 @@ test("enroll page reports only missing port when docker run has image", async ({
     { instance: "guide-app", networks: ["bridge", "traefik-net"] },
   ], undefined, "/enroll.html");
 
-  const commandBase = "docker run --name some-nginx -v /some/content:/usr/share/nginx/html:ro -d";
+  const commandBase = "docker run --name some-nginx -v nginx-content:/usr/share/nginx/html:ro -d";
   const command = `${commandBase} nginx`;
   await expect.poll(() => page.evaluate((value) => window.parseDockerRun(value).image, command)).toBe("nginx");
   await page.locator("#dockerRunInput").fill(command);
@@ -2761,7 +2764,7 @@ test("enroll page accepts Docker Hub image that exists in registry but is not pu
     { instance: "flowg", networks: ["bridge", "traefik-net"] },
   ], undefined, "/enroll.html");
 
-  await page.locator("#dockerRunInput").fill("docker run -p 5080:5080 -v ./data:/data linksociety/flowg:v0.58.0");
+  await page.locator("#dockerRunInput").fill("docker run -p 5080:5080 -v flowg-data:/data linksociety/flowg:v0.58.0");
   await expect(page.locator("#submitBtn")).toBeEnabled();
   await page.locator("#submitBtn").click();
 
@@ -2770,6 +2773,55 @@ test("enroll page accepts Docker Hub image that exists in registry but is not pu
   expect(createBody).toContain("version=v0.58.0");
   expect(createBody).toContain("port_value=5080");
   expect(createBody).toContain("enroll_request=true");
+});
+
+test("enroll page blocks docker run bind mounts", async ({ page }) => {
+  let createCalled = false;
+
+  await page.route("**/session/user", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ email: "ada@example.com", user: "ada", name: "Ada Lovelace" }),
+    });
+  });
+  await page.route("**/create", async (route) => {
+    createCalled = true;
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+  await page.route("**/enroll/limit?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ profile: "production", used: 0, max: 2, remaining: 2, reached: false, instances: [] }),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "production",
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "example.com",
+        tag: "production",
+        enrollment_limit: 2,
+        saashup_default: true,
+      },
+    }),
+  }, {}, [
+    { instance: "flowg", networks: ["bridge", "traefik-net"] },
+  ], undefined, "/enroll.html");
+
+  await page.locator("#dockerRunInput").fill("docker run -p 5080:5080 -v ./data:/data linksociety/flowg:v0.58.0");
+  await expect(page.locator("#notif")).toContainText("Bind mounts are not allowed for enrollment.");
+  await expect(page.locator("#submitBtn")).toBeDisabled();
+  expect(createCalled).toBe(false);
 });
 
 test("enroll page restores enrolled templates after creation when limit remains available", async ({ page }) => {
@@ -3000,6 +3052,10 @@ test("enroll page hides enrollment panel when no templates are returned", async 
 
 test("enroll page shows templates created by the user", async ({ page }) => {
   let deletedTemplate = "";
+  let resolveDelete;
+  const deleteReady = new Promise((resolve) => {
+    resolveDelete = resolve;
+  });
   await page.addInitScript(() => {
     window.__copiedOrderLink = "";
     Object.defineProperty(navigator, "clipboard", {
@@ -3021,7 +3077,8 @@ test("enroll page shows templates created by the user", async ({ page }) => {
   await page.route("**/enroll/limit?**", async (route) => {
     const instances = [
       { instance: "guide-template", image: "saashup/guide", version: "v1.2.3", status: "ready", source: "template", instance_count: 2 },
-      ...(deletedTemplate ? [] : [{ instance: "install-template", image: "saashup/install", version: "v4.0.0", status: "ready", source: "template", instance_count: 0 }]),
+      ...(deletedTemplate === "install-template" ? [] : [{ instance: "install-template", image: "saashup/install", version: "v4.0.0", status: "ready", source: "template", instance_count: 0 }]),
+      ...(deletedTemplate === "failed-template" ? [] : [{ instance: "failed-template", image: "saashup/failed", version: "v9.0.0", status: "failed", source: "template", instance_count: 0 }]),
     ];
     await route.fulfill({
       status: 200,
@@ -3029,7 +3086,7 @@ test("enroll page shows templates created by the user", async ({ page }) => {
       body: JSON.stringify({
         profile: "production",
         used: instances.length,
-        max: 2,
+        max: 3,
         remaining: 0,
         reached: true,
         instances,
@@ -3038,6 +3095,7 @@ test("enroll page shows templates created by the user", async ({ page }) => {
   });
   await page.route("**/enroll/template/**", async (route) => {
     deletedTemplate = decodeURIComponent(new URL(route.request().url()).pathname.split("/").pop());
+    await deleteReady;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -3061,16 +3119,18 @@ test("enroll page shows templates created by the user", async ({ page }) => {
   }, {}, [], undefined, "/enroll.html");
 
   await expect(page.locator("#enrollInstances")).toBeVisible();
-  await expect(page.locator("#enrollInstances")).toContainText("2 / 2");
+  await expect(page.locator("#enrollInstances")).toContainText("3 / 3");
   await expect(page.locator("#enrollInstances")).toContainText("guide-template");
   await expect(page.locator("#enrollInstances")).toContainText("install-template");
+  await expect(page.locator("#enrollInstances")).toContainText("failed-template");
   await expect(page.locator("#enrollInstances")).toContainText("saashup/guide");
-  await expect(page.locator("#enrollInstances .order-instance-state")).toHaveText(["Ready", "Ready"]);
-  await expect(page.locator("#enrollInstances .enroll-template-count")).toHaveText(["2", "0"]);
+  await expect(page.locator("#enrollInstances .order-instance-state")).toHaveText(["Ready", "Ready", "Failed"]);
+  await expect(page.locator("#enrollInstances .enroll-template-count")).toHaveText(["2", "0", "0"]);
   await expect(page.locator("#enrollInstances .order-instance-delete").first()).toBeDisabled();
   await expect(page.locator("#enrollInstances .order-instance-delete").nth(1)).toBeEnabled();
+  await expect(page.locator("#enrollInstances .order-instance-delete").nth(2)).toBeEnabled();
   await expect(page.locator("#enrollInstances .order-instance-delete svg").first()).toBeVisible();
-  await expect(page.locator("#enrollInstances .order-template-copy").first()).toBeVisible();
+  await expect(page.locator("#enrollInstances .order-template-copy")).toHaveCount(2);
   const guideOrderUrl = `${page.url().replace(/\/enroll(?:\.html)?$/, "")}/order?template=guide-template&profile=production`;
   const guideOrderHtml = `<a href="${guideOrderUrl.replaceAll("&", "&amp;")}"><img src="${new URL(page.url()).origin}/assets/deploy.svg" alt="Deploy with SaaShup"></a>`;
   await expect(page.locator("#enrollInstances .enroll-template-title a").first()).toHaveAttribute("href", guideOrderUrl);
@@ -3082,6 +3142,9 @@ test("enroll page shows templates created by the user", async ({ page }) => {
     await dialog.accept();
   });
   await page.locator("#enrollInstances .order-instance-delete").nth(1).click();
+  await expect.poll(() => deletedTemplate).toBe("install-template");
+  await expect(page.locator("#enrollInstances")).not.toContainText("install-template");
+  resolveDelete();
   await expect(page.locator("#notif")).toContainText('Template "install-template" deleted');
   await expect(page.locator("#enrollInstances")).not.toContainText("install-template");
   await expect(page.locator("#instanceForm")).toBeHidden();

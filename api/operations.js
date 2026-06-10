@@ -1,6 +1,7 @@
 function registerOperationRoutes(app, {
   asyncOperation,
   authUserFromRequest,
+  bindPayloadsFromForm,
   currentEnrollmentUsage,
   currentUsage,
   deleteContainerVolumes,
@@ -107,13 +108,19 @@ function registerOperationRoutes(app, {
   }
 
   app.post("/create", oidcAuth.loginRequired, async (req, res) => {
-    const data = { ...selectedProfileConfig(req.body), ...req.body };
+    const data = selectedProfileConfig(req.body);
     const authUser = authUserFromRequest(req);
     data.saashup_owner = authUser.email || "";
     const orderProfile = data.profile || data.config_profile || "";
     const usage = await currentUsage(req, orderProfile);
     const isOrderRequest = req.body.order_request === "true";
     const isEnrollRequest = req.body.enroll_request === "true";
+    if (isEnrollRequest && bindPayloadsFromForm(data).length) {
+      return res.status(400).json({
+        code: "bind_mount_not_allowed",
+        detail: "Bind mounts are not allowed for enrollment. Use a named Docker volume like flowg-data:/data.",
+      });
+    }
     const enrollUsage = isEnrollRequest ? await currentEnrollmentUsage(req, orderProfile) : { reached: false };
     if (isOrderRequest && !await validateOrderTemplate(req, res, orderProfile)) return;
     if (isOrderRequest && usage.reached) {
@@ -137,7 +144,7 @@ function registerOperationRoutes(app, {
         const ready = await createInstance(req, data, operationContext);
         return res.status(ready ? 200 : 422).json({ status: ready ? "finished" : "failed" });
       } catch (error) {
-        if (isEnrollRequest) updateEnrollmentInstanceStatus(req, orderProfile, data.instance || "", "failed");
+        if (isEnrollRequest) updateEnrollmentInstanceStatus(req, orderProfile, data.template_name || data.order_template || data.instance || "", "failed");
         logLine(`ERROR : ${error.message || "operation failed"} payload=${JSON.stringify(error.payload || {}).slice(0, 240)}`);
         return res.status(error.statusCode || 502).json({ detail: error.message || "operation failed", payload: error.payload });
       }
@@ -147,19 +154,19 @@ function registerOperationRoutes(app, {
       try {
         await createInstance(req, data, operationContext);
       } catch (error) {
-        if (isEnrollRequest) updateEnrollmentInstanceStatus(req, orderProfile, data.instance || "", "failed");
+        if (isEnrollRequest) updateEnrollmentInstanceStatus(req, orderProfile, data.template_name || data.order_template || data.instance || "", "failed");
         throw error;
       }
     });
   });
 
   app.post("/recreate", (req, res) => {
-    const data = { ...selectedProfileConfig(req.body), ...req.body };
+    const data = selectedProfileConfig(req.body);
     asyncOperation(res, () => recreateContainers(data));
   });
 
   app.post("/restart", (req, res) => {
-    const data = { ...selectedProfileConfig(req.body), ...req.body };
+    const data = selectedProfileConfig(req.body);
     asyncOperation(res, async () => {
       const operation = ["start", "stop", "restart", "kill"].includes(data.operate_action) ? data.operate_action : "restart";
       const logPrefix = operation.toUpperCase();
@@ -179,7 +186,7 @@ function registerOperationRoutes(app, {
   });
 
   app.post("/delete", async (req, res) => {
-    const data = { ...selectedProfileConfig(req.body), ...req.body };
+    const data = selectedProfileConfig(req.body);
     if (waitForRequest(data)) {
       try {
         await runDeleteOperation(req, data);
@@ -193,7 +200,7 @@ function registerOperationRoutes(app, {
   });
 
   app.post("/refresh-hosts", (req, res) => {
-    const data = { ...selectedProfileConfig(req.body), ...req.body };
+    const data = selectedProfileConfig(req.body);
     asyncOperation(res, async () => {
       const client = new NetBoxClient(data);
       const hosts = await dockerHosts(client, data.tag);

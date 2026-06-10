@@ -363,7 +363,7 @@ function enrollmentTemplateItem({ name, template }, state, source) {
     image: template.image || "",
     version: template.version || "",
     template_url: template.template_url || template.saashup_template_url || "",
-    status: "ready",
+    status: template.status || "ready",
     source,
     instance_count: Math.max(discoveredCount, orderInstanceCountForTemplate(state, name)),
   };
@@ -966,7 +966,7 @@ async function recordEnrollment(req, profile, data) {
   if (templateName && useNetBox) {
     const templates = await templatesForRequest(req, profile);
     const existing = plainObject(templates[templateName]);
-    const nextTemplate = enrollmentTemplateFromData(data, existing, profile, creatorEmail);
+    const nextTemplate = { ...enrollmentTemplateFromData(data, existing, profile, creatorEmail), status: "creating" };
     const nextTemplates = {
       ...templates,
       [templateName]: nextTemplate,
@@ -980,7 +980,7 @@ async function recordEnrollment(req, profile, data) {
     writeState((state) => {
       state.templates = plainObject(state.templates);
       const existing = plainObject(state.templates[templateName]);
-      state.templates[templateName] = enrollmentTemplateFromData(data, existing, profile, creatorEmail);
+      state.templates[templateName] = { ...enrollmentTemplateFromData(data, existing, profile, creatorEmail), status: "creating" };
       return state;
     });
   }
@@ -1061,7 +1061,33 @@ function profilesWithSingleDefault(profiles) {
   }));
 }
 
-function updateEnrollmentInstanceStatus(req, profile, instance, status) {
+async function updateEnrollmentInstanceStatus(req, profile, templateName, status) {
+  const name = String(templateName || "").trim();
+  if (!name) return;
+
+  const useNetBox = profileUsesNetBoxTemplates(profile);
+  if (useNetBox) {
+    const templates = await templatesForRequest(req, profile);
+    const existingName = Object.keys(templates).find((item) => item.toLowerCase() === name.toLowerCase()) || name;
+    const existing = plainObject(templates[existingName]);
+    if (!Object.keys(existing).length) return;
+    const nextTemplates = {
+      ...templates,
+      [existingName]: { ...existing, status },
+    };
+    const nextWorkflows = workflowsWithEnrollmentTemplate(await workflowsForRequest(req, profile), profile, existingName, nextTemplates[existingName]);
+    const syncResult = await syncTemplatesToNetBoxConfigContext(req, profile, nextTemplates, nextWorkflows);
+    logLine(`ENROLL : template ${existingName} status ${status} synced to config context ${syncResult?.name || ""} action=${syncResult?.action || "none"}`);
+    return;
+  }
+
+  writeState((state) => {
+    state.templates = plainObject(state.templates);
+    const existingName = Object.keys(state.templates).find((item) => item.toLowerCase() === name.toLowerCase()) || name;
+    const existing = plainObject(state.templates[existingName]);
+    if (Object.keys(existing).length) state.templates[existingName] = { ...existing, status };
+    return state;
+  });
 }
 
 function exactContainerNameMatches(containers, name) {
@@ -1787,11 +1813,12 @@ registerLimitRoutes(app, {
 
 async function createInstance(req, data, { isOrderRequest, isEnrollRequest, orderProfile, authUser }) {
   data = normalizedSaashupLabelConfig(data);
+  const enrollTemplateName = isEnrollRequest ? templateNameFromEnrollmentData(data) : "";
   const client = new NetBoxClient(data);
   const hosts = await dockerHosts(client, data.tag);
   if (!hosts.length) {
     logLine(`CREATE : no Docker hosts found${data.tag ? ` with tag ${data.tag}` : ""}`);
-    if (isEnrollRequest) updateEnrollmentInstanceStatus(req, orderProfile, data.instance || "", "failed");
+    if (isEnrollRequest) await updateEnrollmentInstanceStatus(req, orderProfile, enrollTemplateName, "failed");
     return false;
   }
   let targetHosts = hosts;
@@ -1843,7 +1870,7 @@ async function createInstance(req, data, { isOrderRequest, isEnrollRequest, orde
     }
   }
   if (isEnrollRequest) {
-    updateEnrollmentInstanceStatus(req, orderProfile, data.instance || "", allReady ? "ready" : "failed");
+    await updateEnrollmentInstanceStatus(req, orderProfile, enrollTemplateName, allReady ? "ready" : "failed");
   }
   if (allHostsEnabled(data)) logLine(`CREATE : finished all hosts ready=${readyCount}/${targetHosts.length}`);
   return allReady;
@@ -1921,6 +1948,7 @@ async function deleteContainerVolumes(client, container) {
 registerOperationRoutes(app, {
   asyncOperation,
   authUserFromRequest,
+  bindPayloadsFromForm,
   createInstance,
   currentEnrollmentUsage,
   currentUsage,

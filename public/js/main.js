@@ -120,6 +120,7 @@ const enrollDockerRunNotices = [
   "Docker run port is required",
   "Docker run image version is required",
   "Docker run image version cannot be latest",
+  "Bind mounts are not allowed for enrollment. Use a named Docker volume like flowg-data:/data.",
 ];
 const enrollComposeNotices = [
   enrollMultiComposeNotice,
@@ -127,6 +128,7 @@ const enrollComposeNotices = [
   "Compose service must expose one port.",
   "Compose service image version is required",
   "Compose service image version cannot be latest",
+  "Bind mounts are not allowed for enrollment. Use a named Docker volume like flowg-data:/data.",
 ];
 
 let currentAction = (isOrderPage || isEnrollPage) ? "create" : (localStorage.getItem("current_action") || "config");
@@ -158,6 +160,7 @@ const orderDeletingInstances = new Set();
 let currentReportView = "images";
 let lastReportData = null;
 let orderStatusPollTimer = null;
+let enrollmentStatusPollTimer = null;
 let mailSettings = { owner_email_configured: false };
 let registryWebhookDefaultSecret = "";
 let registryWebhookDefaultLoaded = false;
@@ -2315,6 +2318,31 @@ function syncOrderStatusPolling() {
   }
 }
 
+async function refreshEnrollmentInstanceStatuses() {
+  if (!isEnrollPage || !enrollInstances) return;
+
+  try {
+    await refreshEnrollLimit({ showLoading: false, updateNotice: false });
+  } catch {
+    // Keep the current cards visible if a background refresh fails.
+  }
+}
+
+function syncEnrollmentStatusPolling() {
+  if (!isEnrollPage) return;
+  const hasPending = enrollmentCards.some(isPendingOrderInstance);
+
+  if (!hasPending && enrollmentStatusPollTimer) {
+    clearInterval(enrollmentStatusPollTimer);
+    enrollmentStatusPollTimer = null;
+    return;
+  }
+
+  if (hasPending && !enrollmentStatusPollTimer) {
+    enrollmentStatusPollTimer = setInterval(refreshEnrollmentInstanceStatuses, 3000);
+  }
+}
+
 function renderOrderInstances(instances = orderInstanceCards, limit = orderInstanceLimit) {
   if (!orderInstances) return;
 
@@ -2371,6 +2399,7 @@ function renderEnrollmentInstances(instances = enrollmentCards, limit = enrollme
   if (!enrollmentCards.length) {
     enrollInstances.classList.add("hidden");
     enrollInstances.replaceChildren();
+    syncEnrollmentStatusPolling();
     return;
   }
 
@@ -2393,11 +2422,13 @@ function renderEnrollmentInstances(instances = enrollmentCards, limit = enrollme
             <small>${escapeHtml(item.template_url || item.image || "SaaShup template")}</small>
             <small class="${orderInstanceStatusTextClass(item)}">${orderInstanceStatusText(item)}</small>
           </span>
-          ${isEnrollmentTemplateCard(item) ? `
+          ${isEnrollmentTemplateTerminal(item) ? `
             <span class="order-instance-actions">
-              <button type="button" class="icon-btn order-template-copy" data-order-template-copy="${escapeHtml(item.instance)}" title="Copy order button HTML" aria-label="Copy order button HTML for ${escapeHtml(item.instance)}">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="10" height="10" rx="2"></rect><path d="M5 15V7a2 2 0 0 1 2-2h8"></path></svg>
-              </button>
+              ${isEnrollmentTemplateReady(item) ? `
+                <button type="button" class="icon-btn order-template-copy" data-order-template-copy="${escapeHtml(item.instance)}" title="Copy order button HTML" aria-label="Copy order button HTML for ${escapeHtml(item.instance)}">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="10" height="10" rx="2"></rect><path d="M5 15V7a2 2 0 0 1 2-2h8"></path></svg>
+                </button>
+              ` : ""}
               <button type="button" class="icon-btn icon-btn-danger order-instance-delete" data-enroll-template-delete="${escapeHtml(item.instance)}" title="${escapeHtml(enrollTemplateDeleteTitle(item))}" aria-label="${escapeHtml(enrollTemplateDeleteTitle(item))}" ${enrollTemplateCanDelete(item) ? "" : "disabled"}>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>
               </button>
@@ -2407,15 +2438,24 @@ function renderEnrollmentInstances(instances = enrollmentCards, limit = enrollme
       `).join("")}
     </div>
   `;
+  syncEnrollmentStatusPolling();
 }
 
 function isEnrollmentTemplateCard(item) {
   return item?.source === "template" || item?.source === "netbox-template" || item?.source === "netbox-config-context";
 }
 
+function isEnrollmentTemplateReady(item) {
+  return isEnrollmentTemplateCard(item) && normalizedOrderInstanceStatus(item) === "ready";
+}
+
+function isEnrollmentTemplateTerminal(item) {
+  return isEnrollmentTemplateCard(item) && ["ready", "failed"].includes(normalizedOrderInstanceStatus(item));
+}
+
 function enrollTemplateCanDelete(item) {
   const hasTemplateSource = item?.source === "template" || item?.source === "netbox-template" || item?.source === "netbox-config-context";
-  return hasTemplateSource && Number(item?.instance_count || 0) <= 0;
+  return hasTemplateSource && ["ready", "failed"].includes(normalizedOrderInstanceStatus(item)) && Number(item?.instance_count || 0) <= 0;
 }
 
 function enrollTemplateDeleteTitle(item) {
@@ -2451,6 +2491,17 @@ async function deleteEnrollTemplate(name) {
   if (!templateName) return;
   if (!confirm(`Delete enrolled template "${templateName}"?`)) return;
 
+  const previousCards = enrollmentCards;
+  const previousLimit = enrollmentLimit;
+  const nextCards = previousCards.filter((item) => String(item?.instance || "").trim().toLowerCase() !== templateName.toLowerCase());
+  if (nextCards.length !== previousCards.length) {
+    renderEnrollmentInstances(nextCards, {
+      ...previousLimit,
+      used: Math.max(0, Number(previousLimit.used || previousCards.length) - (previousCards.length - nextCards.length)),
+      reached: false,
+    });
+  }
+
   try {
     const query = new URLSearchParams();
     const profile = selectedProfileCredentials().profile;
@@ -2466,6 +2517,8 @@ async function deleteEnrollTemplate(name) {
     await refreshEnrollLimit();
     setNotice(`Template "${templateName}" deleted`, "success");
   } catch (error) {
+    renderEnrollmentInstances(previousCards, previousLimit);
+    await refreshEnrollLimit({ showLoading: false, updateNotice: false });
     setNotice(error.message || "Template delete failed", "error");
   }
 }
@@ -2852,6 +2905,11 @@ function validateEnrollComposeText(composeText, { notify = true } = {}) {
     return false;
   }
 
+  if (templates[0].template.binds?.length) {
+    if (notify) setNotice("Bind mounts are not allowed for enrollment. Use a named Docker volume like flowg-data:/data.", "error", false);
+    return false;
+  }
+
   if (notify) {
     const notice = document.getElementById("notif");
     if (enrollComposeNotices.includes(notice?.textContent || "")) {
@@ -2882,7 +2940,8 @@ function validateEnrollRunText(runText, { notify = true } = {}) {
 
   const parsed = parseDockerRun(runText);
   const invalidVersion = String(parsed.version || "").trim().toLowerCase() === "latest";
-  const valid = Boolean(parsed.image && parsed.ports[0]?.value && parsed.version && !invalidVersion);
+  const hasBindMount = parsed.binds.length > 0;
+  const valid = Boolean(parsed.image && parsed.ports[0]?.value && parsed.version && !invalidVersion && !hasBindMount);
   if (!valid && notify) {
     const missingImage = !parsed.image;
     const missingPort = !parsed.ports[0]?.value;
@@ -2891,6 +2950,7 @@ function validateEnrollRunText(runText, { notify = true } = {}) {
     else if (missingImage) message = "Docker run image is required";
     else if (missingPort) message = "Docker run port is required";
     else if (invalidVersion) message = "Docker run image version cannot be latest";
+    else if (hasBindMount) message = "Bind mounts are not allowed for enrollment. Use a named Docker volume like flowg-data:/data.";
     setNotice(message, "error", false);
   } else if (valid && notify) {
     const notice = document.getElementById("notif");
@@ -2951,7 +3011,7 @@ function setEnrollSubmitInProgress(inProgress) {
   submitBtn.disabled = inProgress || submitBtn.disabled;
 }
 
-async function refreshEnrollLimit({ showLoading = true } = {}) {
+async function refreshEnrollLimit({ showLoading = true, updateNotice = true } = {}) {
   if (!isEnrollPage) return null;
 
   if (showLoading) showEnrollLoading();
@@ -2960,8 +3020,8 @@ async function refreshEnrollLimit({ showLoading = true } = {}) {
     const limit = await enrollLimitForProfile(selectedProfileCredentials().profile);
     renderEnrollmentInstances(limit.instances, limit);
     form?.classList.toggle("hidden", Boolean(limit.reached));
-    if (limit.reached) setNotice(enrollmentLimitMessage(limit), "error", false);
-    else if (!dockerRunInput?.value && !dockerComposeInput?.value) setNotice(enrollImportNotice, "info", false);
+    if (updateNotice && limit.reached) setNotice(enrollmentLimitMessage(limit), "error", false);
+    else if (updateNotice && !dockerRunInput?.value && !dockerComposeInput?.value) setNotice(enrollImportNotice, "info", false);
     updateEnrollSubmitState({ notify: false });
     hideEnrollLoading();
     return limit;

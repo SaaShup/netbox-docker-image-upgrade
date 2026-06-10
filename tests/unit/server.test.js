@@ -899,6 +899,7 @@ describe("server helpers", () => {
     expect(helpers.userOrderKey({ headers: {}, ip: "127.0.0.1" })).toBe("127.0.0.1");
     expect(helpers.userOrderKey({ headers: {} })).toBe("anonymous");
     expect(helpers.selectedProfileConfig({ image: "app" })).toMatchObject({ profile: "prod", config_profile: "prod", tag: "prod-tag", token: "profile-token", image: "app" });
+    expect(helpers.selectedProfileConfig({ profile: "prod", netbox: "", token: "" })).toMatchObject({ profile: "prod", config_profile: "prod", tag: "prod-tag", token: "profile-token" });
     expect(helpers.selectedProfileConfig({ profile: "missing" })).toMatchObject({ profile: "missing", config_profile: "missing", token: "base-token" });
   });
 
@@ -969,6 +970,11 @@ describe("server helpers", () => {
     expect(calls.filter((call) => call.url.includes("/api/paged/")).map((call) => call.url)).toEqual([
       "https://netbox.example.com/api/paged/?limit=1",
       "https://netbox.example.com/api/paged/?page=2",
+    ]);
+    calls.length = 0;
+    await expect(client.list("/api/paged/", { limit: 1 }, { paginate: false })).resolves.toEqual([{ id: 3 }]);
+    expect(calls.filter((call) => call.url.includes("/api/paged/")).map((call) => call.url)).toEqual([
+      "https://netbox.example.com/api/paged/?limit=1",
     ]);
 
     const proxyClient = new NetBoxClient({ netbox: "https://netbox.example.com", token: "secret", proxy: "http://127.0.0.1:3128" });

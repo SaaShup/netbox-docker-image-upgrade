@@ -68,6 +68,21 @@ function templateEntryByName(templates, name) {
   return match ? { name: match, template: objectValue(templateMap[match]) } : null;
 }
 
+function workflowsWithoutTemplate(workflows, templateName, plainObject) {
+  const deleted = String(templateName || "").trim().toLowerCase();
+  if (!deleted) return plainObject(workflows);
+  return Object.fromEntries(Object.entries(plainObject(workflows))
+    .map(([name, workflow]) => {
+      const entry = plainObject(workflow);
+      if (!Array.isArray(entry.steps)) return [name, entry];
+      const steps = entry.steps.filter((step) => (
+        String((typeof step === "string" ? step : plainObject(step).template) || "").trim().toLowerCase() !== deleted
+      ));
+      return [name, { ...entry, steps }];
+    })
+    .filter(([, workflow]) => !Array.isArray(workflow.steps) || workflow.steps.length));
+}
+
 function registerConfigRoutes(app, {
   appOwnerEmail,
   authUserFromRequest,
@@ -293,12 +308,14 @@ function registerConfigRoutes(app, {
     if (profileConfig.netbox && profileConfig.token) {
       const nextCatalogTemplates = { ...catalogTemplates };
       delete nextCatalogTemplates[entry.name];
-      const syncResult = await syncTemplatesToNetBoxConfigContext(req, profile, nextCatalogTemplates, await workflowsForRequest(req, profile));
+      const nextCatalogWorkflows = workflowsWithoutTemplate(await workflowsForRequest(req, profile), entry.name, plainObject);
+      const syncResult = await syncTemplatesToNetBoxConfigContext(req, profile, nextCatalogTemplates, nextCatalogWorkflows);
       return res.json({ deleted: true, template: entry.name, template_catalog_sync: syncResult });
     }
 
     writeState((state) => {
       state.templates = plainObject(state.templates);
+      state.workflows = workflowsWithoutTemplate(state.workflows, entry.name, plainObject);
       delete state.templates[entry.name];
       return state;
     });
