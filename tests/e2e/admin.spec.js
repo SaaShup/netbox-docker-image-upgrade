@@ -2428,8 +2428,7 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
   await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My images" })).toHaveAttribute("href", "/enroll");
   await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My images" })).toHaveAttribute("aria-current", "page");
   await expect(page.locator("#dockerRunApplyBtn")).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "Back to home" })).toHaveClass(/btn-secondary/);
-  await expect(page.getByRole("link", { name: "Back to home" })).toHaveAttribute("href", "/");
+  await expect(page.getByRole("link", { name: "Back to home" })).toHaveCount(0);
   await expect(page.locator("#submitBtn")).toBeDisabled();
   await expect(page.locator("#submitBtn")).toHaveText("Enroll image");
   await expect(page.locator("#dockerRunInput")).toHaveAttribute("placeholder", /-p 8080:3000/);
@@ -3625,8 +3624,7 @@ test("order page informs the user when the max instance limit is reached", async
   await expect(page.locator(".order-instance-card").nth(2).locator(".order-instance-state")).toHaveText("Failed");
   await expect(page.locator("#orderStatus")).toHaveClass(/error/);
   await expect(page.locator("#orderStatus")).toContainText("You have reached your maximum of 3 instances for this config.");
-  await expect(page.locator("#orderStatus .order-status-home")).toHaveText("Back to home");
-  await expect(page.locator("#orderStatus .order-status-home")).toHaveAttribute("href", "/demo-home");
+  await expect(page.locator("#orderStatus .order-status-home")).toHaveCount(0);
   expect(createCalled).toBe(false);
 
   page.on("dialog", (dialog) => dialog.accept());
@@ -3637,9 +3635,7 @@ test("order page informs the user when the max instance limit is reached", async
   await expect(page.locator(".order-instance-card").nth(1).locator(".order-instance-status-creating")).toBeVisible();
   await expect(page.locator(".order-instance-card").nth(1).locator(".order-instance-state")).toHaveText("Creating");
   await expect(page.locator("#orderStatus")).toContainText("Delete requested for demo-1.daily.paashup.cloud.");
-  await expect(page.locator("#orderStatus .order-status-home")).toHaveText("Back to home");
-  await page.locator("#orderStatus .order-status-home").click();
-  await expect(page).toHaveURL(/\/demo-home$/);
+  await expect(page.locator("#orderStatus .order-status-home")).toHaveCount(0);
 });
 
 test("order page shows oauth user and logs out through app auth", async ({ page }) => {
@@ -3795,8 +3791,8 @@ test("order page hides the order form when the requested template is missing", a
 
   await expect(page.locator("#orderActions")).toBeHidden();
   await expect(page.locator("#orderStatus")).toHaveClass(/error/);
-  await expect(page.locator("#orderStatus")).toHaveText('Template "missing" not foundBack to home');
-  await expect(page.locator("#orderStatus .order-status-home")).toHaveAttribute("href", "/");
+  await expect(page.locator("#orderStatus")).toHaveText('Template "missing" not found');
+  await expect(page.locator("#orderStatus .order-status-home")).toHaveCount(0);
 });
 
 test("order page uses the server default profile for bare template links", async ({ page }) => {
@@ -3949,8 +3945,8 @@ test("order page hides the order form when the requested template is disabled", 
 
   await expect(page.locator("#orderActions")).toBeHidden();
   await expect(page.locator("#orderStatus")).toHaveClass(/error/);
-  await expect(page.locator("#orderStatus")).toHaveText('Template "test" is disabled for ordersBack to home');
-  await expect(page.locator("#orderStatus .order-status-home")).toHaveAttribute("href", "https://templates.example.com/test");
+  await expect(page.locator("#orderStatus")).toHaveText('Template "test" is disabled for orders');
+  await expect(page.locator("#orderStatus .order-status-home")).toHaveCount(0);
 });
 
 test("order page displays an error when create is not accepted", async ({ page }) => {

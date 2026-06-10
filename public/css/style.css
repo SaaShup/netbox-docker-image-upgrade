@@ -1865,17 +1865,6 @@ body.enroll-page .notice {
   font-size: 1rem;
 }
 
-.enroll-home-btn {
-  border: 1px solid var(--border);
-  background: var(--panel-soft);
-  box-shadow: none;
-}
-
-.enroll-home-btn:hover {
-  background: var(--button-soft);
-  border-color: color-mix(in srgb, var(--primary) 24%, var(--border));
-}
-
 body.order-page .order-loading,
 body.enroll-page .order-loading {
   display: flex;
@@ -1920,45 +1909,6 @@ body.order-page .order-status {
   font-size: 1.05rem;
   font-weight: 700;
   text-align: center;
-}
-
-body.order-page .order-status.has-action {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-}
-
-body.order-page .order-status-home {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 46px;
-  padding: 0 20px;
-  border: 1px solid rgba(220, 38, 38, 0.30);
-  border-radius: 999px;
-  color: #991b1b;
-  background: rgba(220, 38, 38, 0.08);
-  box-shadow: 0 10px 22px rgba(220, 38, 38, 0.12);
-  text-decoration: none;
-}
-
-body.order-page .order-status-home::before {
-  content: "←";
-  font-size: 1.05rem;
-  line-height: 1;
-}
-
-body.order-page .order-status-home:hover {
-  color: white;
-  background: var(--danger);
-  box-shadow: 0 12px 26px rgba(220, 38, 38, 0.20);
-}
-
-body.order-page .order-status-home:focus-visible {
-  outline: 3px solid rgba(220, 38, 38, 0.26);
-  outline-offset: 3px;
 }
 
 body.order-page .order-status.hidden {

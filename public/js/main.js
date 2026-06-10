@@ -2154,22 +2154,14 @@ function orderHomeUrl() {
   return safeNavigationUrl(createTemplateEntry(orderTemplateName)?.template?.template_url);
 }
 
-function orderHomeLink() {
-  const homeLink = document.createElement("a");
-  homeLink.href = orderHomeUrl();
-  homeLink.className = "btn btn-secondary order-status-home";
-  homeLink.textContent = "Back to home";
-  return homeLink;
-}
-
 function setOrderActionStatus(messageText, type, reason) {
   if (!orderStatus) return;
 
   const message = document.createElement("span");
   message.textContent = messageText;
-  orderStatus.className = `order-status ${type} has-action`;
+  orderStatus.className = `order-status ${type}`;
   orderStatus.dataset.reason = reason;
-  orderStatus.replaceChildren(message, orderHomeLink());
+  orderStatus.replaceChildren(message);
 }
 
 function setOrderDeleteStatus(instance) {
