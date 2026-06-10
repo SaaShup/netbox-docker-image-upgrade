@@ -1027,7 +1027,7 @@ describe("server helpers", () => {
     await expect(helpers.createDnsRecord(readyClient, { instance: "app", dns_name: "app.example.com/dashboard" }, { name: "host" })).resolves.toBeUndefined();
     expect(logs).toContain("CREATE : Cloudflare DNS record skipped for app.example.com/dashboard because it includes path info");
     expect(readyClient.request).toHaveBeenCalledWith("POST", "/api/plugins/cloudflare/dns/records/", expect.objectContaining({
-      body: expect.objectContaining({ name: "app.example.com" }),
+      body: expect.objectContaining({ name: "app" }),
     }));
     await expect(helpers.deleteDnsRecord(readyClient, { instance: "app.example.com" })).resolves.toBeUndefined();
 
@@ -1103,6 +1103,13 @@ describe("server helpers", () => {
 
     await expect(helpers.createDnsRecord(readyClient, { instance: "shortname" }, { name: "host" })).resolves.toBeUndefined();
     await expect(helpers.createDnsRecord(readyClient, { instance: "primitive.example.com" }, "primitive-host")).resolves.toBeUndefined();
+    const wrongZoneClient = {
+      list: vi.fn(async () => [{ id: 52, name: "paashup.cloud" }]),
+      request: vi.fn(),
+    };
+    await expect(helpers.createDnsRecord(wrongZoneClient, { instance: "app.saashup.cloud" }, { name: "host" })).resolves.toBeUndefined();
+    expect(wrongZoneClient.request).not.toHaveBeenCalled();
+    expect(logs.join("\n")).toContain("Cloudflare zone not found for saashup.cloud while creating app.saashup.cloud count=1 returned=paashup.cloud");
     await expect(helpers.createDnsRecord({ list: vi.fn(async () => []) }, { instance: "app.missing" }, { name: "host" })).resolves.toBeUndefined();
     await expect(helpers.createDnsRecord({ list: vi.fn(async () => { throw new Error("zone down"); }) }, { instance: "app.example.com" }, { name: "host" })).resolves.toBeUndefined();
     await expect(helpers.createDnsRecord({ list: vi.fn(async () => { throw {}; }) }, { instance: "app.example.com" }, { name: "host" })).resolves.toBeUndefined();

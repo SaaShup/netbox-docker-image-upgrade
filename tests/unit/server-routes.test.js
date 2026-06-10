@@ -584,7 +584,7 @@ function setupOrderWorkflowNetBoxFetch(fetchMock) {
       dnsRecordCreated = true;
       expect(body).toMatchObject({
         zone: 51,
-        name: "tiles-order.example.com",
+        name: "tiles-order",
         type: "CNAME",
         content: "host-a.example.com",
         proxied: true,
