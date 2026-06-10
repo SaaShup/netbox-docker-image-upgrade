@@ -5345,16 +5345,14 @@ function versionsForImage(image) {
     .sort(compareVersionsDesc);
 }
 
-function providerHasImageVersion(image, version) {
-  const imageRef = splitImageRef(image);
-  const requestedImage = imageRef.image;
-  const requestedVersion = String(version || imageRef.version || "").trim();
-  if (!requestedImage || !requestedVersion) return false;
-
-  return imageRecords.some((item) => (
-    imageNameFromItem(item) === requestedImage
-    && imageVersionFromItem(item) === requestedVersion
-  ));
+async function readRegistryLookupPayload(response) {
+  const text = await response.text().catch(() => "");
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { detail: text.trim() };
+  }
 }
 
 async function verifyEnrollImageAvailable() {
@@ -5367,13 +5365,18 @@ async function verifyEnrollImageAvailable() {
   setEnrollCheckingImage(true);
 
   try {
-    const loaded = await refreshImages({ notify: false });
-    if (!loaded) {
-      setNotice("Image registry check failed", "error", false);
+    const query = new URLSearchParams({ image: `${requestedImage}:${requestedVersion}` });
+    const response = await fetch(`/registry/lookup?${query.toString()}`, {
+      headers: { Accept: "application/json" },
+    });
+    const data = await readRegistryLookupPayload(response);
+
+    if (!response.ok) {
+      setNotice(data.detail || `Image registry check failed (${response.status})`, "error", false);
       return false;
     }
 
-    if (!providerHasImageVersion(requestedImage, requestedVersion)) {
+    if (!data.exists) {
       setNotice(`Image ${requestedImage}:${requestedVersion} was not found in the provider registry.`, "error", false);
       return false;
     }

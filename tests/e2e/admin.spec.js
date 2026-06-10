@@ -2367,11 +2367,11 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
       body: "{}",
     });
   });
-  await page.route("**/images?**", async (route) => {
+  await page.route("**/registry/lookup?**", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify([{ name: "saashup/guide", version: "v1.2.3" }]),
+      body: JSON.stringify({ exists: true, image: "saashup/guide:v1.2.3" }),
     });
   });
   await page.route("**/enroll/limit?**", async (route) => {
@@ -2548,11 +2548,11 @@ test("enroll page restores enrolled templates when creation fails", async ({ pag
       body: JSON.stringify({ detail: "Image is already enrolled." }),
     });
   });
-  await page.route("**/images?**", async (route) => {
+  await page.route("**/registry/lookup?**", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify([{ name: "saashup/guide", version: "v1.2.3" }]),
+      body: JSON.stringify({ exists: true, image: "saashup/guide:v1.2.3" }),
     });
   });
   await page.route("**/enroll/limit?**", async (route) => {
@@ -2630,12 +2630,12 @@ test("enroll page checks provider registry before creating", async ({ page }) =>
       body: "{}",
     });
   });
-  await page.route("**/images?**", async (route) => {
+  await page.route("**/registry/lookup?**", async (route) => {
     await imagesReady;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify([{ name: "saashup/other", version: "v9.9.9" }]),
+      body: JSON.stringify({ exists: false, image: "saashup/guide:v1.2.3" }),
     });
   });
   await page.route("**/enroll/limit?**", async (route) => {
@@ -2696,6 +2696,82 @@ test("enroll page checks provider registry before creating", async ({ page }) =>
   expect(createCalled).toBe(false);
 });
 
+test("enroll page accepts Docker Hub image that exists in registry but is not pulled", async ({ page }) => {
+  let createBody = "";
+  let registryImage = "";
+
+  await page.route("**/session/user", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ email: "ada@example.com", user: "ada", name: "Ada Lovelace" }),
+    });
+  });
+  await page.route("**/create", async (route) => {
+    createBody = route.request().postData() || "";
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
+  await page.route("**/registry/lookup?**", async (route) => {
+    registryImage = new URL(route.request().url()).searchParams.get("image") || "";
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ exists: true, image: registryImage }),
+    });
+  });
+  await page.route("**/enroll/limit?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        profile: "production",
+        used: createBody ? 1 : 0,
+        max: 2,
+        remaining: createBody ? 1 : 2,
+        reached: false,
+        instances: createBody ? [{
+          instance: "flowg",
+          dns_name: "flowg.example.com",
+          image: "linksociety/flowg",
+          version: "v0.58.0",
+          status: "ready",
+        }] : [],
+      }),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "production",
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "example.com",
+        tag: "production",
+        enrollment_limit: 2,
+        saashup_default: true,
+      },
+    }),
+  }, {}, [
+    { instance: "flowg", networks: ["bridge", "traefik-net"] },
+  ], undefined, "/enroll.html");
+
+  await page.locator("#dockerRunInput").fill("docker run -p 5080:5080 -v ./data:/data linksociety/flowg:v0.58.0");
+  await expect(page.locator("#submitBtn")).toBeEnabled();
+  await page.locator("#submitBtn").click();
+
+  await expect.poll(() => registryImage).toBe("linksociety/flowg:v0.58.0");
+  await expect.poll(() => createBody).toContain("image=linksociety%2Fflowg");
+  expect(createBody).toContain("version=v0.58.0");
+  expect(createBody).toContain("port_value=5080");
+  expect(createBody).toContain("enroll_request=true");
+});
+
 test("enroll page restores enrolled templates after creation when limit remains available", async ({ page }) => {
   let createBody = "";
   let enrolledGuide = false;
@@ -2721,11 +2797,11 @@ test("enroll page restores enrolled templates after creation when limit remains 
       body: "{}",
     });
   });
-  await page.route("**/images?**", async (route) => {
+  await page.route("**/registry/lookup?**", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify([{ name: "saashup/guide", version: "v1.2.3" }]),
+      body: JSON.stringify({ exists: true, image: "saashup/guide:v1.2.3" }),
     });
   });
   await page.route("**/enroll/limit?**", async (route) => {

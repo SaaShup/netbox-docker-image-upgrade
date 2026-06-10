@@ -873,6 +873,32 @@ describe("server routes", () => {
       });
   });
 
+  test("app registry lookup works without public API configuration", async () => {
+    const { request, setRegistryFetchForTests } = await loadServer();
+    setRegistryFetchForTests(vi.fn(async (url, options = {}) => {
+      const parsed = new URL(String(url));
+      if (parsed.hostname === "auth.docker.io") return jsonResponse({ token: "registry-token" });
+      if (parsed.hostname === "registry-1.docker.io") {
+        return options?.headers?.Authorization
+          ? jsonResponse({ schemaVersion: 2 })
+          : registryChallengeResponse('Bearer realm="https://auth.docker.io/token",service="registry.docker.io",scope="repository:linksociety/flowg:pull"');
+      }
+      return jsonResponse({}, 404);
+    }));
+
+    await request.get("/registry/lookup")
+      .query({ image: "linksociety/flowg:v0.58.0" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toMatchObject({
+          registry: "docker.io",
+          name: "linksociety/flowg",
+          tag: "v0.58.0",
+          exists: true,
+        });
+      });
+  });
+
   test("public APIs allow configured Hugo origin and reject other origins", async () => {
     const { request, setRegistryFetchForTests } = await loadServer({ publicApiAllowedOrigins: "https://www.saashup.com" });
     setRegistryFetchForTests(vi.fn(async (url, options = {}) => {

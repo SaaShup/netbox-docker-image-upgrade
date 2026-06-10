@@ -59,11 +59,27 @@ function registerNetBoxRoutes(app, {
       const result = await checkRegistryImageExists(req.query.image || req.query.ref || "");
       res.json(result);
     } catch (error) {
-      res.status(error.statusCode || 502).json({ detail: error.message || "registry check failed" });
+      res.status(error.statusCode || 502).json({ detail: registryCheckErrorMessage(error) });
+    }
+  });
+
+  app.get("/registry/lookup", async (req, res) => {
+    try {
+      const result = await checkRegistryImageExists(req.query.image || req.query.ref || "");
+      res.json(result);
+    } catch (error) {
+      res.status(error.statusCode || 502).json({ detail: registryCheckErrorMessage(error) });
     }
   });
 
   app.get("/report/images", requireAdmin, reportImages);
+}
+
+function registryCheckErrorMessage(error) {
+  if (error?.message === "fetch failed" && error?.cause?.message) {
+    return `registry check failed: ${error.cause.message}`;
+  }
+  return error?.message || "registry check failed";
 }
 
 module.exports = { registerNetBoxRoutes };
