@@ -1,0 +1,125 @@
+function createOrderHelpers({
+  authUserFromRequest,
+  containerEnvValue,
+  hostIdQuery,
+  imagePartsFromContainer,
+  isContainerStopped,
+  isReadyContainer,
+  labelMapFromContainer,
+  logLine,
+  maxInstancesValue,
+  NetBoxClient,
+  orderTemplateEnabled,
+  ownerEnvVarName,
+  plainObject,
+  selectedProfileConfig,
+  templateEntryForRequest,
+  templateLabelValue,
+  valueText,
+}) {
+  function orderInstanceStatus(container) {
+    if (isReadyContainer(container)) return "ready";
+    if (isContainerStopped(container)) return "failed";
+    return "creating";
+  }
+
+  function orderInstanceFromContainer(container, labels, ownerEnvNameValue, profile) {
+    const labelOwnerEnvName = templateLabelValue(labels, "owner_env_var") || ownerEnvNameValue;
+    const owner = String(templateLabelValue(labels, "owner") || templateLabelValue(labels, "creator") || containerEnvValue(container, labelOwnerEnvName)).trim().toLowerCase();
+    const { image, version } = imagePartsFromContainer(container, labels);
+    const name = templateLabelValue(labels, "dns_name") || valueText(container.display || container.name || container.id);
+    return {
+      instance: name,
+      dns_name: name,
+      template: templateLabelValue(labels, "name") || templateLabelValue(labels, "template") || "",
+      image,
+      version,
+      status: orderInstanceStatus(container),
+      profile,
+      owner,
+      source: "netbox-label",
+    };
+  }
+
+  async function orderInstancesForUser(req, profile, requestedTemplate = "") {
+    const creator = String(authUserFromRequest(req).email || authUserFromRequest(req).user || "").trim().toLowerCase();
+    if (!creator) return [];
+
+    const config = selectedProfileConfig({ profile, config_profile: profile });
+    if (!config.netbox || !config.token) return [];
+
+    try {
+      const client = new NetBoxClient(config);
+      const hostFilter = await hostIdQuery(client, config.tag);
+      if (hostFilter.host_id === "__none__") return [];
+
+      const requested = String(requestedTemplate || "").trim().toLowerCase();
+      const ownerEnvNameValue = ownerEnvVarName(config);
+      const containers = await client.list("/api/plugins/docker/containers/", { limit: 1000, ...hostFilter });
+      return containers
+        .map((container) => {
+          const labels = labelMapFromContainer(container);
+          return orderInstanceFromContainer(container, labels, ownerEnvNameValue, profile);
+        })
+        .filter((item) => item.owner === creator)
+        .filter((item) => item.template)
+        .filter((item) => !requested || String(item.template || "").trim().toLowerCase() === requested)
+        .map(({ owner, ...item }) => item)
+        .sort((left, right) => String(left.instance || "").localeCompare(String(right.instance || "")));
+    } catch (error) {
+      logLine(`ORDER : NetBox label discovery failed ${error.message || "unknown error"}`);
+      return [];
+    }
+  }
+
+  async function currentUsage(req, profile) {
+    const body = plainObject(req.body);
+    const requestedTemplate = String(req.query.template || body.order_template || "").trim();
+    const template = plainObject((await templateEntryForRequest(req, profile, requestedTemplate))?.template);
+    const max = maxInstancesValue(template.max_instances ?? body.max_instances ?? 1);
+    const visibleInstances = await orderInstancesForUser(req, profile, requestedTemplate);
+    const used = visibleInstances.length;
+    return {
+      profile,
+      template: requestedTemplate,
+      used,
+      total_used: visibleInstances.length || used,
+      max,
+      remaining: Math.max(0, max - used),
+      reached: used >= max,
+      instances: visibleInstances,
+    };
+  }
+
+  async function validateOrderTemplate(req, res, profile = "") {
+    const requestedName = String(req.body.order_template || "").trim();
+    if (!requestedName) return true;
+
+    const entry = await templateEntryForRequest(req, profile, requestedName);
+    if (!entry) {
+      return true;
+    }
+
+    if (!orderTemplateEnabled(entry.template.saashup_enabled, true)) {
+      res.status(403).json({ code: "template_disabled", detail: `Template "${entry.name}" is disabled for orders` });
+      return false;
+    }
+
+    return true;
+  }
+
+  return {
+    currentUsage,
+    validateOrderTemplate,
+  };
+}
+
+function registerOrderRoutes(app, {
+  currentUsage,
+}) {
+  app.get("/order/limit", async (req, res) => {
+    res.json(await currentUsage(req, req.query.profile || ""));
+  });
+}
+
+module.exports = { createOrderHelpers, registerOrderRoutes };
