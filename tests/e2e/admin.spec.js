@@ -2486,6 +2486,23 @@ test("catalog page shows the account menu", async ({ page }) => {
       body: JSON.stringify({ email: "ada@example.com", user: "ada", name: "Ada Lovelace" }),
     });
   });
+  await page.route("**/enroll/limit**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        profile: "production",
+        used: 2,
+        max: 4,
+        remaining: 2,
+        reached: false,
+        instances: [
+          { instance: "flowg", image: "linksociety/flowg", version: "v0.58.0", status: "ready", source: "netbox-template", instance_count: 1 },
+          { instance: "nginx", image: "nginx", version: "1.27", status: "failed", source: "template", instance_count: 0 },
+        ],
+      }),
+    });
+  });
 
   await openAdmin(page, {
     profile: "production",
@@ -2502,7 +2519,28 @@ test("catalog page shows the account menu", async ({ page }) => {
   }, {}, [], undefined, "/catalog");
 
   await expect(page).toHaveURL(/\/catalog$/);
-  await expect(page.locator("#catalogTitle")).toHaveText("Template catalog");
+  await expect(page.locator(".catalog-eyebrow")).toHaveText("Template catalog");
+  await expect(page.locator(".catalog-summary")).toHaveCount(0);
+  await expect(page.locator("#catalogList")).toContainText("flowg");
+  await expect(page.locator("#catalogList")).toContainText("linksociety/flowg:v0.58.0");
+  await expect(page.locator("#catalogList")).toContainText("Ready");
+  await expect(page.locator("#catalogList")).toContainText("nginx:1.27");
+  await expect(page.locator("#catalogList")).toContainText("Failed");
+  await expect(page.locator("#clearCacheBtn")).toHaveCount(0);
+  await expect(page.locator("#logoutBtn")).toBeVisible();
+  await expect(page.locator(".catalog-card").first()).toContainText("production");
+  await expect(page.locator(".catalog-card").first()).toContainText("Template");
+  await expect(page.locator(".catalog-status-ready")).toHaveText("Ready");
+  await expect(page.locator(".catalog-status-failed")).toHaveText("Failed");
+  await expect(page.locator(".catalog-card").first().getByRole("link", { name: "flowg" })).toHaveAttribute("href", /\/order\?template=flowg&profile=production$/);
+  await page.locator("#catalogSearch").fill("nginx");
+  await expect(page.locator(".catalog-card")).toHaveCount(1);
+  await expect(page.locator(".catalog-card")).toContainText("nginx:1.27");
+  await page.locator("#catalogSearch").fill("");
+  await page.locator("#catalogSort").selectOption("usage");
+  await expect(page.locator(".catalog-card").first()).toContainText("flowg");
+  await page.locator("#catalogSort").selectOption("image");
+  await expect(page.locator(".catalog-card").first()).toContainText("linksociety/flowg:v0.58.0");
   await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My instances" })).toHaveAttribute("href", "/order");
   await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My images" })).toHaveAttribute("href", "/enroll");
   await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "Catalog" })).toHaveAttribute("href", "/catalog");
@@ -3091,11 +3129,13 @@ test("enroll page shows templates created by the user", async ({ page }) => {
   });
   await page.addInitScript(() => {
     window.__copiedOrderLink = "";
+    window.__copiedText = "";
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: {
         writeText: async (text) => {
           window.__copiedOrderLink = text;
+          window.__copiedText = text;
         },
       },
     });
@@ -3109,7 +3149,7 @@ test("enroll page shows templates created by the user", async ({ page }) => {
   });
   await page.route("**/enroll/limit?**", async (route) => {
     const instances = [
-      { instance: "guide-template", image: "saashup/guide", version: "v1.2.3", status: "ready", source: "template", instance_count: 2 },
+      { instance: "guide-template", image: "saashup/guide", version: "v1.2.3", status: "ready", source: "template", registry_webhook_secret: "guide-secret", instance_count: 2 },
       ...(deletedTemplate === "install-template" ? [] : [{ instance: "install-template", image: "saashup/install", version: "v4.0.0", status: "ready", source: "template", instance_count: 0 }]),
       ...(deletedTemplate === "failed-template" ? [] : [{ instance: "failed-template", image: "saashup/failed", version: "v9.0.0", status: "failed", source: "template", instance_count: 0 }]),
     ];
@@ -3164,12 +3204,20 @@ test("enroll page shows templates created by the user", async ({ page }) => {
   await expect(page.locator("#enrollInstances .order-instance-delete").nth(2)).toBeEnabled();
   await expect(page.locator("#enrollInstances .order-instance-delete svg").first()).toBeVisible();
   await expect(page.locator("#enrollInstances .order-template-copy")).toHaveCount(2);
+  await expect(page.locator("#enrollInstances [data-template-webhook-copy]")).toHaveCount(2);
   const guideOrderUrl = `${page.url().replace(/\/enroll(?:\.html)?$/, "")}/order?template=guide-template&profile=production`;
   const guideOrderHtml = `<a href="${guideOrderUrl.replaceAll("&", "&amp;")}"><img src="${new URL(page.url()).origin}/assets/deploy.svg" alt="Deploy with SaaShup"></a>`;
+  const guideWebhookUrl = `${new URL(page.url()).origin}/registry-webhook/production/guide-template/guide-secret`;
   await expect(page.locator("#enrollInstances .enroll-template-title a").first()).toHaveAttribute("href", guideOrderUrl);
   await page.locator("#enrollInstances .order-template-copy").first().click();
   await expect(page.locator("#notif")).toContainText('Order button HTML copied for "guide-template"');
   await expect.poll(() => page.evaluate(() => window.__copiedOrderLink)).toBe(guideOrderHtml);
+  await page.locator("#enrollInstances [data-template-webhook-copy]").first().click();
+  await expect(page.locator("#notif")).toContainText('Webhook URL copied for "guide-template"');
+  await expect.poll(() => page.evaluate(() => window.__copiedText)).toBe(guideWebhookUrl);
+  await page.locator("#enrollInstances [data-template-webhook-copy]").nth(1).click();
+  await expect(page.locator("#notif")).toContainText('Webhook URL copied for "install-template"');
+  await expect.poll(() => page.evaluate(() => window.__copiedText)).toBe(`${new URL(page.url()).origin}/registry-webhook/production/install-template/hook-secret`);
   page.once("dialog", async (dialog) => {
     expect(dialog.message()).toBe('Delete enrolled template "install-template"?');
     await dialog.accept();
