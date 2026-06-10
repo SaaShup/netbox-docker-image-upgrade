@@ -534,7 +534,14 @@ test("admin profile clear cache button clears local storage", async ({ page }) =
 });
 
 test("admin sidebar can collapse and expand", async ({ page }) => {
-  await page.goto("/admin");
+  await page.route("**/mail-settings", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ owner_email_configured: false }),
+    });
+  });
+  await openAdmin(page, {});
   const shell = page.locator(".app-shell");
   const loader = page.locator("#appBootLoader");
   const toggle = page.locator("#sidebarToggle");
@@ -3198,6 +3205,20 @@ test("order page shows oauth user and logs out through app auth", async ({ page 
       body: JSON.stringify([
         { name: "saashup/demo", version: "v1.0.0" },
       ]),
+    });
+  });
+  await page.route("**/order/limit?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        instances: [],
+        max: 1,
+        profile: "demo",
+        remaining: 1,
+        reached: false,
+        used: 0,
+      }),
     });
   });
 

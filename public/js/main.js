@@ -6010,8 +6010,9 @@ async function initializePage() {
 
     if (isOrderPage) {
       hideOrderActions();
+      const authReady = loadAuthUser();
       const orderReady = await applyOrderTemplate({ reveal: false });
-      await loadAuthUser();
+      await authReady;
       hideOrderLoading();
       if (orderReady) showOrderActions();
     } else if (actionFromUrl) {
