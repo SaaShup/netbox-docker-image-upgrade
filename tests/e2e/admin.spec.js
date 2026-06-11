@@ -458,6 +458,14 @@ test("admin sidebar can collapse and expand", async ({ page }) => {
   await expect(loader).toBeHidden();
   await expect(page.locator("body")).not.toHaveClass(/app-booting/);
   await expect(shell).not.toHaveAttribute("aria-busy", "true");
+  await expect(page.locator(".sidebar .nav")).toHaveCSS("display", "grid");
+
+  const templateItem = page.locator("#menu_template");
+  await templateItem.hover();
+  await expect(templateItem).toHaveCSS("background-color", "rgba(255, 255, 255, 0.16)");
+  await expect(templateItem).toHaveCSS("border-color", "rgba(255, 255, 255, 0.18)");
+  await expect(templateItem).toHaveCSS("transform", /matrix\(1, 0, 0, 1, 3, 0\)/);
+
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await toggle.click();
   await expect(shell).toHaveClass(/sidebar-collapsed/);
