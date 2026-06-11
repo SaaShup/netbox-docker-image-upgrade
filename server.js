@@ -951,6 +951,7 @@ registerSystemRoutes(app, {
   packageJson,
   publicPath,
   requireAdmin,
+  isAdminAllowed,
 });
 registerMetricsRoutes(app, { metrics, packageJson, startedAt });
 
