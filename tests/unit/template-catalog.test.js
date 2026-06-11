@@ -32,6 +32,9 @@ describe("template catalog helpers", () => {
 
     const defaultName = helpers.templateCatalogContextName("!!!", {});
     expect(defaultName).toMatch(/^saashup-template-catalog-default-/);
+
+    const blankName = helpers.templateCatalogContextName("", {});
+    expect(blankName).toMatch(/^saashup-template-catalog-default-/);
   });
 
   test("parses JSON safely and normalizes catalog scope data", () => {

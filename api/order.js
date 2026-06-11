@@ -63,9 +63,9 @@ function createOrderHelpers({
         })
         .filter((item) => item.owner === creator)
         .filter((item) => item.template)
-        .filter((item) => !requested || String(item.template || "").trim().toLowerCase() === requested)
+        .filter((item) => !requested || String(item.template).trim().toLowerCase() === requested)
         .map(({ owner, ...item }) => item)
-        .sort((left, right) => String(left.instance || "").localeCompare(String(right.instance || "")));
+        .sort((left, right) => String(left.instance).localeCompare(String(right.instance)));
     } catch (error) {
       logLine(`ORDER : NetBox label discovery failed ${error.message || "unknown error"}`);
       return [];

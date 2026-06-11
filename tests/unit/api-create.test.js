@@ -152,6 +152,86 @@ describe("api create helpers", () => {
     expect(calls.logs).toContain("EMAIL : ready notification failed for owner@example.com mail down");
   });
 
+  test("createInstance matches hostless and mismatched Docker volumes before creating missing ones", async () => {
+    const requestBodies = [];
+    const { calls, helpers } = createHelpers({
+      sendOrderReadyEmail: async () => {
+        throw {};
+      },
+      volumePayloadsFromForm: () => [{ name: "shared" }, { host: "host-a", name: "data" }, { host: "host-a", name: "cache" }],
+      NetBoxClient: class {
+        async list(path, query) {
+          if (path.includes("/volumes/") && query.name === "shared") return [{ id: "shared-volume", name: "shared", host: { id: "other-host" } }];
+          if (path.includes("/volumes/") && query.name === "data") return [
+            { id: "wrong-host-volume", name: "data", host: { id: "other-host" } },
+          ];
+          if (path.includes("/volumes/") && query.name === "cache") return [];
+          if (path.includes("/containers/")) return [];
+          return [];
+        }
+        async request(method, path, options = {}) {
+          requestBodies.push({ method, path, body: options.body });
+          if (method === "POST" && path.includes("/containers/")) {
+            return { payload: { id: "container-demo", name: options.body.name, host: { name: "host-a" } } };
+          }
+          return { payload: {} };
+        }
+      },
+    });
+
+    await expect(helpers.createInstance({}, { instance: "tile" }, {
+      isEnrollRequest: false,
+      isOrderRequest: true,
+      orderProfile: "prod",
+      authUser: {},
+    })).resolves.toBe(true);
+
+    expect(requestBodies).toContainEqual(expect.objectContaining({
+      method: "POST",
+      path: "/api/plugins/docker/volumes/",
+      body: [
+        { host: "host-a", name: "data" },
+        { host: "host-a", name: "cache" },
+      ],
+    }));
+    expect(calls.logs).toContain("CREATE : 3 volumes prepared on host-a (1 reused, 2 created)");
+    expect(calls.logs).toContain("EMAIL : ready notification failed for  smtp error");
+  });
+
+  test("createInstance treats malformed Docker volume records as missing", async () => {
+    const requestBodies = [];
+    const { helpers } = createHelpers({
+      volumePayloadsFromForm: () => [{ host: "host-a", name: "" }],
+      NetBoxClient: class {
+        async list(path) {
+          if (path.includes("/volumes/")) return [null];
+          if (path.includes("/containers/")) return [];
+          return [];
+        }
+        async request(method, path, options = {}) {
+          requestBodies.push({ method, path, body: options.body });
+          if (method === "POST" && path.includes("/containers/")) {
+            return { payload: { id: "container-demo", name: options.body.name, host: { name: "host-a" } } };
+          }
+          return { payload: {} };
+        }
+      },
+    });
+
+    await expect(helpers.createInstance({}, { instance: "tile" }, {
+      isEnrollRequest: false,
+      isOrderRequest: false,
+      orderProfile: "prod",
+      authUser: {},
+    })).resolves.toBe(true);
+
+    expect(requestBodies).toContainEqual(expect.objectContaining({
+      method: "POST",
+      path: "/api/plugins/docker/volumes/",
+      body: { host: "host-a", name: "" },
+    }));
+  });
+
   test("createInstance skips volume creation when all requested volumes already exist", async () => {
     const requestBodies = [];
     const { calls, helpers } = createHelpers({

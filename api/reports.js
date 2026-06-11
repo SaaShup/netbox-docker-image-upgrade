@@ -137,7 +137,8 @@ function createReportHandlers({
     try {
       const profiles = reportProfiles(req.query);
       const requestedProfile = req.query.profile || req.query.config_profile || "";
-      logLine(`REPORT_IMAGE : starting profile=${requestedProfile || "selected"} profiles=${profiles.map((item) => item.name || "default").join(",") || "default"}`);
+      const profileNames = profiles.map((item) => item.name || "default").join(",");
+      logLine(`REPORT_IMAGE : starting profile=${requestedProfile || "selected"} profiles=${profileNames}`);
       const results = [];
       const owners = new Set();
       const usersByOwner = new Map();

@@ -980,6 +980,24 @@ describe("server routes", () => {
       });
   });
 
+  test("public APIs allow configured non-url origins", async () => {
+    const { request } = await loadServer({ publicApiAllowedOrigins: "not a url,https://docs.example.com" });
+
+    await request.options("/contact")
+      .set("Origin", "not a url")
+      .expect(204)
+      .expect((res) => {
+        expect(res.headers["access-control-allow-origin"]).toBe("not a url");
+      });
+
+    await request.options("/contact")
+      .set("Origin", "https://docs.example.com")
+      .expect(204)
+      .expect((res) => {
+        expect(res.headers["access-control-allow-origin"]).toBe("https://docs.example.com");
+      });
+  });
+
   test("public APIs allow server-side shared secret without browser origin", async () => {
     const { request, setRegistryFetchForTests } = await loadServer({ publicApiAllowedOrigins: "https://www.saashup.com", publicApiSecret: "server-secret" });
     setRegistryFetchForTests(vi.fn(async (url) => {
@@ -1242,6 +1260,32 @@ describe("server routes", () => {
     expect(readState(dataPath).config).toEqual({});
   });
 
+  test("webhook includes template catalog sync failures in the saved config response", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    fetchMock.mockImplementation(async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.pathname === "/api/extras/config-contexts/") return jsonResponse({ detail: "catalog unavailable" }, 503);
+      return jsonResponse({ status: "ok" });
+    });
+
+    await request.get("/webhook")
+      .query({
+        customer_name: "CuriooCity",
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        tag: "tile",
+        profile: "prod",
+        profiles: JSON.stringify({ prod: { tag: "tile" } }),
+      })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.template_catalog_sync).toMatchObject({ action: "failed" });
+        expect(res.body.template_catalog_sync.detail).toContain("NetBox request failed");
+      });
+
+    expect(parseProfiles(readState(dataPath).config.profiles).prod.tag).toBe("tile");
+  });
+
   test("templates endpoint uses NetBox templates without local fallback when NetBox is configured", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock, {
@@ -1281,6 +1325,149 @@ describe("server routes", () => {
         });
         expect(res.body.Local).toBeUndefined();
       });
+  });
+
+  test("templates endpoint merges NetBox catalog templates with matching container details", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, {
+      netboxTemplateContexts: [{
+        id: 501,
+        name: "saashup-template-catalog-prod",
+        is_active: true,
+        data: {
+          saashup_template_catalog: true,
+          saashup_profile: "prod",
+          saashup_templates: {
+            Tile: {
+              creator_email: "owner@example.com",
+            },
+          },
+        },
+      }],
+      netboxTemplateContainers: [{
+        id: 30,
+        name: "tile-one",
+        image: { id: 10, name: "saashup/tile", version: "v1.0.0" },
+        host: { id: 1 },
+        ports: [{ port: 8080 }],
+        network_settings: [{ network: { name: "frontend" } }],
+        env: [{ var_name: "SAASHUP_OWNER", value: "owner@example.com" }],
+        labels: [
+          { key: "saashup.template.name", value: "Tile" },
+          { key: "saashup.template.owner", value: "owner@example.com" },
+          { key: "saashup.template.url", value: "https://templates.example.com/tile" },
+        ],
+      }],
+    });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", profile: "prod", config_profile: "prod" },
+      logs: "",
+    });
+
+    await request.get("/templates")
+      .set("x-auth-request-email", "owner@example.com")
+      .query({ profile: "prod", owner_only: "true" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.Tile).toMatchObject({
+          image: "saashup/tile",
+          version: "v1.0.0",
+          template_url: "https://templates.example.com/tile",
+          network: "frontend",
+          instance_count: 1,
+        });
+        expect(res.body.Tile.ports).toHaveLength(1);
+      });
+  });
+
+  test("templates endpoint logs NetBox template discovery failures", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    fetchMock.mockImplementation(async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.pathname === "/api/extras/config-contexts/") throw new Error("catalog offline");
+      return jsonResponse({ results: [] });
+    });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", profile: "prod", config_profile: "prod" },
+      logs: "",
+    });
+
+    await request.get("/templates")
+      .set("x-auth-request-email", "owner@example.com")
+      .query({ profile: "prod" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toEqual({});
+      });
+    expect(readState(dataPath).logs).toContain("ENROLL : NetBox template discovery failed catalog offline");
+  });
+
+  test("templates endpoint logs NetBox workflow discovery failures", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    fetchMock.mockImplementation(async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.pathname === "/api/extras/config-contexts/") throw {};
+      return jsonResponse({ results: [] });
+    });
+    writeState(dataPath, {
+      config: {
+        profile: "prod",
+        config_profile: "prod",
+        profiles: {
+          prod: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+        },
+      },
+      templates: { Tile: { image: "saashup/tile" } },
+      workflows: { Local: { steps: [{ template: "Tile" }] } },
+      logs: "",
+    });
+
+    await request.get("/templates")
+      .query({ profile: "prod", include_workflows: "true" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.workflows).toEqual({});
+      });
+    expect(readState(dataPath).logs).toContain("ENROLL : NetBox workflow discovery failed unknown error");
+  });
+
+  test("templates endpoint returns local workflows when NetBox templates are not configured", async () => {
+    const { dataPath, request } = await loadServer();
+    writeState(dataPath, {
+      config: { profile: "prod", config_profile: "prod" },
+      templates: { Tile: { image: "saashup/tile" } },
+      workflows: { Local: { steps: [{ template: "Tile" }] } },
+      logs: "",
+    });
+
+    await request.get("/templates")
+      .query({ profile: "prod", include_workflows: "true" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.workflows.Local).toEqual({ steps: [{ template: "Tile" }] });
+      });
+  });
+
+  test("order limit uses a local template before NetBox template lookup", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    writeState(dataPath, {
+      config: { profile: "prod", config_profile: "prod" },
+      templates: {
+        Tile: { image: "saashup/tile", version: "v1.0.0", max_instances: 2 },
+      },
+      logs: "",
+    });
+
+    await request.get("/order/limit")
+      .set("x-auth-request-email", "buyer@example.com")
+      .query({ profile: "prod", template: "tile" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toMatchObject({ max: 2, reached: false });
+      });
+
+    const calls = parsedFetchCalls(fetchMock);
+    expect(calls.some((call) => call.url.pathname === "/api/extras/config-contexts/")).toBe(false);
   });
 
   test("templates endpoint reads template definitions from NetBox config contexts", async () => {
@@ -1617,6 +1804,29 @@ describe("server routes", () => {
     });
   });
 
+  test("templates endpoint reports NetBox config context sync failures", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    fetchMock.mockImplementation(async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.pathname === "/api/extras/config-contexts/") return jsonResponse({ detail: "catalog unavailable" }, 503);
+      return jsonResponse({ status: "ok" });
+    });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", profile: "prod", config_profile: "prod" },
+      templates: {},
+      logs: "",
+    });
+
+    await request
+      .post("/templates")
+      .set("x-auth-request-email", "creator@example.com")
+      .send({ tile: { image: "saashup/tile" } })
+      .expect(503)
+      .expect((res) => {
+        expect(res.body.detail).toContain("NetBox request failed");
+      });
+  });
+
   test("uses one NetBox template catalog per config scope, not per email", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock);
@@ -1746,6 +1956,10 @@ describe("server routes", () => {
       expect(res.body.total_hosts).toBe(1);
       expect(res.body.total_users).toBe(0);
     });
+    await request.get("/report/images").query({ config_profile: "prod" }).expect(200).expect((res) => {
+      expect(res.body.profile).toBe("prod");
+      expect(res.body.total_hosts).toBe(1);
+    });
     await request.get("/report/images").query({ profile: "all" }).expect(200).expect((res) => {
       expect(res.body.profile).toBe("all");
       expect(res.body.total_hosts).toBe(2);
@@ -1770,6 +1984,20 @@ describe("server routes", () => {
     await request.get("/report/images").expect(200).expect((res) => {
       expect(res.body.rows[0].profile).toBe("prod");
     });
+
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+    setupNetBoxFetch(fetchMock);
+    await request.get("/report/images").expect(200).expect((res) => {
+      expect(res.body.profile).toBe("");
+      expect(res.body.total_hosts).toBe(2);
+    });
+    expect(readState(dataPath).logs).toContain("REPORT_IMAGE : starting profile=selected profiles=default");
+    expect(readState(dataPath).logs).toContain("REPORT_IMAGE : default scanning 2 hosts");
 
     writeState(dataPath, {
       config: {},
@@ -3529,6 +3757,7 @@ describe("server routes", () => {
       templates: {
         Tile: { config_profile: "prod", image: "saashup/tile", registry_webhook_secret: "template-secret" },
         Other: { config_profile: "prod", image: "saashup/other", registry_webhook_secret: "other-secret" },
+        Legacy: { config_profile: "prod", image: "saashup/legacy", dockerhub_webhook_secret: "dockerhub-secret" },
       },
       order_counts: {},
       order_instances: {},
@@ -3542,10 +3771,28 @@ describe("server routes", () => {
         expect(res.body).toEqual({ secret: "template-secret", default_secret: "env-secret" });
       });
     await request.get("/registry-webhook-secret")
+      .query({ template: "Tile", image: "saashup/other" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toEqual({ secret: "env-secret", default_secret: "env-secret" });
+      });
+    await request.get("/registry-webhook-secret")
       .query({ template: "Missing" })
       .expect(200)
       .expect((res) => {
         expect(res.body).toEqual({ secret: "env-secret", default_secret: "env-secret" });
+      });
+    await request.get("/registry-webhook-secret")
+      .query({ template: "Legacy" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toEqual({ secret: "dockerhub-secret", default_secret: "env-secret" });
+      });
+    await request.get("/registry-webhook-secret")
+      .query({ template: "Other", image: "saashup/other" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toEqual({ secret: "other-secret", default_secret: "env-secret" });
       });
 
     const body = { push_data: { tag: "latest" }, repository: { repo_name: "saashup/tile" } };
@@ -3557,6 +3804,9 @@ describe("server routes", () => {
     await request.post("/registry-webhook/prod/Tile/template-secret").send(body).expect(202);
     await request.post("/registry-webhook/prod").query({ template: "Tile", secret: "template-secret" }).send(body).expect(202);
     await request.post("/registry-webhook/dev/env-secret").send(body).expect(202);
+
+    const legacyBody = { push_data: { tag: "latest" }, repository: { repo_name: "saashup/legacy" } };
+    await request.post("/registry-webhook/prod/dockerhub-secret").send(legacyBody).expect(202);
   });
 
   test("registry webhook accepts Quay tag update payloads", async () => {
@@ -4139,6 +4389,7 @@ describe("server routes", () => {
     expect(body.get("response")).toBe("visitor-token");
     expect(body.get("remoteip")).toBe("203.0.113.9");
     expect(smtpSender).toHaveBeenCalledTimes(1);
+    setTurnstileFetchForTests();
   });
 
   test("contact form rejects missing or failed Turnstile verification", async () => {
@@ -4173,6 +4424,46 @@ describe("server routes", () => {
       });
 
     expect(turnstileFetch).toHaveBeenCalledTimes(1);
+    expect(smtpSender).not.toHaveBeenCalled();
+  });
+
+  test("contact form handles Turnstile network and invalid JSON failures", async () => {
+    const { dataPath, request, setSmtpSenderForTests, setTurnstileFetchForTests } = await loadServer({ ownerEmail: "owner@example.com", publicApiSecret: "test-secret", turnstileSecretKey: "turnstile-secret" });
+    const smtpSender = vi.fn();
+    setSmtpSenderForTests(smtpSender);
+    writeState(dataPath, {
+      config: { smtp_config: "mailer:smtp-secret@smtp.example.com:587" },
+      templates: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    setTurnstileFetchForTests(vi.fn(async () => {
+      throw new Error("turnstile unavailable");
+    }));
+    await request.post("/contact")
+      .set("X-Public-Api-Secret", "test-secret")
+      .send({ email: "ada@example.com", message: "Hello", turnstileToken: "visitor-token" })
+      .expect(502)
+      .expect((res) => {
+        expect(res.body.detail).toBe("captcha verification failed");
+      });
+
+    setTurnstileFetchForTests(vi.fn(async () => ({
+      ok: true,
+      json: async () => {
+        throw new Error("not json");
+      },
+    })));
+    await request.post("/contact")
+      .set("X-Public-Api-Secret", "test-secret")
+      .send({ email: "ada@example.com", message: "Hello", turnstileToken: "visitor-token" })
+      .expect(403)
+      .expect((res) => {
+        expect(res.body.detail).toBe("captcha verification failed");
+      });
+
     expect(smtpSender).not.toHaveBeenCalled();
   });
 

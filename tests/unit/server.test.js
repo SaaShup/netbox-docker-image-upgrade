@@ -5,6 +5,7 @@ const {
   containerConfigPayloadFromForm,
   containerCreatePayloadFromForm,
   containerEnvValue,
+  deleteContainerVolumes,
   boolLabelValue,
   githubPackageImage,
   githubPackageTag,
@@ -27,6 +28,7 @@ const {
   parseSmtpConfig,
   plainObject,
   requestOrigin,
+  registryWebhookAllowed,
   registryWebhookEvents,
   routeLabel,
   sendSmtpMail,
@@ -225,6 +227,7 @@ describe("server helpers", () => {
     expect(smtpSenderAddress({ host: "smtp." })).toBe("no-reply@localhost");
     expect(smtpClientName(parseSmtpConfig("contact@example.com:smtp-secret@smtp.example.com:587"))).toBe("example.com");
     expect(smtpClientName(parseSmtpConfig("mailer:smtp-secret@smtp.example.com:587"))).toBe("example.com");
+    expect(smtpClientName({})).toBe("localhost.localdomain");
     expect(smtpClientName({ host: "localhost" })).toBe("localhost.localdomain");
     expect(smtpTransportOptions(config, 1234)).toMatchObject({
       name: "example.com",
@@ -291,6 +294,22 @@ describe("server helpers", () => {
       subject: "Subject",
       attachments: [expect.objectContaining({ cid: "logo", encoding: "base64" })],
     }));
+
+    createTransport.mockRestore();
+  });
+
+  test("uses one smtp attempt when retry count is invalid", async () => {
+    const sendMail = vi.fn().mockResolvedValue({ messageId: "queued-with-invalid-retries" });
+    const createTransport = vi.spyOn(nodemailer, "createTransport").mockReturnValue({ sendMail });
+
+    await expect(sendSmtpMail(
+      parseSmtpConfig("mailer:smtp-secret@smtp.example.com:587"),
+      { to: "to@example.com", subject: "Subject" },
+      { retries: "not-a-number" },
+    )).resolves.toEqual({ messageId: "queued-with-invalid-retries" });
+
+    expect(createTransport).toHaveBeenCalledTimes(1);
+    expect(sendMail).toHaveBeenCalledTimes(1);
 
     createTransport.mockRestore();
   });
@@ -391,6 +410,73 @@ describe("server helpers", () => {
     expect(hostMatchesTag({ tags: [] }, "")).toBe(true);
   });
 
+  test("deletes named container volumes through host-scoped lookup", async () => {
+    const client = {
+      list: vi.fn(async () => [{ id: 41, name: "tiles-cache" }]),
+      request: vi.fn(async () => ({ statusCode: 204 })),
+    };
+
+    await deleteContainerVolumes(client, {
+      host: { id: 1 },
+      mounts: [{ volume: { name: "tiles-cache" } }],
+    });
+
+    expect(client.list).toHaveBeenCalledWith("/api/plugins/docker/volumes/", { name: "tiles-cache", host_id: 1 });
+    expect(client.request).toHaveBeenCalledWith("DELETE", "/api/plugins/docker/volumes/41/", { expected: [200, 202, 204] });
+  });
+
+  test("deletes mounted volume refs by id and skips empty refs", async () => {
+    const client = {
+      list: vi.fn(async () => [{ id: 42 }, { id: 43, name: "lookup-name" }]),
+      request: vi.fn(async () => ({ statusCode: 204 })),
+    };
+
+    await deleteContainerVolumes(client, {
+      mounts: [
+        {},
+        { volume_id: 40 },
+        { volume: { id: 41, name: "direct-name" } },
+      ],
+      volumes: [
+        { volume_name: "lookup-only" },
+      ],
+    });
+
+    expect(client.request).toHaveBeenCalledWith("DELETE", "/api/plugins/docker/volumes/40/", { expected: [200, 202, 204] });
+    expect(client.request).toHaveBeenCalledWith("DELETE", "/api/plugins/docker/volumes/41/", { expected: [200, 202, 204] });
+    expect(client.list).toHaveBeenCalledWith("/api/plugins/docker/volumes/", { name: "lookup-only" });
+    expect(client.request).toHaveBeenCalledWith("DELETE", "/api/plugins/docker/volumes/42/", { expected: [200, 202, 204] });
+    expect(client.request).toHaveBeenCalledWith("DELETE", "/api/plugins/docker/volumes/43/", { expected: [200, 202, 204] });
+  });
+
+  test("reads container env entries after skipping non-matching keys", () => {
+    expect(containerEnvValue({
+      env: [
+        { var_name: "OTHER", value: "skip" },
+        { name: "SAASHUP_OWNER", value: "owner@example.com" },
+      ],
+    }, "SAASHUP_OWNER")).toBe("owner@example.com");
+    expect(containerEnvValue({
+      environment: [
+        { key: "OTHER", value: "skip" },
+      ],
+    }, "SAASHUP_OWNER")).toBe("");
+  });
+
+  test("deletes looked-up volumes using names returned by NetBox", async () => {
+    const client = {
+      list: vi.fn(async () => [{ id: 51, name: "netbox-name" }]),
+      request: vi.fn(async () => ({ statusCode: 204 })),
+    };
+
+    await deleteContainerVolumes(client, {
+      volumes: [{ volume_name: "requested-name" }],
+    });
+
+    expect(client.list).toHaveBeenCalledWith("/api/plugins/docker/volumes/", { name: "requested-name" });
+    expect(client.request).toHaveBeenCalledWith("DELETE", "/api/plugins/docker/volumes/51/", { expected: [200, 202, 204] });
+  });
+
   test("extracts image names without stripping registry ports", () => {
     expect(imageNameFromRef()).toBe("");
     expect(imageNameFromRef("registry.example.com:5000/saashup/tile-api:v2.4.1")).toBe("registry.example.com:5000/saashup/tile-api");
@@ -410,10 +496,15 @@ describe("server helpers", () => {
       url: "https://registry.example.com/not-a-manifest",
       repository: "fallback/app",
     })).toBe("fallback/app");
+    expect(imageFromDistributionTarget({ repository: "fallback/app" })).toBe("fallback/app");
+    expect(imageFromDistributionTarget({})).toBe("");
 
     expect(githubPackageImage({ registry_package: { name: "ghcr.io/acme/app" } })).toBe("ghcr.io/acme/app");
     expect(githubPackageImage({ package: { name: "acme/app" } })).toBe("acme/app");
     expect(githubPackageImage({ registry_package: { name: "app", owner: { login: "acme" } } })).toBe("ghcr.io/acme/app");
+    expect(githubPackageImage({ registry_package: { name: "app" }, organization: { name: "org" } })).toBe("ghcr.io/org/app");
+    expect(githubPackageImage({ registry_package: { name: "app" }, repository: { owner: { login: "repo-owner" } } })).toBe("ghcr.io/repo-owner/app");
+    expect(githubPackageImage({ registry_package: { name: "app" }, sender: { login: "sender" } })).toBe("ghcr.io/sender/app");
     expect(githubPackageImage({ registry_package: { name: "app" } })).toBe("app");
     expect(githubPackageImage({})).toBe("");
 
@@ -442,6 +533,17 @@ describe("server helpers", () => {
     expect(registryWebhookEvents({ docker_tags: ["latest"], repository: "quay.io/acme/app" })).toEqual([
       { image: "quay.io/acme/app", tag: "latest" },
     ]);
+    expect(registryWebhookEvents({ repository: { repo_name: "saashup/app" } })).toEqual([]);
+    expect(registryWebhookEvents({ push_data: { tag: "1.0.0" } })).toEqual([]);
+  });
+
+  test("allows registry webhooks without a profile when no secrets match", () => {
+    expect(registryWebhookAllowed({
+      body: {},
+      params: {},
+      query: {},
+      get: () => "",
+    }, [])).toBe(true);
   });
 
   test("parses supported registry image references and rejects invalid repositories", () => {
@@ -581,6 +683,15 @@ describe("server helpers", () => {
       { host_path: "/var/run/docker.sock", container_path: "/var/run/docker.sock", read_only: true },
       { host_path: "/etc/localtime", container_path: "/etc/localtime", read_only: false },
     ]);
+    expect(bindPayloadsFromForm({
+      bind_host_path: ["./relative", "../parent", "~/home"],
+      bind_container_path: ["/app/relative", "/app/parent", "/app/home"],
+      bind_read_only: [true, "on", "false"],
+    })).toEqual([
+      { host_path: "./relative", container_path: "/app/relative", read_only: true },
+      { host_path: "../parent", container_path: "/app/parent", read_only: true },
+      { host_path: "~/home", container_path: "/app/home", read_only: false },
+    ]);
     expect(bindPayloadsFromForm({ bind_host_path: ["/tmp/missing-target"] })).toEqual([]);
     expect(volumePayloadsFromForm(data)).toEqual([{ host: 42, name: "tiles-data" }]);
     expect(volumePayloadsFromForm({
@@ -649,6 +760,28 @@ describe("server helpers", () => {
     });
 
     expect(containerConfigPayloadFromForm({
+      instance: "bad-log-options.example.com",
+      host_id: 7,
+      log_driver: "syslog",
+      log_driver_options: "{",
+    }, 9)).toMatchObject({
+      log_driver: "syslog",
+      log_driver_options: { "syslog-address": "udp://127.0.0.1:5514", tag: "{{.Name}}" },
+    });
+
+    expect(containerConfigPayloadFromForm({
+      instance: "object-log-options.example.com",
+      host_id: 7,
+      log_driver: "syslog",
+      log_driver_options: { tag: "object-tag" },
+      log_syslog_address: "udp://10.0.0.10:5514",
+      log_syslog_tag: "override-tag",
+    }, 9).log_driver_options).toEqual({
+      "syslog-address": "udp://10.0.0.10:5514",
+      tag: "override-tag",
+    });
+
+    expect(containerConfigPayloadFromForm({
       instance: "owned.example.com",
       host_id: 7,
       var_env_key: ["SAASHUP_OWNER", "APP_ENV"],
@@ -707,7 +840,92 @@ describe("server helpers", () => {
       { key: "saashup.template.name", value: "spoofed" },
     ]));
 
-	    expect(cloudflareFilterEnabled({})).toBe(true);
+    const orderTemplateConfig = containerConfigPayloadFromForm({
+      instance: "template-order.example.com",
+      image: "registry.example.com/team/app@sha256:abc",
+      order_request: "true",
+      order_template: "Order Template",
+      saashup_enabled: "false",
+      saashup_template_url: "https://templates.example.com/order",
+      traefik: "false",
+    }, 13);
+    expect(orderTemplateConfig.labels).toEqual(expect.arrayContaining([
+      { key: "saashup.template.name", value: "Order Template" },
+      { key: "saashup.template.enabled", value: "false" },
+      { key: "saashup.template.url", value: "https://templates.example.com/order" },
+      { key: "saashup.template.max_instances", value: "1" },
+      { key: "saashup.template.image", value: "registry.example.com/team/app@sha256:abc" },
+      { key: "saashup.template.dns_name", value: "template-order.example.com" },
+      { key: "saashup.template.traefik", value: "false" },
+    ]));
+    expect(orderTemplateConfig.labels).not.toEqual(expect.arrayContaining([
+      { key: "saashup.template.port", value: "" },
+    ]));
+
+    const sparseOrderTemplateConfig = containerConfigPayloadFromForm({
+      instance: "fallback-template.example.com",
+      order_request: "true",
+      label_key: [null, "saashup_template_legacy", "visible.label"],
+      label_value: ["ignored", "hidden", "shown"],
+    }, 14);
+    expect(sparseOrderTemplateConfig.labels).toEqual(expect.arrayContaining([
+      { key: "saashup.template.name", value: "fallback-template.example.com" },
+      { key: "saashup.template.dns_name", value: "fallback-template.example.com" },
+      { key: "visible.label", value: "shown" },
+    ]));
+    expect(sparseOrderTemplateConfig.labels).not.toEqual(expect.arrayContaining([
+      { key: "saashup_template_legacy", value: "hidden" },
+      { key: "saashup.template.image", value: "" },
+      { key: "saashup.template.version", value: "" },
+      { key: "saashup.template.network", value: "" },
+    ]));
+
+    expect(containerConfigPayloadFromForm({
+      order_request: "true",
+      traefik: "false",
+    }, 19).labels).not.toEqual(expect.arrayContaining([
+      { key: "saashup.template.name", value: "" },
+    ]));
+
+    expect(containerConfigPayloadFromForm({
+      instance: "digest-template.example.com",
+      image: "registry.example.com/team/app@sha256:abc",
+      enroll_request: "true",
+      traefik: "false",
+    }, 15).labels).toEqual(expect.arrayContaining([
+      { key: "saashup.template.name", value: "app" },
+    ]));
+
+    expect(containerConfigPayloadFromForm({
+      instance: "port-registry-template.example.com",
+      dns_name: "custom-dns.example.com",
+      image: "registry.example.com:5000/team/port-app",
+      enroll_request: "true",
+      traefik: "false",
+    }, 16).labels).toEqual(expect.arrayContaining([
+      { key: "saashup.template.name", value: "port-app" },
+      { key: "saashup.template.dns_name", value: "custom-dns.example.com" },
+    ]));
+
+    expect(containerConfigPayloadFromForm({
+      instance: "slash-image-template.example.com",
+      image: "/",
+      enroll_request: "true",
+      traefik: "false",
+    }, 17).labels).toEqual(expect.arrayContaining([
+      { key: "saashup.template.name", value: "/" },
+    ]));
+
+    expect(containerConfigPayloadFromForm({
+      instance: "tagged-template.example.com",
+      image: "standalone:1.0",
+      enroll_request: "true",
+      traefik: "false",
+    }, 18).labels).toEqual(expect.arrayContaining([
+      { key: "saashup.template.name", value: "standalone" },
+    ]));
+
+			    expect(cloudflareFilterEnabled({})).toBe(true);
     expect(cloudflareFilterEnabled({ cloudflare_filter: "false" })).toBe(false);
     expect(cloudflareFilterEnabled({ cloudflare_filter: ["true", "false"] })).toBe(false);
     expect(containerConfigPayloadFromForm({
@@ -1287,6 +1505,114 @@ describe("server helpers", () => {
       },
       expected: [200, 201, 202],
     });
+    const dockerHubRegistryAliasClient = {
+      list: vi.fn(async (apiPath) => {
+        if (apiPath.includes("/registries/")) return [{ id: 7, display: "DockerHub mirror" }];
+        return [];
+      }),
+      request: vi.fn(async (method, apiPath) => {
+        if (method === "GET" && apiPath === "/api/plugins/docker/images/107/") return { payload: { id: 107, imageID: "sha256:nginx" }, statusCode: 200 };
+        return { payload: { id: 107 }, statusCode: 201 };
+      }),
+    };
+    await expect(helpers.ensureImageOnHost(dockerHubRegistryAliasClient, { name: "host-c" }, "nginx", "1.28")).resolves.toEqual({ id: 107, imageID: "sha256:nginx" });
+    expect(dockerHubRegistryAliasClient.request).toHaveBeenCalledWith("POST", "/api/plugins/docker/images/", {
+      body: {
+        host: { name: "host-c" },
+        name: "nginx",
+        version: "1.28",
+        registry: 7,
+      },
+      expected: [200, 201, 202],
+    });
+    const indexDockerRegistryClient = {
+      list: vi.fn(async (apiPath) => {
+        if (apiPath.includes("/registries/")) return [{ id: 8, serveraddress: "https://registry-1.docker.io" }];
+        return [];
+      }),
+      request: vi.fn(async (method, apiPath) => {
+        if (method === "GET" && apiPath === "/api/plugins/docker/images/108/") return { payload: { id: 108, Digest: "sha256:index" }, statusCode: 200 };
+        return { payload: { id: 108 }, statusCode: 201 };
+      }),
+    };
+    await expect(helpers.ensureImageOnHost(indexDockerRegistryClient, { host: 8 }, "index.docker.io/library/nginx", "1.29")).resolves.toEqual({ id: 108, Digest: "sha256:index" });
+
+    const registryIdFallbackClient = {
+      list: vi.fn(async (apiPath) => {
+        if (apiPath.includes("/registries/")) return [{ pk: 10, name: "ghcr.io" }];
+        return [];
+      }),
+      request: vi.fn(async (method, apiPath) => {
+        if (method === "GET" && apiPath === "/api/plugins/docker/images/110/") return { payload: { id: 110, Digest: "sha256:ghcr" }, statusCode: 200 };
+        return { payload: { id: 110 }, statusCode: 201 };
+      }),
+    };
+    await expect(helpers.ensureImageOnHost(registryIdFallbackClient, { host: 8 }, "ghcr.io/acme/app", "v2")).resolves.toEqual({ id: 110, Digest: "sha256:ghcr" });
+    expect(registryIdFallbackClient.request).toHaveBeenCalledWith("POST", "/api/plugins/docker/images/", {
+      body: {
+        host: 8,
+        name: "ghcr.io/acme/app",
+        version: "v2",
+        registry: 10,
+      },
+      expected: [200, 201, 202],
+    });
+
+    const registryValueFallbackClient = {
+      list: vi.fn(async (apiPath) => {
+        if (apiPath.includes("/registries/")) return [{ value: 11, display: "quay.io" }];
+        return [];
+      }),
+      request: vi.fn(async (method, apiPath) => {
+        if (method === "GET" && apiPath === "/api/plugins/docker/images/111/") return { payload: { id: 111, Digest: "sha256:quay" }, statusCode: 200 };
+        return { payload: { id: 111 }, statusCode: 201 };
+      }),
+    };
+    await expect(helpers.ensureImageOnHost(registryValueFallbackClient, { host: 8 }, "quay.io/acme/app", "v3")).resolves.toEqual({ id: 111, Digest: "sha256:quay" });
+    expect(registryValueFallbackClient.request).toHaveBeenCalledWith("POST", "/api/plugins/docker/images/", {
+      body: {
+        host: 8,
+        name: "quay.io/acme/app",
+        version: "v3",
+        registry: 11,
+      },
+      expected: [200, 201, 202],
+    });
+
+    for (const [id, alias] of [
+      [112, "https://hub.docker.com/r/library/nginx"],
+      [113, "https://registry.hub.docker.com"],
+      [114, "https://index.docker.io/v1/"],
+    ]) {
+      const dockerAliasClient = {
+        list: vi.fn(async (apiPath) => {
+          if (apiPath.includes("/registries/")) return [{ id, url: alias }];
+          return [];
+        }),
+        request: vi.fn(async (method, apiPath) => {
+          if (method === "GET" && apiPath === `/api/plugins/docker/images/${id}/`) return { payload: { id, Digest: `sha256:${id}` }, statusCode: 200 };
+          return { payload: { id }, statusCode: 201 };
+        }),
+      };
+      await expect(helpers.ensureImageOnHost(dockerAliasClient, { host: 8 }, "nginx", String(id))).resolves.toEqual({ id, Digest: `sha256:${id}` });
+    }
+
+    const nonDockerRegistryMismatchClient = {
+      list: vi.fn(async (apiPath) => {
+        if (apiPath.includes("/registries/")) return [{ id: 9, name: "Docker Hub" }];
+        return [];
+      }),
+    };
+    await expect(helpers.ensureImageOnHost(nonDockerRegistryMismatchClient, { host: 8 }, "ghcr.io/acme/app", "v1")).rejects.toThrow("registry not found for image ghcr.io/acme/app");
+
+    const unknownDockerRegistryClient = {
+      list: vi.fn(async (apiPath) => {
+        if (apiPath.includes("/registries/")) return [{ id: 12, name: "public mirror" }];
+        return [];
+      }),
+    };
+    await expect(helpers.ensureImageOnHost(unknownDockerRegistryClient, { host: 8 }, "nginx", "1.30")).rejects.toThrow("registry not found for image nginx");
+
     expect(helpers.imagePullIdentifier({ imageID: "sha256:id" })).toBe("sha256:id");
     expect(helpers.imagePullIdentifier({ repoDigest: ["app@sha256:def"] })).toEqual(["app@sha256:def"]);
     await expect(helpers.waitForImagePulled({ request: vi.fn() }, { id: 101, imageID: "sha256:ready" }, "app:v5 on host-c")).resolves.toEqual({ id: 101, imageID: "sha256:ready" });
@@ -1310,6 +1636,22 @@ describe("server helpers", () => {
     await vi.advanceTimersByTimeAsync(20);
     await pendingImageExpectation;
 
+    const emptyRegistryClient = {
+      list: vi.fn(async (apiPath) => {
+        if (apiPath.includes("/registries/")) return [{}];
+        return [];
+      }),
+    };
+    await expect(helpers.ensureImageOnHost(emptyRegistryClient, { host: { id: 8, name: "host-b" } }, "app", "v4")).rejects.toThrow("registry not found for image app");
+
+    const failingRegistryClient = {
+      list: vi.fn(async (apiPath) => {
+        if (apiPath.includes("/registries/")) throw new Error("registries down");
+        return [];
+      }),
+    };
+    await expect(helpers.ensureImageOnHost(failingRegistryClient, { host: { id: 8, name: "host-b" } }, "app", "v4")).rejects.toThrow("registry not found for image app");
+
     await expect(helpers.createDnsRecord(readyClient, { instance: "shortname" }, { name: "host" })).resolves.toBeUndefined();
     await expect(helpers.createDnsRecord(readyClient, { instance: "primitive.example.com" }, "primitive-host")).resolves.toBeUndefined();
     const wrongZoneClient = {
@@ -1319,6 +1661,39 @@ describe("server helpers", () => {
     await expect(helpers.createDnsRecord(wrongZoneClient, { instance: "app.saashup.cloud" }, { name: "host" })).resolves.toBeUndefined();
     expect(wrongZoneClient.request).not.toHaveBeenCalled();
     expect(logs.join("\n")).toContain("Cloudflare zone not found for saashup.cloud while creating app.saashup.cloud count=1 returned=paashup.cloud");
+    const unnamedZoneClient = {
+      list: vi.fn(async (apiPath) => {
+        if (apiPath.includes("/cloudflare/dns/accounts/")) return [{ id: 53 }];
+        if (apiPath.includes("/cloudflare/dns/records/")) return [];
+        return [];
+      }),
+      request: vi.fn(async () => ({ payload: { id: 63 }, statusCode: 201 })),
+    };
+    await expect(helpers.createDnsRecord(unnamedZoneClient, { instance: "fallback.example.com" }, { name: "host" })).resolves.toBeUndefined();
+    expect(unnamedZoneClient.request).toHaveBeenCalledWith("POST", "/api/plugins/cloudflare/dns/records/", expect.objectContaining({
+      body: expect.objectContaining({ zone: 53, name: "fallback" }),
+    }));
+    const exactZoneClient = {
+      list: vi.fn(async (apiPath) => {
+        if (apiPath.includes("/cloudflare/dns/accounts/")) return [{ id: 56, name: "example.com" }];
+        if (apiPath.includes("/cloudflare/dns/records/")) return [];
+        return [];
+      }),
+      request: vi.fn(async () => ({ payload: { id: 66 }, statusCode: 201 })),
+    };
+    await expect(helpers.createDnsRecord(exactZoneClient, { instance: "named.example.com" }, { name: "host" })).resolves.toBeUndefined();
+    expect(exactZoneClient.request).toHaveBeenCalledWith("POST", "/api/plugins/cloudflare/dns/records/", expect.objectContaining({
+      body: expect.objectContaining({ zone: 56, name: "named" }),
+    }));
+    const ambiguousUnnamedZoneClient = {
+      list: vi.fn(async (apiPath) => {
+        if (apiPath.includes("/cloudflare/dns/accounts/")) return [{ id: 54 }, { id: 55 }];
+        return [];
+      }),
+      request: vi.fn(),
+    };
+    await expect(helpers.createDnsRecord(ambiguousUnnamedZoneClient, { instance: "ambiguous.example.com" }, { name: "host" })).resolves.toBeUndefined();
+    expect(ambiguousUnnamedZoneClient.request).not.toHaveBeenCalled();
     await expect(helpers.createDnsRecord({ list: vi.fn(async () => []) }, { instance: "app.missing" }, { name: "host" })).resolves.toBeUndefined();
     await expect(helpers.createDnsRecord({ list: vi.fn(async () => { throw new Error("zone down"); }) }, { instance: "app.example.com" }, { name: "host" })).resolves.toBeUndefined();
     await expect(helpers.createDnsRecord({ list: vi.fn(async () => { throw {}; }) }, { instance: "app.example.com" }, { name: "host" })).resolves.toBeUndefined();

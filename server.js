@@ -883,16 +883,14 @@ function addRegistryWebhookEvent(events, image, tag) {
 function imageFromDistributionTarget(target) {
   const entry = plainObject(target);
   const url = String(entry.url || "");
-  if (url) {
-    try {
-      const parsed = new URL(url);
-      const match = parsed.pathname.match(/^\/v2\/(.+)\/manifests\/[^/]+$/);
-      if (match) return `${parsed.host}/${match[1]}`;
-    } catch {
-      // Fall back to the repository field below.
-    }
+  if (!url) return entry.repository || "";
+  try {
+    const parsed = new URL(url);
+    const match = parsed.pathname.match(/^\/v2\/(.+)\/manifests\/[^/]+$/);
+    return match ? `${parsed.host}/${match[1]}` : entry.repository || "";
+  } catch {
+    return entry.repository || "";
   }
-  return entry.repository || "";
 }
 
 function githubPackageImage(payload) {
@@ -1051,13 +1049,16 @@ function containerEnvValue(container, name) {
     ...(Array.isArray(container?.environment) ? container.environment : []),
   ];
 
-  for (const entry of entries) {
-    if (!entry || typeof entry !== "object") continue;
-    const key = valueText(entry.var_name || entry.name || entry.key);
-    if (key === name) return valueText(entry.value);
-  }
+  const match = entries.find((entry) => (
+    entry
+    && typeof entry === "object"
+    && valueText(entry.var_name || entry.name || entry.key) === name
+  ));
+  return match ? valueText(match.value) : "";
+}
 
-  return "";
+function firstValueText(...values) {
+  return values.map((value) => valueText(value)).find(Boolean) || "";
 }
 
 const { reportImages } = createReportHandlers({
@@ -1131,14 +1132,15 @@ async function recreateContainers(data) {
     const newImage = await ensureImageOnHost(client, oldImage, data.image, data.version);
     const containers = await client.list("/api/plugins/docker/containers/", { image_id: oldImage.id, limit: 200 });
     for (const container of containers) {
-      const targetName = (data.clean_name === true || data.clean_name === "true" || data.clean_name === "on") ? String(container.name || container.display || "").replace(/-17[0-9]{8,}$/, "") : (container.name || container.display);
+      const sourceName = firstValueText(container.name, container.display);
+      const targetName = (data.clean_name === true || data.clean_name === "true" || data.clean_name === "on") ? sourceName.replace(/-17[0-9]{8,}$/, "") : sourceName;
       await client.request("PATCH", "/api/plugins/docker/containers/", { body: [{ id: container.id, image: newImage.id, ...(targetName && targetName !== container.name ? { name: targetName } : {}) }] });
       logLine(`RECREATE : ${hostName(container)}/${valueText(container.display || container.name)} image set to ${data.image}:${data.version}`);
       await requestContainerOperation(client, container, "recreate", "RECREATE");
     }
     if (removeOldImages) {
       await client.request("DELETE", `/api/plugins/docker/images/${oldImage.id}/`, { expected: [200, 202, 204] });
-      logLine(`RECREATE : removed old image ${data.image}:${oldImage.version || data.oldversion || ""} from ${hostName(oldImage)}`);
+      logLine(`RECREATE : removed old image ${data.image}:${firstValueText(oldImage.version, data.oldversion)} from ${hostName(oldImage)}`);
     }
   }
   logLine(`RECREATE : finished ${data.image}:${data.oldversion || "all previous versions"} -> ${data.version}`);
@@ -1156,32 +1158,36 @@ function containerVolumeRefs(container) {
   ];
   const refs = new Map();
 
-  mounts.forEach((mount) => {
-    const volume = mount?.volume || mount?.docker_volume || mount;
-    const id = valueText(volume?.id || mount?.volume_id);
-    const name = valueText(volume?.name || mount?.volume_name);
-    if (!id && !name) return;
-
-    refs.set(id || name, { id, name, hostId });
-  });
+  mounts
+    .map((mount) => {
+      const volume = mount?.volume || mount?.docker_volume || mount;
+      const id = valueText(volume?.id || mount?.volume_id);
+      const name = valueText(volume?.name || mount?.volume_name);
+      return { id, name, hostId };
+    })
+    .filter((ref) => ref.id || ref.name)
+    .forEach((ref) => refs.set(ref.id || ref.name, ref));
 
   return [...refs.values()];
 }
 
 async function deleteContainerVolumes(client, container) {
-  for (const ref of containerVolumeRefs(container)) {
-    if (ref.id) {
-      await client.request("DELETE", `/api/plugins/docker/volumes/${ref.id}/`, { expected: [200, 202, 204] });
-      logLine(`DELETE : volume ${ref.name || ref.id} deleted`);
-      continue;
-    }
-
+  const refs = containerVolumeRefs(container);
+  for (const ref of refs.filter((item) => item.id)) {
+    await client.request("DELETE", `/api/plugins/docker/volumes/${ref.id}/`, { expected: [200, 202, 204] });
+    logLine(`DELETE : volume ${ref.name || ref.id} deleted`);
+  }
+  for (const ref of refs.filter((item) => !item.id)) {
     const query = { name: ref.name };
-    if (ref.hostId) query.host_id = ref.hostId;
+    if (ref.hostId) {
+      query.host_id = ref.hostId;
+    } else {
+      delete query.host_id;
+    }
     const volumes = await client.list("/api/plugins/docker/volumes/", query);
     for (const volume of volumes) {
       await client.request("DELETE", `/api/plugins/docker/volumes/${volume.id}/`, { expected: [200, 202, 204] });
-      logLine(`DELETE : volume ${valueText(volume.name || ref.name || volume.id)} deleted`);
+      logLine(`DELETE : volume ${firstValueText(volume.name, ref.name, volume.id)} deleted`);
     }
   }
 }
@@ -1259,6 +1265,7 @@ module.exports = {
   containerConfigPayloadFromForm,
   containerCreatePayloadFromForm,
   containerEnvValue,
+  deleteContainerVolumes,
   boolLabelValue,
   containerPortValues,
   githubPackageImage,
@@ -1283,6 +1290,7 @@ module.exports = {
   parseSmtpConfig,
   plainObject,
   requestOrigin,
+  registryWebhookAllowed,
   routeLabel,
   registryWebhookEvents,
   sendSmtpMail,

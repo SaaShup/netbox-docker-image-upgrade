@@ -105,6 +105,23 @@ describe("api/enroll helpers", () => {
     const usage = await helpers.currentEnrollmentUsage({}, "prod", { ownerOnly: false });
     expect(usage).toMatchObject({ profile: "prod", used: 2, max: 4, remaining: 2, reached: false });
     expect(usage.instances).toHaveLength(2);
+
+    const maxTemplatesHelpers = createEnroll({
+      selectedProfileConfig: () => ({ max_templates: 1 }),
+      maxInstancesValue: (value) => Number(value),
+      profileUsesNetBoxTemplates: () => false,
+      readState: () => ({
+        templates: {
+          only: { image: "docker.io/library/app:1.2", version: "1.2" },
+        },
+      }),
+    });
+    await expect(maxTemplatesHelpers.currentEnrollmentUsage({}, "prod", { ownerOnly: false })).resolves.toMatchObject({
+      used: 1,
+      max: 1,
+      remaining: 0,
+      reached: true,
+    });
   });
 
   test("currentEnrollmentUsage returns empty usage for anonymous users when ownerOnly is true", async () => {
@@ -157,6 +174,7 @@ describe("api/enroll helpers", () => {
     expect(helpers.normalizedEnrollImageName("saashup/tile@sha256:abcd")).toBe("saashup/tile");
     expect(helpers.imageTagFromRef("saashup/tile:1.0")).toBe("1.0");
     expect(helpers.imageTagFromRef("saashup/tile")).toBe("");
+    expect(helpers.imageTagFromRef()).toBe("");
     expect(helpers.enrollImageTokens("")).toEqual(new Set());
     expect(helpers.enrollImageTokens("saashup/tile:1.0")).toEqual(new Set(["saashup/tile", "tile"]));
     expect(helpers.enrollImageMatches("saashup/tile:1.0", "tile")).toBe(true);
@@ -204,6 +222,17 @@ describe("api/enroll helpers", () => {
     expect(results).toEqual([]);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain("NetBox template discovery failed");
+
+    const fallbackErrors = [];
+    const fallbackHelpers = createEnroll({
+      authUserFromRequest: () => ({ email: "owner@example.com" }),
+      selectedProfileConfig: () => ({ netbox: true, token: "token" }),
+      profileUsesNetBoxTemplates: () => true,
+      templatesForRequest: async () => { throw {}; },
+      logLine: (message) => fallbackErrors.push(message),
+    });
+    await expect(fallbackHelpers.enrollmentTemplatesForRequest({}, "prod")).resolves.toEqual([]);
+    expect(fallbackErrors).toEqual(["ENROLL : NetBox template discovery failed unknown error"]);
   });
 
   test("enrollmentTemplatesForRequest loads NetBox templates when configured", async () => {
@@ -234,6 +263,27 @@ describe("api/enroll helpers", () => {
     const results = await helpers.enrollmentTemplatesForRequest({}, "prod", { ownerOnly: true });
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({ instance: "app", image: "repo/app:1.0" });
+  });
+
+  test("enrollmentTemplatesForRequest merges duplicate local and NetBox templates and uses profile fallbacks", async () => {
+    const helpers = createEnroll({
+      authUserFromRequest: () => ({ email: "owner@example.com" }),
+      selectedProfileConfig: () => ({ netbox: true, token: "token" }),
+      profileUsesNetBoxTemplates: () => false,
+      readState: () => ({
+        templates: {
+          app: { creator_email: "owner@example.com", image: "repo/local:1.0", version: "1.0" },
+          localOnly: { creator_email: "owner@example.com", image: "repo/local-only:1.0", version: "1.0" },
+        },
+      }),
+      templatesForRequest: async () => ({
+        app: { creator_email: "owner@example.com", profile: "prod", image: "repo/netbox:1.0", version: "1.0" },
+        profileFallback: { creator_email: "owner@example.com", image: "repo/fallback:1.0", version: "1.0" },
+      }),
+    });
+    const results = await helpers.enrollmentTemplatesForRequest({}, "prod", { ownerOnly: true });
+    expect(results.map((item) => item.instance).sort()).toEqual(["app", "localOnly", "profileFallback"]);
+    expect(results.find((item) => item.instance === "app")).toMatchObject({ source: "netbox-template", image: "repo/netbox:1.0" });
   });
 
   test("enrollmentTemplatesForUser returns owner-only templates through wrapper", async () => {
@@ -270,6 +320,20 @@ describe("api/enroll helpers", () => {
     expect(usage).toEqual({ owned: 0, blocked: 1, total: 1 });
     expect(log).toHaveLength(1);
     expect(log[0]).toContain("template delete usage check failed");
+
+    const fallbackLog = [];
+    const fallbackHelpers = createEnroll({
+      profileUsesNetBoxTemplates: () => true,
+      selectedProfileConfig: () => ({ netbox: true, token: "token", tag: "tag" }),
+      templateEntryForRequest: async () => ({ template: { image: "saashup/tile:1.0", version: "1.0" } }),
+      hostIdQuery: async () => ({ host_id: 1 }),
+      NetBoxClient: class {
+        constructor() { this.list = async () => { throw {}; }; }
+      },
+      logLine: (message) => fallbackLog.push(message),
+    });
+    await expect(fallbackHelpers.enrollmentTemplateDeleteUsage({}, "prod", "tile", "owner@example.com")).resolves.toEqual({ owned: 0, blocked: 1, total: 1 });
+    expect(fallbackLog).toEqual(["ENROLL : template delete usage check failed unknown error"]);
   });
 
   test("enrollmentTemplateDeleteUsage returns empty usage for missing names, disabled NetBox, and missing hosts", async () => {
@@ -308,6 +372,17 @@ describe("api/enroll helpers", () => {
     await netboxHelpers.updateEnrollmentInstanceStatus({}, "prod", "existing", "ready");
     expect(log).toHaveLength(1);
     expect(log[0]).toContain("status ready");
+
+    const fallbackLog = [];
+    const fallbackNetboxHelpers = createEnroll({
+      profileUsesNetBoxTemplates: () => true,
+      templatesForRequest: async () => ({ existing: { status: "pending" } }),
+      workflowsForRequest: async () => ({}),
+      syncTemplatesToNetBoxConfigContext: async () => ({ name: "sync" }),
+      logLine: (message) => fallbackLog.push(message),
+    });
+    await fallbackNetboxHelpers.updateEnrollmentInstanceStatus({}, "prod", "existing", "ready");
+    expect(fallbackLog).toEqual(["ENROLL : template existing status ready synced to config context sync action=none"]);
   });
 
   test("updateEnrollmentInstanceStatus is a no-op for blank or missing templates", async () => {
@@ -349,12 +424,38 @@ describe("api/enroll helpers", () => {
         constructor() { this.list = async () => [
           { image: "saashup/tile:1.0", image_name: "saashup/tile", image_version: "1.0", labels: { name: "tile", owner: "owner@example.com" }, env: { owner: "owner@example.com" } },
           { image: "saashup/tile:1.0", image_name: "saashup/tile", image_version: "1.0", labels: { name: "tile", owner: "other@example.com" }, env: { owner: "other@example.com" } },
+          { image: "saashup/tile:1.0", image_name: "saashup/tile", image_version: "1.0", labels: { name: "tile", creator: "owner@example.com" }, env: { owner: "" } },
+          { image: "saashup/tile:1.0", image_name: "saashup/tile", image_version: "1.0", labels: { name: "tile" }, env: { owner: "owner@example.com" } },
+          { image_name: "saashup/tile:1.0", image_version: "1.0", labels: { template: "tile", owner: "owner@example.com" } },
         ]; }
       },
     });
 
     const usage = await helpers.enrollmentTemplateDeleteUsage({}, "prod", "tile", "owner@example.com");
-    expect(usage).toEqual({ owned: 1, blocked: 1, total: 2 });
+    expect(usage).toEqual({ owned: 4, blocked: 1, total: 5 });
+  });
+
+  test("enrollmentTemplateDeleteUsage matches image display fallbacks when exact keys are unavailable", async () => {
+    const helpers = createEnroll({
+      selectedProfileConfig: () => ({ netbox: true, token: "token", tag: "tag" }),
+      profileUsesNetBoxTemplates: () => true,
+      hostIdQuery: async () => ({ host_id: 1 }),
+      templateEntryForRequest: async () => ({ template: { image: "saashup/tile", version: "" } }),
+      imageKeyFromRefAndVersion: () => "",
+      imageNameKey: (image) => String(image || "").split("/").pop().split(/[:@]/)[0],
+      imageKeyFromImageObject: () => "",
+      imageNameKeyFromImageObject: () => "",
+      containerEnvValue: (container) => container.env?.owner || "",
+      labelMapFromContainer: (container) => container.labels || {},
+      templateLabelValue: (labels, key) => labels[key] || "",
+      NetBoxClient: class {
+        constructor() { this.list = async () => [
+          { image_display: "saashup/tile:1.0", labels: {}, env: { owner: "owner@example.com" } },
+        ]; }
+      },
+    });
+
+    await expect(helpers.enrollmentTemplateDeleteUsage({}, "prod", "tile", "owner@example.com")).resolves.toEqual({ owned: 1, blocked: 0, total: 1 });
   });
 
   test("recordEnrollment writes local templates and syncs NetBox templates when configured", async () => {
@@ -373,6 +474,19 @@ describe("api/enroll helpers", () => {
     await helpers.recordEnrollment({ headers: {} }, "prod", { image: "saashup/tile:1.0" });
     expect(log).toHaveLength(1);
     expect(log[0]).toContain("synced to config context");
+
+    const fallbackLog = [];
+    const fallbackHelpers = createEnroll({
+      authUserFromRequest: () => ({ user: "fallback-owner@example.com" }),
+      profileUsesNetBoxTemplates: () => true,
+      templatesForRequest: async () => ({}),
+      workflowsForRequest: async () => ({}),
+      syncTemplatesToNetBoxConfigContext: async () => ({ name: "sync" }),
+      logLine: (message) => fallbackLog.push(message),
+      selectedProfileConfig: () => ({ netbox: true, token: "token" }),
+    });
+    await fallbackHelpers.recordEnrollment({ headers: {} }, "prod", { image: "saashup/fallback:1.0" });
+    expect(fallbackLog).toEqual(["ENROLL : template fallback synced to config context sync action=none"]);
   });
 
   test("recordEnrollment persists local templates when NetBox is not enabled", async () => {
@@ -417,9 +531,15 @@ describe("api/enroll helpers", () => {
       { template: "tile", template_data: expect.objectContaining({ image: "saashup/tile:2.0" }), enabled: true },
       { template: "other", enabled: false },
     ]);
+    const globalWorkflow = helpers.workflowsWithEnrollmentTemplate({}, "", "tile", template);
+    expect(globalWorkflow.templates).toMatchObject({
+      name: "templates",
+      config_profile: "",
+      steps: [{ template: "tile", template_data: expect.objectContaining({ image: "saashup/tile:2.0" }), enabled: true }],
+    });
 
     const fallback = helpers.enrollmentTemplateFromData({}, {
-      config_profile: "existing-profile",
+      profile: "existing-profile",
       instance: "existing",
       dns_name: "existing.example.com",
       image: "repo/existing",
@@ -632,6 +752,8 @@ describe("api/order helpers", () => {
             { id: "creating", display: "z.example.com", labels: { name: "demo", creator: "owner@example.com" } },
             { id: "ready", name: "a.example.com", labels: { name: "demo", owner_env_var: "APP_OWNER" }, env: { APP_OWNER: "owner@example.com" } },
             { id: "failed", name: "b.example.com", labels: { name: "other", owner: "owner@example.com" } },
+            { id: "id-only.example.com", labels: { name: "demo", dns_name: "dns-label.example.com", owner: "owner@example.com" } },
+            { id: "plain-id.example.com", labels: { name: "demo", owner: "owner@example.com" } },
           ];
         }
       },
@@ -642,9 +764,26 @@ describe("api/order helpers", () => {
 
     const usage = await helpers.currentUsage({ body: {}, query: {} }, "prod");
 
-    expect(usage.instances.map((item) => item.instance)).toEqual(["a.example.com", "b.example.com", "z.example.com"]);
-    expect(usage.instances.map((item) => item.status)).toEqual(["ready", "failed", "creating"]);
-    expect(usage.instances).toHaveLength(3);
+    expect(usage.instances.map((item) => item.instance)).toEqual(["a.example.com", "b.example.com", "dns-label.example.com", "plain-id.example.com", "z.example.com"]);
+    expect(usage.instances.map((item) => item.status)).toEqual(["ready", "failed", "creating", "creating", "creating"]);
+    expect(usage.instances).toHaveLength(5);
+  });
+
+  test("orderInstancesForUser logs unknown NetBox discovery failures", async () => {
+    const log = [];
+    const helpers = createOrder({
+      authUserFromRequest: () => ({ email: "owner@example.com" }),
+      selectedProfileConfig: () => ({ netbox: true, token: "token", tag: "tag" }),
+      hostIdQuery: async () => ({ host_id: 1 }),
+      NetBoxClient: class {
+        constructor() { this.list = async () => { throw {}; }; }
+      },
+      logLine: (message) => log.push(message),
+    });
+
+    const usage = await helpers.currentUsage({ body: {}, query: {} }, "prod");
+    expect(usage.instances).toEqual([]);
+    expect(log).toEqual(["ORDER : NetBox label discovery failed unknown error"]);
   });
 
   test("currentUsage computes usage totals and respects template max instances", async () => {
