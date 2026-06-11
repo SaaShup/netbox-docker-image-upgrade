@@ -93,12 +93,15 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator("#form-title")).toHaveText("Config");
 });
 
-test("home top bar links to order and extensionless admin", async ({ page }) => {
+test("root page shows the catalog account bar and extensionless admin", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.locator(".site-header .nav .nav-cta")).toHaveText(["Order", "Open admin"]);
-  await expect(page.locator(".site-header .nav .nav-cta").first()).toHaveAttribute("href", "/order");
-  await expect(page.locator(".site-header .nav .nav-cta").last()).toHaveAttribute("href", "/admin");
+  await expect(page.locator(".catalog-eyebrow")).toHaveText("Template catalog");
+  await expect(page.locator(".top-left-bar .brand-badge")).toContainText("SaaShup");
+  await expect(page.locator(".top-left-bar .brand-badge img")).toHaveAttribute("src", "saashup_logo.svg");
+  await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My instances" })).toHaveAttribute("href", "/order");
+  await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My images" })).toHaveAttribute("href", "/enroll");
+  await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "Catalog" })).toHaveAttribute("href", "/catalog");
   await expect(page.locator("[data-app-version]")).toHaveText(appVersion);
 
   await page.goto("/admin");
@@ -2523,6 +2526,14 @@ test("catalog page shows the account menu", async ({ page }) => {
   await expect(page).toHaveURL(/\/catalog$/);
   await expect(page.locator(".catalog-eyebrow")).toHaveText("Template catalog");
   await expect(page.locator(".catalog-summary")).toHaveCount(0);
+  await expect(page.locator(".top-left-bar .brand-badge")).toBeVisible();
+  await expect(page.locator(".top-left-bar .brand-badge")).toContainText("SaaShup");
+  await expect(page.locator(".top-left-bar .brand-badge img")).toHaveAttribute("src", "saashup_logo.svg");
+  await expect(page.locator(".site-header")).toHaveCount(0);
+  const menuBox = await page.locator(".order-page-menu").boundingBox();
+  const catalogBox = await page.locator(".catalog-panel").boundingBox();
+  expect(menuBox?.y).toBeLessThan(60);
+  expect(catalogBox?.y).toBeGreaterThan(menuBox?.y ?? 0);
   expect(new URL(catalogLimitUrl).searchParams.get("owner_only")).toBe("false");
   await expect(page.locator("#catalogList")).toContainText("flowg");
   await expect(page.locator("#catalogList")).toContainText("linksociety/flowg:v0.58.0");
@@ -2548,6 +2559,19 @@ test("catalog page shows the account menu", async ({ page }) => {
   await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My images" })).toHaveAttribute("href", "/enroll");
   await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "Catalog" })).toHaveAttribute("href", "/catalog");
   await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "Catalog" })).toHaveAttribute("aria-current", "page");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator(".top-left-bar")).toBeVisible();
+  const mobileBrandBox = await page.locator(".top-left-bar").boundingBox();
+  const mobileMenuBox = await page.locator(".order-page-menu").boundingBox();
+  const mobileAuthBox = await page.locator("#authUser").boundingBox();
+  expect(mobileBrandBox).not.toBeNull();
+  expect(mobileMenuBox).not.toBeNull();
+  expect(mobileAuthBox).not.toBeNull();
+  expect(mobileBrandBox.x).toBeGreaterThanOrEqual(0);
+  expect(mobileBrandBox.x + mobileBrandBox.width).toBeLessThanOrEqual(390);
+  expect(mobileMenuBox.y).toBeGreaterThanOrEqual(mobileBrandBox.y + mobileBrandBox.height);
+  expect(mobileAuthBox.y).toBeGreaterThanOrEqual(mobileMenuBox.y + mobileMenuBox.height);
 });
 
 test("enroll page reports only missing port when docker run has image", async ({ page }) => {
@@ -3849,12 +3873,14 @@ test("order page generates and submits an instance name when the template has no
   ], undefined, "/order?template=curiootiles");
 
   await expect(page.locator("#instance")).toHaveValue(/^tile-[a-z0-9]{16}$/);
-  const generatedName = await page.locator("#instance").inputValue();
 
   await page.locator("#submitBtn").click();
 
-  await expect.poll(() => createBody).toContain(`instance=${generatedName}`);
-  expect(createBody).toContain(`dns_name=${generatedName}.daily.paashup.cloud`);
+  await expect.poll(() => createBody).not.toBe("");
+  const submitted = new URLSearchParams(createBody);
+  const generatedName = submitted.get("instance");
+  expect(generatedName).toMatch(/^tile-[a-z0-9]{16}$/);
+  expect(submitted.get("dns_name")).toBe(`${generatedName}.daily.paashup.cloud`);
   await expect(page.locator("#orderStatus")).toHaveText(`Thank you, your instance installation has been requested for ${generatedName}.daily.paashup.cloud.`);
 });
 

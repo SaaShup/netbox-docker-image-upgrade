@@ -1,3 +1,9 @@
+function plainObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? JSON.parse(JSON.stringify(value))
+    : {};
+}
+
 function normalizeImportedProfiles(profiles, maxInstancesValue, plainObject) {
   return Object.fromEntries(Object.entries(plainObject(profiles)).map(([name, profile]) => {
     const normalized = plainObject(profile);
@@ -357,4 +363,12 @@ function registerConfigRoutes(app, {
   });
 }
 
-module.exports = { registerConfigRoutes };
+module.exports = {
+  registerConfigRoutes,
+  normalizeImportedProfiles,
+  cleanStoredConfig,
+  expandedConfigForResponse,
+  workflowsForVisibleTemplates,
+  templateEntryByName,
+  workflowsWithoutTemplate,
+};

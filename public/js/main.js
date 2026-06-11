@@ -97,6 +97,7 @@ const authUser = document.getElementById("authUser");
 const authAvatar = document.getElementById("authAvatar");
 const authName = document.getElementById("authName");
 const authEmail = document.getElementById("authEmail");
+const adminLink = document.getElementById("adminLink");
 const clearCacheBtn = document.getElementById("clearCacheBtn");
 const logoutBtn = document.getElementById("logoutBtn");
 const reportCard = document.getElementById("reportCard");
@@ -502,6 +503,7 @@ async function loadAuthUser() {
     if (authName) authName.textContent = displayName;
     if (authEmail) authEmail.textContent = user.email && user.email !== displayName ? user.email : "";
     if (authAvatar) authAvatar.textContent = userInitials(displayName);
+    if (adminLink) adminLink.classList.toggle("hidden", !user.admin);
 
     authUser.classList.remove("hidden");
   } catch (error) {

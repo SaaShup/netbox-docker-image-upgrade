@@ -13,10 +13,14 @@ function registerSystemRoutes(app, {
   packageJson,
   publicPath,
   requireAdmin,
+  isAdminAllowed,
 }) {
   app.use(oidcAuth.attachUser);
 
-  app.get("/session/user", (req, res) => res.json(authUserFromRequest(req)));
+  app.get("/session/user", (req, res) => {
+    const user = authUserFromRequest(req);
+    res.json({ ...user, admin: Boolean(isAdminAllowed?.(req)) });
+  });
   app.get("/login", (req, res, next) => Promise.resolve(oidcAuth.login(req, res)).catch(next));
   app.get("/oidc/callback", oidcAuth.callback);
   app.get("/logout", oidcAuth.logout);
@@ -27,6 +31,7 @@ function registerSystemRoutes(app, {
   app.get("/order", oidcAuth.loginRequired, (req, res) => res.sendFile(path.join(publicPath, "order.html")));
   app.get("/enroll", oidcAuth.loginRequired, (req, res) => sendNoCachePage(publicPath, res, "enroll.html"));
   app.get("/enroll.html", oidcAuth.loginRequired, (req, res) => sendNoCachePage(publicPath, res, "enroll.html"));
+  app.get("/", oidcAuth.loginRequired, (req, res) => sendNoCachePage(publicPath, res, "catalog.html"));
   app.get("/catalog", oidcAuth.loginRequired, (req, res) => sendNoCachePage(publicPath, res, "catalog.html"));
   app.get("/catalog.html", oidcAuth.loginRequired, (req, res) => sendNoCachePage(publicPath, res, "catalog.html"));
 }

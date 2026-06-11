@@ -11,12 +11,19 @@
 
 <body class="enroll-page">
   <main class="main enroll-main">
-    <button type="button" class="theme-toggle order-theme" data-theme-toggle aria-label="Toggle theme" title="Toggle theme">☾</button>
     <nav class="order-page-menu" aria-label="Account pages">
       <a href="/order">My instances</a>
       <a href="/enroll" aria-current="page">My images</a>
       <a href="/catalog">Catalog</a>
+      <a href="/admin" id="adminLink" class="hidden">Admin</a>
     </nav>
+    <div class="top-left-bar">
+      <a href="https://saashup.com" class="brand-badge" target="_blank" rel="noreferrer noopener">
+        <img src="saashup_logo.svg" alt="SaaShup logo" aria-hidden="true">
+        <span>SaaShup</span>
+      </a>
+      <button type="button" class="theme-toggle order-theme" data-theme-toggle aria-label="Toggle theme" title="Toggle theme">☾</button>
+    </div>
     <div class="auth-user order-auth hidden" id="authUser">
       <div class="auth-avatar" id="authAvatar" aria-hidden="true">?</div>
       <div class="auth-copy">

@@ -147,6 +147,7 @@ function labelMapFromContainer(container) {
 function templateLabelValue(labels, key) {
   const normalizedKey = String(key || "").toLowerCase();
   return labels[`saashup.template.${normalizedKey}`]
+    || labels[`saashup.template_${normalizedKey}`]
     || labels[`saashup_template_${normalizedKey}`]
     || labels[`saashup_${normalizedKey}`]
     || "";
@@ -951,6 +952,7 @@ registerSystemRoutes(app, {
   packageJson,
   publicPath,
   requireAdmin,
+  isAdminAllowed,
 });
 registerMetricsRoutes(app, { metrics, packageJson, startedAt });
 
@@ -1239,7 +1241,14 @@ module.exports = {
   bindPayloadsFromForm,
   containerConfigPayloadFromForm,
   containerCreatePayloadFromForm,
+  containerEnvValue,
+  boolLabelValue,
+  containerPortValues,
+  githubPackageImage,
+  githubPackageTag,
   hostMatchesTag,
+  imageFromDistributionTarget,
+  imagePartsFromContainer,
   imageNameFromRef,
   instanceShort,
   instanceZone,
@@ -1247,14 +1256,18 @@ module.exports = {
   isContainerStopped,
   isOperationDone,
   isReadyContainer,
+  labelMapFromContainer,
   maxInstancesValue,
   metricLabel,
   metricLine,
   operationLabel,
+  orderTemplateEnabled,
   parseProfiles,
   parseSmtpConfig,
   plainObject,
+  requestOrigin,
   routeLabel,
+  registryWebhookEvents,
   sendSmtpMail,
   setNetBoxFetchForTests,
   setOidcFetchForTests,
@@ -1270,6 +1283,9 @@ module.exports = {
   smtpSenderAddress,
   smtpTransportOptions,
   statusClass,
+  templateLabelValue,
+  timingSafeStringEqual,
   valueText,
+  waitForRequest,
   volumePayloadsFromForm,
 };
