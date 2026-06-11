@@ -107,9 +107,9 @@ function createEnrollHelpers({
   async function enrollmentTemplatesForRequest(req, profile, options = {}) {
     const user = authUserFromRequest(req);
     const creator = String(user.email || user.user || "").trim().toLowerCase();
-    if (!creator) return [];
-
     const ownerOnly = options.ownerOnly !== false;
+    if (!creator && ownerOnly) return [];
+
     const state = readState();
     const useNetBox = profileUsesNetBoxTemplates(profile);
     const localTemplates = useNetBox ? [] : localEnrollmentTemplatesForUser(state, creator, { ownerOnly });
