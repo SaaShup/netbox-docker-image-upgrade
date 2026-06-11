@@ -330,15 +330,23 @@ function createEnrollHelpers({
   }
 
   return {
-    currentEnrollmentUsage,
-    enrollmentTemplateDeleteUsage,
-    recordEnrollment,
-    templateNameFromEnrollmentData,
-    updateEnrollmentInstanceStatus,
-    validateEnrollmentTemplate,
-  };
-}
-
+      currentEnrollmentUsage,
+      enrollmentTemplateDeleteUsage,
+      recordEnrollment,
+      templateNameFromEnrollmentData,
+      updateEnrollmentInstanceStatus,
+      validateEnrollmentTemplate,
+      normalizedEnrollImageName,
+      imageTagFromRef,
+      enrollImageTokens,
+      enrollImageMatches,
+      configuredEnrollmentImageBlock,
+      enrollmentTemplatesForUser,
+      enrollmentTemplatesForRequest,
+      enrollmentTemplateFromData,
+      workflowsWithEnrollmentTemplate,
+    };
+  }
 function registerEnrollRoutes(app, {
   currentEnrollmentUsage,
 }) {

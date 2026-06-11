@@ -4,7 +4,12 @@ const {
   bindPayloadsFromForm,
   containerConfigPayloadFromForm,
   containerCreatePayloadFromForm,
+  containerEnvValue,
+  boolLabelValue,
+  githubPackageImage,
+  githubPackageTag,
   hostMatchesTag,
+  imageFromDistributionTarget,
   imageNameFromRef,
   instanceShort,
   instanceZone,
@@ -12,13 +17,17 @@ const {
   isContainerStopped,
   isOperationDone,
   isReadyContainer,
+  labelMapFromContainer,
   maxInstancesValue,
   metricLabel,
   metricLine,
   operationLabel,
+  orderTemplateEnabled,
   parseProfiles,
   parseSmtpConfig,
   plainObject,
+  requestOrigin,
+  registryWebhookEvents,
   routeLabel,
   sendSmtpMail,
   smtpClientName,
@@ -26,8 +35,13 @@ const {
   smtpSenderAddress,
   smtpTransportOptions,
   statusClass,
+  templateLabelValue,
+  timingSafeStringEqual,
   valueText,
+  waitForRequest,
   volumePayloadsFromForm,
+  imagePartsFromContainer,
+  containerPortValues,
 } = require("../../server");
 const nodemailer = require("nodemailer");
 const fs = require("fs");
@@ -115,6 +129,67 @@ describe("server helpers", () => {
     expect(parseProfiles({ dev: { tag: "DEV" } })).toEqual({ dev: { tag: "DEV" } });
     expect(parseProfiles("[1,2,3]")).toEqual({});
     expect(parseProfiles("not json")).toEqual({});
+  });
+
+  test("normalizes container labels and extracts image metadata from labels", () => {
+    expect(labelMapFromContainer({ labels: [{ key: "saashup.template.name", value: "Tile" }, { key: "owner", value: "owner@example.com" }] })).toEqual({ "saashup.template.name": "Tile", owner: "owner@example.com" });
+    expect(labelMapFromContainer({ labels: { "saashup.template.image": "repo/image", "saashup.template.version": "1.0" } })).toEqual({ "saashup.template.image": "repo/image", "saashup.template.version": "1.0" });
+    expect(templateLabelValue({ "saashup.template.image": "repo/image", "saashup_template_version": "1.0" }, "image")).toBe("repo/image");
+    expect(templateLabelValue({ "saashup.template.image": "repo/image", "saashup_template_version": "1.0" }, "version")).toBe("1.0");
+  });
+
+  test("boolLabelValue interprets falsey text values and preserves defaults", () => {
+    expect(boolLabelValue(undefined, false)).toBe(false);
+    expect(boolLabelValue("false")).toBe(false);
+    expect(boolLabelValue("off")).toBe(false);
+    expect(boolLabelValue("yes")).toBe(true);
+  });
+
+  test("imagePartsFromContainer uses labeled values and falls back to image objects", () => {
+    const labeled = imagePartsFromContainer({ image: { name: "repo/image", version: "1.0" } }, { "saashup.template.image": "labeled/image", "saashup.template_version": "2.0" });
+    expect(labeled).toEqual({ image: "labeled/image", version: "2.0" });
+
+    const fallback = imagePartsFromContainer({ image: { name: "repo/image", version: "1.0" } }, {});
+    expect(fallback).toEqual({ image: "repo/image", version: "1.0" });
+  });
+
+  test("containerPortValues respects label ports and container port objects", () => {
+    expect(containerPortValues({ ports: [{ private_port: "8080" }] }, {})).toEqual([{ value: "8080" }]);
+    expect(containerPortValues({}, { "saashup.template.port": "9090" })).toEqual([{ value: "9090" }]);
+  });
+
+  test("orderTemplateEnabled interprets no value as default and recognizes disabled values", () => {
+    expect(orderTemplateEnabled(undefined, false)).toBe(false);
+    expect(orderTemplateEnabled("false")).toBe(false);
+    expect(orderTemplateEnabled("yes")).toBe(true);
+  });
+
+  test("request helpers parse origins, wait flags, safe comparisons, and env entries", () => {
+    expect(waitForRequest({ wait: true })).toBe(true);
+    expect(waitForRequest({ wait: "true" })).toBe(true);
+    expect(waitForRequest({ wait: "on" })).toBe(true);
+    expect(waitForRequest({ wait: "false" })).toBe(false);
+
+    expect(timingSafeStringEqual("secret", "secret")).toBe(true);
+    expect(timingSafeStringEqual("secret", "other")).toBe(false);
+    expect(timingSafeStringEqual("secret", "secret-extra")).toBe(false);
+
+    expect(requestOrigin({ get: (name) => name === "origin" ? "https://app.example.com/" : "" })).toBe("https://app.example.com");
+    expect(requestOrigin({ get: (name) => name === "referer" ? "https://app.example.com/path?x=1" : "" })).toBe("https://app.example.com");
+    expect(requestOrigin({ get: (name) => name === "referer" ? "not a url" : "" })).toBe("");
+    expect(requestOrigin({ get: () => "" })).toBe("");
+
+    expect(containerEnvValue({
+      env: [null, "bad", { var_name: "OWNER", value: "owner@example.com" }],
+    }, "OWNER")).toBe("owner@example.com");
+    expect(containerEnvValue({
+      env_vars: [{ name: "APP_OWNER", value: "app@example.com" }],
+      environment: [{ key: "OTHER", value: "other@example.com" }],
+    }, "APP_OWNER")).toBe("app@example.com");
+    expect(containerEnvValue({
+      environment: [{ key: "APP_OWNER", value: "env@example.com" }],
+    }, "APP_OWNER")).toBe("env@example.com");
+    expect(containerEnvValue({ env: [{ key: "OTHER", value: "other@example.com" }] }, "APP_OWNER")).toBe("");
   });
 
   test("clamps max instance values to the supported range", () => {
@@ -220,6 +295,28 @@ describe("server helpers", () => {
     createTransport.mockRestore();
   });
 
+  test("retries transient smtp failures and closes transports", async () => {
+    const closeFirst = vi.fn();
+    const closeSecond = vi.fn();
+    const sendMailFirst = vi.fn().mockRejectedValue(Object.assign(new Error("try again later"), { responseCode: 421 }));
+    const sendMailSecond = vi.fn().mockResolvedValue({ messageId: "queued-after-retry" });
+    const createTransport = vi.spyOn(nodemailer, "createTransport")
+      .mockReturnValueOnce({ sendMail: sendMailFirst, close: closeFirst })
+      .mockReturnValueOnce({ sendMail: sendMailSecond, close: closeSecond });
+
+    await expect(sendSmtpMail(
+      parseSmtpConfig("mailer:smtp-secret@smtp.example.com:587"),
+      { to: "to@example.com", subject: "Subject" },
+      { retries: 1, retryDelayMs: 0 },
+    )).resolves.toEqual({ messageId: "queued-after-retry" });
+
+    expect(createTransport).toHaveBeenCalledTimes(2);
+    expect(closeFirst).toHaveBeenCalledTimes(1);
+    expect(closeSecond).toHaveBeenCalledTimes(1);
+
+    createTransport.mockRestore();
+  });
+
   test("retries transient smtp failures with a fresh transport", async () => {
     const firstSendMail = vi.fn().mockRejectedValue(Object.assign(new Error("421-4.7.0 Try again later, closing connection. (EHLO)"), { responseCode: 421 }));
     const secondSendMail = vi.fn().mockResolvedValue({ messageId: "queued-after-retry" });
@@ -244,6 +341,44 @@ describe("server helpers", () => {
     createTransport.mockRestore();
   });
 
+  test("does not retry non-transient smtp failures", async () => {
+    const sendMail = vi.fn().mockRejectedValue(Object.assign(new Error("bad mailbox"), { responseCode: 550 }));
+    const close = vi.fn();
+    const createTransport = vi.spyOn(nodemailer, "createTransport").mockReturnValue({ sendMail, close });
+
+    await expect(sendSmtpMail(
+      parseSmtpConfig("mailer:smtp-secret@smtp.example.com:587"),
+      { to: "bad@example.com", subject: "Subject" },
+      { retries: 2, retryDelayMs: 0 },
+    )).rejects.toThrow("bad mailbox");
+
+    expect(createTransport).toHaveBeenCalledTimes(1);
+    expect(sendMail).toHaveBeenCalledTimes(1);
+    expect(close).toHaveBeenCalledTimes(1);
+
+    createTransport.mockRestore();
+  });
+
+  test("retries transient smtp socket errors and allows transports without close", async () => {
+    const firstSendMail = vi.fn().mockRejectedValue(Object.assign(new Error("socket timeout"), { code: "ETIMEDOUT" }));
+    const secondSendMail = vi.fn().mockResolvedValue({ messageId: "queued-after-socket-retry" });
+    const createTransport = vi.spyOn(nodemailer, "createTransport")
+      .mockReturnValueOnce({ sendMail: firstSendMail })
+      .mockReturnValueOnce({ sendMail: secondSendMail });
+
+    await expect(sendSmtpMail(
+      parseSmtpConfig("smtp.example.com:25"),
+      { from: "sender@example.com", to: "to@example.com", subject: "Subject" },
+      { retries: 1, retryDelayMs: 0 },
+    )).resolves.toEqual({ messageId: "queued-after-socket-retry" });
+
+    expect(createTransport).toHaveBeenCalledTimes(2);
+    expect(firstSendMail).toHaveBeenCalledTimes(1);
+    expect(secondSendMail).toHaveBeenCalledTimes(1);
+
+    createTransport.mockRestore();
+  });
+
   test("matches docker host tags from NetBox and custom field fallbacks", () => {
     expect(hostMatchesTag({ tags: [{ name: "TILE" }] }, "tile")).toBe(true);
     expect(hostMatchesTag({ tags: [{ display: "TILE" }] }, "tile")).toBe(true);
@@ -260,6 +395,53 @@ describe("server helpers", () => {
     expect(imageNameFromRef()).toBe("");
     expect(imageNameFromRef("registry.example.com:5000/saashup/tile-api:v2.4.1")).toBe("registry.example.com:5000/saashup/tile-api");
     expect(imageNameFromRef("saashup/tile-api")).toBe("saashup/tile-api");
+  });
+
+  test("extracts registry webhook events from distribution and GitHub package payloads", () => {
+    expect(imageFromDistributionTarget({
+      url: "https://registry.example.com/v2/team/app/manifests/1.2.3",
+      repository: "fallback/app",
+    })).toBe("registry.example.com/team/app");
+    expect(imageFromDistributionTarget({
+      url: "not a url",
+      repository: "fallback/app",
+    })).toBe("fallback/app");
+    expect(imageFromDistributionTarget({
+      url: "https://registry.example.com/not-a-manifest",
+      repository: "fallback/app",
+    })).toBe("fallback/app");
+
+    expect(githubPackageImage({ registry_package: { name: "ghcr.io/acme/app" } })).toBe("ghcr.io/acme/app");
+    expect(githubPackageImage({ package: { name: "acme/app" } })).toBe("acme/app");
+    expect(githubPackageImage({ registry_package: { name: "app", owner: { login: "acme" } } })).toBe("ghcr.io/acme/app");
+    expect(githubPackageImage({ registry_package: { name: "app" } })).toBe("app");
+    expect(githubPackageImage({})).toBe("");
+
+    expect(githubPackageTag({ package_version: { container_metadata: { tag: { name: "1.2.3" } } } })).toBe("1.2.3");
+    expect(githubPackageTag({ registry_package: { package_version: { name: "2.0.0" } } })).toBe("2.0.0");
+    expect(githubPackageTag({ package_version_name: "3.0.0" })).toBe("3.0.0");
+
+    expect(registryWebhookEvents({
+      repository: { repo_name: "saashup/app" },
+      push_data: { tag: "1.0.0" },
+      updated_tags: ["1.1.0"],
+      docker_url: "quay.io/saashup/app",
+      events: [
+        { action: "pull", target: { repository: "ignored/app", tag: "skip" } },
+        { action: "push", target: { url: "https://registry.example.com/v2/team/app/manifests/2.0.0", tag: "2.0.0" } },
+      ],
+      registry_package: { name: "app", owner: { login: "acme" } },
+      package_version: { container_metadata: { tag: { name: "4.0.0" } } },
+    })).toEqual([
+      { image: "saashup/app", tag: "1.0.0" },
+      { image: "quay.io/saashup/app", tag: "1.1.0" },
+      { image: "registry.example.com/team/app", tag: "2.0.0" },
+      { image: "ghcr.io/acme/app", tag: "4.0.0" },
+    ]);
+
+    expect(registryWebhookEvents({ docker_tags: ["latest"], repository: "quay.io/acme/app" })).toEqual([
+      { image: "quay.io/acme/app", tag: "latest" },
+    ]);
   });
 
   test("parses supported registry image references and rejects invalid repositories", () => {

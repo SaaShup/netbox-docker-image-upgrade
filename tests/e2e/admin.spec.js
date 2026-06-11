@@ -3849,12 +3849,14 @@ test("order page generates and submits an instance name when the template has no
   ], undefined, "/order?template=curiootiles");
 
   await expect(page.locator("#instance")).toHaveValue(/^tile-[a-z0-9]{16}$/);
-  const generatedName = await page.locator("#instance").inputValue();
 
   await page.locator("#submitBtn").click();
 
-  await expect.poll(() => createBody).toContain(`instance=${generatedName}`);
-  expect(createBody).toContain(`dns_name=${generatedName}.daily.paashup.cloud`);
+  await expect.poll(() => createBody).not.toBe("");
+  const submitted = new URLSearchParams(createBody);
+  const generatedName = submitted.get("instance");
+  expect(generatedName).toMatch(/^tile-[a-z0-9]{16}$/);
+  expect(submitted.get("dns_name")).toBe(`${generatedName}.daily.paashup.cloud`);
   await expect(page.locator("#orderStatus")).toHaveText(`Thank you, your instance installation has been requested for ${generatedName}.daily.paashup.cloud.`);
 });
 

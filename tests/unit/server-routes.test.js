@@ -745,6 +745,44 @@ describe("server routes", () => {
     });
   });
 
+  test("serves the catalog landing page at / and /catalog", async () => {
+    const { request } = await loadServer();
+
+    await request.get("/")
+      .set("x-auth-request-email", "buyer@example.com")
+      .expect(200)
+      .expect((res) => {
+        expect(res.text).toContain("<html");
+        expect(res.headers["cache-control"]).toContain("no-store");
+      });
+
+    await request.get("/catalog")
+      .set("x-auth-request-email", "buyer@example.com")
+      .expect(200)
+      .expect((res) => {
+        expect(res.text).toContain("<html");
+      });
+  });
+
+  test("serves the catalog page at /catalog.html and enroll page at /enroll", async () => {
+    const { request } = await loadServer();
+
+    await request.get("/catalog.html")
+      .set("x-auth-request-email", "buyer@example.com")
+      .expect(200)
+      .expect((res) => {
+        expect(res.text).toContain("<html");
+      });
+
+    await request.get("/enroll")
+      .set("x-auth-request-email", "buyer@example.com")
+      .expect(200)
+      .expect((res) => {
+        expect(res.text).toContain("<html");
+        expect(res.headers["cache-control"]).toContain("no-store");
+      });
+  });
+
   test("checks Docker Hub registry image availability", async () => {
     const { request, setRegistryFetchForTests } = await loadServer({ publicApiSecret: "test-secret" });
     const registryFetch = vi.fn(async (url, options = {}) => {
