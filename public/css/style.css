@@ -361,33 +361,77 @@ body.app-booting .app-shell {
   height: 20px;
 }
 
-.top-left-bar {
-  position: fixed;
-  top: 18px;
-  left: 18px;
-  right: auto;
-  z-index: 20;
+.site-header {
+  width: min(1180px, calc(100% - 32px));
+  margin: 18px auto 0;
+  padding: 14px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  backdrop-filter: blur(14px);
+  position: sticky;
+  top: 16px;
+  z-index: 10;
+}
+
+.site-header-left {
   display: inline-flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 14px;
+}
+
+.site-header .brand-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
   border: 1px solid var(--border);
-  border-radius: 14px;
   background: var(--panel-soft);
-  box-shadow: 0 10px 28px rgba(21, 32, 51, 0.08);
-  max-width: calc(100% - 36px);
-  overflow: hidden;
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-decoration: none;
 }
 
-.top-left-bar .brand-badge {
-  min-width: 0;
+.site-header .brand-badge:hover,
+.site-header .brand-badge:focus {
+  text-decoration: none;
 }
 
-.top-left-bar .brand-badge span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.nav {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.nav a {
+  text-decoration: none;
+  color: var(--muted);
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-weight: 700;
+}
+
+.nav a:hover {
+  color: var(--text);
+  background: var(--button-soft);
+}
+
+.nav .nav-cta {
+  color: white;
+  background: var(--primary);
+}
+
+.site-header {
+  max-width: calc(100% - 32px);
+}
+
+.top-left-bar {
+  display: none;
 }
 
 body.order-page .order-auth,
