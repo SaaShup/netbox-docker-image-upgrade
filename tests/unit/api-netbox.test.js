@@ -94,17 +94,25 @@ describe("api netbox routes", () => {
     expect(res.body).toEqual({ detail: "registry check failed: dns lookup failed" });
   });
 
-  test("registry check falls back to a generic detail when errors are empty", async () => {
+  test("public registry check reports upstream failures as unavailable images", async () => {
     const routes = createRoutes({
       checkRegistryImageExists: async () => {
-        throw {};
+        throw Object.assign(new Error("fetch failed"), {
+          cause: new Error("dns lookup failed"),
+          statusCode: 503,
+        });
       },
     });
     const res = mockResponse();
 
-    await routes["GET /registry/check"]({ query: {} }, res);
+    await routes["GET /registry/check"]({ query: { image: "link-society/flowg" } }, res);
 
-    expect(res.statusCode).toBe(502);
-    expect(res.body).toEqual({ detail: "registry check failed" });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      image: "link-society/flowg",
+      exists: false,
+      status: 503,
+      detail: "registry check failed: dns lookup failed",
+    });
   });
 });

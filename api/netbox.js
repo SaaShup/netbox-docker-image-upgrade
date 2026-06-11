@@ -59,6 +59,14 @@ function registerNetBoxRoutes(app, {
       const result = await checkRegistryImageExists(req.query.image || req.query.ref || "");
       res.json(result);
     } catch (error) {
+      if (Number(error.statusCode || 502) >= 500) {
+        return res.json({
+          image: String(req.query.image || req.query.ref || ""),
+          exists: false,
+          status: error.statusCode || 502,
+          detail: registryCheckErrorMessage(error),
+        });
+      }
       res.status(error.statusCode || 502).json({ detail: registryCheckErrorMessage(error) });
     }
   });

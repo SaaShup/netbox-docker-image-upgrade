@@ -973,7 +973,11 @@ describe("server routes", () => {
 
     await request.get("/registry/check")
       .query({ image: "saashup/netbox-docker-agent:v1.24.0" })
-      .expect(403);
+      .expect(200)
+      .expect((res) => {
+        expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+        expect(res.body.exists).toBe(true);
+      });
   });
 
   test("public APIs allow server-side shared secret without browser origin", async () => {

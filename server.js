@@ -77,6 +77,17 @@ const publicApiAllowedOrigins = String(process.env.PUBLIC_API_ALLOWED_ORIGINS ||
   .split(",")
   .map((origin) => origin.trim().replace(/\/+$/, ""))
   .filter(Boolean);
+const publicApiAllowedOriginSet = new Set(publicApiAllowedOrigins.flatMap((origin) => {
+  try {
+    const url = new URL(origin);
+    const host = url.hostname.toLowerCase();
+    if (host === "saashup.com") return [origin, `${url.protocol}//www.saashup.com${url.port ? `:${url.port}` : ""}`];
+    if (host === "www.saashup.com") return [origin, `${url.protocol}//saashup.com${url.port ? `:${url.port}` : ""}`];
+  } catch {
+    return [origin];
+  }
+  return [origin];
+}));
 const publicApiSecret = String(process.env.PUBLIC_API_SECRET || "");
 const turnstileSecretKey = String(process.env.TURNSTILE_SECRET_KEY || "");
 const oidcAuth = createOidcAuth({
@@ -804,15 +815,21 @@ function publicApiSecretAllowed(req) {
   return timingSafeStringEqual(provided, publicApiSecret);
 }
 
+function publicApiSecretProvided(req) {
+  return Boolean(req.get("x-public-api-secret") || req.query.public_api_secret);
+}
+
 function publicApiAllowed(req) {
   if (publicApiSecretAllowed(req)) return true;
+  if (publicApiSecretProvided(req)) return false;
   const origin = requestOrigin(req);
-  return Boolean(origin && publicApiAllowedOrigins.includes(origin));
+  if (!origin && req.method === "GET" && req.path === "/registry/check") return true;
+  return Boolean(origin && publicApiAllowedOriginSet.has(origin));
 }
 
 function publicApiGuard(req, res, next) {
   const origin = requestOrigin(req);
-  if (origin && publicApiAllowedOrigins.includes(origin)) {
+  if (origin && publicApiAllowedOriginSet.has(origin)) {
     res.set("Access-Control-Allow-Origin", origin);
     res.set("Vary", "Origin");
   }
