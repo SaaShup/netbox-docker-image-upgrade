@@ -146,6 +146,30 @@ describe("api operation routes", () => {
     });
   });
 
+  test("create returns plural max instance and enrollment limit messages", async () => {
+    const orderRoutes = createRoutes({
+      currentUsage: async () => ({ reached: true, max: 2, used: 2 }),
+    }).routes;
+    const orderRes = mockResponse();
+    await orderRoutes["/create"]({ body: { order_request: "true" } }, orderRes);
+    expect(orderRes.statusCode).toBe(429);
+    expect(orderRes.body).toMatchObject({
+      code: "max_instances_reached",
+      detail: "You have reached your maximum of 2 instances for this config.",
+    });
+
+    const enrollRoutes = createRoutes({
+      currentEnrollmentUsage: async () => ({ reached: true, max: 2, used: 2 }),
+    }).routes;
+    const enrollRes = mockResponse();
+    await enrollRoutes["/create"]({ body: { enroll_request: "true" } }, enrollRes);
+    expect(enrollRes.statusCode).toBe(429);
+    expect(enrollRes.body).toMatchObject({
+      code: "enrollment_limit_reached",
+      detail: "You have reached your maximum of 2 enrolled images for this config.",
+    });
+  });
+
   test("create wait mode uses fallback error details when an operation throws a non-error", async () => {
     const { routes } = createRoutes({
       createInstance: vi.fn().mockRejectedValue({ payload: { id: "opaque" } }),
@@ -173,6 +197,33 @@ describe("api operation routes", () => {
     expect(updateEnrollmentInstanceStatus).toHaveBeenCalledWith(expect.any(Object), "prod", "tile", "failed");
   });
 
+  test("create failures use order template and instance fallbacks when marking enrollments failed", async () => {
+    const waitUpdateEnrollmentInstanceStatus = vi.fn();
+    const waitRoutes = createRoutes({
+      createInstance: vi.fn().mockRejectedValue(new Error("wait failed")),
+      updateEnrollmentInstanceStatus: waitUpdateEnrollmentInstanceStatus,
+    }).routes;
+    await waitRoutes["/create"]({ body: { wait: "true", enroll_request: "true", order_template: "order-template", profile: "prod" } }, mockResponse());
+    expect(waitUpdateEnrollmentInstanceStatus).toHaveBeenCalledWith(expect.any(Object), "prod", "order-template", "failed");
+
+    const waitInstanceUpdateEnrollmentInstanceStatus = vi.fn();
+    const waitInstanceRoutes = createRoutes({
+      createInstance: vi.fn().mockRejectedValue(new Error("wait failed")),
+      updateEnrollmentInstanceStatus: waitInstanceUpdateEnrollmentInstanceStatus,
+    }).routes;
+    await waitInstanceRoutes["/create"]({ body: { wait: "true", enroll_request: "true", instance: "instance-template", profile: "prod" } }, mockResponse());
+    expect(waitInstanceUpdateEnrollmentInstanceStatus).toHaveBeenCalledWith(expect.any(Object), "prod", "instance-template", "failed");
+
+    const asyncUpdateEnrollmentInstanceStatus = vi.fn();
+    const { asyncOperations, routes } = createRoutes({
+      createInstance: vi.fn().mockRejectedValue(new Error("async failed")),
+      updateEnrollmentInstanceStatus: asyncUpdateEnrollmentInstanceStatus,
+    });
+    await routes["/create"]({ body: { enroll_request: "true", instance: "instance-template", profile: "prod" } }, mockResponse());
+    await expect(asyncOperations.at(-1)).rejects.toThrow("async failed");
+    expect(asyncUpdateEnrollmentInstanceStatus).toHaveBeenCalledWith(expect.any(Object), "prod", "instance-template", "failed");
+  });
+
   test("create reports enrollment catalog sync failures before creating instances", async () => {
     const createInstance = vi.fn();
     const { routes } = createRoutes({
@@ -185,6 +236,21 @@ describe("api operation routes", () => {
 
     expect(res.statusCode).toBe(502);
     expect(res.body).toEqual({ code: "template_catalog_sync_failed", detail: "sync failed" });
+    expect(createInstance).not.toHaveBeenCalled();
+  });
+
+  test("create reports fallback enrollment catalog sync failures", async () => {
+    const createInstance = vi.fn();
+    const { routes } = createRoutes({
+      createInstance,
+      recordEnrollment: vi.fn().mockRejectedValue({}),
+    });
+    const res = mockResponse();
+
+    await routes["/create"]({ body: { enroll_request: "true", image: "repo/app", version: "1.0" } }, res);
+
+    expect(res.statusCode).toBe(502);
+    expect(res.body).toEqual({ code: "template_catalog_sync_failed", detail: "Template catalog sync failed." });
     expect(createInstance).not.toHaveBeenCalled();
   });
 
@@ -249,6 +315,22 @@ describe("api operation routes", () => {
     expect(logs).toContain("DELETE : cannot delete image repo/app, expected at least 1 image got 0");
   });
 
+  test("delete by image logs empty requested image values", async () => {
+    class NetBoxClient {
+      async list() {
+        return [];
+      }
+    }
+    const { logs, routes } = createRoutes({
+      NetBoxClient,
+      waitForRequest: () => true,
+    });
+
+    await routes["/delete"]({ body: { delete_mode: "image", wait: "true" } }, mockResponse());
+
+    expect(logs).toContain("DELETE : cannot delete image , expected at least 1 image got 0");
+  });
+
   test("delete by image logs when matching images have no containers", async () => {
     class NetBoxClient {
       async list(path) {
@@ -286,5 +368,32 @@ describe("api operation routes", () => {
 
     expect(logs).toContain("DELETE : container demo deleted id=container-1");
     expect(logs).toContain("DELETE : 1 container deleted for image repo/app");
+  });
+
+  test("delete by image matches tagged refs and logs image fallback names", async () => {
+    class NetBoxClient {
+      async list(path, query) {
+        if (path.includes("/images/")) return [{ id: "image-1", display: "repo/app:1.0" }];
+        if (query.image_id === "image-1") return [
+          { id: "container-1", name: "demo-1", host: "host-a" },
+          { id: "container-2", name: "demo-2", host: "host-a" },
+        ];
+        return [];
+      }
+      async request() {
+        return { payload: {} };
+      }
+    }
+    const { logs, routes } = createRoutes({
+      NetBoxClient,
+      deleteDnsRecord: vi.fn(),
+      valueText: (value) => String(value || ""),
+      waitForRequest: () => true,
+    });
+
+    await routes["/delete"]({ body: { delete_mode: "image", image: "repo/app:1.0", remove_image: "on", wait: "true" } }, mockResponse());
+
+    expect(logs).toContain("DELETE : 2 containers deleted for image repo/app:1.0");
+    expect(logs).toContain("DELETE : image repo/app:1.0: deleted id=image-1");
   });
 });

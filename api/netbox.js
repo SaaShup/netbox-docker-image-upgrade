@@ -67,7 +67,7 @@ function registerNetBoxRoutes(app, {
           detail: registryCheckErrorMessage(error),
         });
       }
-      res.status(error.statusCode || 502).json({ detail: registryCheckErrorMessage(error) });
+      res.status(error.statusCode).json({ detail: registryCheckErrorMessage(error) });
     }
   });
 

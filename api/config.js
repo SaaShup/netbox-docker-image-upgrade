@@ -204,7 +204,7 @@ function registerConfigRoutes(app, {
       domain: profileValue("domain", req.query.domain || ""),
       tag: profileValue("tag", req.query.tag || ""),
       enrollment_limit: maxInstancesValue(profileValue("enrollment_limit", enrollmentLimit)),
-      owner_env_var: String(profileValue("owner_env_var", ownerEnvVar)).trim() || "SAASHUP_OWNER",
+      owner_env_var: String(profileValue("owner_env_var", ownerEnvVar)).trim(),
       cloudflare_filter: profileValue("cloudflare_filter", cloudflareFilter) !== false,
       smtp_config: profileValue("smtp_config", req.query.smtp_config || ""),
       profile: profileName,
@@ -277,7 +277,8 @@ function registerConfigRoutes(app, {
   app.delete("/enroll/template/:name", async (req, res) => {
     const name = String(req.params.name || "").trim();
     const profile = req.query.profile || req.query.config_profile || readState().config?.profile || readState().config?.config_profile || "";
-    const creator = String(authUserFromRequest(req).email || authUserFromRequest(req).user || "").trim().toLowerCase();
+    const authUser = authUserFromRequest(req);
+    const creator = String(authUser.email || authUser.user || "").trim().toLowerCase();
     if (!creator) return res.status(401).json({ code: "auth_required", detail: "Authentication is required." });
     if (!name) return res.status(400).json({ code: "template_required", detail: "Template name is required." });
 
@@ -286,9 +287,10 @@ function registerConfigRoutes(app, {
       ? await enrollmentTemplateDeleteUsage(req, profile, name, creator)
       : { blocked: enrollmentTemplateUsage(state, profile, name), owned: 0, total: enrollmentTemplateUsage(state, profile, name) };
     if (usage.total > 0) {
+      const instanceNoun = Number(usage.total) === 1 ? "instance" : "instances";
       return res.status(409).json({
         code: "template_in_use",
-        detail: `Template "${name}" is used by ${usage.total} instance${usage.total === 1 ? "" : "s"}.`,
+        detail: `Template "${name}" is used by ${usage.total} ${instanceNoun}.`,
         template: name,
         instance_count: usage.total,
         blocking_instance_count: usage.blocked,
@@ -340,7 +342,13 @@ function registerConfigRoutes(app, {
     writeState((state) => {
       const existingConfig = plainObject(state.config);
       const mergedProfiles = profilesWithSingleDefault({ ...parseProfiles(existingConfig.profiles), ...profiles });
-      selectedProfile = config.profile || config.config_profile || existingConfig.profile || existingConfig.config_profile || names[0] || "";
+      selectedProfile = [
+        config.profile,
+        config.config_profile,
+        existingConfig.profile,
+        existingConfig.config_profile,
+        names[0],
+      ].find((value) => value) || "";
       const nextConfig = {
         customer_name: config.customer_name ?? existingConfig.customer_name ?? "",
         profile: selectedProfile,
@@ -369,6 +377,7 @@ module.exports = {
   cleanStoredConfig,
   expandedConfigForResponse,
   workflowsForVisibleTemplates,
+  enrollmentTemplateUsage,
   templateEntryByName,
   workflowsWithoutTemplate,
 };

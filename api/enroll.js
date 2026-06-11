@@ -93,7 +93,7 @@ function createEnrollHelpers({
     const existingEntries = await enrollmentTemplatesForRequest(req, profile, { ownerOnly: false });
     const duplicate = existingEntries.find((entry) => normalizedEnrollImageName(entry?.image) === image);
     if (duplicate) {
-      res.status(409).json({ code: "template_already_enrolled", detail: `Image "${image}" is already enrolled for this config.`, image, existing_template: duplicate.instance || duplicate.name || duplicate.template || "" });
+      res.status(409).json({ code: "template_already_enrolled", detail: `Image "${image}" is already enrolled for this config.`, image, existing_template: duplicate.instance || "" });
       return false;
     }
 

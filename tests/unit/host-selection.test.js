@@ -2,17 +2,20 @@ const { hostLoadStats, selectImageAwareHost } = require("../../lib/host-selectio
 
 describe("host selection helpers", () => {
   test("hostLoadStats normalizes object and scalar host ids", () => {
-    const hosts = [{ id: { id: "host-a" }, display: "Host A" }, { id: "host-b", display: "Host B" }];
+    const hostWithoutId = { display: "Host C" };
+    const hosts = [{ id: { id: "host-a" }, display: "Host A" }, { id: "host-b", display: "Host B" }, hostWithoutId];
     const containers = [
       { host: { id: "host-a" } },
       { host: "host-a" },
       { host: { id: "host-b" } },
       { host: "host-c" },
+      { host: hostWithoutId },
     ];
 
     expect(hostLoadStats(hosts, containers)).toEqual([
       { host: hosts[0], count: 2 },
       { host: hosts[1], count: 1 },
+      { host: hosts[2], count: 0 },
     ]);
   });
 
@@ -25,6 +28,8 @@ describe("host selection helpers", () => {
       { name: "repo/app", version: "1.0" },
       { name: "repo/app", version: "2.0", host: "host-c" },
       { name: "repo/other", version: "1.0", host: "host-c" },
+      { host: "host-c" },
+      { name: "repo/app", host: "host-c" },
     ]);
 
     const selection = await selectImageAwareHost({ list }, hosts, [

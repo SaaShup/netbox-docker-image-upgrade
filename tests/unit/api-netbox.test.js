@@ -115,4 +115,96 @@ describe("api netbox routes", () => {
       detail: "registry check failed: dns lookup failed",
     });
   });
+
+  test("public registry check uses ref query fallback", async () => {
+    const checkRegistryImageExists = vi.fn(async () => ({ image: "nginx:latest", exists: true }));
+    const routes = createRoutes({ checkRegistryImageExists });
+    const res = mockResponse();
+
+    await routes["GET /registry/check"]({ query: { ref: "nginx" } }, res);
+
+    expect(checkRegistryImageExists).toHaveBeenCalledWith("nginx");
+    expect(res.body).toEqual({ image: "nginx:latest", exists: true });
+  });
+
+  test("public registry check returns client errors as HTTP errors", async () => {
+    const routes = createRoutes({
+      checkRegistryImageExists: async () => {
+        throw Object.assign(new Error("unsupported registry host"), { statusCode: 400 });
+      },
+    });
+    const res = mockResponse();
+
+    await routes["GET /registry/check"]({ query: { image: "registry.example.com/app" } }, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({ detail: "unsupported registry host" });
+  });
+
+  test("public registry check defaults client error status when statusCode is missing", async () => {
+    const routes = createRoutes({
+      checkRegistryImageExists: async () => {
+        throw new Error("client blew up");
+      },
+    });
+    const res = mockResponse();
+
+    await routes["GET /registry/check"]({ query: { ref: "nginx" } }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      image: "nginx",
+      exists: false,
+      status: 502,
+      detail: "client blew up",
+    });
+  });
+
+  test("private registry lookup supports ref and empty query fallbacks", async () => {
+    const checkRegistryImageExists = vi.fn(async (image) => ({ image, exists: true }));
+    const routes = createRoutes({ checkRegistryImageExists });
+
+    const refRes = mockResponse();
+    await routes["GET /registry/lookup"]({ query: { ref: "nginx" } }, refRes);
+    expect(refRes.body).toEqual({ image: "nginx", exists: true });
+
+    const emptyRes = mockResponse();
+    await routes["GET /registry/lookup"]({ query: {} }, emptyRes);
+    expect(emptyRes.body).toEqual({ image: "", exists: true });
+    expect(checkRegistryImageExists).toHaveBeenNthCalledWith(1, "nginx");
+    expect(checkRegistryImageExists).toHaveBeenNthCalledWith(2, "");
+  });
+
+  test("private registry lookup defaults error status when statusCode is missing", async () => {
+    const routes = createRoutes({
+      checkRegistryImageExists: async () => {
+        throw new Error("lookup exploded");
+      },
+    });
+    const res = mockResponse();
+
+    await routes["GET /registry/lookup"]({ query: { image: "repo/app" } }, res);
+
+    expect(res.statusCode).toBe(502);
+    expect(res.body).toEqual({ detail: "lookup exploded" });
+  });
+
+  test("public registry check uses generic fallback for empty upstream errors", async () => {
+    const routes = createRoutes({
+      checkRegistryImageExists: async () => {
+        throw {};
+      },
+    });
+    const res = mockResponse();
+
+    await routes["GET /registry/check"]({ query: {} }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      image: "",
+      exists: false,
+      status: 502,
+      detail: "registry check failed",
+    });
+  });
 });
