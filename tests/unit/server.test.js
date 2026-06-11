@@ -472,16 +472,22 @@ describe("server helpers", () => {
 
   test("registry image checks report upstream token and manifest failures", async () => {
     setRegistryFetchForTests(vi.fn(async () => registryResponse({}, 401)));
-    await expect(checkRegistryImageExists("ghcr.io/owner/image:latest")).rejects.toMatchObject({
-      message: "registry manifest request failed 401",
-      statusCode: 502,
+    await expect(checkRegistryImageExists("ghcr.io/owner/image:latest")).resolves.toMatchObject({
+      registry: "ghcr.io",
+      name: "owner/image",
+      tag: "latest",
+      exists: false,
+      status: 401,
     });
     setRegistryFetchForTests(vi.fn(async () => registryResponse({}, 401, {
       "www-authenticate": 'Bearer service="ghcr.io"',
     })));
-    await expect(checkRegistryImageExists("ghcr.io/owner/image:latest")).rejects.toMatchObject({
-      message: "registry manifest request failed 401",
-      statusCode: 502,
+    await expect(checkRegistryImageExists("ghcr.io/owner/image:latest")).resolves.toMatchObject({
+      registry: "ghcr.io",
+      name: "owner/image",
+      tag: "latest",
+      exists: false,
+      status: 401,
     });
 
     setRegistryFetchForTests(vi.fn(async (url, options = {}) => {
@@ -500,6 +506,27 @@ describe("server helpers", () => {
       name: "owner/image",
       tag: "latest",
       exists: true,
+    });
+
+    setRegistryFetchForTests(vi.fn(async (url, options = {}) => {
+      const parsed = new URL(String(url));
+      if (parsed.hostname === "registry-1.docker.io" && parsed.pathname.startsWith("/v2/") && !options.headers.Authorization) {
+        return registryResponse({}, 401, {
+          "www-authenticate": 'Bearer realm="https://auth.docker.io/token",service="registry.docker.io",scope="repository:link-society/flowg:pull"',
+        });
+      }
+      if (parsed.hostname === "auth.docker.io") return registryResponse({ token: "registry-token" });
+      if (parsed.hostname === "registry-1.docker.io" && options.headers.Authorization === "Bearer registry-token") {
+        return registryResponse({ errors: [{ code: "UNAUTHORIZED" }] }, 401);
+      }
+      return registryResponse({}, 404);
+    }));
+    await expect(checkRegistryImageExists("link-society/flowg")).resolves.toMatchObject({
+      registry: "docker.io",
+      name: "link-society/flowg",
+      tag: "latest",
+      exists: false,
+      status: 401,
     });
 
     setRegistryFetchForTests(vi.fn(async (url, options = {}) => {
