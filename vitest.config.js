@@ -12,6 +12,12 @@ module.exports = defineConfig({
       reportsDirectory: "coverage",
       include: ["server.js", "api/**/*.js", "lib/**/*.js"],
       exclude: ["tests/**"],
+      thresholds: {
+        statements: 95,
+        branches: 90,
+        functions: 95,
+        lines: 95,
+      },
     },
   },
 });
