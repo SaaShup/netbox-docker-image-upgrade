@@ -1333,11 +1333,13 @@ describe("server routes", () => {
       });
 
     await request.get("/config").expect(200).expect((res) => {
-      expect(res.body.owner_env_var).toBe("SAASHUP_OWNER");
       expect(res.body.profile).toBe("prod");
       expect(res.body.customer_name).toBe("CuriooCity");
-      expect(parseProfiles(res.body.profiles).prod.saashup_visible).toBe(true);
-      expect(parseProfiles(res.body.profiles).dev.saashup_visible).toBe(true);
+      expect(res.body.owner_env_var).toBeUndefined();
+      const profiles = parseProfiles(res.body.profiles);
+      expect(profiles.prod.owner_env_var).toBe("SAASHUP_OWNER");
+      expect(profiles.prod.saashup_visible).toBe(true);
+      expect(profiles.dev.saashup_visible).toBe(true);
     });
     await request.post("/templates").set("x-auth-request-email", "owner@example.com").send({ tile: { image: "saashup/tile" } }).expect(200);
     await request.get("/templates").set("x-auth-request-email", "owner@example.com").expect(200).expect((res) => {

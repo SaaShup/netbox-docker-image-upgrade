@@ -128,7 +128,12 @@ describe("api config helpers", () => {
   test("expandedConfigForResponse merges selected profile config when available", () => {
     const config = { customer_name: "Acme", profile: "prod", profiles: { prod: { tag: "prod" } } };
     const expanded = configHelpers.expandedConfigForResponse(config, ({ profile }) => ({ extra: profile }), (profiles) => profiles, (profiles) => profiles, plainObject);
-    expect(expanded).toMatchObject({ customer_name: "Acme", profile: "prod", config_profile: "prod", extra: "prod" });
+    expect(expanded).toMatchObject({
+      customer_name: "Acme",
+      profile: "prod",
+      config_profile: "prod",
+      profiles: { prod: { tag: "prod", extra: "prod" } },
+    });
 
     const empty = configHelpers.expandedConfigForResponse({}, () => ({ extra: "unused" }), (profiles) => profiles || {}, (profiles) => profiles, plainObject);
     expect(empty).toEqual({ customer_name: "", profile: "", config_profile: "", profiles: {} });
@@ -164,13 +169,13 @@ describe("api config helpers", () => {
       customer_name: "Acme",
       profile: "prod",
       config_profile: "prod",
-      domain: "example.com",
-      tag: "tile",
-      enrollment_limit: 2,
       profiles: {
         prod: { domain: "example.com", tag: "tile", enrollment_limit: 2 },
       },
     });
+    expect(sanitized.domain).toBeUndefined();
+    expect(sanitized.tag).toBeUndefined();
+    expect(sanitized.enrollment_limit).toBeUndefined();
     expect(JSON.stringify(sanitized)).not.toContain("secret");
     expect(sanitized.netbox).toBeUndefined();
     expect(sanitized.token).toBeUndefined();
@@ -444,6 +449,9 @@ describe("api config routes", () => {
       proxy_configured: true,
       smtp_configured: true,
     });
+    expect(nonAdminRes.body.domain).toBeUndefined();
+    expect(nonAdminRes.body.tag).toBeUndefined();
+    expect(nonAdminRes.body.enrollment_limit).toBeUndefined();
     expect(JSON.stringify(nonAdminRes.body)).not.toContain("secret");
     expect(JSON.stringify(nonAdminRes.body)).not.toContain("netbox.example.com");
 
@@ -458,6 +466,9 @@ describe("api config routes", () => {
       proxy_configured: true,
       smtp_configured: true,
     });
+    expect(adminRes.body.domain).toBeUndefined();
+    expect(adminRes.body.tag).toBeUndefined();
+    expect(adminRes.body.enrollment_limit).toBeUndefined();
     expect(JSON.stringify(adminRes.body)).not.toContain("secret");
     expect(JSON.stringify(adminRes.body)).not.toContain("netbox.example.com");
 
@@ -472,6 +483,11 @@ describe("api config routes", () => {
       tag: "tile",
       enrollment_limit: 2,
     });
+    expect(adminFullRes.body.profiles.prod.profiles).toBeUndefined();
+    expect(adminFullRes.body.netbox).toBeUndefined();
+    expect(adminFullRes.body.token).toBeUndefined();
+    expect(adminFullRes.body.domain).toBeUndefined();
+    expect(adminFullRes.body.tag).toBeUndefined();
   });
 
   test("admin environment route returns only Dockerfile environment variables", async () => {

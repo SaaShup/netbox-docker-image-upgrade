@@ -34,13 +34,20 @@ function cleanStoredConfig(config, parseProfiles, profilesWithSingleDefault, pla
 function expandedConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject) {
   const stored = cleanStoredConfig(config, parseProfiles, profilesWithSingleDefault, plainObject);
   const selected = stored.profile ? selectedProfileConfig({ profile: stored.profile, config_profile: stored.profile }) : {};
+  const profiles = { ...stored.profiles };
+  if (stored.profile) {
+    const selectedProfile = { ...plainObject(selected) };
+    delete selectedProfile.customer_name;
+    delete selectedProfile.profile;
+    delete selectedProfile.config_profile;
+    delete selectedProfile.profiles;
+    profiles[stored.profile] = { ...plainObject(profiles[stored.profile]), ...selectedProfile };
+  }
   return {
-    ...stored,
-    ...selected,
     customer_name: stored.customer_name,
     profile: stored.profile,
     config_profile: stored.config_profile,
-    profiles: stored.profiles,
+    profiles,
   };
 }
 
@@ -75,16 +82,15 @@ function publicConfigForResponse(config, selectedProfileConfig, parseProfiles, p
     .filter(([, profile]) => includeHidden || plainObject(profile).saashup_visible === true || plainObject(profile).saashup_default === true)
     .map(([name, profile]) => [name, publicProfile(profile)]));
 
-  const expandedVisible = plainObject(expanded).saashup_visible === true || plainObject(expanded).saashup_default === true;
+  const selectedProfile = plainObject(expanded.profiles[expanded.profile]);
+  const expandedVisible = selectedProfile.saashup_visible === true || selectedProfile.saashup_default === true;
   if (expanded.profile && !profiles[expanded.profile] && (includeHidden || expandedVisible)) {
-    profiles[expanded.profile] = publicProfile(expanded);
+    profiles[expanded.profile] = publicProfile(selectedProfile);
   }
   const showSelectedProfile = includeHidden || expandedVisible;
-  let selectedPublic = {};
   let selectedProfileName = "";
   let selectedConfigProfileName = "";
   if (showSelectedProfile) {
-    selectedPublic = publicProfile(expanded);
     selectedProfileName = expanded.profile;
     selectedConfigProfileName = expanded.config_profile;
   }
@@ -93,7 +99,6 @@ function publicConfigForResponse(config, selectedProfileConfig, parseProfiles, p
     customer_name: expanded.customer_name || "",
     profile: selectedProfileName,
     config_profile: selectedConfigProfileName,
-    ...selectedPublic,
     profiles,
   };
 }

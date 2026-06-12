@@ -923,26 +923,11 @@ function profileLabel(name) {
 }
 
 function knownProfileEntries() {
-  const entries = {
+  return {
     ...parseProfiles(savedConfig.profiles),
     ...serverConfigProfiles,
     ...configProfiles,
   };
-  const profile = savedConfig.profile || savedConfig.config_profile || "";
-  if (profile && !entries[profile] && savedConfig.netbox && savedConfig.token) {
-    entries[profile] = {
-      netbox: savedConfig.netbox,
-      token: savedConfig.token,
-      proxy: savedConfig.proxy || "",
-      domain: savedConfig.domain || "",
-      tag: savedConfig.tag || "",
-      enrollment_limit: enrollmentLimitValue(savedConfig),
-      owner_env_var: ownerEnvVarValue(savedConfig.owner_env_var),
-      cloudflare_filter: checkboxValue(savedConfig.cloudflare_filter, true),
-      smtp_config: smtpConfigValue(savedConfig),
-    };
-  }
-  return entries;
 }
 
 function knownProfileNames() {
@@ -4920,22 +4905,6 @@ function loadSavedConfig() {
         currentConfigProfile = (isEnrollPage || isOrderPage) ? profile : (localStorage.getItem("current_config_profile") || profile);
       }
 
-      if (data.netbox && data.token && profile) {
-        const serverProfile = {
-          netbox: data.netbox,
-          token: data.token,
-          proxy: data.proxy || "",
-          domain: data.domain || "",
-          tag: data.tag || "",
-          enrollment_limit: enrollmentLimitValue(data),
-          cloudflare_filter: checkboxValue(data.cloudflare_filter, true),
-          smtp_config: smtpConfigValue(data),
-          ...(serverProfiles[profile]?.saashup_visible === true || serverProfiles[profile]?.saashup_default === true ? { saashup_visible: true } : {}),
-        };
-        serverConfigProfiles[profile] = serverProfile;
-        configProfiles[profile] = usesPublicConfig ? serverProfile : { ...localProfiles[profile], ...serverProfile };
-      }
-
       updateProfileOptions();
       applyProfileToFields(currentConfigProfile, { syncNetwork: !isOrderPage && !isEnrollPage });
       ensureRandomCreateInstanceName();
@@ -4959,9 +4928,9 @@ async function test() {
     const config = await loadSavedConfig();
     const refreshedCredentials = selectedProfileCredentials();
     credentials = refreshedCredentials;
-    netbox = netbox || refreshedCredentials.netbox || config.netbox || "";
-    token = token || refreshedCredentials.token || config.token || "";
-    proxy = proxy || refreshedCredentials.proxy || config.proxy || "";
+    netbox = netbox || refreshedCredentials.netbox || "";
+    token = token || refreshedCredentials.token || "";
+    proxy = proxy || refreshedCredentials.proxy || "";
   }
 
   if (!netbox || !token) {
