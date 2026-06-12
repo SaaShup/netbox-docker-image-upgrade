@@ -1032,6 +1032,56 @@ test("enroll page hides deploy panel without a default config", async ({ page })
   await expect(page.locator("#notif")).toContainText("You cannot deploy a new SaaS yet. Ask an administrator to configure a config.");
 });
 
+test("enroll page hides create controls when public images are disabled for non-admin users", async ({ page }) => {
+  await page.route("**/session/user", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        email: "buyer@example.com",
+        user: "buyer",
+        name: "Buyer Example",
+        admin: false,
+        public_image: false,
+      }),
+    });
+  });
+
+  await page.route("**/enroll/limit?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        profile: "production",
+        used: 0,
+        max: 2,
+        remaining: 2,
+        reached: false,
+        instances: [],
+      }),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "production",
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "example.com",
+        tag: "production",
+        enrollment_limit: 2,
+        saashup_default: true,
+      },
+    }),
+  }, {}, [], undefined, "/enroll.html");
+
+  await expect(page.locator("#instanceForm")).toBeHidden();
+  await expect(page.locator("#submitBtn")).toBeHidden();
+  await expect(page.locator("#notif")).toContainText("Only administrators can create or enroll images.");
+});
+
 test("enroll page blocks docker compose files with multiple services", async ({ page }) => {
   let createRequests = 0;
 

@@ -14,12 +14,17 @@ function registerSystemRoutes(app, {
   publicPath,
   requireAdmin,
   isAdminAllowed,
+  canCreatePublicImage,
 }) {
   app.use(oidcAuth.attachUser);
 
   app.get("/session/user", (req, res) => {
     const user = authUserFromRequest(req);
-    res.json({ ...user, admin: Boolean(isAdminAllowed?.(req)) });
+    res.json({
+      ...user,
+      admin: Boolean(isAdminAllowed?.(req)),
+      public_image: Boolean(canCreatePublicImage?.(req)),
+    });
   });
   app.get("/login", (req, res, next) => Promise.resolve(oidcAuth.login(req, res)).catch(next));
   app.get("/oidc/callback", oidcAuth.callback);

@@ -2,6 +2,7 @@ function registerOperationRoutes(app, {
   asyncOperation,
   authUserFromRequest,
   bindPayloadsFromForm,
+  canCreatePublicImage,
   currentEnrollmentUsage,
   currentUsage,
   deleteContainerVolumes,
@@ -115,6 +116,12 @@ function registerOperationRoutes(app, {
     const usage = await currentUsage(req, orderProfile);
     const isOrderRequest = req.body.order_request === "true";
     const isEnrollRequest = req.body.enroll_request === "true";
+    if ((isOrderRequest || isEnrollRequest) && canCreatePublicImage && !canCreatePublicImage(req)) {
+      return res.status(403).json({
+        code: "public_image_disabled",
+        detail: "Only administrators can create or enroll images.",
+      });
+    }
     if (isEnrollRequest && bindPayloadsFromForm(data).length) {
       return res.status(400).json({
         code: "bind_mount_not_allowed",

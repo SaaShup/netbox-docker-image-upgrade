@@ -33,6 +33,7 @@ function createRoutes(overrides = {}) {
     },
     authUserFromRequest: () => ({ email: "owner@example.com" }),
     bindPayloadsFromForm: () => [],
+    canCreatePublicImage: () => true,
     currentEnrollmentUsage: async () => ({ reached: false }),
     currentUsage: async () => ({ reached: false }),
     deleteContainerVolumes: vi.fn(),
@@ -69,6 +70,26 @@ function createRoutes(overrides = {}) {
   registerOperationRoutes(app, { ...defaultDependencies, ...overrides });
   return { asyncOperations, logs, routes };
 }
+
+test("create blocks public order and enrollment when disabled for non-admin users", async () => {
+  const { routes } = createRoutes({ canCreatePublicImage: () => false });
+
+  const orderRes = mockResponse();
+  await routes["/create"]({ body: { order_request: "true" } }, orderRes);
+  expect(orderRes.statusCode).toBe(403);
+  expect(orderRes.body).toEqual({
+    code: "public_image_disabled",
+    detail: "Only administrators can create or enroll images.",
+  });
+
+  const enrollRes = mockResponse();
+  await routes["/create"]({ body: { enroll_request: "true" } }, enrollRes);
+  expect(enrollRes.statusCode).toBe(403);
+  expect(enrollRes.body).toEqual({
+    code: "public_image_disabled",
+    detail: "Only administrators can create or enroll images.",
+  });
+});
 
 describe("api operation routes", () => {
   test("restart logs when no Docker hosts match the selected tag", async () => {

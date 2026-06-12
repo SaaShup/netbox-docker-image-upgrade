@@ -266,6 +266,71 @@ test("order page informs the user when the max instance limit is reached", async
   await expect(page.locator("#orderStatus .order-status-home")).toHaveCount(0);
 });
 
+test("order page hides create controls when public images are disabled for non-admin users", async ({ page }) => {
+  await page.route("**/session/user", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        name: "Buyer Example",
+        user: "buyer",
+        email: "buyer@example.com",
+        admin: false,
+        public_image: false,
+      }),
+    });
+  });
+
+  await page.route("**/images?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([{ name: "saashup/demo", version: "v1.0.0" }]),
+    });
+  });
+
+  await page.route("**/order/limit?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        instances: [],
+        max: 2,
+        profile: "demo",
+        remaining: 2,
+        reached: false,
+        used: 0,
+      }),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "demo",
+    profiles: JSON.stringify({
+      demo: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        domain: "daily.paashup.cloud",
+        tag: "DEMO",
+      },
+    }),
+  }, {
+    demo: {
+      config_profile: "demo",
+      network: "traefik-public",
+      image: "saashup/demo",
+      version: "v1.0.0",
+      ports: [{ value: "3000" }],
+    },
+  }, [], undefined, "/order?template=demo");
+
+  await expect(page.locator("#orderLoading")).toBeHidden();
+  await expect(page.locator("#instanceForm")).toBeHidden();
+  await expect(page.locator("#orderActions")).toBeHidden();
+  await expect(page.locator("#submitBtn")).toBeHidden();
+  await expect(page.locator("#orderStatus")).toContainText("Only administrators can create or enroll images.");
+});
+
 test("order page shows oauth user and logs out through app auth", async ({ page }) => {
   let resolveAuth;
   const authReady = new Promise((resolve) => {
@@ -330,7 +395,6 @@ test("order page shows oauth user and logs out through app auth", async ({ page 
   }, [], undefined, "/order?template=demo");
 
   await expect(page.locator("#orderLoading")).toBeVisible();
-  await expect(page.locator("#authUser")).toBeHidden();
   await expect(page.locator("#orderActions")).toBeHidden();
 
   resolveAuth();

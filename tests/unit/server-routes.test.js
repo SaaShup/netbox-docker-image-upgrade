@@ -37,6 +37,7 @@ async function loadServer({
   ownerEmail = "",
   publicApiAllowedOrigins = "",
   publicApiSecret = "",
+  publicImage = "true",
   recreateDelayMs = "0",
   enrollBlockedImages = "",
   turnstileSecretKey = "",
@@ -61,6 +62,8 @@ async function loadServer({
   else delete process.env.PUBLIC_API_ALLOWED_ORIGINS;
   if (publicApiSecret) process.env.PUBLIC_API_SECRET = publicApiSecret;
   else delete process.env.PUBLIC_API_SECRET;
+  if (publicImage) process.env.PUBLIC_IMAGE = publicImage;
+  else delete process.env.PUBLIC_IMAGE;
   if (turnstileSecretKey) process.env.TURNSTILE_SECRET_KEY = turnstileSecretKey;
   else delete process.env.TURNSTILE_SECRET_KEY;
   if (oidc) {
@@ -720,6 +723,7 @@ describe("server routes", () => {
     delete process.env.CREATE_RECREATE_DELAY_MS;
     delete process.env.REGISTRY_WEBHOOK_SECRET;
     delete process.env.APP_OWNER_EMAIL;
+    delete process.env.PUBLIC_IMAGE;
     delete process.env.LOCAL_DEV_EMAIL;
     delete process.env.OIDC_ISSUER_URL;
     delete process.env.OIDC_CLIENT_ID;
@@ -736,6 +740,8 @@ describe("server routes", () => {
     });
     await request.get("/session/user").set("x-auth-request-email", "allowed@example.com").expect(200).expect((res) => {
       expect(res.body.email).toBe("allowed@example.com");
+      expect(res.body.admin).toBe(true);
+      expect(res.body.public_image).toBe(true);
     });
     await request.get("/admin").set("x-auth-request-email", "denied@example.com").expect(403);
     await request.get("/admin").set("x-auth-request-email", "allowed@example.com").expect(200);
@@ -743,6 +749,50 @@ describe("server routes", () => {
       expect(res.text).toContain("saashup_app_info");
       expect(res.text).toContain('route="/admin"');
     });
+  });
+
+  test("session user reports public image permission from env and admin allow-list", async () => {
+    const disabled = await loadServer({ adminEmails: "allowed@example.com", publicImage: "false" });
+    await disabled.request.get("/session/user").set("x-auth-request-email", "buyer@example.com").expect(200).expect((res) => {
+      expect(res.body.admin).toBe(false);
+      expect(res.body.public_image).toBe(false);
+    });
+    await disabled.request.get("/session/user").set("x-auth-request-email", "allowed@example.com").expect(200).expect((res) => {
+      expect(res.body.admin).toBe(true);
+      expect(res.body.public_image).toBe(true);
+    });
+
+    const enabled = await loadServer({ adminEmails: "allowed@example.com", publicImage: "true" });
+    await enabled.request.get("/session/user").set("x-auth-request-email", "buyer@example.com").expect(200).expect((res) => {
+      expect(res.body.admin).toBe(false);
+      expect(res.body.public_image).toBe(true);
+    });
+  });
+
+  test("create endpoint blocks public image requests for non-admin users when disabled", async () => {
+    const { request } = await loadServer({ adminEmails: "admin@example.com", publicImage: "false" });
+
+    await request.post("/create")
+      .set("x-auth-request-email", "buyer@example.com")
+      .send({ order_request: "true", profile: "prod" })
+      .expect(403)
+      .expect((res) => {
+        expect(res.body).toMatchObject({
+          code: "public_image_disabled",
+          detail: "Only administrators can create or enroll images.",
+        });
+      });
+
+    await request.post("/create")
+      .set("x-auth-request-email", "buyer@example.com")
+      .send({ enroll_request: "true", profile: "prod" })
+      .expect(403)
+      .expect((res) => {
+        expect(res.body).toMatchObject({
+          code: "public_image_disabled",
+          detail: "Only administrators can create or enroll images.",
+        });
+      });
   });
 
   test("serves the catalog landing page at / and /catalog", async () => {
