@@ -2439,7 +2439,6 @@ function renderOrderInstances(instances = orderInstanceCards, limit = orderInsta
     <div class="order-instance-grid">
       ${orderInstanceCards.map((item, index) => `
         <article class="order-instance-card" data-order-instance-card="${index}">
-          <span class="order-instance-icon" aria-hidden="true">${reportStatIcon("containers")}</span>
           <span class="order-instance-copy">
             <strong>${escapeHtml(item.template || item.image || "SaaShup instance")}</strong>
             <small>${escapeHtml(item.instance || "Instance requested")}</small>
@@ -2482,7 +2481,6 @@ function renderEnrollmentInstances(instances = enrollmentCards, limit = enrollme
     <div class="order-instance-grid">
       ${displayCards.map((item, index) => `
         <article class="order-instance-card" data-enroll-instance-card="${index}">
-          <span class="order-instance-icon" aria-hidden="true">${reportStatIcon("containers")}</span>
           <span class="order-instance-copy">
             ${isEnrollmentTemplateCard(item) ? enrollmentTemplateTitle(item) : orderInstanceNameLink(item.instance, item.dns_name)}
             <small>${escapeHtml(item.template_url || item.image || "SaaShup template")}</small>

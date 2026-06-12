@@ -960,27 +960,6 @@ body.enroll-page .order-instances.hidden {
   background: var(--panel);
 }
 
-.order-instance-icon {
-  display: grid;
-  place-items: center;
-  flex: 0 0 42px;
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
-  background: var(--button-soft);
-  color: var(--primary);
-}
-
-.order-instance-icon svg {
-  width: 22px;
-  height: 22px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.9;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
 .order-instance-copy {
   display: grid;
   gap: 2px;
