@@ -1685,14 +1685,12 @@ input[type="checkbox"]:disabled {
     top: 18px;
     right: 20px;
     z-index: 1001;
-    display: inline-grid;
-    place-items: center;
-    gap: 4px;
+    display: block;
     width: 42px;
     height: 42px;
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 10px;
+    padding: 0;
     background: var(--panel);
     color: var(--text);
     box-shadow: 0 10px 28px rgba(21, 32, 51, 0.08);
@@ -1701,15 +1699,28 @@ input[type="checkbox"]:disabled {
 
   .admin-menu-toggle span {
     display: block;
+    position: absolute;
+    top: 50%;
+    left: 50%;
     width: 18px;
     height: 2px;
     border-radius: 999px;
     background: currentColor;
     transition: transform 0.16s ease, opacity 0.16s ease;
+    transform: translate(-50%, -50%);
+    transform-origin: center;
+  }
+
+  .admin-menu-toggle span:nth-child(1) {
+    transform: translate(-50%, calc(-50% - 6px));
+  }
+
+  .admin-menu-toggle span:nth-child(3) {
+    transform: translate(-50%, calc(-50% + 6px));
   }
 
   body.admin-menu-open .admin-menu-toggle span:nth-child(1) {
-    transform: translateY(6px) rotate(45deg);
+    transform: translate(-50%, -50%) rotate(45deg);
   }
 
   body.admin-menu-open .admin-menu-toggle span:nth-child(2) {
@@ -1717,7 +1728,7 @@ input[type="checkbox"]:disabled {
   }
 
   body.admin-menu-open .admin-menu-toggle span:nth-child(3) {
-    transform: translateY(-6px) rotate(-45deg);
+    transform: translate(-50%, -50%) rotate(-45deg);
   }
 
   .main {
