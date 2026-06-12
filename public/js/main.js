@@ -3247,6 +3247,26 @@ function validateEnrollRunText(runText, { notify = true } = {}) {
   return valid;
 }
 
+function dockerRunTextFromFirstCommand(value = "") {
+  const text = String(value || "");
+  const match = text.match(/docker\s+run(?:\s|$)/i);
+  return match ? text.slice(match.index) : text;
+}
+
+function normalizeDockerRunInput() {
+  if (!dockerRunInput) return "";
+  const normalized = dockerRunTextFromFirstCommand(dockerRunInput.value);
+  if (normalized !== dockerRunInput.value) {
+    dockerRunInput.value = normalized;
+  }
+  return normalized;
+}
+
+function handleDockerRunInput() {
+  normalizeDockerRunInput();
+  updateEnrollSubmitState();
+}
+
 function enrollImageVersionAllowed(image = "", version = "") {
   const imageParts = splitImageRef(image);
   const resolvedVersion = String(version || imageParts.version || "").trim();
@@ -4712,7 +4732,7 @@ async function applyDockerRunCommand() {
     return applyDockerComposeFile();
   }
 
-  const runText = dockerRunInput?.value || "";
+  const runText = normalizeDockerRunInput();
   if (dockerComposeServiceCount(runText)) {
     return applyDockerComposeFile(runText);
   }
@@ -6315,7 +6335,7 @@ createTemplateSelect?.addEventListener("change", () => {
 dockerRunApplyBtn?.addEventListener("click", applyDockerRunCommand);
 dockerRunCancelBtn?.addEventListener("click", closeDockerRunModal);
 dockerRunCloseBtn?.addEventListener("click", closeDockerRunModal);
-dockerRunInput?.addEventListener("input", updateEnrollSubmitState);
+dockerRunInput?.addEventListener("input", handleDockerRunInput);
 dockerComposeInput?.addEventListener("input", updateEnrollSubmitState);
 catalogSearch?.addEventListener("input", () => renderCatalogItems());
 catalogSort?.addEventListener("change", () => renderCatalogItems());

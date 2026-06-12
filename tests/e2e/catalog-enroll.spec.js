@@ -313,6 +313,11 @@ test("enroll page reports only missing port when docker run has image", async ({
 
   await page.locator("#dockerRunInput").fill(`${commandBase} -p 8080:80 nginx:1.27`);
   await expect(page.locator("#submitBtn")).toBeEnabled();
+
+  const copiedCommand = "copied from a shell prompt\n$ docker run --name guide-app -p 8080:3000 saashup/guide:v1.2.3";
+  await page.locator("#dockerRunInput").fill(copiedCommand);
+  await expect(page.locator("#dockerRunInput")).toHaveValue("docker run --name guide-app -p 8080:3000 saashup/guide:v1.2.3");
+  await expect(page.locator("#submitBtn")).toBeEnabled();
 });
 
 test("enroll page restores enrolled templates when creation fails", async ({ page }) => {
