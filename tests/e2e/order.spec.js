@@ -22,7 +22,7 @@ test("order page creates an instance from the requested template", async ({ page
     },
   };
 
-  await page.route("**/images?**", async (route) => {
+  await page.route("**/images*", async (route) => {
     imageUrls.push(route.request().url());
     await route.fulfill({
       status: 200,
@@ -41,6 +41,7 @@ test("order page creates an instance from the requested template", async ({ page
       body: "{}",
     });
   });
+
   await page.route("**/delete", async (route) => {
     deleteBody = route.request().postData() || "";
     await route.fulfill({
@@ -168,7 +169,7 @@ test("order page informs the user when the max instance limit is reached", async
   let createCalled = false;
   let deleteBody = "";
 
-  await page.route("**/images?**", async (route) => {
+  await page.route("**/images*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -540,6 +541,11 @@ test("order page generates and submits an instance name when the template has no
     });
   });
 
+  const imagesRequest = page.waitForRequest(
+    (request) => request.method() === "GET" && new URL(request.url()).pathname.endsWith("/images"),
+    { timeout: 5000 },
+  );
+
   await openAdmin(page, {
     profile: "tile",
     profiles: JSON.stringify({
@@ -556,8 +562,9 @@ test("order page generates and submits an instance name when the template has no
   ], undefined, "/order?template=curiootiles");
 
   await expect(page.locator("#instance")).toHaveValue(/^tile-[a-z0-9]{16}$/);
-  expect(imageUrls).toHaveLength(1);
-  const imageUrl = new URL(imageUrls[0]);
+  await expect.poll(() => imageUrls.length).toBe(1);
+  const imageRequest = await imagesRequest;
+  const imageUrl = new URL(imageRequest.url());
   expect(imageUrl.searchParams.get("profile")).toBe("tile");
   expect(imageUrl.searchParams.get("config_profile")).toBe("tile");
   expect(imageUrl.searchParams.get("tag")).toBe("TILE");

@@ -868,6 +868,23 @@ async function refreshCreateNetworkFromInstances(requestId) {
   }
 }
 
+async function defaultEnrollNetwork() {
+  const query = credentialsQuery({ includeTag: true });
+  if (!query) return "";
+
+  try {
+    const data = await loadInstances(query, { force: true });
+    const networks = Array.from(new Set((Array.isArray(data) ? data : [])
+      .flatMap((item) => networkNamesFromItem(item))
+      .filter(isTraefikNetwork)))
+      .sort((a, b) => a.localeCompare(b));
+
+    return networks[0] || "";
+  } catch {
+    return "";
+  }
+}
+
 function syncCreateNetwork() {
   if (isOrderPage) return;
 
@@ -1702,7 +1719,7 @@ function updateTestEmailVisibility() {
 }
 
 async function loadRegistryDefaultSecret() {
-  if (isOrderPage || isEnrollPage || isCatalogPage) return;
+  if (isOrderPage || isCatalogPage) return;
   if (registryWebhookDefaultLoaded) return;
   registryWebhookDefaultLoaded = true;
 
@@ -1732,7 +1749,15 @@ function registryWebhookSecretValue() {
 }
 
 function credentialsQuery({ includeTag = false } = {}) {
-  const credentials = selectedProfileCredentials();
+  let credentials = selectedProfileCredentials();
+  if (!credentials.profile) {
+    const knownProfiles = Object.keys(knownProfileEntries()).sort((a, b) => a.localeCompare(b));
+    const fallbackProfile = defaultConfigProfileName() || (knownProfiles[0] || "");
+    if (fallbackProfile) {
+      credentials = profileCredentials(fallbackProfile);
+    }
+  }
+
   if (!credentials.profile) return null;
 
   const query = new URLSearchParams({
@@ -1920,6 +1945,10 @@ async function refreshImageReport() {
   const credentials = profileCredentials(profile);
   query.set("config_profile", credentials.profile);
   if (credentials.tag) query.set("tag", credentials.tag);
+  const profiles = plainObject(knownProfileEntries());
+  if (Object.keys(profiles).length) {
+    query.set("profiles", JSON.stringify(profiles));
+  }
 
   refreshReportBtn.disabled = true;
   if (!reportSummaryHasStats()) renderReportStats();
@@ -4461,10 +4490,17 @@ async function applyOrderTemplate({ reveal = true } = {}) {
     updateTemplateOptions(entry.name);
   }
 
-  if (entry.template.version) {
-    setFieldValue("version", entry.template.version);
-  } else if (await refreshImages({ notify: false })) {
-    syncCreateVersion();
+  const templateVersion = String(entry.template.version || "").trim();
+  if (templateVersion) {
+    setFieldValue("version", templateVersion);
+  } else {
+    const templateProfile = String(entry.template.config_profile || entry.template.profile || "").trim();
+    const hadProfile = selectedProfileCredentials().profile;
+    if (!hadProfile && templateProfile) applyProfileToFields(templateProfile, { syncNetwork: false });
+
+    if (await refreshImages({ notify: false })) {
+      syncCreateVersion();
+    }
   }
 
   if (!fieldValue("network") && !isOrderPage) {
@@ -4702,7 +4738,16 @@ async function applyDockerRunCommand() {
   templateNetworkOverride = "";
   templateVersionOverride = parsed.version || "";
   generatedCreateDnsName = "";
-  setFieldValue("network", currentNetwork);
+  if (parsed.network && isTraefikNetwork(parsed.network)) {
+    setFieldValue("network", parsed.network);
+  } else {
+    setFieldValue("network", currentNetwork || "");
+  }
+
+  if (!fieldValue("network") && isEnrollPage) {
+    const fallbackNetwork = await defaultEnrollNetwork();
+    if (fallbackNetwork) setFieldValue("network", fallbackNetwork);
+  }
   if (parsed.traefik !== undefined) setFieldValue("traefik", parsed.traefik);
   setFieldValue("template_url", parsed.template_url || "");
   if (parsed.instance) setFieldValue("instance", parsed.instance);
@@ -6443,6 +6488,7 @@ async function initializePage() {
     const authReady = loadAuthUser();
     if (isOrderPage || isEnrollPage || isCatalogPage) await authReady;
     if (!isOrderPage && !isEnrollPage && !isCatalogPage) await loadMailSettings();
+    if (isEnrollPage) await loadRegistryDefaultSecret();
     await loadSavedConfig();
     if (isOrderPage || isCatalogPage) {
       const profileName = urlParams.get("profile") || defaultConfigProfileName() || currentConfigProfile;
