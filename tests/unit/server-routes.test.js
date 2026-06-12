@@ -1,8 +1,10 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const express = require("express");
 const supertest = require("supertest");
 const packageJson = require("../../package.json");
+const { registerSystemRoutes } = require("../../api/system");
 const activeTestServers = [];
 
 function jsonResponse(payload, status = 200) {
@@ -853,6 +855,35 @@ describe("server routes", () => {
       .expect((res) => {
         expect(res.text).toContain("<html");
       });
+  });
+
+  test("redirects anonymous OIDC enroll requests to login before authorization checks", async () => {
+    const app = express();
+    registerSystemRoutes(app, {
+      authUserFromRequest: () => ({}),
+      canCreatePublicImage: () => false,
+      isAdminAllowed: () => false,
+      oidcAuth: {
+        attachUser: (req, res, next) => next(),
+        callback: (req, res) => res.status(204).end(),
+        enabled: true,
+        login: (req, res) => res.status(204).end(),
+        loginRequired: (req, res) => res.redirect(`/login?rd=${encodeURIComponent(req.originalUrl)}`),
+        logout: (req, res) => res.status(204).end(),
+      },
+      packageJson,
+      publicPath: path.resolve(__dirname, "../../public"),
+      requireAdmin: (req, res) => res.status(403).end(),
+    });
+    const request = supertest(app);
+
+    await request.get("/enroll").expect(302).expect((res) => {
+      expect(res.headers.location).toContain("/login?rd=%2Fenroll");
+    });
+
+    await request.get("/enroll.html").expect(302).expect((res) => {
+      expect(res.headers.location).toContain("/login?rd=%2Fenroll.html");
+    });
   });
 
   test("checks Docker Hub registry image availability", async () => {

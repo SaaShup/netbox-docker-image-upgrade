@@ -177,6 +177,47 @@ describe("api config helpers", () => {
     expect(sanitized.smtp_config).toBeUndefined();
   });
 
+  test("publicConfigForResponse adds selected profile metadata when profiles omit it", () => {
+    const config = {
+      customer_name: "Acme",
+      profile: "prod",
+      profiles: {},
+    };
+
+    const sanitized = configHelpers.publicConfigForResponse(
+      config,
+      () => ({
+        domain: "example.com",
+        tag: "tile",
+        netbox: "https://netbox.example.com",
+        token: "secret",
+      }),
+      (profiles) => profiles,
+      (profiles) => profiles,
+      plainObject,
+    );
+
+    expect(sanitized.profiles.prod).toEqual({ domain: "example.com", tag: "tile" });
+    expect(JSON.stringify(sanitized)).not.toContain("secret");
+  });
+
+  test("publicConfigForResponse returns empty strings for missing config identity", () => {
+    const sanitized = configHelpers.publicConfigForResponse(
+      {},
+      () => ({}),
+      (profiles) => profiles || {},
+      (profiles) => profiles,
+      plainObject,
+    );
+
+    expect(sanitized).toEqual({
+      customer_name: "",
+      profile: "",
+      config_profile: "",
+      profiles: {},
+    });
+  });
+
   test("workflowsForVisibleTemplates filters steps based on visible templates", () => {
     const workflows = {
       prod: { steps: [{ template: "nginx" }, { template: "missing" }, "simple" ] },
@@ -325,6 +366,36 @@ describe("api config routes", () => {
       proxy: "http://proxy:secret@example.com",
       smtp_config: "mailer:smtp-secret@smtp.example.com:587",
     });
+  });
+
+  test("config route defaults to non-admin responses", async () => {
+    const state = {
+      config: {
+        customer_name: "Acme",
+        profile: "prod",
+        profiles: {
+          prod: {
+            domain: "example.com",
+            netbox: "https://netbox.example.com",
+            token: "secret",
+          },
+        },
+      },
+      templates: {},
+      workflows: {},
+      logs: "",
+    };
+    const { routes } = createRoutes({
+      isAdminAllowed: undefined,
+      readState: () => state,
+      selectedProfileConfig: ({ profile }) => state.config.profiles[profile] || {},
+    });
+
+    const res = mockResponse();
+    await routes["GET /config"]({}, res);
+
+    expect(res.body.profiles.prod).toEqual({ domain: "example.com" });
+    expect(JSON.stringify(res.body)).not.toContain("secret");
   });
 
   test("webhook accepts profile values from imported profiles and empty fallbacks", async () => {
