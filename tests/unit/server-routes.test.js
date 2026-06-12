@@ -830,6 +830,31 @@ describe("server routes", () => {
       });
   });
 
+  test("returns 403 for non-admin enroll access when public images are disabled", async () => {
+    const { request } = await loadServer({ adminEmails: "admin@example.com", publicImage: "false" });
+
+    await request.get("/enroll")
+      .set("x-auth-request-email", "buyer@example.com")
+      .expect(403)
+      .expect((res) => {
+        expect(res.text).toContain("403 forbidden");
+      });
+
+    await request.get("/enroll.html")
+      .set("x-auth-request-email", "buyer@example.com")
+      .expect(403)
+      .expect((res) => {
+        expect(res.text).toContain("403 forbidden");
+      });
+
+    await request.get("/enroll")
+      .set("x-auth-request-email", "admin@example.com")
+      .expect(200)
+      .expect((res) => {
+        expect(res.text).toContain("<html");
+      });
+  });
+
   test("checks Docker Hub registry image availability", async () => {
     const { request, setRegistryFetchForTests } = await loadServer({ publicApiSecret: "test-secret" });
     const registryFetch = vi.fn(async (url, options = {}) => {

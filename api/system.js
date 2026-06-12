@@ -34,8 +34,18 @@ function registerSystemRoutes(app, {
   app.get("/admin", oidcAuth.loginRequired, requireAdmin, (req, res) => res.sendFile(path.join(publicPath, "admin.html")));
   app.get("/admin.html", oidcAuth.loginRequired, requireAdmin, (req, res) => res.sendFile(path.join(publicPath, "admin.html")));
   app.get("/order", oidcAuth.loginRequired, (req, res) => res.sendFile(path.join(publicPath, "order.html")));
-  app.get("/enroll", oidcAuth.loginRequired, (req, res) => sendNoCachePage(publicPath, res, "enroll.html"));
-  app.get("/enroll.html", oidcAuth.loginRequired, (req, res) => sendNoCachePage(publicPath, res, "enroll.html"));
+  app.get("/enroll", (req, res, next) => {
+    const user = authUserFromRequest(req);
+    if (oidcAuth.enabled && !user.email && !user.user && !user.name) return oidcAuth.loginRequired(req, res, next);
+    if (canCreatePublicImage?.(req)) return next();
+    res.status(403).sendFile(path.join(publicPath, "forbidden.html"));
+  }, (req, res) => sendNoCachePage(publicPath, res, "enroll.html"));
+  app.get("/enroll.html", (req, res, next) => {
+    const user = authUserFromRequest(req);
+    if (oidcAuth.enabled && !user.email && !user.user && !user.name) return oidcAuth.loginRequired(req, res, next);
+    if (canCreatePublicImage?.(req)) return next();
+    res.status(403).sendFile(path.join(publicPath, "forbidden.html"));
+  }, (req, res) => sendNoCachePage(publicPath, res, "enroll.html"));
   app.get("/", oidcAuth.loginRequired, (req, res) => sendNoCachePage(publicPath, res, "catalog.html"));
   app.get("/catalog", oidcAuth.loginRequired, (req, res) => sendNoCachePage(publicPath, res, "catalog.html"));
   app.get("/catalog.html", oidcAuth.loginRequired, (req, res) => sendNoCachePage(publicPath, res, "catalog.html"));

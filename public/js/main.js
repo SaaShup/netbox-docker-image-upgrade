@@ -869,6 +869,8 @@ async function refreshCreateNetworkFromInstances(requestId) {
 }
 
 function syncCreateNetwork() {
+  if (isOrderPage) return;
+
   const network = field("network");
   if (!network) return;
 
@@ -2800,10 +2802,6 @@ async function deleteOrderInstance(index) {
   hideOrderActions();
 
   const credentials = selectedProfileCredentials();
-  if (!credentials.netbox || !credentials.token) {
-    setOrderStatus("Delete failed: missing NetBox config", "error");
-    return;
-  }
 
   const body = new URLSearchParams({
     instance: item.instance,
@@ -2827,7 +2825,12 @@ async function deleteOrderInstance(index) {
   });
 
   if (!response.ok && response.status !== 202) {
-    setOrderStatus(`Delete request failed (${response.status})`, "error");
+    let message = `Delete request failed (${response.status})`;
+    const data = await response.json().catch(() => ({}));
+    if (data && data.detail) {
+      message = `Delete failed: ${data.detail}`;
+    }
+    setOrderStatus(message, "error");
     return;
   }
 
@@ -2988,7 +2991,7 @@ function setAction(actionName, { skipAutoRefresh = false } = {}) {
   const imageInput = field("image");
   if (imageInput) imageInput.readOnly = actionName === "create";
 
-  if (!skipAutoRefresh && !isEnrollPage) syncCreateNetwork();
+  if (!skipAutoRefresh && !isEnrollPage && !isOrderPage) syncCreateNetwork();
   syncCreateVersion();
   updateRemoveOldImagesState();
   ensureRandomCreateInstanceName();
@@ -3067,7 +3070,7 @@ function clearActionFields() {
   clearVolumeRows();
   clearBindRows();
   setLoggingRow({ log_driver: defaultLogDriver, log_driver_options: defaultLogDriverOptions });
-  if (!isEnrollPage) {
+  if (!isEnrollPage && !isOrderPage) {
     syncCreateNetwork();
   }
   syncCreateVersion();
@@ -4464,7 +4467,7 @@ async function applyOrderTemplate({ reveal = true } = {}) {
     syncCreateVersion();
   }
 
-  if (!fieldValue("network")) {
+  if (!fieldValue("network") && !isOrderPage) {
     syncCreateNetwork();
   }
 
@@ -4511,7 +4514,7 @@ async function applyDockerComposeFile(text) {
       return false;
     }
     applyCreateTemplate(first.template);
-    if (!fieldValue("network") && !isEnrollPage) syncCreateNetwork();
+    if (!fieldValue("network") && !isEnrollPage && !isOrderPage) syncCreateNetwork();
     enrollSetImportedSummary(`Compose service ${first.name} imported`);
     const limit = await refreshEnrollLimit({ showLoading: false });
     if (limit?.reached) return false;
