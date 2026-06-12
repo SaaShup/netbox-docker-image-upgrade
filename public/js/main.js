@@ -516,7 +516,7 @@ function normalizeAuthUser(user = {}) {
     user: String(user.user || "").trim(),
     email: String(user.email || "").trim(),
     admin: Boolean(user.admin),
-    public_image: user.public_image !== false || Boolean(user.admin),
+    public_image: user.public_image !== false,
   };
 }
 
@@ -549,7 +549,7 @@ function clearAuthUserDisplay() {
 
 function updateAccountMenuAccess(user = {}) {
   const isAdmin = Boolean(user.admin);
-  const canEnrollImages = user.public_image !== false || isAdmin;
+  const canEnrollImages = user.public_image !== false;
   if (adminLink) adminLink.classList.toggle("hidden", !isAdmin);
   if (enrollLink) enrollLink.classList.toggle("hidden", !canEnrollImages);
 }

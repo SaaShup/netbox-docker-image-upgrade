@@ -753,7 +753,7 @@ describe("server routes", () => {
     });
   });
 
-  test("session user reports public image permission from env and admin allow-list", async () => {
+  test("session user reports public image permission from env only", async () => {
     const disabled = await loadServer({ adminEmails: "allowed@example.com", publicImage: "false" });
     await disabled.request.get("/session/user").set("x-auth-request-email", "buyer@example.com").expect(200).expect((res) => {
       expect(res.body.admin).toBe(false);
@@ -761,13 +761,19 @@ describe("server routes", () => {
     });
     await disabled.request.get("/session/user").set("x-auth-request-email", "allowed@example.com").expect(200).expect((res) => {
       expect(res.body.admin).toBe(true);
-      expect(res.body.public_image).toBe(true);
+      expect(res.body.public_image).toBe(false);
     });
 
     const enabled = await loadServer({ adminEmails: "allowed@example.com", publicImage: "true" });
     await enabled.request.get("/session/user").set("x-auth-request-email", "buyer@example.com").expect(200).expect((res) => {
       expect(res.body.admin).toBe(false);
       expect(res.body.public_image).toBe(true);
+    });
+
+    const openAdmin = await loadServer({ adminEmails: "", publicImage: "false" });
+    await openAdmin.request.get("/session/user").set("x-auth-request-email", "buyer@example.com").expect(200).expect((res) => {
+      expect(res.body.admin).toBe(true);
+      expect(res.body.public_image).toBe(false);
     });
   });
 
@@ -832,7 +838,7 @@ describe("server routes", () => {
       });
   });
 
-  test("returns 403 for non-admin enroll access when public images are disabled", async () => {
+  test("returns 403 for enroll access when public images are disabled", async () => {
     const { request } = await loadServer({ adminEmails: "admin@example.com", publicImage: "false" });
 
     await request.get("/enroll")
@@ -851,9 +857,40 @@ describe("server routes", () => {
 
     await request.get("/enroll")
       .set("x-auth-request-email", "admin@example.com")
-      .expect(200)
+      .expect(403)
       .expect((res) => {
-        expect(res.text).toContain("<html");
+        expect(res.text).toContain("403 forbidden");
+      });
+  });
+
+  test("returns 403 for enroll access when public images are 0 or unset", async () => {
+    for (const publicImage of ["0", ""]) {
+      const { request } = await loadServer({ adminEmails: "admin@example.com", publicImage });
+
+      await request.get("/enroll")
+        .set("x-auth-request-email", "buyer@example.com")
+        .expect(403)
+        .expect((res) => {
+          expect(res.text).toContain("403 forbidden");
+        });
+
+      await request.get("/enroll")
+        .set("x-auth-request-email", "admin@example.com")
+        .expect(403)
+        .expect((res) => {
+          expect(res.text).toContain("403 forbidden");
+        });
+    }
+  });
+
+  test("returns 403 for enroll access when admin allow-list is empty and public images are disabled", async () => {
+    const { request } = await loadServer({ adminEmails: "", publicImage: "false" });
+
+    await request.get("/enroll")
+      .set("x-auth-request-email", "buyer@example.com")
+      .expect(403)
+      .expect((res) => {
+        expect(res.text).toContain("403 forbidden");
       });
   });
 

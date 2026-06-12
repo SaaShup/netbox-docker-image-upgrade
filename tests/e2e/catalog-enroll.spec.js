@@ -263,6 +263,101 @@ test("catalog page shows the account menu", async ({ page }) => {
   expect(Math.abs(themeCenter - brandCenter)).toBeLessThanOrEqual(1);
 });
 
+test("catalog page hides enroll menu when public images are disabled for non-admin users", async ({ page }) => {
+  await page.route("**/session/user", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        name: "Buyer Example",
+        user: "buyer",
+        email: "buyer@example.com",
+        admin: false,
+        public_image: false,
+      }),
+    });
+  });
+
+  await page.route("**/enroll/limit**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        instances: [
+          { instance: "demo", image: "saashup/demo", version: "v1.0.0", status: "ready", source: "template", instance_count: 0 },
+        ],
+        max: 2,
+        profile: "demo",
+        remaining: 2,
+        reached: false,
+        used: 0,
+      }),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "demo",
+    profiles: JSON.stringify({
+      demo: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        domain: "daily.paashup.cloud",
+        tag: "DEMO",
+      },
+    }),
+  }, {}, [], undefined, "/catalog");
+
+  await expect(page.locator("#catalogList")).toContainText("saashup/demo:v1.0.0");
+  await expect(page.locator('.order-page-menu a[href="/enroll"]')).toBeHidden();
+  await expect(page.locator("#adminLink")).toBeHidden();
+});
+
+test("catalog page hides enroll menu for admins when public images are disabled", async ({ page }) => {
+  await page.route("**/session/user", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        name: "Admin Example",
+        user: "admin",
+        email: "admin@example.com",
+        admin: true,
+        public_image: false,
+      }),
+    });
+  });
+
+  await page.route("**/enroll/limit**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        instances: [],
+        max: 2,
+        profile: "demo",
+        remaining: 2,
+        reached: false,
+        used: 0,
+      }),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "demo",
+    profiles: JSON.stringify({
+      demo: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        domain: "daily.paashup.cloud",
+        tag: "DEMO",
+      },
+    }),
+  }, {}, [], undefined, "/catalog");
+
+  await expect(page.locator('.order-page-menu a[href="/enroll"]')).toBeHidden();
+  await expect(page.locator("#adminLink")).toBeVisible();
+});
+
 test("enroll page reports only missing port when docker run has image", async ({ page }) => {
   await page.route("**/enroll/limit*", async (route) => {
     await route.fulfill({
