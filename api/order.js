@@ -23,15 +23,19 @@ function createOrderHelpers({
     return "creating";
   }
 
+  function orderLabelValue(labels, key) {
+    return templateLabelValue(labels, key) || labels[String(key || "").toLowerCase()] || "";
+  }
+
   function orderInstanceFromContainer(container, labels, ownerEnvNameValue, profile) {
-    const labelOwnerEnvName = templateLabelValue(labels, "owner_env_var") || ownerEnvNameValue;
-    const owner = String(templateLabelValue(labels, "owner") || templateLabelValue(labels, "creator") || containerEnvValue(container, labelOwnerEnvName)).trim().toLowerCase();
+    const labelOwnerEnvName = orderLabelValue(labels, "owner_env_var") || ownerEnvNameValue;
+    const owner = String(orderLabelValue(labels, "owner") || orderLabelValue(labels, "creator") || containerEnvValue(container, labelOwnerEnvName)).trim().toLowerCase();
     const { image, version } = imagePartsFromContainer(container, labels);
-    const name = templateLabelValue(labels, "dns_name") || valueText(container.display || container.name || container.id);
+    const name = orderLabelValue(labels, "dns_name") || valueText(container.display || container.name || container.id);
     return {
       instance: name,
       dns_name: name,
-      template: templateLabelValue(labels, "name") || templateLabelValue(labels, "template") || "",
+      template: orderLabelValue(labels, "name") || orderLabelValue(labels, "template") || "",
       image,
       version,
       status: orderInstanceStatus(container),
@@ -62,7 +66,7 @@ function createOrderHelpers({
           return orderInstanceFromContainer(container, labels, ownerEnvNameValue, profile);
         })
         .filter((item) => item.owner === creator)
-        .filter((item) => item.template)
+        .filter((item) => item.template || !requested)
         .filter((item) => !requested || String(item.template).trim().toLowerCase() === requested)
         .map(({ owner, ...item }) => item)
         .sort((left, right) => String(left.instance).localeCompare(String(right.instance)));

@@ -769,18 +769,15 @@ describe("server routes", () => {
     });
   });
 
-  test("create endpoint blocks public image requests for non-admin users when disabled", async () => {
+  test("create endpoint blocks enrollment but allows orders for non-admin users when public images are disabled", async () => {
     const { request } = await loadServer({ adminEmails: "admin@example.com", publicImage: "false" });
 
     await request.post("/create")
       .set("x-auth-request-email", "buyer@example.com")
       .send({ order_request: "true", profile: "prod" })
-      .expect(403)
+      .expect(202)
       .expect((res) => {
-        expect(res.body).toMatchObject({
-          code: "public_image_disabled",
-          detail: "Only administrators can create or enroll images.",
-        });
+        expect(res.body).toEqual({ status: "requested" });
       });
 
     await request.post("/create")

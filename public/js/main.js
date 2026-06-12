@@ -2819,10 +2819,6 @@ function hideOrderActions() {
 }
 
 function showOrderActions() {
-  if (!canCreatePublicImage()) {
-    hidePublicImageForm();
-    return;
-  }
   orderActions?.classList.remove("hidden");
 }
 
@@ -2844,7 +2840,7 @@ function hidePublicImageForm(message = publicImageDisabledMessage()) {
 }
 
 function updatePublicImageAccess() {
-  if (!isOrderPage && !isEnrollPage) return;
+  if (!isEnrollPage) return;
   if (!canCreatePublicImage()) {
     hidePublicImageForm();
   } else if (isEnrollPage) {
@@ -2888,7 +2884,7 @@ function setAction(actionName) {
   const config = actions[actionName];
   if (!config || !form) return;
 
-  if ((isOrderPage || isEnrollPage) && actionName === "create" && !canCreatePublicImage()) {
+  if (isEnrollPage && actionName === "create" && !canCreatePublicImage()) {
     hidePublicImageForm();
     return;
   }
@@ -5391,7 +5387,7 @@ async function submitAction(config, submitter) {
   const credentials = selectedProfileCredentials();
   let createdInstanceFqdn = "";
 
-  if ((isOrderPage || isEnrollPage) && !canCreatePublicImage()) {
+  if (isEnrollPage && !canCreatePublicImage()) {
     hidePublicImageForm();
     return;
   }

@@ -71,16 +71,13 @@ function createRoutes(overrides = {}) {
   return { asyncOperations, logs, routes };
 }
 
-test("create blocks public order and enrollment when disabled for non-admin users", async () => {
+test("create blocks public enrollment but allows orders when disabled for non-admin users", async () => {
   const { routes } = createRoutes({ canCreatePublicImage: () => false });
 
   const orderRes = mockResponse();
   await routes["/create"]({ body: { order_request: "true" } }, orderRes);
-  expect(orderRes.statusCode).toBe(403);
-  expect(orderRes.body).toEqual({
-    code: "public_image_disabled",
-    detail: "Only administrators can create or enroll images.",
-  });
+  expect(orderRes.statusCode).toBe(202);
+  expect(orderRes.body).toEqual({ status: "requested" });
 
   const enrollRes = mockResponse();
   await routes["/create"]({ body: { enroll_request: "true" } }, enrollRes);

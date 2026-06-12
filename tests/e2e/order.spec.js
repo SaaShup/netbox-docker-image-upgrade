@@ -266,7 +266,7 @@ test("order page informs the user when the max instance limit is reached", async
   await expect(page.locator("#orderStatus .order-status-home")).toHaveCount(0);
 });
 
-test("order page hides create controls when public images are disabled for non-admin users", async ({ page }) => {
+test("order page remains usable when public images are disabled for non-admin users", async ({ page }) => {
   await page.route("**/session/user", async (route) => {
     await route.fulfill({
       status: 200,
@@ -325,10 +325,10 @@ test("order page hides create controls when public images are disabled for non-a
   }, [], undefined, "/order?template=demo");
 
   await expect(page.locator("#orderLoading")).toBeHidden();
-  await expect(page.locator("#instanceForm")).toBeHidden();
-  await expect(page.locator("#orderActions")).toBeHidden();
-  await expect(page.locator("#submitBtn")).toBeHidden();
-  await expect(page.locator("#orderStatus")).toContainText("Only administrators can create or enroll images.");
+  await expect(page.locator("#instanceForm")).toBeVisible();
+  await expect(page.locator("#orderActions")).toBeVisible();
+  await expect(page.locator("#submitBtn")).toBeVisible();
+  await expect(page.locator("#orderStatus")).toBeHidden();
 });
 
 test("order page shows oauth user and logs out through app auth", async ({ page }) => {

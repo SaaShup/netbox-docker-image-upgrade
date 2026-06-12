@@ -657,6 +657,64 @@ describe("api/order helpers", () => {
     expect(usage.instances).toHaveLength(1);
   });
 
+  test("currentUsage shows owned containers without template labels on the instances page", async () => {
+    const helpers = createOrder({
+      authUserFromRequest: () => ({ email: "owner@example.com" }),
+      containerEnvValue: (container, key) => container.env?.[key] || "",
+      hostIdQuery: async () => ({ host_id: 1 }),
+      NetBoxClient: class {
+        constructor() {
+          this.list = async () => [
+            { display: "legacy.example.com", labels: {}, env: { OWNER: "owner@example.com" } },
+          ];
+        }
+      },
+      labelMapFromContainer: (container) => container.labels || {},
+      ownerEnvVarName: () => "OWNER",
+      templateLabelValue: (labels, key) => labels[key] || "",
+      selectedProfileConfig: () => ({ netbox: true, token: "token", tag: "tag", owner_env_var: "OWNER" }),
+      templateEntryForRequest: async () => ({ template: { max_instances: 3 } }),
+      isReadyContainer: () => true,
+      isContainerStopped: () => false,
+      imagePartsFromContainer: () => ({ image: "repo/legacy", version: "v1" }),
+    });
+
+    const allInstances = await helpers.currentUsage({ body: {}, query: {} }, "prod");
+    expect(allInstances.instances).toEqual([
+      expect.objectContaining({ instance: "legacy.example.com", image: "repo/legacy", template: "" }),
+    ]);
+
+    const templateInstances = await helpers.currentUsage({ body: {}, query: { template: "demo" } }, "prod");
+    expect(templateInstances.instances).toEqual([]);
+  });
+
+  test("currentUsage matches plain owner labels with canonical template parsing", async () => {
+    const helpers = createOrder({
+      authUserFromRequest: () => ({ email: "owner@example.com" }),
+      hostIdQuery: async () => ({ host_id: 1 }),
+      NetBoxClient: class {
+        constructor() {
+          this.list = async () => [
+            { display: "plain.example.com", labels: { name: "demo", owner: "owner@example.com" } },
+            { display: "other.example.com", labels: { name: "demo", owner: "other@example.com" } },
+          ];
+        }
+      },
+      labelMapFromContainer: (container) => container.labels || {},
+      templateLabelValue: (labels, key) => labels[`saashup.template.${key}`] || labels[`saashup_${key}`] || "",
+      selectedProfileConfig: () => ({ netbox: true, token: "token", tag: "tag" }),
+      templateEntryForRequest: async () => ({ template: { max_instances: 3 } }),
+      isReadyContainer: () => true,
+      isContainerStopped: () => false,
+      imagePartsFromContainer: () => ({ image: "repo/plain", version: "v1" }),
+    });
+
+    const usage = await helpers.currentUsage({ body: {}, query: { template: "demo" } }, "prod");
+    expect(usage.instances).toEqual([
+      expect.objectContaining({ instance: "plain.example.com", template: "demo" }),
+    ]);
+  });
+
   test("currentUsage returns zero when NetBox is disabled or unavailable", async () => {
     const helpers = createOrder({
       authUserFromRequest: () => ({ email: "owner@example.com" }),

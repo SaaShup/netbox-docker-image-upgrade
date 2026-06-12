@@ -16,7 +16,9 @@
         "coverage:html": "vitest run --coverage --coverage.reporter=html",
         "coverage:lcov": "vitest run --coverage --coverage.reporter=lcov",
         "start": "node server.js",
-        "dev": "APP_OWNER_EMAIL=contact@saashup.com OPERATION_TIMEOUT_SECONDS=60 REGISTRY_WEBHOOK_SECRET=secret ENABLE_EDITOR=1 LOCAL_DEV_EMAIL=demo@local.test OIDC_ENABLED=false node server.js",
+        "dev": "npm run dev-admin",
+        "dev-admin": "APP_OWNER_EMAIL=contact@saashup.com OPERATION_TIMEOUT_SECONDS=60 REGISTRY_WEBHOOK_SECRET=secret ENABLE_EDITOR=1 ADMIN_ALLOWED_EMAILS=admin@local.test LOCAL_DEV_EMAIL=admin@local.test OIDC_ENABLED=false node server.js",
+        "dev-user": "APP_OWNER_EMAIL=contact@saashup.com OPERATION_TIMEOUT_SECONDS=60 REGISTRY_WEBHOOK_SECRET=secret ENABLE_EDITOR=1 ADMIN_ALLOWED_EMAILS=admin@local.test LOCAL_DEV_EMAIL=demo@local.test OIDC_ENABLED=false node server.js",
         "test:e2e": "playwright test --grep-invert @visual",
         "test:visual": "playwright test tests/e2e/visual.spec.js"
     },
