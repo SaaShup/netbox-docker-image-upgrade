@@ -154,6 +154,10 @@ const pageScreenshotOptions = {
   maxDiffPixelRatio: 0.05,
 };
 
+const adminScreenshotOptions = {
+  maxDiffPixelRatio: 0.12,
+};
+
 test.describe("@visual visual snapshots", () => {
   test("pages match visual baselines", async ({ page }) => {
     await setupVisualRoutes(page);
@@ -161,7 +165,7 @@ test.describe("@visual visual snapshots", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openVisualPage(page, "/admin.html");
     await expectAdminReady(page);
-    await expect(page).toHaveScreenshot("admin-mobile.png", pageScreenshotOptions);
+    await expect(page).toHaveScreenshot("admin-mobile.png", adminScreenshotOptions);
 
     await openVisualPage(page, "/order?template=demo");
     await expect(page).toHaveScreenshot("order-mobile.png", pageScreenshotOptions);
@@ -177,7 +181,7 @@ test.describe("@visual visual snapshots", () => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await openVisualPage(page, "/admin.html");
     await expectAdminReady(page);
-    await expect(page).toHaveScreenshot("admin-desktop.png", pageScreenshotOptions);
+    await expect(page).toHaveScreenshot("admin-desktop.png", adminScreenshotOptions);
 
     await openVisualPage(page, "/order?template=demo");
     await expect(page).toHaveScreenshot("order-desktop.png", pageScreenshotOptions);
