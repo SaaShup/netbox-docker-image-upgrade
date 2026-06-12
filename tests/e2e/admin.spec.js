@@ -89,6 +89,38 @@ test("config tab starts without a forced default profile", async ({ page }) => {
   await expect(page.locator("#saveTemplateBtn")).toBeHidden();
 });
 
+test("environment menu shows read-only server environment variables", async ({ page }) => {
+  await openAdmin(page, {
+    profile: "production",
+    config_profile: "production",
+    profiles: JSON.stringify({
+      production: { netbox: "https://netbox.example.com", token: "secret", tag: "prod" },
+    }),
+  });
+
+  await expect(page.locator(".nav .nav-label").nth(0)).toHaveText("Environment");
+  await expect(page.locator(".nav .nav-label").nth(1)).toHaveText("Profiles");
+
+  await page.getByRole("link", { name: "Environment" }).click();
+
+  await expect(page.locator("#environmentCard")).toBeVisible();
+  await expect(page.locator(".form-card")).toBeHidden();
+  await expect(page.locator("#testBtn")).toBeVisible();
+  await expect(page.locator("#testBtn")).toHaveText("Test connection: production");
+  await expect(page.locator("#environmentSummary")).toHaveText("2 environment variables");
+  await expect(page.locator(".environment-row").first().locator(".environment-name")).toHaveText("NODE_ENV");
+  await expect(page.locator(".environment-row").first().locator(".environment-value")).toHaveValue("production");
+  await expect(page.locator(".environment-row").first().locator(".environment-value")).toHaveAttribute("readonly", "");
+  await expect(page.locator(".environment-row").nth(1).locator(".environment-name")).toHaveText("PUBLIC_IMAGE");
+  await expect(page.locator(".environment-row").nth(1).locator(".environment-value")).toHaveValue("false");
+
+  await page.getByRole("link", { name: "Profiles" }).click();
+  await expect(page.locator("#environmentCard")).toBeHidden();
+  await expect(page.locator(".form-card")).toBeVisible();
+  await expect(page.locator("#testBtn")).toBeVisible();
+  await expect(page.locator("#testBtn")).toHaveText("Test connection: production");
+});
+
 test("admin config load prefers server credentials over stale local profile cache", async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("config_profiles", JSON.stringify({
@@ -576,6 +608,7 @@ test("report menu shows image usage for one config", async ({ page }) => {
 
   await openAdmin(page, config);
   await expect(page.locator(".sidebar .nav-label")).toHaveText([
+    "Environment",
     "Profiles",
     "Template",
     "Create",

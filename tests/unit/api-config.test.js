@@ -405,6 +405,34 @@ describe("api config routes", () => {
     });
   });
 
+  test("admin environment route returns only Dockerfile environment variables", async () => {
+    const { routes } = createRoutes({
+      processEnv: {
+        NODE_ENV: "test",
+        PUBLIC_IMAGE: "true",
+        UNRELATED_SECRET: "do-not-send",
+      },
+      readDockerfile: () => [
+        "FROM node:24-alpine",
+        "ENV NODE_ENV=production \\",
+        "    PUBLIC_IMAGE=false \\",
+        "    ADMIN_ALLOWED_EMAILS=\"\"",
+      ].join("\n"),
+    });
+
+    const res = mockResponse();
+    await routes["GET /admin/environment"]({}, res);
+
+    expect(res.body).toEqual({
+      variables: [
+        { name: "NODE_ENV", value: "test" },
+        { name: "PUBLIC_IMAGE", value: "true" },
+        { name: "ADMIN_ALLOWED_EMAILS", value: "" },
+      ],
+    });
+    expect(JSON.stringify(res.body)).not.toContain("UNRELATED_SECRET");
+  });
+
   test("config route defaults to non-admin responses", async () => {
     const state = {
       config: {

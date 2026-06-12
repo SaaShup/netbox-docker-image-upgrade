@@ -3359,7 +3359,7 @@ describe("server routes", () => {
       expect(res.text).toContain("Order Saashup Instance");
     });
     await request.get("/enroll.html").set("x-auth-request-email", "buyer@example.com").expect(200).expect((res) => {
-      expect(res.text).toContain("Enroll Saashup Instance");
+      expect(res.text).toContain("Enroll Saashup Image");
       expect(res.text).toContain('id="submitBtn" disabled');
       expect(res.headers["cache-control"]).toContain("no-store");
     });

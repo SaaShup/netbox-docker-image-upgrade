@@ -36,6 +36,10 @@
 
       <nav class="nav">
         <div class="nav-section-label">Settings</div>
+        <a href="#" class="menu nav-item" data-action="environment" id="menu_environment" title="Environment">
+          <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h16"></path><path d="M4 12h16"></path><path d="M4 17h16"></path><path d="M8 7v10"></path></svg></span>
+          <span class="nav-label">Environment</span>
+        </a>
         <a href="#" class="menu nav-item active" data-action="config" id="menu_config" title="Config">
           <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M4.6 7.5l2.6 1.5M16.8 15l2.6 1.5M4.6 16.5 7.2 15M16.8 9l2.6-1.5"></path><circle cx="12" cy="12" r="4"></circle></svg></span>
           <span class="nav-label">Profiles</span>
@@ -430,6 +434,21 @@
               <button type="submit" class="btn btn-primary" id="submitBtn">Save config</button>
             </div>
           </form>
+        </div>
+
+        <div class="card environment-card hidden" id="environmentCard">
+          <div class="card-header">
+            <div class="card-title-row">
+              <div>
+                <h3>Environment</h3>
+                <p>Runtime environment variables available to the server.</p>
+              </div>
+              <button type="button" class="btn btn-primary" id="refreshEnvironmentBtn">Refresh</button>
+            </div>
+          </div>
+
+          <div class="environment-summary" id="environmentSummary">No environment loaded</div>
+          <div class="environment-list" id="environmentList"></div>
         </div>
 
         <div class="card report-card hidden" id="reportCard">

@@ -561,6 +561,7 @@ h2 {
 }
 
 .form-card,
+.environment-card,
 .report-card,
 .workflow-card,
 .logs-card {
@@ -616,6 +617,55 @@ h2 {
 
 .workflow-card .card-title-row {
   align-items: center;
+}
+
+.environment-summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  margin-bottom: 14px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--button-soft);
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.environment-list {
+  display: grid;
+  gap: 10px;
+}
+
+.environment-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.55fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.environment-name {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 0.84rem;
+  font-weight: 900;
+}
+
+.environment-value {
+  min-width: 0;
+  width: 100%;
+  height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--input-bg);
+  color: var(--text);
+  padding: 0 10px;
+  font: inherit;
+}
+
+.environment-value[readonly] {
+  cursor: text;
 }
 
 .workflow-card .workflow-actions .btn {
@@ -1824,6 +1874,11 @@ input[type="checkbox"]:disabled {
 
   .report-toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .environment-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
   }
 
   .workflow-card .card-title-row {

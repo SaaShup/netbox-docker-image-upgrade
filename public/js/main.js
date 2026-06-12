@@ -110,6 +110,10 @@ const reportSummary = document.getElementById("reportSummary");
 const reportTableHead = document.getElementById("reportTableHead");
 const reportTableBody = document.getElementById("reportTableBody");
 const reportViewButtons = Array.from(document.querySelectorAll("[data-report-view]"));
+const environmentCard = document.getElementById("environmentCard");
+const environmentSummary = document.getElementById("environmentSummary");
+const environmentList = document.getElementById("environmentList");
+const refreshEnvironmentBtn = document.getElementById("refreshEnvironmentBtn");
 const workflowCard = document.getElementById("workflowCard");
 const workflowActionSelect = document.getElementById("workflowActionSelect");
 const workflowDeleteVolumesField = document.getElementById("workflowDeleteVolumesField");
@@ -172,6 +176,7 @@ const orderDeletingInstances = new Set();
 let publicImageAllowed = true;
 let currentReportView = "images";
 let lastReportData = null;
+let environmentLoaded = false;
 let orderStatusPollTimer = null;
 let enrollmentStatusPollTimer = null;
 let mailSettings = { owner_email_configured: false };
@@ -310,6 +315,16 @@ function selectedTemplateName() {
 }
 
 const actions = {
+  environment: {
+    endpoint: "/admin/environment",
+    method: "get",
+    menu: "menu_environment",
+    title: "Environment",
+    description: "Review the server runtime environment.",
+    submitLabel: "Refresh",
+    buttonClass: "btn btn-primary",
+    fields: [],
+  },
   config: {
     endpoint: "/webhook",
     method: "get",
@@ -1642,6 +1657,7 @@ function updateProfileOptions() {
   updateReportProfileOptions();
   updateConfigDefaultControl();
   updateFormTitleBadge();
+  updateTestConnectionButtonLabel();
 }
 
 function updateFormTitleBadge(actionName = currentAction) {
@@ -1702,6 +1718,7 @@ function applyProfileToFields(name = currentConfigProfile, { syncNetwork = true 
   updateProfileSyncWarning();
   updateTestEmailVisibility();
   updateConfigDefaultControl();
+  updateTestConnectionButtonLabel();
 }
 
 function currentSmtpConfigValue() {
@@ -1787,6 +1804,15 @@ function setTestButtonState(state = "default") {
   testBtn.classList.toggle("btn-success", state === "success");
   testBtn.classList.toggle("btn-danger", state === "error");
   testBtn.classList.toggle("btn-primary", state === "default");
+}
+
+function updateTestConnectionButtonLabel() {
+  if (!testBtn) return;
+
+  const profile = currentConfigProfile || configProfileSelect?.value || "";
+  const label = profile ? `Test connection: ${profile}` : "Test connection: no profile";
+  testBtn.textContent = label;
+  testBtn.title = label;
 }
 
 function escapeHtml(value) {
@@ -1975,6 +2001,69 @@ async function refreshImageReport() {
     setNotice("Image report failed", "error");
   } finally {
     refreshReportBtn.disabled = false;
+  }
+}
+
+function renderEnvironmentVariables(variables) {
+  if (!environmentList || !environmentSummary) return;
+
+  const entries = Array.isArray(variables) ? variables : [];
+  environmentSummary.textContent = `${entries.length} environment ${entries.length === 1 ? "variable" : "variables"}`;
+  environmentList.replaceChildren();
+
+  if (!entries.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = "No environment variables found.";
+    environmentList.appendChild(empty);
+    return;
+  }
+
+  entries.forEach(({ name, value }) => {
+    const row = document.createElement("label");
+    row.className = "environment-row";
+
+    const label = document.createElement("span");
+    label.className = "environment-name";
+    label.textContent = String(name || "");
+
+    const input = document.createElement("input");
+    input.className = "environment-value";
+    input.type = "text";
+    input.readOnly = true;
+    input.value = String(value ?? "");
+    input.setAttribute("aria-label", `${String(name || "Environment variable")} value`);
+
+    row.append(label, input);
+    environmentList.appendChild(row);
+  });
+}
+
+async function loadEnvironmentVariables({ force = false } = {}) {
+  if (!environmentCard || (!force && environmentLoaded)) return;
+
+  if (refreshEnvironmentBtn) refreshEnvironmentBtn.disabled = true;
+  if (environmentSummary) {
+    environmentSummary.classList.remove("is-error");
+    environmentSummary.textContent = "Loading environment...";
+  }
+
+  try {
+    const response = await fetch("/admin/environment", {
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    renderEnvironmentVariables(data.variables);
+    environmentLoaded = true;
+  } catch {
+    environmentLoaded = false;
+    environmentSummary?.classList.add("is-error");
+    if (environmentSummary) environmentSummary.textContent = "Environment failed to load";
+    environmentList?.replaceChildren();
+    setNotice("Environment failed to load", "error");
+  } finally {
+    if (refreshEnvironmentBtn) refreshEnvironmentBtn.disabled = false;
   }
 }
 
@@ -2954,6 +3043,7 @@ function setAction(actionName, { skipAutoRefresh = false } = {}) {
 
   currentAction = actionName;
   localStorage.setItem("current_action", currentAction);
+  updateTestConnectionButtonLabel();
 
   document.querySelectorAll(".nav-item").forEach((item) => item.classList.remove("active"));
   document.getElementById(config.menu)?.classList.add("active");
@@ -2979,7 +3069,7 @@ function setAction(actionName, { skipAutoRefresh = false } = {}) {
   exportConfigBtn?.classList.toggle("hidden", actionName !== "config");
   importConfigBtn?.classList.toggle("hidden", actionName !== "config");
   clearCacheBtn?.classList.toggle("hidden", actionName !== "config");
-  clearBtn?.classList.toggle("hidden", actionName === "config" || actionName === "report" || actionName === "workflow");
+  clearBtn?.classList.toggle("hidden", actionName === "config" || actionName === "environment" || actionName === "report" || actionName === "workflow");
   dockerRunBtn?.classList.toggle("hidden", actionName !== "template");
   templateSelect?.classList.toggle("hidden", actionName !== "template");
   if (isCreateFormAction(actionName)) syncTemplateActions();
@@ -2997,7 +3087,8 @@ function setAction(actionName, { skipAutoRefresh = false } = {}) {
   deleteImageBtn?.classList.toggle("hidden", actionName !== "delete");
   refreshInstancesBtn?.classList.toggle("hidden", isCreateFormAction(actionName));
   if (refreshInstancesBtn && isCreateFormAction(actionName)) refreshInstancesBtn.disabled = true;
-  formCard?.classList.toggle("hidden", actionName === "report" || actionName === "workflow");
+  formCard?.classList.toggle("hidden", actionName === "environment" || actionName === "report" || actionName === "workflow");
+  environmentCard?.classList.toggle("hidden", actionName !== "environment");
   reportCard?.classList.toggle("hidden", actionName !== "report");
   workflowCard?.classList.toggle("hidden", actionName !== "workflow");
 
@@ -3040,6 +3131,9 @@ function setAction(actionName, { skipAutoRefresh = false } = {}) {
   if (actionName === "report") {
     updateReportProfileOptions();
     refreshImageReport();
+  }
+  if (actionName === "environment") {
+    loadEnvironmentVariables();
   }
   if (actionName === "workflow") {
     updateWorkflowOptions();
@@ -6186,6 +6280,7 @@ form?.addEventListener("submit", async (event) => {
 
 testBtn?.addEventListener("click", test);
 testEmailBtn?.addEventListener("click", testEmail);
+refreshEnvironmentBtn?.addEventListener("click", () => loadEnvironmentVariables({ force: true }));
 deleteConfigBtn?.addEventListener("click", deleteConfig);
 exportConfigBtn?.addEventListener("click", exportPortableConfig);
 importConfigBtn?.addEventListener("click", importPortableConfigFile);

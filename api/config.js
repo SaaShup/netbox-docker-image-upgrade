@@ -1,3 +1,6 @@
+const fs = require("fs");
+const path = require("path");
+
 function plainObject(value) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? JSON.parse(JSON.stringify(value))
@@ -134,12 +137,66 @@ function workflowsWithoutTemplate(workflows, templateName, plainObject) {
     .filter(([, workflow]) => !Array.isArray(workflow.steps) || workflow.steps.length));
 }
 
+function unquoteDockerfileEnvValue(value) {
+  const text = String(value ?? "");
+  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
+    return text.slice(1, -1);
+  }
+  return text;
+}
+
+function dockerfileEnvEntries(dockerfileText = "") {
+  const instructions = [];
+  let current = "";
+
+  String(dockerfileText).split(/\r?\n/).forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) return;
+
+    current = current ? `${current} ${trimmed}` : trimmed;
+    if (trimmed.endsWith("\\")) {
+      current = current.slice(0, -1).trim();
+      return;
+    }
+
+    instructions.push(current);
+    current = "";
+  });
+
+  if (current) instructions.push(current);
+
+  const seen = new Set();
+  const entries = [];
+  instructions
+    .filter((instruction) => /^ENV\s+/i.test(instruction))
+    .forEach((instruction) => {
+      const body = instruction.replace(/^ENV\s+/i, "");
+      const matches = body.matchAll(/([A-Za-z_][A-Za-z0-9_]*)=("[^"]*"|'[^']*'|\S*)/g);
+      for (const match of matches) {
+        const name = match[1];
+        if (seen.has(name)) continue;
+        seen.add(name);
+        entries.push({ name, defaultValue: unquoteDockerfileEnvValue(match[2]) });
+      }
+    });
+
+  return entries;
+}
+
+function environmentVariablesForResponse(env = process.env, dockerfileText = "") {
+  return dockerfileEnvEntries(dockerfileText)
+    .map(({ name, defaultValue }) => ({ name, value: String(env?.[name] ?? defaultValue ?? "") }));
+}
+
 function registerConfigRoutes(app, {
   appOwnerEmail,
   authUserFromRequest,
   maxInstancesValue,
   parseProfiles,
   plainObject,
+  processEnv = process.env,
+  readDockerfile = (dockerfilePath) => fs.readFileSync(dockerfilePath, "utf8"),
+  dockerfilePath = path.join(process.cwd(), "Dockerfile"),
   profilesWithSingleDefault,
   publicApiGuard,
   readState,
@@ -167,6 +224,15 @@ function registerConfigRoutes(app, {
       return;
     }
     res.json(expandedConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject));
+  });
+  app.get("/admin/environment", requireAdmin, (req, res) => {
+    let dockerfileText = "";
+    try {
+      dockerfileText = readDockerfile(dockerfilePath);
+    } catch {
+      dockerfileText = "";
+    }
+    res.json({ variables: environmentVariablesForResponse(processEnv, dockerfileText) });
   });
   app.get("/config", (req, res) => {
     const config = readState().config || {};
@@ -450,6 +516,8 @@ module.exports = {
   publicConfigForResponse,
   workflowsForVisibleTemplates,
   enrollmentTemplateUsage,
+  dockerfileEnvEntries,
+  environmentVariablesForResponse,
   templateEntryByName,
   workflowsWithoutTemplate,
 };
