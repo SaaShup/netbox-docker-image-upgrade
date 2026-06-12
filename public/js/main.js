@@ -9,6 +9,8 @@ const form = document.getElementById("instanceForm");
 const appShell = document.querySelector(".app-shell");
 const appBootLoader = document.getElementById("appBootLoader");
 const sidebarToggle = document.getElementById("sidebarToggle");
+const adminMenuToggle = document.getElementById("adminMenuToggle");
+const adminSidebar = document.getElementById("adminSidebar");
 const formCard = document.querySelector(".form-card");
 const submitBtn = document.getElementById("submitBtn");
 const restartInstanceBtn = document.getElementById("restartInstanceBtn");
@@ -535,6 +537,15 @@ function setSidebarCollapsed(collapsed) {
 function initializeSidebar() {
   if (isOrderPage || !appShell) return;
   setSidebarCollapsed(localStorage.getItem(sidebarCollapsedStorageKey) === "true");
+}
+
+function setAdminMobileMenuOpen(open) {
+  document.body?.classList.toggle("admin-menu-open", open);
+  if (adminMenuToggle) {
+    adminMenuToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    adminMenuToggle.setAttribute("aria-label", open ? "Close admin menu" : "Open admin menu");
+    adminMenuToggle.title = open ? "Close admin menu" : "Open admin menu";
+  }
 }
 
 function isFqdn(value) {
@@ -5982,6 +5993,13 @@ clearCacheBtn?.addEventListener("click", clearLocalCache);
 sidebarToggle?.addEventListener("click", () => {
   setSidebarCollapsed(!appShell?.classList.contains("sidebar-collapsed"));
 });
+adminMenuToggle?.addEventListener("click", () => {
+  setAdminMobileMenuOpen(!document.body?.classList.contains("admin-menu-open"));
+});
+adminSidebar?.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  if (target?.closest(".nav-item")) setAdminMobileMenuOpen(false);
+});
 refreshReportBtn?.addEventListener("click", refreshImageReport);
 reportProfileSelect?.addEventListener("change", refreshImageReport);
 workflowSelect?.addEventListener("change", () => {
@@ -6135,6 +6153,12 @@ dockerRunModal?.addEventListener("click", (event) => {
 profileHelpModal?.addEventListener("click", (event) => {
   if (event.target === profileHelpModal) closeProfileHelp();
 });
+document.addEventListener("click", (event) => {
+  if (!document.body?.classList.contains("admin-menu-open")) return;
+  const target = event.target instanceof Element ? event.target : null;
+  if (target && (adminSidebar?.contains(target) || adminMenuToggle?.contains(target))) return;
+  setAdminMobileMenuOpen(false);
+});
 refreshInstancesBtn?.addEventListener("click", refreshInstances);
 refreshImagesBtn?.addEventListener("click", refreshImages);
 configFields.forEach((name) => {
@@ -6256,6 +6280,9 @@ enrollInstances?.addEventListener("click", (event) => {
     .catch(() => setNotice(url, "info", false));
 });
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && document.body?.classList.contains("admin-menu-open")) {
+    setAdminMobileMenuOpen(false);
+  }
   if (event.key === "Escape" && !dockerRunModal?.classList.contains("hidden")) {
     closeDockerRunModal();
   }
