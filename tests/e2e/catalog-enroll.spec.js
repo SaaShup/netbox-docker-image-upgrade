@@ -1079,6 +1079,8 @@ test("enroll page hides create controls when public images are disabled for non-
 
   await expect(page.locator("#instanceForm")).toBeHidden();
   await expect(page.locator("#submitBtn")).toBeHidden();
+  await expect(page.locator('.order-page-menu a[href="/enroll"]')).toBeHidden();
+  await expect(page.locator("#adminLink")).toBeHidden();
   await expect(page.locator("#notif")).toContainText("Only administrators can create or enroll images.");
 });
 

@@ -41,6 +41,36 @@ function expandedConfigForResponse(config, selectedProfileConfig, parseProfiles,
   };
 }
 
+function publicConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject) {
+  const expanded = expandedConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject);
+  const publicProfileFields = [
+    "domain",
+    "tag",
+    "enrollment_limit",
+    "max_instances",
+    "owner_env_var",
+    "cloudflare_filter",
+    "saashup_default",
+  ];
+  const publicProfile = (profile) => Object.fromEntries(publicProfileFields
+    .filter((key) => plainObject(profile)[key] !== undefined)
+    .map((key) => [key, plainObject(profile)[key]]));
+  const profiles = Object.fromEntries(Object.entries(plainObject(expanded.profiles))
+    .map(([name, profile]) => [name, publicProfile(profile)]));
+
+  if (expanded.profile && !profiles[expanded.profile]) {
+    profiles[expanded.profile] = publicProfile(expanded);
+  }
+
+  return {
+    customer_name: expanded.customer_name || "",
+    profile: expanded.profile || "",
+    config_profile: expanded.config_profile || "",
+    ...publicProfile(expanded),
+    profiles,
+  };
+}
+
 
 function workflowsForVisibleTemplates(workflows, templates) {
   const visible = new Set(Object.keys(plainObject(templates)).map((name) => name.toLowerCase()));
@@ -100,6 +130,7 @@ function registerConfigRoutes(app, {
   registrySecretForTemplate,
   registryWebhookSecret,
   requireAdmin,
+  isAdminAllowed = () => false,
   selectedProfileConfig,
   sendContactEmail,
   sendTestEmail,
@@ -117,7 +148,10 @@ function registerConfigRoutes(app, {
       res.json({});
       return;
     }
-    res.json(expandedConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject));
+    const responseConfig = isAdminAllowed(req)
+      ? expandedConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject)
+      : publicConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject);
+    res.json(responseConfig);
   });
   app.get("/mail-settings", requireAdmin, (req, res) => res.json({ owner_email_configured: Boolean(appOwnerEmail) }));
   app.get("/registry-webhook-secret", requireAdmin, (req, res) => {
@@ -376,6 +410,7 @@ module.exports = {
   normalizeImportedProfiles,
   cleanStoredConfig,
   expandedConfigForResponse,
+  publicConfigForResponse,
   workflowsForVisibleTemplates,
   enrollmentTemplateUsage,
   templateEntryByName,

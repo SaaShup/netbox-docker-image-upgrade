@@ -100,6 +100,7 @@ const authAvatar = document.getElementById("authAvatar");
 const authName = document.getElementById("authName");
 const authEmail = document.getElementById("authEmail");
 const adminLink = document.getElementById("adminLink");
+const enrollLink = document.querySelector('.order-page-menu a[href="/enroll"]');
 const clearCacheBtn = document.getElementById("clearCacheBtn");
 const logoutBtn = document.getElementById("logoutBtn");
 const reportCard = document.getElementById("reportCard");
@@ -146,6 +147,7 @@ let savedConfig = {};
 let configProfiles = {};
 let serverConfigProfiles = {};
 let imageRecords = [];
+const instancesRequestCache = new Map();
 let containerCountRequestId = 0;
 let createNetworkRequestId = 0;
 let lastLogsHtml = "";
@@ -527,10 +529,17 @@ function cacheAuthUser(user) {
 function clearAuthUserDisplay() {
   localStorage.removeItem(authUserCacheKey);
   if (authUser) authUser.classList.add("hidden");
-  if (adminLink) adminLink.classList.add("hidden");
+  updateAccountMenuAccess({ admin: false, public_image: false });
 }
 
-function renderAuthUser(user) {
+function updateAccountMenuAccess(user = {}) {
+  const isAdmin = Boolean(user.admin);
+  const canEnrollImages = user.public_image !== false || isAdmin;
+  if (adminLink) adminLink.classList.toggle("hidden", !isAdmin);
+  if (enrollLink) enrollLink.classList.toggle("hidden", !canEnrollImages);
+}
+
+function renderAuthUser(user, { updateMenu = true } = {}) {
   if (!authUser) return false;
 
   const normalized = normalizeAuthUser(user);
@@ -542,7 +551,7 @@ function renderAuthUser(user) {
   if (authName) authName.textContent = normalized.name;
   if (authEmail) authEmail.textContent = normalized.email && normalized.email !== normalized.name ? normalized.email : "";
   if (authAvatar) authAvatar.textContent = userInitials(normalized.name);
-  if (adminLink) adminLink.classList.toggle("hidden", !normalized.admin);
+  if (updateMenu) updateAccountMenuAccess(normalized);
 
   authUser.classList.remove("hidden");
   return true;
@@ -558,7 +567,7 @@ function publicImageDisabledMessage() {
 
 function renderCachedAuthUser() {
   const user = cachedAuthUser();
-  return user ? renderAuthUser(user) : false;
+  return user ? renderAuthUser(user, { updateMenu: false }) : false;
 }
 
 async function loadAuthUser() {
@@ -796,6 +805,36 @@ function isTraefikNetwork(name) {
   return String(name || "").toLowerCase().startsWith("traefik");
 }
 
+function queryCacheKey(query) {
+  return Array.from(query.entries())
+    .sort(([leftKey, leftValue], [rightKey, rightValue]) => (
+      leftKey === rightKey ? leftValue.localeCompare(rightValue) : leftKey.localeCompare(rightKey)
+    ))
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join("&");
+}
+
+async function loadInstances(query, { force = false } = {}) {
+  const key = queryCacheKey(query);
+  if (!force && instancesRequestCache.has(key)) return instancesRequestCache.get(key);
+
+  const request = fetch(`/instances?${query.toString()}`, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  }).then((response) => {
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    return response.json();
+  });
+
+  instancesRequestCache.set(key, request);
+  try {
+    return await request;
+  } catch (error) {
+    instancesRequestCache.delete(key);
+    throw error;
+  }
+}
+
 async function refreshCreateNetworkFromInstances(requestId) {
   const query = credentialsQuery({ includeTag: true });
 
@@ -805,14 +844,7 @@ async function refreshCreateNetworkFromInstances(requestId) {
   }
 
   try {
-    const response = await fetch(`/instances?${query.toString()}`, {
-      method: "GET",
-      headers: { Accept: "application/json" },
-    });
-
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-
-    const data = await response.json();
+    const data = await loadInstances(query);
     if (requestId !== createNetworkRequestId || !isCreateFormAction()) return;
 
     const networks = Array.from(new Set((Array.isArray(data) ? data : [])
@@ -1623,7 +1655,7 @@ function updateReportProfileOptions() {
     : names[0];
 }
 
-function applyProfileToFields(name = currentConfigProfile) {
+function applyProfileToFields(name = currentConfigProfile, { syncNetwork = true } = {}) {
   currentConfigProfile = name || "";
   const credentials = profileCredentials(currentConfigProfile);
 
@@ -1642,7 +1674,7 @@ function applyProfileToFields(name = currentConfigProfile) {
   setFieldValue("smtp_config", credentials.smtp_config);
   if (isTemplateAction()) applyRegistryDefaultSecret();
   persistProfiles();
-  syncCreateNetwork();
+  if (syncNetwork) syncCreateNetwork();
   updateProfileSyncWarning();
   updateTestEmailVisibility();
   updateConfigDefaultControl();
@@ -1668,6 +1700,7 @@ function updateTestEmailVisibility() {
 }
 
 async function loadRegistryDefaultSecret() {
+  if (isOrderPage || isEnrollPage || isCatalogPage) return;
   if (registryWebhookDefaultLoaded) return;
   registryWebhookDefaultLoaded = true;
 
@@ -1698,13 +1731,11 @@ function registryWebhookSecretValue() {
 
 function credentialsQuery({ includeTag = false } = {}) {
   const credentials = selectedProfileCredentials();
-  if (!credentials.netbox || !credentials.token) return null;
+  if (!credentials.profile) return null;
 
   const query = new URLSearchParams({
-    netbox: credentials.netbox,
-    token: credentials.token,
-    proxy: credentials.proxy,
     profile: credentials.profile,
+    config_profile: credentials.profile,
   });
 
   if (includeTag) {
@@ -1884,14 +1915,9 @@ async function refreshImageReport() {
   updateReportProfileOptions();
   const profile = reportProfileSelect.value || "";
   const query = new URLSearchParams({ profile });
-  query.set("profiles", JSON.stringify(configProfiles));
-
   const credentials = profileCredentials(profile);
-  query.set("netbox", credentials.netbox);
-  query.set("token", credentials.token);
-  query.set("proxy", credentials.proxy);
-  query.set("tag", credentials.tag);
   query.set("config_profile", credentials.profile);
+  if (credentials.tag) query.set("tag", credentials.tag);
 
   refreshReportBtn.disabled = true;
   if (!reportSummaryHasStats()) renderReportStats();
@@ -2880,7 +2906,7 @@ function collapseLogs() {
   setLogsExpanded(false);
 }
 
-function setAction(actionName) {
+function setAction(actionName, { skipAutoRefresh = false } = {}) {
   const config = actions[actionName];
   if (!config || !form) return;
 
@@ -2962,18 +2988,18 @@ function setAction(actionName) {
   const imageInput = field("image");
   if (imageInput) imageInput.readOnly = actionName === "create";
 
-  syncCreateNetwork();
+  if (!skipAutoRefresh && !isEnrollPage) syncCreateNetwork();
   syncCreateVersion();
   updateRemoveOldImagesState();
   ensureRandomCreateInstanceName();
   syncCreateDnsName();
-  if (isCreateFormAction(actionName) && imageRecords.length === 0) {
+  if (!skipAutoRefresh && isCreateFormAction(actionName) && imageRecords.length === 0) {
     refreshImages({ notify: false });
   }
-  if (actionName === "delete" && imageRecords.length === 0) {
+  if (!skipAutoRefresh && actionName === "delete" && imageRecords.length === 0) {
     refreshImages({ notify: false });
   }
-  if (isCreateFormAction(actionName)) {
+  if (isCreateFormAction(actionName) && !isOrderPage && !isEnrollPage && !isCatalogPage) {
     loadRegistryDefaultSecret();
   }
   if (actionName === "report") {
@@ -3041,7 +3067,9 @@ function clearActionFields() {
   clearVolumeRows();
   clearBindRows();
   setLoggingRow({ log_driver: defaultLogDriver, log_driver_options: defaultLogDriverOptions });
-  syncCreateNetwork();
+  if (!isEnrollPage) {
+    syncCreateNetwork();
+  }
   syncCreateVersion();
   ensureRandomCreateInstanceName();
   syncCreateDnsName({ force: true });
@@ -3054,7 +3082,7 @@ function clearActionFields() {
 function openDockerRunModal() {
   if (!dockerRunModal || !dockerRunInput) return;
 
-  if (isEnrollPage) setAction("create");
+  if (isEnrollPage) setAction("create", { skipAutoRefresh: true });
   else if (!isTemplateAction()) setAction("template");
   updateImportProfileOptions();
   setImportTab("run");
@@ -3260,7 +3288,7 @@ async function refreshEnrollLimit({ showLoading = true, updateNotice = true } = 
 
 function applyEnrollProfileSelection() {
   if (!isEnrollPage || !importProfileSelect) return;
-  applyProfileToFields(importProfileSelect.value || currentConfigProfile);
+  applyProfileToFields(importProfileSelect.value || currentConfigProfile, { syncNetwork: false });
   refreshEnrollLimit();
 }
 
@@ -3270,10 +3298,9 @@ function configureEnrollDefaultConfig() {
   const profileName = defaultConfigProfileName();
   updateImportProfileOptions();
   if (importProfileSelect) importProfileSelect.value = profileName;
-  applyProfileToFields(profileName);
+  if (profileName && currentConfigProfile !== profileName) applyProfileToFields(profileName, { syncNetwork: false });
 
-  const credentials = selectedProfileCredentials();
-  if (!profileName || !credentials.netbox || !credentials.token) {
+  if (!profileName) {
     hideEnrollLoading();
     form?.classList.add("hidden");
     setNotice("You cannot deploy a new SaaS yet. Ask an administrator to configure a config.", "error", false);
@@ -4385,7 +4412,7 @@ function createTemplateEntry(name) {
 }
 
 async function applyOrderTemplate({ reveal = true } = {}) {
-  setAction("create");
+  setAction("create", { skipAutoRefresh: true });
 
   const entry = createTemplateEntry(orderTemplateName);
   if (!entry) {
@@ -4431,14 +4458,11 @@ async function applyOrderTemplate({ reveal = true } = {}) {
     updateTemplateOptions(entry.name);
   }
 
-  const imagesLoaded = await refreshImages({ notify: false });
-  if (imagesLoaded && !entry.template.version) {
-    syncCreateVersion();
-  } else if (entry.template.version) {
+  if (entry.template.version) {
     setFieldValue("version", entry.template.version);
+  } else if (await refreshImages({ notify: false })) {
+    syncCreateVersion();
   }
-
-  await ensureCreateVersion();
 
   if (!fieldValue("network")) {
     syncCreateNetwork();
@@ -4487,7 +4511,7 @@ async function applyDockerComposeFile(text) {
       return false;
     }
     applyCreateTemplate(first.template);
-    if (!fieldValue("network")) syncCreateNetwork();
+    if (!fieldValue("network") && !isEnrollPage) syncCreateNetwork();
     enrollSetImportedSummary(`Compose service ${first.name} imported`);
     const limit = await refreshEnrollLimit({ showLoading: false });
     if (limit?.reached) return false;
@@ -4670,7 +4694,7 @@ async function applyDockerRunCommand() {
     }
   }
 
-  if (isEnrollPage) setAction("create");
+  if (isEnrollPage) setAction("create", { skipAutoRefresh: true });
   else if (!isTemplateAction()) setAction("template");
   templateNetworkOverride = "";
   templateVersionOverride = parsed.version || "";
@@ -4717,7 +4741,7 @@ function loadSavedConfig() {
         serverConfigProfiles = {};
         configProfiles = localProfiles;
         updateProfileOptions();
-        applyProfileToFields(currentConfigProfile);
+        applyProfileToFields(currentConfigProfile, { syncNetwork: !isOrderPage && !isEnrollPage });
         return {};
       }
 
@@ -4748,7 +4772,7 @@ function loadSavedConfig() {
       }
 
       updateProfileOptions();
-      applyProfileToFields(currentConfigProfile);
+      applyProfileToFields(currentConfigProfile, { syncNetwork: !isOrderPage && !isEnrollPage });
       ensureRandomCreateInstanceName();
       return data;
     })
@@ -4756,7 +4780,7 @@ function loadSavedConfig() {
       serverConfigProfiles = {};
       configProfiles = (isEnrollPage || isOrderPage) ? {} : applyDeletedProfileFilter(storedProfiles());
       updateProfileOptions();
-      applyProfileToFields(currentConfigProfile);
+      applyProfileToFields(currentConfigProfile, { syncNetwork: !isOrderPage && !isEnrollPage });
       ensureRandomCreateInstanceName();
       return {};
     });
@@ -5392,7 +5416,7 @@ async function submitAction(config, submitter) {
     return;
   }
 
-  if (!credentials.netbox || !credentials.token) {
+  if (!isOrderPage && !isEnrollPage && (!credentials.netbox || !credentials.token)) {
     setNotice("Save NetBox URL and token for this profile first", "error");
     return;
   }
@@ -5539,14 +5563,7 @@ async function refreshInstances() {
   refreshInstancesBtn.disabled = true;
 
   try {
-    const response = await fetch(`/instances?${query.toString()}`, {
-      method: "GET",
-      headers: { Accept: "application/json" },
-    });
-
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-
-    const data = await response.json();
+    const data = await loadInstances(query, { force: true });
     const instances = Array.from(new Set((Array.isArray(data) ? data : [])
       .map(instanceNameFromItem)
       .filter(Boolean)))
@@ -6422,20 +6439,19 @@ async function initializePage() {
     renderCachedAuthUser();
     const authReady = loadAuthUser();
     if (isOrderPage || isEnrollPage || isCatalogPage) await authReady;
-    if (!isEnrollPage) await loadMailSettings();
+    if (!isOrderPage && !isEnrollPage && !isCatalogPage) await loadMailSettings();
     await loadSavedConfig();
     if (isOrderPage || isCatalogPage) {
       const profileName = urlParams.get("profile") || defaultConfigProfileName() || currentConfigProfile;
-      if (profileName) applyProfileToFields(profileName);
+      if (profileName) applyProfileToFields(profileName, { syncNetwork: !isOrderPage });
     }
     if (!isEnrollPage && !isCatalogPage) await loadCreateTemplates({ useCache: !isOrderPage });
     updateTemplateOptions();
-    setAction(currentAction);
+    setAction(currentAction, { skipAutoRefresh: isOrderPage || isEnrollPage });
     if (isEnrollPage) {
       const canEnroll = configureEnrollDefaultConfig();
       if (canEnroll) {
         setImportTab("run");
-        await loadRegistryDefaultSecret();
         await refreshEnrollLimit();
         if (submitBtn) {
           submitBtn.textContent = "Enroll image";

@@ -877,6 +877,7 @@ registerConfigRoutes(app, {
   registrySecretForTemplate,
   registryWebhookSecret,
   requireAdmin,
+  isAdminAllowed,
   selectedProfileConfig,
   sendContactEmail,
   sendTestEmail,

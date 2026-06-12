@@ -5,6 +5,8 @@ test("order page creates an instance from the requested template", async ({ page
   let deleteBody = "";
   let deleteLimitRequests = 0;
   let logsRequests = 0;
+  const imageUrls = [];
+  const instanceUrls = [];
   const templates = {
     curiootiles: {
       config_profile: "tile",
@@ -21,6 +23,7 @@ test("order page creates an instance from the requested template", async ({ page
   };
 
   await page.route("**/images?**", async (route) => {
+    imageUrls.push(route.request().url());
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -93,9 +96,10 @@ test("order page creates an instance from the requested template", async ({ page
         tag: "TILE",
       },
     }),
-  }, templates, [
-    { instance: "tiles.example.com", networks: ["traefik-public"] },
-  ], async (route) => {
+  }, templates, (route) => {
+    instanceUrls.push(route.request().url());
+    return [{ instance: "tiles.example.com", networks: ["traefik-public"] }];
+  }, async (route) => {
     if (route.request().frame().url().includes("/order")) logsRequests += 1;
     await route.fulfill({
       status: 200,
@@ -117,6 +121,8 @@ test("order page creates an instance from the requested template", async ({ page
   const generatedName = await page.locator("#instance").inputValue();
   await expect(page.locator("#image")).toHaveValue("saashup/curiootiles");
   await expect(page.locator("#version")).toHaveValue("v1.5.0");
+  expect(imageUrls).toHaveLength(0);
+  expect(instanceUrls).toHaveLength(0);
 
   await page.locator("#submitBtn").click();
 
@@ -329,6 +335,8 @@ test("order page remains usable when public images are disabled for non-admin us
   await expect(page.locator("#orderActions")).toBeVisible();
   await expect(page.locator("#submitBtn")).toBeVisible();
   await expect(page.locator("#orderStatus")).toBeHidden();
+  await expect(page.locator('.order-page-menu a[href="/enroll"]')).toBeHidden();
+  await expect(page.locator("#adminLink")).toBeHidden();
 });
 
 test("order page shows oauth user and logs out through app auth", async ({ page }) => {
@@ -501,6 +509,7 @@ test("order page shows cached oauth user while refreshing session", async ({ pag
 
 test("order page generates and submits an instance name when the template has none", async ({ page }) => {
   let createBody = "";
+  const imageUrls = [];
   const templates = {
     curiootiles: {
       config_profile: "tile",
@@ -514,6 +523,7 @@ test("order page generates and submits an instance name when the template has no
   };
 
   await page.route("**/images?**", async (route) => {
+    imageUrls.push(route.request().url());
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -546,6 +556,14 @@ test("order page generates and submits an instance name when the template has no
   ], undefined, "/order?template=curiootiles");
 
   await expect(page.locator("#instance")).toHaveValue(/^tile-[a-z0-9]{16}$/);
+  expect(imageUrls).toHaveLength(1);
+  const imageUrl = new URL(imageUrls[0]);
+  expect(imageUrl.searchParams.get("profile")).toBe("tile");
+  expect(imageUrl.searchParams.get("config_profile")).toBe("tile");
+  expect(imageUrl.searchParams.get("tag")).toBe("TILE");
+  expect(imageUrl.searchParams.has("netbox")).toBe(false);
+  expect(imageUrl.searchParams.has("token")).toBe(false);
+  expect(imageUrl.searchParams.has("proxy")).toBe(false);
 
   await page.locator("#submitBtn").click();
 

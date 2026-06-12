@@ -446,6 +446,12 @@ body.catalog-page .order-page-menu a {
   text-decoration: none;
 }
 
+body.order-page .order-page-menu a.hidden,
+body.enroll-page .order-page-menu a.hidden,
+body.catalog-page .order-page-menu a.hidden {
+  display: none;
+}
+
 body.order-page .order-page-menu a svg,
 body.enroll-page .order-page-menu a svg,
 body.catalog-page .order-page-menu a svg {

@@ -73,6 +73,7 @@ function createRoutes(overrides = {}) {
     registrySecretForTemplate: () => "",
     registryWebhookSecret: "",
     requireAdmin: (_req, _res, next) => next && next(),
+    isAdminAllowed: () => true,
     selectedProfileConfig: () => ({}),
     sendContactEmail: async () => ({}),
     sendTestEmail: async () => ({}),
@@ -131,6 +132,49 @@ describe("api config helpers", () => {
 
     const empty = configHelpers.expandedConfigForResponse({}, () => ({ extra: "unused" }), (profiles) => profiles || {}, (profiles) => profiles, plainObject);
     expect(empty).toEqual({ customer_name: "", profile: "", config_profile: "", profiles: {} });
+  });
+
+  test("publicConfigForResponse removes secrets and keeps profile metadata", () => {
+    const config = {
+      customer_name: "Acme",
+      profile: "prod",
+      profiles: {
+        prod: {
+          netbox: "https://netbox.example.com",
+          token: "secret",
+          proxy: "http://proxy:secret@example.com",
+          domain: "example.com",
+          tag: "tile",
+          enrollment_limit: 2,
+          smtp_config: "mailer:smtp-secret@smtp.example.com:587",
+        },
+      },
+    };
+
+    const sanitized = configHelpers.publicConfigForResponse(
+      config,
+      ({ profile }) => ({ ...config.profiles[profile], profile }),
+      (profiles) => profiles,
+      (profiles) => profiles,
+      plainObject,
+    );
+
+    expect(sanitized).toMatchObject({
+      customer_name: "Acme",
+      profile: "prod",
+      config_profile: "prod",
+      domain: "example.com",
+      tag: "tile",
+      enrollment_limit: 2,
+      profiles: {
+        prod: { domain: "example.com", tag: "tile", enrollment_limit: 2 },
+      },
+    });
+    expect(JSON.stringify(sanitized)).not.toContain("secret");
+    expect(sanitized.netbox).toBeUndefined();
+    expect(sanitized.token).toBeUndefined();
+    expect(sanitized.proxy).toBeUndefined();
+    expect(sanitized.smtp_config).toBeUndefined();
   });
 
   test("workflowsForVisibleTemplates filters steps based on visible templates", () => {
@@ -232,6 +276,55 @@ describe("api config routes", () => {
     const templateSecretRes = mockResponse();
     await routes["GET /registry-webhook-secret"]({ query: { template: "Tile" } }, templateSecretRes);
     expect(templateSecretRes.body).toEqual({ secret: "Tile:none", default_secret: "default-secret" });
+  });
+
+  test("config route redacts secrets for non-admin users only", async () => {
+    const state = {
+      config: {
+        customer_name: "Acme",
+        profile: "prod",
+        config_profile: "prod",
+        profiles: {
+          prod: {
+            netbox: "https://netbox.example.com",
+            token: "secret",
+            proxy: "http://proxy:secret@example.com",
+            domain: "example.com",
+            tag: "tile",
+            enrollment_limit: 2,
+            smtp_config: "mailer:smtp-secret@smtp.example.com:587",
+          },
+        },
+      },
+      templates: {},
+      workflows: {},
+      logs: "",
+    };
+    const selectedProfileConfig = ({ profile }) => state.config.profiles[profile] || {};
+    const nonAdmin = createRoutes({
+      isAdminAllowed: () => false,
+      readState: () => state,
+      selectedProfileConfig,
+    });
+    const admin = createRoutes({
+      isAdminAllowed: () => true,
+      readState: () => state,
+      selectedProfileConfig,
+    });
+
+    const nonAdminRes = mockResponse();
+    await nonAdmin.routes["GET /config"]({}, nonAdminRes);
+    expect(nonAdminRes.body.profiles.prod).toMatchObject({ domain: "example.com", tag: "tile", enrollment_limit: 2 });
+    expect(JSON.stringify(nonAdminRes.body)).not.toContain("secret");
+
+    const adminRes = mockResponse();
+    await admin.routes["GET /config"]({}, adminRes);
+    expect(adminRes.body).toMatchObject({
+      netbox: "https://netbox.example.com",
+      token: "secret",
+      proxy: "http://proxy:secret@example.com",
+      smtp_config: "mailer:smtp-secret@smtp.example.com:587",
+    });
   });
 
   test("webhook accepts profile values from imported profiles and empty fallbacks", async () => {
