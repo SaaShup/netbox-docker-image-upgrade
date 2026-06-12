@@ -1257,12 +1257,11 @@ body.order-page #orderCancelBtn {
     transform: none;
   }
 
-  body.order-page .main {
-    flex-direction: column;
-  }
-
+  body.order-page .main,
   body.enroll-page .main,
   body.catalog-page .main {
+    flex-direction: column;
+    gap: 0;
     justify-content: flex-start;
     padding: 20px;
   }
