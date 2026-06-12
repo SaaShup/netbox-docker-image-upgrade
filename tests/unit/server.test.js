@@ -68,8 +68,11 @@ const { createMetrics } = require("../../lib/metrics");
 const { NetBoxClient, dockerHosts, hostIdQuery, netboxAuthHeader, setNetBoxFetchForTests } = require("../../lib/netbox");
 const { cookie, createOidcAuth, parseCookies, setOidcFetchForTests, userFromClaims } = require("../../lib/oidc");
 const { createOperationHelpers } = require("../../lib/operations");
+const { createPublicApiGuard } = require("../../lib/public-api");
 const { checkRegistryImageExists, parseRegistryImageRef, setRegistryFetchForTests } = require("../../lib/registry");
+const { createRegistryWebhookHelpers } = require("../../lib/registry-webhooks");
 const { createStateStore, defaultState, readJson, writeJson } = require("../../lib/state");
+const { publicApiOriginVariants } = require("../../lib/env");
 
 function jsonResponse(payload, status = 200) {
   return {
@@ -174,12 +177,17 @@ describe("server helpers", () => {
 
     expect(timingSafeStringEqual("secret", "secret")).toBe(true);
     expect(timingSafeStringEqual("secret", "other")).toBe(false);
+    expect(timingSafeStringEqual("secret", "secrex")).toBe(false);
     expect(timingSafeStringEqual("secret", "secret-extra")).toBe(false);
+    expect(timingSafeStringEqual("", "")).toBe(true);
 
     expect(requestOrigin({ get: (name) => name === "origin" ? "https://app.example.com/" : "" })).toBe("https://app.example.com");
     expect(requestOrigin({ get: (name) => name === "referer" ? "https://app.example.com/path?x=1" : "" })).toBe("https://app.example.com");
     expect(requestOrigin({ get: (name) => name === "referer" ? "not a url" : "" })).toBe("");
     expect(requestOrigin({ get: () => "" })).toBe("");
+    expect(publicApiOriginVariants("https://saashup.com")).toEqual(["https://saashup.com", "https://www.saashup.com"]);
+    expect(publicApiOriginVariants("https://saashup.com:8443")).toEqual(["https://saashup.com:8443", "https://www.saashup.com:8443"]);
+    expect(publicApiOriginVariants("https://www.saashup.com:8443")).toEqual(["https://www.saashup.com:8443", "https://saashup.com:8443"]);
 
     expect(containerEnvValue({
       env: [null, "bad", { var_name: "OWNER", value: "owner@example.com" }],
@@ -192,6 +200,68 @@ describe("server helpers", () => {
       environment: [{ key: "APP_OWNER", value: "env@example.com" }],
     }, "APP_OWNER")).toBe("env@example.com");
     expect(containerEnvValue({ env: [{ key: "OTHER", value: "other@example.com" }] }, "APP_OWNER")).toBe("");
+  });
+
+  test("public api guard handles missing configuration and secret checks", () => {
+    const response = () => ({
+      body: undefined,
+      code: undefined,
+      headers: {},
+      json(payload) {
+        this.body = payload;
+        return this;
+      },
+      send(payload) {
+        this.body = payload;
+        return this;
+      },
+      set(name, value) {
+        this.headers[name] = value;
+      },
+      status(code) {
+        this.code = code;
+        return this;
+      },
+    });
+
+    const req = ({ header = "", querySecret = "", origin = "", method = "GET", path = "/templates" } = {}) => ({
+      method,
+      path,
+      query: querySecret ? { public_api_secret: querySecret } : {},
+      get(name) {
+        if (name === "origin") return origin;
+        if (name === "x-public-api-secret") return header;
+        return "";
+      },
+    });
+
+    const unconfigured = response();
+    createPublicApiGuard({})(req(), unconfigured, vi.fn());
+    expect(unconfigured.code).toBe(401);
+
+    const denied = response();
+    createPublicApiGuard({ secret: "secret" })(req({ header: "secrex" }), denied, vi.fn());
+    expect(denied.code).toBe(403);
+
+    const allowedNext = vi.fn();
+    const allowed = response();
+    createPublicApiGuard({ secret: "secret" })(req({ header: "secret" }), allowed, allowedNext);
+    expect(allowedNext).toHaveBeenCalledTimes(1);
+
+    const queryAllowedNext = vi.fn();
+    const queryAllowed = response();
+    createPublicApiGuard({ secret: "secret" })(req({ querySecret: "secret" }), queryAllowed, queryAllowedNext);
+    expect(queryAllowedNext).toHaveBeenCalledTimes(1);
+
+    const originAllowedNext = vi.fn();
+    const originAllowed = response();
+    createPublicApiGuard({
+      allowedOrigins: ["https://app.example.com"],
+      allowedOriginSet: new Set(["https://app.example.com"]),
+      secret: "secret",
+    })(req({ origin: "https://app.example.com" }), originAllowed, originAllowedNext);
+    expect(originAllowedNext).toHaveBeenCalledTimes(1);
+    expect(originAllowed.headers["Access-Control-Allow-Origin"]).toBe("https://app.example.com");
   });
 
   test("clamps max instance values to the supported range", () => {
@@ -496,6 +566,10 @@ describe("server helpers", () => {
       url: "https://registry.example.com/not-a-manifest",
       repository: "fallback/app",
     })).toBe("fallback/app");
+    expect(imageFromDistributionTarget({
+      url: "https://registry.example.com/not-a-manifest",
+    })).toBe("");
+    expect(imageFromDistributionTarget({ url: "not a url" })).toBe("");
     expect(imageFromDistributionTarget({ repository: "fallback/app" })).toBe("fallback/app");
     expect(imageFromDistributionTarget({})).toBe("");
 
@@ -544,6 +618,62 @@ describe("server helpers", () => {
       query: {},
       get: () => "",
     }, [])).toBe(true);
+  });
+
+  test("registry webhook helpers cover secret fallback branches", () => {
+    const templates = {
+      direct: { image: "saashup/direct", config_profile: "prod", registry_webhook_secret: "direct-secret" },
+      fallback: { image: "saashup/fallback", registry_webhook_secret: "" },
+      profiled: { image: "saashup/app", profile: "prod", dockerhub_webhook_secret: "template-secret" },
+      defaulted: { image: "saashup/defaulted" },
+    };
+    const helpers = createRegistryWebhookHelpers({
+      imageNameFromRef,
+      orderTemplateEntry: (name) => templates[name] ? { name, template: templates[name] } : null,
+      plainObject,
+      readState: () => ({ templates }),
+      registryWebhookEvents,
+      registryWebhookSecret: "global-secret",
+      timingSafeStringEqual,
+    });
+    const req = ({ profile = "", template = "", queryTemplate = "", secret = "" } = {}) => ({
+      body: {},
+      params: { profile, template },
+      query: queryTemplate ? { template: queryTemplate } : {},
+      get: (name) => name === "x-saashup-webhook-secret" ? secret : "",
+    });
+
+    expect(helpers.templateMatchesRegistryWebhook({ profile: "prod" }, "prod", "")).toBe(true);
+    expect(helpers.registryWebhookTemplateSecret("prod", "missing", [{ image: "saashup/app", tag: "1" }])).toBe("");
+    expect(helpers.registryWebhookTemplateSecret("prod", "direct", [{ image: "saashup/direct", tag: "1" }])).toBe("direct-secret");
+    expect(helpers.registryWebhookTemplateSecret("prod", "profiled", [{ image: "other/app", tag: "1" }])).toBe("");
+    expect(helpers.registryWebhookTemplateSecret("prod", "profiled")).toBe("");
+    expect(helpers.registryWebhookTemplateSecret("prod", "profiled", [{ image: "saashup/app", tag: "1" }])).toBe("template-secret");
+    expect(helpers.registryWebhookTemplateSecret("prod", "fallback", [{ image: "saashup/fallback", tag: "1" }])).toBe("");
+
+    expect(helpers.registrySecretForTemplate("missing")).toBe("global-secret");
+    expect(helpers.registrySecretForTemplate("direct", "saashup/direct:1")).toBe("direct-secret");
+    expect(helpers.registrySecretForTemplate("profiled", "other/app:1")).toBe("global-secret");
+    expect(helpers.registrySecretForTemplate("profiled", "saashup/app:1")).toBe("template-secret");
+    expect(helpers.registrySecretForTemplate("fallback", "saashup/fallback:1")).toBe("global-secret");
+    expect(helpers.registrySecretForTemplate("defaulted")).toBe("global-secret");
+
+    expect(helpers.registryWebhookAllowed(req({ profile: "prod", queryTemplate: "profiled", secret: "template-secret" }), [{ image: "saashup/app", tag: "1" }])).toBe(true);
+    expect(helpers.registryWebhookAllowed(req({ profile: "prod", secret: "direct-secret" }), [{ image: "saashup/direct", tag: "1" }])).toBe(true);
+    expect(helpers.registryWebhookAllowed(req({ profile: "prod", secret: "template-secret" }), [{ image: "saashup/app", tag: "1" }])).toBe(true);
+    expect(helpers.registryWebhookAllowed(req({ profile: "prod", secret: "global-secret" }), [{ image: "saashup/defaulted", tag: "1" }])).toBe(true);
+    expect(helpers.registryWebhookAllowed(req({ profile: "prod", secret: "wrong" }), [{ image: "saashup/app", tag: "1" }])).toBe(false);
+
+    const noGlobalSecretHelpers = createRegistryWebhookHelpers({
+      imageNameFromRef,
+      orderTemplateEntry: (name) => templates[name] ? { name, template: templates[name] } : null,
+      plainObject,
+      readState: () => ({ templates }),
+      registryWebhookEvents,
+      registryWebhookSecret: "",
+      timingSafeStringEqual,
+    });
+    expect(noGlobalSecretHelpers.registrySecretForTemplate("defaulted")).toBe("");
   });
 
   test("parses supported registry image references and rejects invalid repositories", () => {
