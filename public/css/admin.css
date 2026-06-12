@@ -1744,7 +1744,7 @@ input[type="checkbox"]:disabled {
     height: 100vh;
     max-height: none;
     overflow: auto;
-    padding: 76px 20px 24px;
+    padding: 18px 20px 24px;
     border-radius: 0;
     box-shadow: none;
   }
@@ -1754,7 +1754,9 @@ input[type="checkbox"]:disabled {
   }
 
   .sidebar-top {
-    margin-bottom: 16px;
+    min-height: 42px;
+    padding-right: 54px;
+    margin-bottom: 10px;
   }
 
   .sidebar .nav {
