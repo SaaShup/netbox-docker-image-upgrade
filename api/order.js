@@ -15,6 +15,7 @@ function createOrderHelpers({
   selectedProfileConfig,
   templateEntryForRequest,
   templateLabelValue,
+  visibleProfileNames = () => [],
   valueText,
 }) {
   function orderInstanceStatus(container) {
@@ -76,7 +77,7 @@ function createOrderHelpers({
     }
   }
 
-  async function currentUsage(req, profile) {
+  async function currentProfileUsage(req, profile) {
     const body = plainObject(req.body);
     const requestedTemplate = String(req.query.template || body.order_template || "").trim();
     const template = plainObject((await templateEntryForRequest(req, profile, requestedTemplate))?.template);
@@ -92,6 +93,43 @@ function createOrderHelpers({
       remaining: Math.max(0, max - used),
       reached: used >= max,
       instances: visibleInstances,
+    };
+  }
+
+  async function currentUsage(req, profile) {
+    if (profile) return currentProfileUsage(req, profile);
+
+    const profiles = visibleProfileNames();
+    const requestedTemplate = String(req.query.template || plainObject(req.body).order_template || "").trim();
+    if (!profiles.length) {
+      return {
+        profile: "",
+        profiles: [],
+        template: requestedTemplate,
+        used: 0,
+        total_used: 0,
+        max: 0,
+        remaining: 0,
+        reached: false,
+        instances: [],
+      };
+    }
+    if (profiles.length === 1) return currentProfileUsage(req, profiles[0]);
+
+    const usages = await Promise.all(profiles.map((name) => currentProfileUsage(req, name)));
+    const instances = usages.flatMap((usage) => usage.instances || []);
+    const used = usages.reduce((total, usage) => total + Number(usage.used || 0), 0);
+    const max = usages.reduce((total, usage) => total + Number(usage.max || 0), 0);
+    return {
+      profile: "",
+      profiles,
+      template: requestedTemplate,
+      used,
+      total_used: used,
+      max,
+      remaining: Math.max(0, max - used),
+      reached: max > 0 && used >= max,
+      instances,
     };
   }
 
@@ -122,7 +160,7 @@ function registerOrderRoutes(app, {
   currentUsage,
 }) {
   app.get("/order/limit", async (req, res) => {
-    res.json(await currentUsage(req, req.query.profile || ""));
+    res.json(await currentUsage(req, req.query.profile || req.query.config_profile || ""));
   });
 }
 

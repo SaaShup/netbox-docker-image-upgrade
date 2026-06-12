@@ -24,15 +24,48 @@ function createEnrollHelpers({
   templateEntryForRequest,
   templateLabelValue,
   templatesForRequest,
+  visibleProfileNames = () => [],
   workflowsForRequest,
   writeState,
 }) {
-  async function currentEnrollmentUsage(req, profile, options = {}) {
+  async function currentProfileEnrollmentUsage(req, profile, options = {}) {
     const instances = await enrollmentTemplatesForRequest(req, profile, { ownerOnly: options.ownerOnly !== false });
     const used = instances.length;
     const config = selectedProfileConfig({ profile, config_profile: profile });
     const max = maxInstancesValue(config.enrollment_limit ?? config.max_templates);
     return { profile, used, max, remaining: Math.max(0, max - used), reached: used >= max, instances };
+  }
+
+  async function currentEnrollmentUsage(req, profile, options = {}) {
+    if (profile) return currentProfileEnrollmentUsage(req, profile, options);
+
+    const profiles = visibleProfileNames();
+    if (!profiles.length) {
+      return {
+        profile: "",
+        profiles: [],
+        used: 0,
+        max: 0,
+        remaining: 0,
+        reached: false,
+        instances: [],
+      };
+    }
+    if (profiles.length === 1) return currentProfileEnrollmentUsage(req, profiles[0], options);
+
+    const usages = await Promise.all(profiles.map((name) => currentProfileEnrollmentUsage(req, name, options)));
+    const instances = usages.flatMap((usage) => usage.instances || []);
+    const used = usages.reduce((total, usage) => total + Number(usage.used || 0), 0);
+    const max = usages.reduce((total, usage) => total + Number(usage.max || 0), 0);
+    return {
+      profile: "",
+      profiles,
+      used,
+      max,
+      remaining: Math.max(0, max - used),
+      reached: max > 0 && used >= max,
+      instances,
+    };
   }
 
   function normalizedEnrollImageName(value) {
@@ -352,7 +385,7 @@ function registerEnrollRoutes(app, {
 }) {
   app.get("/enroll/limit", async (req, res) => {
     const ownerOnly = req.query.owner_only === "false" || req.query.all === "true" ? false : true;
-    res.json(await currentEnrollmentUsage(req, req.query.profile || "", { ownerOnly }));
+    res.json(await currentEnrollmentUsage(req, req.query.profile || req.query.config_profile || "", { ownerOnly }));
   });
 }
 

@@ -202,7 +202,7 @@ test("config profile shows green status when synced to server", async ({ page })
   await expect(page.locator("#profileSyncWarning")).toHaveAttribute("aria-label", "Profile synced with server.");
 });
 
-test("config profile default flag allows only one default", async ({ page }) => {
+test("config profile visible flag allows multiple visible profiles", async ({ page }) => {
   await openAdmin(page, {});
 
   await page.evaluate(() => {
@@ -235,11 +235,18 @@ test("config profile default flag allows only one default", async ({ page }) => 
 
   await page.locator("#config_profile").selectOption("staging");
   await expect(page.locator("#configDefaultInput")).not.toBeChecked();
-  await expect(page.locator("#configDefaultInput")).toBeDisabled();
+  await expect(page.locator("#configDefaultInput")).toBeEnabled();
+  await page.locator("#configDefaultInput").check();
+  await expect(page.locator("#configDefaultInput")).toBeChecked();
+
+  await page.locator("#config_profile").selectOption("prod");
+  await expect(page.locator("#configDefaultInput")).toBeChecked();
+  await expect(page.locator("#configDefaultInput")).toBeEnabled();
 
   await page.evaluate(() => {
     const profiles = JSON.parse(localStorage.getItem("config_profiles"));
     delete profiles.prod.saashup_default;
+    delete profiles.prod.saashup_visible;
     localStorage.setItem("config_profiles", JSON.stringify(profiles));
   });
   await page.reload();
@@ -704,7 +711,8 @@ test("saving config refreshes templates for that profile", async ({ page }) => {
   resolveWebhook();
 
   await expect(page.locator("#notif")).toContainText('Config "production" saved');
-  await expect.poll(() => templateProfiles).toContain("production");
+  await expect.poll(() => templateProfiles).toContain("");
+  expect(templateProfiles).not.toContain("production");
   await expect(page.locator("#submitBtn")).toHaveText("Save config");
   await expect(page.locator("#submitBtn")).toBeEnabled();
   const localTemplates = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")));

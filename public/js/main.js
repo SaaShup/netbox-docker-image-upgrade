@@ -980,7 +980,7 @@ function normalizedProfileForSync(profile = {}) {
     owner_env_var: ownerEnvVarValue(profile.owner_env_var),
     cloudflare_filter: checkboxValue(profile.cloudflare_filter, true),
     smtp_config: smtpConfigValue(profile),
-    saashup_default: profile.saashup_default === true,
+    saashup_visible: profile.saashup_visible === true || profile.saashup_default === true,
   };
 }
 
@@ -1067,8 +1067,6 @@ function loadCreateTemplates({ useCache = true } = {}) {
   createTemplates = useCache ? normalizeCreateTemplates(parseStoredObject("create_templates")) : {};
   createWorkflows = useCache ? normalizeCreateWorkflows(parseStoredObject("create_workflows")) : {};
   const query = new URLSearchParams();
-  const profile = selectedProfileCredentials().profile;
-  if (profile) query.set("profile", profile);
   if (isEnrollPage) query.set("enroll", "true");
   query.set("include_workflows", "true");
 
@@ -1477,9 +1475,9 @@ function syncTemplateActions() {
   if (saveAllTemplatesBtn) saveAllTemplatesBtn.disabled = !Object.keys(createTemplates).length;
 }
 
-function defaultConfigProfileName(exceptName = "") {
+function visibleConfigProfileName(exceptName = "") {
   return Object.entries(knownProfileEntries())
-    .find(([name, profile]) => name !== exceptName && profile?.saashup_default === true)?.[0] || "";
+    .find(([name, profile]) => name !== exceptName && (profile?.saashup_visible === true || profile?.saashup_default === true))?.[0] || "";
 }
 
 function updateTemplateCreatorEmail(template) {
@@ -1497,17 +1495,15 @@ function updateConfigDefaultControl() {
 
   const profileName = fieldValue("config_name") || fieldValue("config_profile") || currentConfigProfile || "";
   const profile = profileName ? knownProfileEntries()[profileName] : null;
-  const otherDefault = defaultConfigProfileName(profileName);
-  configDefaultInput.checked = profile?.saashup_default === true;
-  configDefaultInput.disabled = Boolean(otherDefault);
-  configDefaultInput.title = otherDefault ? `Config "${profileLabel(otherDefault)}" is already default` : "";
+  configDefaultInput.checked = profile?.saashup_visible === true || profile?.saashup_default === true;
+  configDefaultInput.disabled = false;
+  configDefaultInput.title = "Show this profile on public pages.";
   configDefaultWrap.classList.toggle("hidden", currentAction !== "config");
 }
 
-function enforceSingleDefaultConfig(defaultName) {
+function markVisibleConfig(profileName) {
   Object.keys(configProfiles).forEach((name) => {
-    if (defaultName && name === defaultName) configProfiles[name].saashup_default = true;
-    else delete configProfiles[name].saashup_default;
+    if (profileName && name === profileName) configProfiles[name].saashup_visible = true;
   });
 }
 
@@ -1597,8 +1593,9 @@ function templateMaxInstancesValue(template = {}) {
   return normalizeMaxInstances(template.max_instances);
 }
 
-async function orderLimitForProfile(profile) {
-  const query = new URLSearchParams({ profile: profile || "", template: orderTemplateName || "" });
+async function orderLimitForProfile() {
+  const query = new URLSearchParams();
+  if (orderTemplateName) query.set("template", orderTemplateName);
   const response = await fetch(`/order/limit?${query.toString()}`, {
     headers: { Accept: "application/json" },
   });
@@ -1607,8 +1604,8 @@ async function orderLimitForProfile(profile) {
   return response.json();
 }
 
-async function enrollLimitForProfile(profile, { ownerOnly = true } = {}) {
-  const query = new URLSearchParams({ profile: profile || "" });
+async function enrollLimitForProfile(_profile, { ownerOnly = true } = {}) {
+  const query = new URLSearchParams();
   if (!ownerOnly) query.set("owner_only", "false");
   const response = await fetch(`/enroll/limit?${query.toString()}`, {
     headers: { Accept: "application/json" },
@@ -1760,7 +1757,7 @@ function credentialsQuery({ includeTag = false } = {}) {
   let credentials = selectedProfileCredentials();
   if (!credentials.profile) {
     const knownProfiles = Object.keys(knownProfileEntries()).sort((a, b) => a.localeCompare(b));
-    const fallbackProfile = defaultConfigProfileName() || (knownProfiles[0] || "");
+    const fallbackProfile = visibleConfigProfileName() || (knownProfiles[0] || "");
     if (fallbackProfile) {
       credentials = profileCredentials(fallbackProfile);
     }
@@ -2685,14 +2682,14 @@ function renderCatalogItems(items = catalogCards, limit = catalogLimit) {
 
   catalogCards = Array.isArray(items) ? items : [];
   catalogLimit = limit || {};
-  const profile = String(catalogLimit.profile || selectedProfileCredentials().profile || defaultConfigProfileName() || "").trim() || "default";
+  const profile = String(catalogLimit.profile || selectedProfileCredentials().profile || visibleConfigProfileName() || "").trim() || "default";
   const query = String(catalogSearch?.value || "").trim().toLowerCase();
   const visibleItems = sortedCatalogItems(query
     ? catalogCards.filter((item) => catalogSearchText(item, profile).includes(query))
     : catalogCards);
 
   if (!catalogCards.length) {
-    catalogList.innerHTML = '<div class="catalog-empty">No enrolled images found in the default profile.</div>';
+    catalogList.innerHTML = '<div class="catalog-empty">No visible enrolled images found.</div>';
     return;
   }
 
@@ -2735,9 +2732,7 @@ async function refreshCatalog() {
 
   catalogList.innerHTML = '<div class="catalog-empty">Loading catalog...</div>';
   try {
-    const profile = defaultConfigProfileName() || currentConfigProfile || selectedProfileCredentials().profile || "";
-    if (profile) applyProfileToFields(profile);
-    const limit = await enrollLimitForProfile(selectedProfileCredentials().profile || profile, { ownerOnly: false });
+    const limit = await enrollLimitForProfile("", { ownerOnly: false });
     renderCatalogItems(limit.instances, limit);
   } catch {
     catalogList.innerHTML = '<div class="catalog-empty catalog-empty-error">Catalog unavailable.</div>';
@@ -3355,7 +3350,7 @@ function applyEnrollProfileSelection() {
 function configureEnrollDefaultConfig() {
   if (!isEnrollPage) return false;
 
-  const profileName = defaultConfigProfileName();
+  const profileName = visibleConfigProfileName();
   updateImportProfileOptions();
   if (importProfileSelect) importProfileSelect.value = profileName;
   if (profileName && currentConfigProfile !== profileName) applyProfileToFields(profileName, { syncNetwork: false });
@@ -3363,7 +3358,7 @@ function configureEnrollDefaultConfig() {
   if (!profileName) {
     hideEnrollLoading();
     form?.classList.add("hidden");
-    setNotice("You cannot deploy a new SaaS yet. Ask an administrator to configure a config.", "error", false);
+    setNotice("You cannot deploy a new SaaS yet. Ask an administrator to make a config visible.", "error", false);
     return false;
   }
 
@@ -4411,8 +4406,6 @@ function orderTemplateUrl(name) {
   const templateName = String(name || "").trim();
   if (!templateName) return "";
   const query = new URLSearchParams({ template: templateName });
-  const profile = selectedProfileCredentials().profile || defaultConfigProfileName() || "";
-  if (profile) query.set("profile", profile);
   return `${window.location.origin}/order?${query.toString()}`;
 }
 
@@ -4431,7 +4424,7 @@ function enrolledTemplateEntry(name) {
 
 function templateWebhookUrl(name) {
   const templateName = String(name || "").trim();
-  const profile = selectedProfileCredentials().profile || defaultConfigProfileName() || "";
+  const profile = selectedProfileCredentials().profile || visibleConfigProfileName() || "";
   if (!profile || !templateName) return "";
 
   const entry = enrolledTemplateEntry(templateName);
@@ -4841,7 +4834,7 @@ function loadSavedConfig() {
           enrollment_limit: enrollmentLimitValue(data),
           cloudflare_filter: checkboxValue(data.cloudflare_filter, true),
           smtp_config: smtpConfigValue(data),
-          ...(serverProfiles[profile]?.saashup_default === true ? { saashup_default: true } : {}),
+          ...(serverProfiles[profile]?.saashup_visible === true || serverProfiles[profile]?.saashup_default === true ? { saashup_visible: true } : {}),
         };
         serverConfigProfiles[profile] = serverProfile;
         configProfiles[profile] = localProfiles[profile] || serverProfile;
@@ -4997,7 +4990,7 @@ async function saveConfig() {
   const owner_env_var = ownerEnvVarValue(fieldValue("owner_env_var"));
   const cloudflare_filter = fieldChecked("cloudflare_filter", true);
   const smtp_config = fieldValue("smtp_config");
-  const saashup_default = Boolean(configDefaultInput?.checked && !configDefaultInput.disabled);
+  const saashup_visible = Boolean(configDefaultInput?.checked);
   const existingCredentials = profileCredentials(profile);
   const hasExistingNetBoxCredentials = profileHasNetBoxCredentials(existingCredentials);
 
@@ -5040,9 +5033,9 @@ async function saveConfig() {
     enrollment_limit,
     owner_env_var,
     cloudflare_filter,
-    ...(saashup_default ? { saashup_default: true } : {}),
+    ...(saashup_visible ? { saashup_visible: true } : {}),
   };
-  if (saashup_default) enforceSingleDefaultConfig(profile);
+  if (saashup_visible) markVisibleConfig(profile);
   currentConfigProfile = profile;
   updateProfileOptions();
   persistProfiles();
@@ -6549,7 +6542,7 @@ async function initializePage() {
     if (isEnrollPage) await loadRegistryDefaultSecret();
     await loadSavedConfig();
     if (isOrderPage || isCatalogPage) {
-      const profileName = urlParams.get("profile") || defaultConfigProfileName() || currentConfigProfile;
+      const profileName = visibleConfigProfileName() || currentConfigProfile;
       if (profileName) applyProfileToFields(profileName, { syncNetwork: !isOrderPage });
     }
     if (!isEnrollPage && !isCatalogPage) await loadCreateTemplates({ useCache: !isOrderPage });

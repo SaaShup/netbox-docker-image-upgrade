@@ -73,7 +73,7 @@ async function setupVisualRoutes(page) {
     });
   });
 
-  await page.route("**/order/limit?**", async (route) => {
+  await page.route("**/order/limit*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -104,7 +104,7 @@ async function setupVisualRoutes(page) {
     });
   });
 
-  await page.route("**/enroll/limit?**", async (route) => {
+  await page.route("**/enroll/limit*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",

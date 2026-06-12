@@ -41,7 +41,7 @@ function expandedConfigForResponse(config, selectedProfileConfig, parseProfiles,
   };
 }
 
-function publicConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject) {
+function publicConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject, { includeHidden = false } = {}) {
   const expanded = expandedConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject);
   const publicProfileFields = [
     "domain",
@@ -50,7 +50,7 @@ function publicConfigForResponse(config, selectedProfileConfig, parseProfiles, p
     "max_instances",
     "owner_env_var",
     "cloudflare_filter",
-    "saashup_default",
+    "saashup_visible",
   ];
   const credentialFields = {
     netbox: "netbox_configured",
@@ -69,17 +69,20 @@ function publicConfigForResponse(config, selectedProfileConfig, parseProfiles, p
     };
   };
   const profiles = Object.fromEntries(Object.entries(plainObject(expanded.profiles))
+    .filter(([, profile]) => includeHidden || plainObject(profile).saashup_visible === true || plainObject(profile).saashup_default === true)
     .map(([name, profile]) => [name, publicProfile(profile)]));
 
-  if (expanded.profile && !profiles[expanded.profile]) {
+  const expandedVisible = plainObject(expanded).saashup_visible === true || plainObject(expanded).saashup_default === true;
+  if (expanded.profile && !profiles[expanded.profile] && (includeHidden || expandedVisible)) {
     profiles[expanded.profile] = publicProfile(expanded);
   }
+  const selectedPublic = includeHidden || expandedVisible ? publicProfile(expanded) : {};
 
   return {
     customer_name: expanded.customer_name || "",
-    profile: expanded.profile || "",
-    config_profile: expanded.config_profile || "",
-    ...publicProfile(expanded),
+    profile: includeHidden || expandedVisible ? expanded.profile || "" : "",
+    config_profile: includeHidden || expandedVisible ? expanded.config_profile || "" : "",
+    ...selectedPublic,
     profiles,
   };
 }
@@ -143,16 +146,20 @@ function registerConfigRoutes(app, {
   registrySecretForTemplate,
   registryWebhookSecret,
   requireAdmin,
+  isAdminAllowed = () => false,
   selectedProfileConfig,
   sendContactEmail,
   sendTestEmail,
   syncTemplatesToNetBoxConfigContext,
   enrollmentTemplateDeleteUsage,
   templatesForRequest,
+  templatesForVisibleProfiles = templatesForRequest,
   templatesWithCreatorEmails,
+  visibleProfileNames = () => [],
   verifyContactTurnstile,
   writeState,
   workflowsForRequest,
+  workflowsForVisibleProfiles = workflowsForRequest,
 }) {
   app.get("/config", (req, res) => {
     const config = readState().config || {};
@@ -160,7 +167,7 @@ function registerConfigRoutes(app, {
       res.json({});
       return;
     }
-    res.json(publicConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject));
+    res.json(publicConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject, { includeHidden: isAdminAllowed(req) }));
   });
   app.get("/mail-settings", requireAdmin, (req, res) => res.json({ owner_email_configured: Boolean(appOwnerEmail) }));
   app.get("/registry-webhook-secret", requireAdmin, (req, res) => {
@@ -241,6 +248,7 @@ function registerConfigRoutes(app, {
         owner_env_var: ownerEnvVar,
         cloudflare_filter: cloudflareFilter,
         smtp_config: secretValue("smtp_config"),
+        ...(selectedInputProfile.saashup_visible === true || selectedInputProfile.saashup_default === true ? { saashup_visible: true } : {}),
       };
     }
     const profiles = profilesWithSingleDefault(parsedProfiles);
@@ -284,14 +292,20 @@ function registerConfigRoutes(app, {
 
   app.get("/templates", async (req, res) => {
     const state = readState();
-    const profile = req.query.profile || req.query.config_profile || state.config?.profile || state.config?.config_profile || "";
+    const requestedProfile = req.query.profile || req.query.config_profile || "";
+    const profile = requestedProfile || state.config?.profile || state.config?.config_profile || "";
     const ownerOnly = req.query.owner_only === "true" || req.query.enroll === "true";
-    const templates = await templatesForRequest(req, profile, { ownerOnly });
+    const templates = requestedProfile
+      ? await templatesForRequest(req, requestedProfile, { ownerOnly })
+      : await templatesForVisibleProfiles(req, { ownerOnly });
     if (req.query.include_workflows === "true") {
-      const workflows = await workflowsForRequest(req, profile);
+      const workflows = requestedProfile
+        ? await workflowsForRequest(req, profile)
+        : await workflowsForVisibleProfiles(req);
       res.json({
         templates,
         workflows: ownerOnly ? workflowsForVisibleTemplates(workflows, templates) : workflows,
+        profiles: requestedProfile ? [requestedProfile] : visibleProfileNames(),
       });
       return;
     }

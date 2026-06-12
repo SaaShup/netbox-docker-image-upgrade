@@ -217,12 +217,14 @@ describe("template catalog helpers", () => {
     expect(helpers.templatesWithCreatorEmails({ nginx: { image: "nginx" } }, {}, "")).toEqual({ nginx: { image: "nginx" } });
   });
 
-  test("profilesWithSingleDefault preserves only the default profile flag", () => {
+  test("profilesWithSingleDefault migrates defaults to visible profiles", () => {
     const result = helpers.profilesWithSingleDefault({
       prod: { saashup_default: true, tag: "tile" },
       dev: { saashup_default: true, tag: "guide" },
     });
-    expect(result.prod.saashup_default).toBe(true);
+    expect(result.prod.saashup_visible).toBe(true);
+    expect(result.dev.saashup_visible).toBe(true);
+    expect(result.prod.saashup_default).toBeUndefined();
     expect(result.dev.saashup_default).toBeUndefined();
 
     expect(helpers.profilesWithSingleDefault({

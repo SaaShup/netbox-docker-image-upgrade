@@ -1299,8 +1299,8 @@ describe("server routes", () => {
       expect(res.body.owner_env_var).toBe("SAASHUP_OWNER");
       expect(res.body.profile).toBe("prod");
       expect(res.body.customer_name).toBe("CuriooCity");
-      expect(parseProfiles(res.body.profiles).prod.saashup_default).toBe(true);
-      expect(parseProfiles(res.body.profiles).dev.saashup_default).toBeUndefined();
+      expect(parseProfiles(res.body.profiles).prod.saashup_visible).toBe(true);
+      expect(parseProfiles(res.body.profiles).dev.saashup_visible).toBe(true);
     });
     await request.post("/templates").set("x-auth-request-email", "owner@example.com").send({ tile: { image: "saashup/tile" } }).expect(200);
     await request.get("/templates").set("x-auth-request-email", "owner@example.com").expect(200).expect((res) => {
@@ -1985,7 +1985,17 @@ describe("server routes", () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock, { emptyImagesForName: "saashup/missing" });
     writeState(dataPath, {
-      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 3 },
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        tag: "tile",
+        max_instances: 3,
+        profile: "prod",
+        config_profile: "prod",
+        profiles: {
+          prod: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 3, saashup_visible: true },
+        },
+      },
       templates: {},
       order_counts: {},
       logs: "",
@@ -2285,7 +2295,17 @@ describe("server routes", () => {
   test("returns NetBox read errors and empty-list fallbacks", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
     writeState(dataPath, {
-      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 3 },
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        tag: "tile",
+        max_instances: 3,
+        profile: "prod",
+        config_profile: "prod",
+        profiles: {
+          prod: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 3, saashup_visible: true },
+        },
+      },
       templates: {},
       order_counts: {},
       logs: "",
@@ -2396,7 +2416,17 @@ describe("server routes", () => {
       ],
     });
     writeState(dataPath, {
-      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", enrollment_limit: 4, profile: "prod", config_profile: "prod" },
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        tag: "tile",
+        enrollment_limit: 4,
+        profile: "prod",
+        config_profile: "prod",
+        profiles: {
+          prod: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 1, saashup_visible: true },
+        },
+      },
       logs: "",
     });
 
@@ -2416,7 +2446,7 @@ describe("server routes", () => {
       expect(res.body.total_used).toBe(2);
     });
     await request.get("/order/limit").expect(200).expect((res) => {
-      expect(res.body.profile).toBe("");
+      expect(res.body.profile).toBe("prod");
     });
     await request.post("/create")
       .set("x-auth-request-email", "buyer@example.com")
@@ -2427,7 +2457,17 @@ describe("server routes", () => {
       });
 
     writeState(dataPath, {
-      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", enrollment_limit: 4, profile: "prod", config_profile: "prod" },
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        tag: "tile",
+        enrollment_limit: 4,
+        profile: "prod",
+        config_profile: "prod",
+        profiles: {
+          prod: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 1, saashup_visible: true },
+        },
+      },
       logs: "",
     });
     await request.post("/create")
@@ -5186,13 +5226,11 @@ describe("server routes", () => {
   test("create wait mode reports failures and marks order failed", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock);
-    let hostsCalled = 0;
     rejectNextMatchingNetBoxFetch(
       fetchMock,
       (url, options) => (
-        url.pathname.replace(/\/$/, "") === "/api/plugins/docker/hosts"
-        && String(options.method || "GET").toUpperCase() === "GET"
-        && ++hostsCalled >= 2
+        url.pathname === "/api/plugins/docker/containers/"
+        && String(options.method || "GET").toUpperCase() === "POST"
       ),
       Object.assign(new Error("netbox unavailable"), { statusCode: 503, payload: { detail: "down" } }),
     );
@@ -5272,13 +5310,11 @@ describe("server routes", () => {
   test("create wait mode reports failures without an order reservation", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock);
-    let hostsCalled = 0;
     rejectNextMatchingNetBoxFetch(
       fetchMock,
       (url, options) => (
-        url.pathname.replace(/\/$/, "") === "/api/plugins/docker/hosts"
-        && String(options.method || "GET").toUpperCase() === "GET"
-        && ++hostsCalled >= 2
+        url.pathname === "/api/plugins/docker/containers/"
+        && String(options.method || "GET").toUpperCase() === "POST"
       ),
       Object.assign(new Error("wait create failed"), { statusCode: 502, payload: { detail: "bad gateway" } }),
     );

@@ -86,6 +86,10 @@ test("upgrade can submit the clean name option", async ({ page }) => {
 test("refresh hosts submits the configured tag", async ({ page }) => {
   let refreshBody = "";
 
+  await page.addInitScript(() => {
+    localStorage.setItem("current_config_profile", "production");
+  });
+
   await page.route("**/refresh-hosts", async (route) => {
     refreshBody = route.request().postData() || "";
     await route.fulfill({
@@ -102,6 +106,7 @@ test("refresh hosts submits the configured tag", async ({ page }) => {
         token: "secret",
         proxy: "",
         tag: "production",
+        saashup_visible: true,
       },
     }),
   });

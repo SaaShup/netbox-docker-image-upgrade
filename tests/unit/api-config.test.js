@@ -147,6 +147,7 @@ describe("api config helpers", () => {
           tag: "tile",
           enrollment_limit: 2,
           smtp_config: "mailer:smtp-secret@smtp.example.com:587",
+          saashup_visible: true,
         },
       },
     };
@@ -191,6 +192,7 @@ describe("api config helpers", () => {
         tag: "tile",
         netbox: "https://netbox.example.com",
         token: "secret",
+        saashup_visible: true,
       }),
       (profiles) => profiles,
       (profiles) => profiles,
@@ -204,6 +206,7 @@ describe("api config helpers", () => {
       token_configured: true,
       proxy_configured: false,
       smtp_configured: false,
+      saashup_visible: true,
     });
     expect(JSON.stringify(sanitized)).not.toContain("secret");
   });
@@ -221,10 +224,6 @@ describe("api config helpers", () => {
       customer_name: "",
       profile: "",
       config_profile: "",
-      netbox_configured: false,
-      token_configured: false,
-      proxy_configured: false,
-      smtp_configured: false,
       profiles: {},
     });
   });
@@ -345,6 +344,7 @@ describe("api config routes", () => {
             tag: "tile",
             enrollment_limit: 2,
             smtp_config: "mailer:smtp-secret@smtp.example.com:587",
+            saashup_visible: true,
           },
         },
       },
@@ -419,7 +419,7 @@ describe("api config routes", () => {
     const res = mockResponse();
     await routes["GET /config"]({}, res);
 
-    expect(res.body.profiles.prod).toMatchObject({ domain: "example.com", netbox_configured: true, token_configured: true });
+    expect(res.body.profiles.prod).toBeUndefined();
     expect(JSON.stringify(res.body)).not.toContain("secret");
   });
 
