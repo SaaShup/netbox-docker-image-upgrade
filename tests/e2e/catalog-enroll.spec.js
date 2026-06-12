@@ -860,6 +860,7 @@ test("enroll page hides enrollment panel when no templates are returned", async 
 
 test("enroll page shows templates created by the user", async ({ page }) => {
   let deletedTemplate = "";
+  let registryWebhookSecretRequests = 0;
   let resolveDelete;
   const deleteReady = new Promise((resolve) => {
     resolveDelete = resolve;
@@ -884,10 +885,13 @@ test("enroll page shows templates created by the user", async ({ page }) => {
       body: JSON.stringify({ email: "ada@example.com", user: "ada", name: "Ada Lovelace" }),
     });
   });
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/registry-webhook-secret") registryWebhookSecretRequests += 1;
+  });
   await page.route("**/enroll/limit*", async (route) => {
     const instances = [
       { instance: "guide-template", image: "saashup/guide", version: "v1.2.3", status: "ready", source: "template", registry_webhook_secret: "guide-secret", instance_count: 2 },
-      ...(deletedTemplate === "install-template" ? [] : [{ instance: "install-template", image: "saashup/install", version: "v4.0.0", status: "ready", source: "template", instance_count: 0 }]),
+      ...(deletedTemplate === "install-template" ? [] : [{ instance: "install-template", image: "saashup/install", version: "v4.0.0", status: "ready", source: "template", registry_webhook_secret: "install-secret", instance_count: 0 }]),
       ...(deletedTemplate === "failed-template" ? [] : [{ instance: "failed-template", image: "saashup/failed", version: "v9.0.0", status: "failed", source: "template", instance_count: 0 }]),
     ];
     await route.fulfill({
@@ -954,7 +958,8 @@ test("enroll page shows templates created by the user", async ({ page }) => {
   await expect.poll(() => page.evaluate(() => window.__copiedText)).toBe(guideWebhookUrl);
   await page.locator("#enrollInstances [data-template-webhook-copy]").nth(1).click();
   await expect(page.locator("#notif")).toContainText('Webhook URL copied for "install-template"');
-  await expect.poll(() => page.evaluate(() => window.__copiedText)).toBe(`${new URL(page.url()).origin}/registry-webhook/production/install-template/hook-secret`);
+  await expect.poll(() => page.evaluate(() => window.__copiedText)).toBe(`${new URL(page.url()).origin}/registry-webhook/production/install-template/install-secret`);
+  expect(registryWebhookSecretRequests).toBe(0);
   page.once("dialog", async (dialog) => {
     expect(dialog.message()).toBe('Delete enrolled template "install-template"?');
     await dialog.accept();

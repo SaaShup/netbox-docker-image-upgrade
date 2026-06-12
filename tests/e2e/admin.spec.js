@@ -89,6 +89,45 @@ test("config tab starts without a forced default profile", async ({ page }) => {
   await expect(page.locator("#saveTemplateBtn")).toBeHidden();
 });
 
+test("admin config load prefers server credentials over stale local profile cache", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("config_profiles", JSON.stringify({
+      production: {
+        domain: "stale.example.com",
+        tag: "stale",
+        netbox_configured: true,
+        token_configured: true,
+      },
+    }));
+    localStorage.setItem("current_config_profile", "production");
+  });
+
+  await openAdmin(page, {
+    profile: "production",
+    config_profile: "production",
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "server-secret",
+        proxy: "http://proxy.example.com",
+        domain: "apps.example.com",
+        tag: "production",
+        enrollment_limit: 2,
+        owner_env_var: "OWNER_EMAIL",
+      },
+    }),
+  });
+
+  await expect(page.locator("#config_profile")).toHaveValue("production");
+  await expect(page.locator("#netbox")).toHaveValue("https://netbox.example.com");
+  await expect(page.locator("#token")).toHaveValue("server-secret");
+  await expect(page.locator("#proxy")).toHaveValue("http://proxy.example.com");
+  await expect(page.locator("#domain")).toHaveValue("apps.example.com");
+  await expect(page.locator("#tag")).toHaveValue("production");
+  await expect(page.locator("#enrollment_limit")).toHaveValue("2");
+  await expect(page.locator("#owner_env_var")).toHaveValue("OWNER_EMAIL");
+});
+
 test("config profile requires a tag before saving", async ({ page }) => {
   let webhookRequests = 0;
   await page.route("**/webhook?**", async (route) => {

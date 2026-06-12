@@ -1724,7 +1724,7 @@ function updateTestEmailVisibility() {
 }
 
 async function loadRegistryDefaultSecret() {
-  if (isOrderPage || isCatalogPage) return;
+  if (isOrderPage || isEnrollPage || isCatalogPage) return;
   if (registryWebhookDefaultLoaded) return;
   registryWebhookDefaultLoaded = true;
 
@@ -4799,13 +4799,15 @@ async function applyDockerRunCommand() {
 }
 
 function loadSavedConfig() {
-  return fetch("/config", {
+  const configEndpoint = (!isOrderPage && !isEnrollPage && !isCatalogPage) ? "/admin/config" : "/config";
+  return fetch(configEndpoint, {
     method: "GET",
     headers: { Accept: "application/json" },
   })
     .then((response) => response.json())
     .then((data) => {
-      const localProfiles = (isEnrollPage || isOrderPage) ? {} : applyDeletedProfileFilter(storedProfiles());
+      const usesPublicConfig = isEnrollPage || isOrderPage || isCatalogPage;
+      const localProfiles = usesPublicConfig ? {} : applyDeletedProfileFilter(storedProfiles());
       if (!data) {
         serverConfigProfiles = {};
         configProfiles = localProfiles;
@@ -4817,7 +4819,7 @@ function loadSavedConfig() {
       savedConfig = data;
       const serverProfiles = applyDeletedProfileFilter(parseProfiles(data.profiles));
       serverConfigProfiles = { ...serverProfiles };
-      configProfiles = { ...serverProfiles, ...localProfiles };
+      configProfiles = usesPublicConfig ? { ...serverProfiles } : { ...localProfiles, ...serverProfiles };
 
       const profile = String(data.profile || data.config_profile || "").trim();
       if (profile && !deletedProfiles().includes(profile) && Object.hasOwn(serverProfiles, profile)) {
@@ -4837,7 +4839,7 @@ function loadSavedConfig() {
           ...(serverProfiles[profile]?.saashup_visible === true || serverProfiles[profile]?.saashup_default === true ? { saashup_visible: true } : {}),
         };
         serverConfigProfiles[profile] = serverProfile;
-        configProfiles[profile] = localProfiles[profile] || serverProfile;
+        configProfiles[profile] = usesPublicConfig ? serverProfile : { ...localProfiles[profile], ...serverProfile };
       }
 
       updateProfileOptions();
@@ -6539,7 +6541,6 @@ async function initializePage() {
     const authReady = loadAuthUser();
     if (isOrderPage || isEnrollPage || isCatalogPage) await authReady;
     if (!isOrderPage && !isEnrollPage && !isCatalogPage) await loadMailSettings();
-    if (isEnrollPage) await loadRegistryDefaultSecret();
     await loadSavedConfig();
     if (isOrderPage || isCatalogPage) {
       const profileName = visibleConfigProfileName() || currentConfigProfile;

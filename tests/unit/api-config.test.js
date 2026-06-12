@@ -391,6 +391,18 @@ describe("api config routes", () => {
     });
     expect(JSON.stringify(adminRes.body)).not.toContain("secret");
     expect(JSON.stringify(adminRes.body)).not.toContain("netbox.example.com");
+
+    const adminFullRes = mockResponse();
+    await admin.routes["GET /admin/config"]({}, adminFullRes);
+    expect(adminFullRes.body.profiles.prod).toMatchObject({
+      netbox: "https://netbox.example.com",
+      token: "secret",
+      proxy: "http://proxy:secret@example.com",
+      smtp_config: "mailer:smtp-secret@smtp.example.com:587",
+      domain: "example.com",
+      tag: "tile",
+      enrollment_limit: 2,
+    });
   });
 
   test("config route defaults to non-admin responses", async () => {

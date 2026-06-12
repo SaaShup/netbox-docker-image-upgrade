@@ -146,7 +146,6 @@ function registerConfigRoutes(app, {
   registrySecretForTemplate,
   registryWebhookSecret,
   requireAdmin,
-  isAdminAllowed = () => false,
   selectedProfileConfig,
   sendContactEmail,
   sendTestEmail,
@@ -161,13 +160,21 @@ function registerConfigRoutes(app, {
   workflowsForRequest,
   workflowsForVisibleProfiles = workflowsForRequest,
 }) {
+  app.get("/admin/config", requireAdmin, (req, res) => {
+    const config = readState().config || {};
+    if (!Object.keys(plainObject(config)).length) {
+      res.json({});
+      return;
+    }
+    res.json(expandedConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject));
+  });
   app.get("/config", (req, res) => {
     const config = readState().config || {};
     if (!Object.keys(plainObject(config)).length) {
       res.json({});
       return;
     }
-    res.json(publicConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject, { includeHidden: isAdminAllowed(req) }));
+    res.json(publicConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject));
   });
   app.get("/mail-settings", requireAdmin, (req, res) => res.json({ owner_email_configured: Boolean(appOwnerEmail) }));
   app.get("/registry-webhook-secret", requireAdmin, (req, res) => {
