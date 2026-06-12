@@ -165,28 +165,23 @@ body.enroll-page .order-auth {
   font-size: 0.8rem;
 }
 
-.auth-cache {
-  min-height: 36px;
-  padding: 0 12px;
-}
-
 .auth-logout {
-  display: inline-grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 36px;
   width: 36px;
-  min-height: 36px;
+  height: 36px;
+  min-height: 0;
   padding: 0;
+  line-height: 0;
 }
 
 .auth-logout svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2.2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  display: block;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
 }
 
 .eyebrow {
@@ -441,14 +436,28 @@ body.catalog-page .order-page-menu a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 34px;
-  padding: 0 14px;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  min-height: 0;
+  padding: 0;
   border-radius: 999px;
   color: var(--muted);
-  font-size: 0.86rem;
-  font-weight: 700;
   text-decoration: none;
-  white-space: nowrap;
+}
+
+body.order-page .order-page-menu a svg,
+body.enroll-page .order-page-menu a svg,
+body.catalog-page .order-page-menu a svg {
+  display: block;
+  flex: 0 0 19px;
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 body.order-page .order-page-menu a:hover,
@@ -477,6 +486,10 @@ body.order-page .form-actions.hidden {
   display: none;
 }
 
+body.order-page #instanceForm:has(#orderInstances:not(.hidden)) {
+  width: min(760px, 100%);
+}
+
 body.enroll-page .main {
   min-height: 100vh;
   display: flex;
@@ -485,6 +498,18 @@ body.enroll-page .main {
   justify-content: flex-start;
   gap: 18px;
   padding: 96px 28px 82px;
+}
+
+body.enroll-page.enroll-loading-active .main {
+  justify-content: center;
+  gap: 0;
+  padding: 24px;
+}
+
+body.enroll-page:has(.enroll-workspace .order-instances:not(.hidden)):has(.enroll-card.hidden) .main {
+  justify-content: center;
+  gap: 0;
+  padding: 24px;
 }
 
 body.enroll-page .order-auth {
@@ -707,6 +732,18 @@ body.enroll-page .notice {
   justify-content: center;
 }
 
+.enroll-workspace:has(.order-instances:not(.hidden)) {
+  grid-template-columns: minmax(0, 760px);
+  justify-content: center;
+}
+
+.enroll-workspace:has(.order-instances:not(.hidden)) .enroll-card {
+  position: static;
+  justify-self: center;
+  width: min(440px, 100%);
+  max-height: none;
+}
+
 .enroll-card {
   position: sticky;
   top: 92px;
@@ -778,6 +815,7 @@ body.enroll-page .order-loading {
   display: flex;
   align-items: center;
   justify-content: center;
+  align-self: center;
   gap: 12px;
   min-width: 320px;
   padding: 18px 20px;
@@ -786,10 +824,22 @@ body.enroll-page .order-loading {
   color: var(--muted);
   background: var(--panel-soft);
   font-weight: 800;
+  text-align: center;
+}
+
+body.order-page .order-loading-text,
+body.enroll-page .order-loading-text {
+  display: inline-block;
+  min-width: 140px;
+  text-align: left;
 }
 
 body.order-page .order-loading.hidden,
 body.enroll-page .order-loading.hidden {
+  display: none;
+}
+
+body.enroll-page.enroll-loading-active .notice {
   display: none;
 }
 
@@ -834,9 +884,14 @@ body.enroll-page .order-instances {
   box-shadow: var(--shadow);
 }
 
-body.enroll-page .order-instances {
+body.order-page #instanceForm:has(#orderInstances:not(.hidden)) .order-instances {
   width: 100%;
+}
+
+body.enroll-page .order-instances {
+  width: min(760px, 100%);
   max-height: calc(100vh - 174px);
+  justify-self: center;
   margin-bottom: 0;
   overflow: auto;
   padding: 20px;
@@ -849,17 +904,18 @@ body.enroll-page .order-instances.hidden {
 
 .order-instances-header {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 14px;
+  margin-bottom: 18px;
 }
 
 .order-instances-header .eyebrow {
-  margin: 0 0 4px;
+  margin: 0;
   color: var(--primary);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 900;
 }
 
@@ -868,18 +924,37 @@ body.enroll-page .order-instances.hidden {
   font-size: 1.35rem;
 }
 
+.order-instances-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  color: var(--primary);
+  background: rgba(36, 107, 254, 0.10);
+  font-size: 0.95rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.order-instances-count.limit-reached {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
 .order-instance-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
 }
 
 .order-instance-card {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
-  padding: 11px;
+  padding: 14px;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--panel);
@@ -888,17 +963,17 @@ body.enroll-page .order-instances.hidden {
 .order-instance-icon {
   display: grid;
   place-items: center;
-  flex: 0 0 34px;
-  width: 34px;
-  height: 34px;
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
   border-radius: 12px;
   background: var(--button-soft);
   color: var(--primary);
 }
 
 .order-instance-icon svg {
-  width: 19px;
-  height: 19px;
+  width: 22px;
+  height: 22px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.9;
@@ -928,24 +1003,25 @@ body.enroll-page .order-instances.hidden {
   display: inline-grid;
   place-items: center;
   flex: 0 0 auto;
-  min-width: 24px;
-  height: 22px;
+  min-width: 26px;
+  height: 24px;
   padding: 0 7px;
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--primary-dark);
   background: var(--button-soft);
-  font-size: 0.76rem;
+  font-size: 0.82rem;
   font-weight: 900;
   line-height: 1;
 }
 
 .order-instance-state {
   width: fit-content;
-  padding: 2px 8px;
+  padding: 4px 10px;
   border-radius: 999px;
   color: var(--muted);
   background: var(--button-soft);
+  font-size: 0.86rem;
   font-weight: 800;
 }
 
@@ -980,9 +1056,9 @@ body.enroll-page .order-instances.hidden {
 .order-instance-delete {
   display: grid;
   place-items: center;
-  flex: 0 0 34px;
-  width: 34px;
-  height: 34px;
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
   border-radius: 10px;
 }
 
@@ -990,9 +1066,9 @@ body.enroll-page .order-instances.hidden {
 .template-webhook-copy {
   display: grid;
   place-items: center;
-  flex: 0 0 34px;
-  width: 34px;
-  height: 34px;
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
   border-radius: 10px;
 }
 
@@ -1003,14 +1079,14 @@ body.enroll-page .order-instances.hidden {
   gap: 5px;
   flex: 0 0 auto;
   width: auto;
-  min-width: 54px;
-  height: 34px;
-  padding: 0 12px;
+  min-width: 64px;
+  height: 42px;
+  padding: 0 14px;
   border-color: var(--primary);
   border-radius: 10px;
   background: var(--primary);
   color: #fff;
-  font-size: 0.78rem;
+  font-size: 0.88rem;
   font-weight: 800;
 }
 
@@ -1018,8 +1094,8 @@ body.enroll-page .order-instances.hidden {
 .order-instance-open svg,
 .order-template-copy svg,
 .template-webhook-copy svg {
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   fill: none;
   stroke: currentColor;
   stroke-width: 2;
@@ -1039,9 +1115,9 @@ body.enroll-page .order-instances.hidden {
 .order-instance-status {
   display: grid;
   place-items: center;
-  flex: 0 0 34px;
-  width: 34px;
-  height: 34px;
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
   margin-left: auto;
   border-radius: 10px;
   font-weight: 900;
@@ -1077,7 +1153,7 @@ body.enroll-page .order-instances.hidden {
 .order-instance-copy strong,
 .order-instance-copy a {
   color: var(--text);
-  font-size: 0.95rem;
+  font-size: 1.06rem;
   font-weight: 700;
   text-decoration: none;
 }
@@ -1089,75 +1165,7 @@ body.enroll-page .order-instances.hidden {
 
 .order-instance-copy small {
   color: var(--muted);
-  font-size: 0.78rem;
-}
-
-body.enroll-page .order-instances-header {
-  margin-bottom: 18px;
-}
-
-body.enroll-page .order-instances-header .eyebrow {
-  font-size: 0.78rem;
-}
-
-body.enroll-page .order-instances-header h2 {
-  font-size: 1.55rem;
-}
-
-body.enroll-page .order-instance-grid {
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 12px;
-}
-
-body.enroll-page .order-instance-card {
-  gap: 12px;
-  padding: 14px;
-}
-
-body.enroll-page .order-instance-icon,
-body.enroll-page .order-instance-delete,
-body.enroll-page .order-template-copy,
-body.enroll-page .template-webhook-copy,
-body.enroll-page .order-instance-status {
-  flex-basis: 42px;
-  width: 42px;
-  height: 42px;
-}
-
-body.enroll-page .order-instance-icon svg,
-body.enroll-page .order-instance-delete svg,
-body.enroll-page .order-template-copy svg,
-body.enroll-page .template-webhook-copy svg,
-body.enroll-page .order-instance-status svg {
-  width: 22px;
-  height: 22px;
-}
-
-body.enroll-page .order-instance-open {
-  min-width: 64px;
-  height: 42px;
-  padding-inline: 14px;
-  font-size: 0.88rem;
-}
-
-body.enroll-page .order-instance-copy strong,
-body.enroll-page .order-instance-copy a {
-  font-size: 1.06rem;
-}
-
-body.enroll-page .enroll-template-count {
-  height: 24px;
-  min-width: 26px;
-  font-size: 0.82rem;
-}
-
-body.enroll-page .order-instance-copy small {
   font-size: 0.9rem;
-}
-
-body.enroll-page .order-instance-state {
-  padding: 4px 10px;
-  font-size: 0.86rem;
 }
 
 body.order-page .order-status.success {
@@ -1221,29 +1229,40 @@ body.order-page #orderCancelBtn {
   body.order-page .top-left-bar,
   body.enroll-page .top-left-bar,
   body.catalog-page .top-left-bar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    column-gap: 8px;
+    align-items: center;
     position: static;
     top: auto;
     left: auto;
     right: auto;
     order: -30;
     width: 100%;
-    justify-content: space-between;
-    margin-bottom: 12px;
-    padding: 0;
   }
 
   .top-left-bar .brand-badge {
+    grid-column: 1;
+    grid-row: 1;
+    align-self: center;
     width: auto;
     max-width: 100%;
+    min-height: 42px;
   }
 
   body.order-page .order-theme,
   body.catalog-page .order-theme {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: center;
     position: static;
     margin-bottom: 0;
   }
 
   body.enroll-page .order-theme {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: center;
     position: static;
     margin-bottom: 0;
   }
@@ -1251,16 +1270,24 @@ body.order-page #orderCancelBtn {
   body.order-page .order-auth,
   body.catalog-page .order-auth {
     position: static;
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
     order: -10;
     width: 100%;
-    margin-bottom: 18px;
+    min-width: 0;
+    margin-bottom: 0;
   }
 
   body.enroll-page .order-auth {
     position: static;
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
     order: -10;
     width: 100%;
-    margin-bottom: 18px;
+    min-width: 0;
+    margin-bottom: 0;
   }
 
   body.order-page .order-page-menu,
@@ -1271,6 +1298,7 @@ body.order-page #orderCancelBtn {
     width: 100%;
     justify-content: center;
     flex-wrap: wrap;
+    margin-top: 10px;
     margin-bottom: 18px;
     transform: none;
   }
@@ -1278,10 +1306,63 @@ body.order-page #orderCancelBtn {
   body.order-page .main,
   body.enroll-page .main,
   body.catalog-page .main {
+    display: flex;
     flex-direction: column;
+    align-items: start;
     gap: 0;
     justify-content: flex-start;
     padding: 20px;
+  }
+
+  body.enroll-page.enroll-loading-active .main {
+    align-items: start;
+    justify-content: flex-start;
+    padding: 20px;
+  }
+
+  body.enroll-page:has(.enroll-workspace .order-instances:not(.hidden)):has(.enroll-card.hidden) .main {
+    align-items: start;
+    justify-content: flex-start;
+    padding: 20px;
+  }
+
+  body.order-page .order-auth,
+  body.enroll-page .order-auth,
+  body.catalog-page .order-auth {
+    flex-wrap: nowrap;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  body.order-page .order-auth .auth-avatar,
+  body.enroll-page .order-auth .auth-avatar,
+  body.catalog-page .order-auth .auth-avatar {
+    flex-basis: 32px;
+    width: 32px;
+    height: 32px;
+  }
+
+  body.order-page .order-auth .auth-copy,
+  body.enroll-page .order-auth .auth-copy,
+  body.catalog-page .order-auth .auth-copy {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  body.order-page .order-auth .auth-copy small,
+  body.enroll-page .order-auth .auth-copy small,
+  body.catalog-page .order-auth .auth-copy small {
+    display: none;
+  }
+
+  body.order-page .auth-logout,
+  body.enroll-page .auth-logout,
+  body.catalog-page .auth-logout {
+    flex-basis: 34px;
+    width: 34px;
+    height: 34px;
+    min-height: 0;
+    margin-left: 0;
   }
 
   body.order-page .order-footer {

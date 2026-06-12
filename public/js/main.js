@@ -119,6 +119,7 @@ const workflowTableBody = document.getElementById("workflowTableBody");
 const runWorkflowBtn = document.getElementById("runWorkflowBtn");
 const saveWorkflowBtn = document.getElementById("saveWorkflowBtn");
 const deleteWorkflowBtn = document.getElementById("deleteWorkflowBtn");
+const authUserCacheKey = "saashup_auth_user";
 const enrollImportNotice = "Import a Docker run command or compose with a single service.";
 const enrollMultiComposeNotice = "Compose files on enroll must contain a single service.";
 const enrollDockerRunNotices = [
@@ -487,33 +488,98 @@ function userInitials(value) {
     .join("");
 }
 
+function normalizeAuthUser(user = {}) {
+  const displayName = String(user.name || user.user || user.email || "").trim();
+
+  if (!displayName) return null;
+
+  return {
+    name: displayName,
+    user: String(user.user || "").trim(),
+    email: String(user.email || "").trim(),
+    admin: Boolean(user.admin),
+  };
+}
+
+function cachedAuthUser() {
+  try {
+    return normalizeAuthUser(JSON.parse(localStorage.getItem(authUserCacheKey) || "null") || {});
+  } catch (error) {
+    localStorage.removeItem(authUserCacheKey);
+    return null;
+  }
+}
+
+function cacheAuthUser(user) {
+  const normalized = normalizeAuthUser(user);
+
+  if (!normalized) {
+    localStorage.removeItem(authUserCacheKey);
+    return false;
+  }
+
+  localStorage.setItem(authUserCacheKey, JSON.stringify(normalized));
+  return true;
+}
+
+function clearAuthUserDisplay() {
+  localStorage.removeItem(authUserCacheKey);
+  if (authUser) authUser.classList.add("hidden");
+  if (adminLink) adminLink.classList.add("hidden");
+}
+
+function renderAuthUser(user) {
+  if (!authUser) return false;
+
+  const normalized = normalizeAuthUser(user);
+
+  if (!normalized) return false;
+
+  if (authName) authName.textContent = normalized.name;
+  if (authEmail) authEmail.textContent = normalized.email && normalized.email !== normalized.name ? normalized.email : "";
+  if (authAvatar) authAvatar.textContent = userInitials(normalized.name);
+  if (adminLink) adminLink.classList.toggle("hidden", !normalized.admin);
+
+  authUser.classList.remove("hidden");
+  return true;
+}
+
+function renderCachedAuthUser() {
+  const user = cachedAuthUser();
+  return user ? renderAuthUser(user) : false;
+}
+
 async function loadAuthUser() {
-  if (!authUser) return;
+  if (!authUser) return false;
 
   try {
     const response = await fetch("/session/user", {
       headers: { Accept: "application/json" },
     });
 
-    if (!response.ok) return;
+    if (!response.ok) {
+      clearAuthUserDisplay();
+      return false;
+    }
 
     const user = await response.json();
-    const displayName = user.name || user.user || user.email || "";
+    const rendered = renderAuthUser(user);
 
-    if (!displayName) return;
+    if (rendered) {
+      cacheAuthUser(user);
+      return true;
+    }
 
-    if (authName) authName.textContent = displayName;
-    if (authEmail) authEmail.textContent = user.email && user.email !== displayName ? user.email : "";
-    if (authAvatar) authAvatar.textContent = userInitials(displayName);
-    if (adminLink) adminLink.classList.toggle("hidden", !user.admin);
-
-    authUser.classList.remove("hidden");
+    clearAuthUserDisplay();
+    return false;
   } catch (error) {
-    authUser.classList.add("hidden");
+    if (!cachedAuthUser()) authUser.classList.add("hidden");
+    return false;
   }
 }
 
 function logout() {
+  localStorage.removeItem(authUserCacheKey);
   const returnUrl = window.location.origin + "/";
   window.location.href = `/logout?rd=${encodeURIComponent(returnUrl)}`;
 }
@@ -2362,13 +2428,13 @@ function renderOrderInstances(instances = orderInstanceCards, limit = orderInsta
   }
 
   const maxText = orderTemplateName && orderInstanceLimit.max > 0 ? ` / ${orderInstanceLimit.max}` : "";
+  const countValue = orderTemplateName ? (orderInstanceLimit.used || orderInstanceCards.length) : (orderInstanceLimit.totalUsed || orderInstanceCards.length);
+  const countClass = `order-instances-count${orderTemplateName && orderInstanceLimit.max > 0 && countValue >= orderInstanceLimit.max ? " limit-reached" : ""}`;
   orderInstances.classList.remove("hidden");
   orderInstances.innerHTML = `
     <div class="order-instances-header">
-      <div>
-        <p class="eyebrow">Your instances</p>
-        <h2>${orderTemplateName ? (orderInstanceLimit.used || orderInstanceCards.length) : (orderInstanceLimit.totalUsed || orderInstanceCards.length)}${maxText}</h2>
-      </div>
+      <p class="eyebrow">Your instances</p>
+      <span class="${countClass}">${countValue}${maxText}</span>
     </div>
     <div class="order-instance-grid">
       ${orderInstanceCards.map((item, index) => `
@@ -2406,13 +2472,12 @@ function renderEnrollmentInstances(instances = enrollmentCards, limit = enrollme
 
   const displayCards = enrollmentCards;
   const maxText = enrollmentLimit.max > 0 ? ` / ${enrollmentLimit.max}` : "";
+  const countClass = `order-instances-count${enrollmentLimit.reached ? " limit-reached" : ""}`;
   enrollInstances.classList.remove("hidden");
   enrollInstances.innerHTML = `
     <div class="order-instances-header">
-      <div>
-        <p class="eyebrow">Your enrolled templates</p>
-        <h2>${enrollmentLimit.used || enrollmentCards.length}${maxText}</h2>
-      </div>
+      <p class="eyebrow">Your images</p>
+      <span class="${countClass}">${enrollmentLimit.used || enrollmentCards.length}${maxText}</span>
     </div>
     <div class="order-instance-grid">
       ${displayCards.map((item, index) => `
@@ -2753,6 +2818,7 @@ function hideOrderLoading() {
 
 function showEnrollLoading() {
   if (!isEnrollPage) return;
+  document.body?.classList.add("enroll-loading-active");
   hideNotice();
   orderLoading?.classList.remove("hidden");
   form?.classList.add("hidden");
@@ -2761,6 +2827,7 @@ function showEnrollLoading() {
 
 function hideEnrollLoading() {
   if (!isEnrollPage) return;
+  document.body?.classList.remove("enroll-loading-active");
   orderLoading?.classList.add("hidden");
 }
 
@@ -3103,11 +3170,6 @@ function updateEnrollSubmitState({ notify = true } = {}) {
   return valid && available;
 }
 
-function enrollmentLimitMessage(limit) {
-  const max = Number(limit?.max || 0);
-  return `You have reached your maximum of ${max} template${max === 1 ? "" : "s"} for this config.`;
-}
-
 function setEnrollCheckingImage(checking) {
   if (!isEnrollPage) return;
   if (checking) setNotice("Checking image", "info", false);
@@ -3138,7 +3200,7 @@ async function refreshEnrollLimit({ showLoading = true, updateNotice = true } = 
     const limit = await enrollLimitForProfile(selectedProfileCredentials().profile);
     renderEnrollmentInstances(limit.instances, limit);
     form?.classList.toggle("hidden", Boolean(limit.reached));
-    if (updateNotice && limit.reached) setNotice(enrollmentLimitMessage(limit), "error", false);
+    if (updateNotice && limit.reached) hideNotice();
     else if (updateNotice && !dockerRunInput?.value && !dockerComposeInput?.value) setNotice(enrollImportNotice, "info", false);
     updateEnrollSubmitState({ notify: false });
     hideEnrollLoading();
@@ -6307,6 +6369,7 @@ function finishAppBoot() {
 async function initializePage() {
   try {
     initializeSidebar();
+    renderCachedAuthUser();
     if (!isEnrollPage) await loadMailSettings();
     await loadSavedConfig();
     if (isOrderPage || isCatalogPage) {
