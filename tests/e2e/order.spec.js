@@ -390,7 +390,7 @@ test("order page shows cached oauth user while refreshing session", async ({ pag
     });
   });
 
-  await page.evaluate(() => {
+  await page.addInitScript(() => {
     localStorage.setItem("saashup_auth_user", JSON.stringify({
       name: "Cached User",
       email: "cached@example.com",
