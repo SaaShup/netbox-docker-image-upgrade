@@ -995,6 +995,7 @@ function currentProfileFieldValues() {
     owner_env_var: fieldValue("owner_env_var"),
     cloudflare_filter: fieldChecked("cloudflare_filter", true),
     smtp_config: fieldValue("smtp_config"),
+    saashup_visible: Boolean(configDefaultInput?.checked),
   };
 }
 
