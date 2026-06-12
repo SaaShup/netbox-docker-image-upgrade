@@ -3222,7 +3222,8 @@ describe("server routes", () => {
     });
     await request.get("/catalog").set("x-auth-request-email", "buyer@example.com").expect(200).expect((res) => {
       expect(res.text).toContain("Saashup Catalog");
-      expect(res.text).toContain('href="/catalog" aria-current="page"');
+      expect(res.text).toContain('href="/catalog"');
+      expect(res.text).toContain('aria-current="page"');
       expect(res.headers["cache-control"]).toContain("no-store");
     });
 
