@@ -96,8 +96,31 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
   await expect(page.locator("#importProfileSelect")).toBeHidden();
   await expect(page.locator("#config_profile")).toHaveValue("production");
   await expect(page.locator("#enrollInstances")).toBeVisible();
-  await expect(page.locator("#enrollInstances")).toContainText("Your enrolled templates");
-  await expect(page.locator("#enrollInstances")).toContainText("1 / 2");
+  await expect(page.locator("#enrollInstances .order-instances-header .eyebrow")).toHaveText("Your images");
+  await expect(page.locator("#enrollInstances .order-instances-count")).toHaveText("1 / 2");
+  const enrollInstancesBox = await page.locator("#enrollInstances").boundingBox();
+  expect(enrollInstancesBox).not.toBeNull();
+  expect(Math.round(enrollInstancesBox.width)).toBe(760);
+  expect(Math.round(enrollInstancesBox.x + (enrollInstancesBox.width / 2))).toBe(640);
+  const enrollPanelType = await page.locator("#enrollInstances .order-instance-card").first().evaluate((card) => {
+    const title = card.querySelector(".order-instance-copy a, .order-instance-copy strong");
+    const small = card.querySelector(".order-instance-copy small");
+    const state = card.querySelector(".order-instance-state");
+    return {
+      title: getComputedStyle(title).fontSize,
+      small: getComputedStyle(small).fontSize,
+      state: getComputedStyle(state).fontSize,
+      padding: getComputedStyle(card).paddingTop,
+      gap: getComputedStyle(card).columnGap,
+    };
+  });
+  expect(enrollPanelType).toEqual({
+    title: "16.96px",
+    small: "14.4px",
+    state: "14.4px",
+    padding: "14px",
+    gap: "12px",
+  });
   await expect(page.locator("#enrollInstances")).toContainText("existing-guide.example.com");
   await expect(page.locator("#enrollInstances .order-instance-state")).toHaveText("Ready");
 
@@ -219,16 +242,25 @@ test("catalog page shows the account menu", async ({ page }) => {
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator(".top-left-bar")).toBeVisible();
-  const mobileBrandBox = await page.locator(".top-left-bar").boundingBox();
+  const mobileHeaderBox = await page.locator(".top-left-bar").boundingBox();
+  const mobileBrandBox = await page.locator(".top-left-bar .brand-badge").boundingBox();
   const mobileMenuBox = await page.locator(".order-page-menu").boundingBox();
   const mobileAuthBox = await page.locator("#authUser").boundingBox();
+  const mobileThemeBox = await page.locator(".order-theme").boundingBox();
+  expect(mobileHeaderBox).not.toBeNull();
   expect(mobileBrandBox).not.toBeNull();
   expect(mobileMenuBox).not.toBeNull();
   expect(mobileAuthBox).not.toBeNull();
-  expect(mobileBrandBox.x).toBeGreaterThanOrEqual(0);
-  expect(mobileBrandBox.x + mobileBrandBox.width).toBeLessThanOrEqual(390);
-  expect(mobileMenuBox.y).toBeGreaterThanOrEqual(mobileBrandBox.y + mobileBrandBox.height);
-  expect(mobileAuthBox.y).toBeGreaterThanOrEqual(mobileMenuBox.y + mobileMenuBox.height);
+  expect(mobileThemeBox).not.toBeNull();
+  expect(mobileHeaderBox.x).toBeGreaterThanOrEqual(0);
+  expect(mobileHeaderBox.x + mobileHeaderBox.width).toBeLessThanOrEqual(390);
+  expect(mobileMenuBox.y).toBeGreaterThanOrEqual(mobileHeaderBox.y + mobileHeaderBox.height);
+  expect(mobileAuthBox.x + mobileAuthBox.width).toBeLessThanOrEqual(390);
+  const brandCenter = mobileBrandBox.y + (mobileBrandBox.height / 2);
+  const authCenter = mobileAuthBox.y + (mobileAuthBox.height / 2);
+  const themeCenter = mobileThemeBox.y + (mobileThemeBox.height / 2);
+  expect(Math.abs(authCenter - brandCenter)).toBeLessThanOrEqual(1);
+  expect(Math.abs(themeCenter - brandCenter)).toBeLessThanOrEqual(1);
 });
 
 test("enroll page reports only missing port when docker run has image", async ({ page }) => {
@@ -707,15 +739,31 @@ test("enroll page waits for limit before showing create panel or cards", async (
   await expect(page.locator("#notif")).toBeHidden();
   await expect(page.locator("#instanceForm")).toBeHidden();
   await expect(page.locator("#enrollInstances")).toBeHidden();
+  let loadingBox = await page.locator("#orderLoading").boundingBox();
+  expect(loadingBox).not.toBeNull();
+  expect(Math.round(loadingBox.x + (loadingBox.width / 2))).toBe(640);
+  expect(Math.round(loadingBox.y + (loadingBox.height / 2))).toBe(360);
 
+  await page.setViewportSize({ width: 390, height: 844 });
+  loadingBox = await page.locator("#orderLoading").boundingBox();
+  const menuBox = await page.locator(".order-page-menu").boundingBox();
+  expect(loadingBox).not.toBeNull();
+  expect(menuBox).not.toBeNull();
+  expect(Math.round(loadingBox.y)).toBe(Math.round(menuBox.y + menuBox.height + 18));
+
+  await page.setViewportSize({ width: 1280, height: 720 });
   resolveLimit();
 
   await expect(page.locator("#orderLoading")).toBeHidden();
-  await expect(page.locator("#notif")).toBeVisible();
-  await expect(page.locator("#notif")).toContainText("You have reached your maximum of 1 template for this config.");
+  await expect(page.locator("#notif")).toBeHidden();
   await expect(page.locator("#instanceForm")).toBeHidden();
   await expect(page.locator("#enrollInstances")).toBeVisible();
-  await expect(page.locator("#enrollInstances")).toContainText("1 / 1");
+  await expect(page.locator("#enrollInstances .order-instances-count")).toHaveText("1 / 1");
+  await expect(page.locator("#enrollInstances .order-instances-count")).toHaveClass(/limit-reached/);
+  const enrollInstancesBox = await page.locator("#enrollInstances").boundingBox();
+  expect(enrollInstancesBox).not.toBeNull();
+  expect(Math.round(enrollInstancesBox.x + (enrollInstancesBox.width / 2))).toBe(640);
+  expect(Math.round(enrollInstancesBox.y + (enrollInstancesBox.height / 2))).toBe(360);
   await expect(page.locator("#enrollInstances")).toContainText("guide-template");
 });
 

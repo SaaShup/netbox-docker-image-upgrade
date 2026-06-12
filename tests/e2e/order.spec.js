@@ -233,7 +233,12 @@ test("order page informs the user when the max instance limit is reached", async
   await expect(page.locator("#orderLoading")).toBeHidden();
   await expect(page.locator("#orderActions")).toBeHidden();
   await expect(page.locator("#orderInstances")).toBeVisible();
-  await expect(page.locator("#orderInstances")).toContainText("3 / 3");
+  await expect(page.locator("#orderInstances .order-instances-header .eyebrow")).toHaveText("Your instances");
+  await expect(page.locator("#orderInstances .order-instances-count")).toHaveText("3 / 3");
+  await expect(page.locator("#orderInstances .order-instances-count")).toHaveClass(/limit-reached/);
+  const orderInstancesBox = await page.locator("#orderInstances").boundingBox();
+  expect(orderInstancesBox).not.toBeNull();
+  expect(Math.round(orderInstancesBox.width)).toBe(760);
   await expect(page.locator("#orderInstances")).toContainText("demo-1.daily.paashup.cloud");
   await expect(page.locator(".order-instance-card").first().locator(".order-instance-copy strong")).toHaveText("demo");
   await expect(page.locator(".order-instance-card").first().locator(".order-instance-open")).toHaveAttribute("href", "https://demo-1.daily.paashup.cloud");
@@ -246,7 +251,7 @@ test("order page informs the user when the max instance limit is reached", async
   await expect(page.locator(".order-instance-card").nth(2).locator(".order-instance-status-failed")).toBeVisible();
   await expect(page.locator(".order-instance-card").nth(2).locator(".order-instance-state")).toHaveText("Failed");
   await expect(page.locator("#orderStatus")).toHaveClass(/error/);
-  await expect(page.locator("#orderStatus")).toContainText("You have reached your maximum of 3 instances for this config.");
+  await expect(page.locator("#orderStatus")).toContainText("You have reached your maximum of 3 instances.");
   await expect(page.locator("#orderStatus .order-status-home")).toHaveCount(0);
   expect(createCalled).toBe(false);
 
@@ -340,6 +345,94 @@ test("order page shows oauth user and logs out through app auth", async ({ page 
 
   await page.locator("#logoutBtn").click();
   await expect(page).toHaveURL("/");
+});
+
+test("order page shows cached oauth user while refreshing session", async ({ page }) => {
+  let resolveAuth;
+  const authReady = new Promise((resolve) => {
+    resolveAuth = resolve;
+  });
+
+  await page.route("**/session/user", async (route) => {
+    await authReady;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        name: "Ada Lovelace",
+        user: "ada",
+        email: "ada@example.com",
+      }),
+    });
+  });
+
+  await page.route("**/images?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        { name: "saashup/demo", version: "v1.0.0" },
+      ]),
+    });
+  });
+  await page.route("**/order/limit?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        instances: [],
+        max: 1,
+        profile: "demo",
+        remaining: 1,
+        reached: false,
+        used: 0,
+      }),
+    });
+  });
+
+  await page.addInitScript(() => {
+    localStorage.setItem("saashup_auth_user", JSON.stringify({
+      name: "Cached User",
+      email: "cached@example.com",
+    }));
+  });
+
+  await openAdmin(page, {
+    profile: "demo",
+    profiles: JSON.stringify({
+      demo: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        domain: "daily.paashup.cloud",
+        tag: "DEMO",
+      },
+    }),
+  }, {
+    demo: {
+      config_profile: "demo",
+      network: "traefik-public",
+      image: "saashup/demo",
+      ports: [{ value: "3000" }],
+    },
+  }, [], undefined, "/order?template=demo");
+
+  await expect(page.locator("#authUser")).toBeVisible();
+  await expect(page.locator("#authAvatar")).toHaveText("CU");
+  await expect(page.locator("#authName")).toHaveText("Cached User");
+  await expect(page.locator("#authEmail")).toHaveText("cached@example.com");
+  await expect(page.locator("#orderLoading")).toBeVisible();
+
+  resolveAuth();
+
+  await expect(page.locator("#authAvatar")).toHaveText("AL");
+  await expect(page.locator("#authName")).toHaveText("Ada Lovelace");
+  await expect(page.locator("#authEmail")).toHaveText("ada@example.com");
+  await expect(page.locator("#orderLoading")).toBeHidden();
+
+  const cachedUser = await page.evaluate(() => JSON.parse(localStorage.getItem("saashup_auth_user")));
+  expect(cachedUser.name).toBe("Ada Lovelace");
+  expect(cachedUser.email).toBe("ada@example.com");
 });
 
 test("order page generates and submits an instance name when the template has none", async ({ page }) => {
@@ -541,7 +634,7 @@ test("order page without a template lists all owned containers", async ({ page }
   await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My instances" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My images" })).toHaveAttribute("href", "/enroll");
   await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "Catalog" })).toHaveAttribute("href", "/catalog");
-  await expect(page.locator("#orderInstances")).toContainText("2");
+  await expect(page.locator("#orderInstances .order-instances-count")).toHaveText("2");
   await expect(page.locator("#orderInstances")).toContainText("tile.daily.paashup.cloud");
   await expect(page.locator("#orderInstances")).toContainText("guide.daily.paashup.cloud");
 });

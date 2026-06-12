@@ -6,7 +6,7 @@
   <title>Saashup Instance Manager</title>
   <link rel="icon" href="saashup_logo.svg">
   <script src="js/theme.js"></script>
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/admin.css">
 </head>
 
 <body class="app-booting">
@@ -14,8 +14,13 @@
     <span class="app-boot-spinner" aria-hidden="true"></span>
     <span>Loading</span>
   </div>
+  <button type="button" class="admin-menu-toggle" id="adminMenuToggle" aria-controls="adminSidebar" aria-expanded="false" aria-label="Open admin menu">
+    <span aria-hidden="true"></span>
+    <span aria-hidden="true"></span>
+    <span aria-hidden="true"></span>
+  </button>
   <div class="app-shell" aria-busy="true">
-    <aside class="sidebar">
+    <aside class="sidebar" id="adminSidebar">
       <div class="sidebar-top">
         <a href="/" class="brand" aria-label="Go to home page">
           <img src="saashup_logo.svg" alt="SaaShup" class="brand-logo">
@@ -87,7 +92,9 @@
               <span id="authName">Signed in</span>
               <small id="authEmail"></small>
             </div>
-            <button type="button" class="btn btn-secondary auth-logout" id="logoutBtn">Logout</button>
+            <button type="button" class="btn btn-secondary auth-logout" id="logoutBtn" aria-label="Logout" title="Logout">
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v9"></path><path d="M7.05 6.35a8 8 0 1 0 9.9 0"></path></svg>
+            </button>
           </div>
         </div>
       </header>

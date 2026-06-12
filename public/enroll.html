@@ -12,33 +12,34 @@
 <body class="enroll-page">
   <main class="main enroll-main">
     <nav class="order-page-menu" aria-label="Account pages">
-      <a href="/order">My instances</a>
-      <a href="/enroll" aria-current="page">My images</a>
-      <a href="/catalog">Catalog</a>
-      <a href="/admin" id="adminLink" class="hidden">Admin</a>
+      <a href="/order" aria-label="My instances" title="My instances"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14"></path><path d="M5 12h14"></path><path d="M5 18h14"></path><path d="M8 6v.01"></path><path d="M8 12v.01"></path><path d="M8 18v.01"></path></svg></a>
+      <a href="/enroll" aria-label="My images" title="My images" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"></rect><circle cx="9" cy="10" r="1.5"></circle><path d="M20 15l-4-4-7 8"></path></svg></a>
+      <a href="/catalog" aria-label="Catalog" title="Catalog"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1"></rect><rect x="14" y="4" width="6" height="6" rx="1"></rect><rect x="4" y="14" width="6" height="6" rx="1"></rect><rect x="14" y="14" width="6" height="6" rx="1"></rect></svg></a>
+      <a href="/admin" id="adminLink" class="hidden" aria-label="Admin" title="Admin"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8z"></path><path d="M3 12h3"></path><path d="M18 12h3"></path><path d="M12 3v3"></path><path d="M12 18v3"></path><path d="M5.6 5.6l2.1 2.1"></path><path d="M16.3 16.3l2.1 2.1"></path><path d="M18.4 5.6l-2.1 2.1"></path><path d="M7.7 16.3l-2.1 2.1"></path></svg></a>
     </nav>
     <div class="top-left-bar">
       <a href="https://saashup.com" class="brand-badge" target="_blank" rel="noreferrer noopener">
         <img src="saashup_logo.svg" alt="SaaShup logo" aria-hidden="true">
         <span>SaaShup</span>
       </a>
-      <button type="button" class="theme-toggle order-theme" data-theme-toggle aria-label="Toggle theme" title="Toggle theme">☾</button>
-    </div>
-    <div class="auth-user order-auth hidden" id="authUser">
-      <div class="auth-avatar" id="authAvatar" aria-hidden="true">?</div>
-      <div class="auth-copy">
-        <span id="authName">Signed in</span>
-        <small id="authEmail"></small>
+      <div class="auth-user order-auth hidden" id="authUser">
+        <div class="auth-avatar" id="authAvatar" aria-hidden="true">?</div>
+        <div class="auth-copy">
+          <span id="authName">Signed in</span>
+          <small id="authEmail"></small>
+        </div>
+        <button type="button" class="btn btn-secondary auth-logout" id="logoutBtn" aria-label="Logout" title="Logout">
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v9"></path><path d="M7.05 6.35a8 8 0 1 0 9.9 0"></path></svg>
+        </button>
       </div>
-      <button type="button" class="btn btn-secondary auth-cache" id="clearCacheBtn">Clear cache</button>
-      <button type="button" class="btn btn-secondary auth-logout" id="logoutBtn">Logout</button>
+      <button type="button" class="theme-toggle order-theme" data-theme-toggle aria-label="Toggle theme" title="Toggle theme">☾</button>
     </div>
 
     <section class="notice hidden" id="notif">Import a Docker run command or compose with a single service.</section>
 
     <div class="order-loading" id="orderLoading" role="status">
       <span class="order-spinner" aria-hidden="true"></span>
-      <span>Loading enrollment</span>
+      <span class="order-loading-text">Loading images</span>
     </div>
 
     <section class="enroll-workspace" aria-label="Enrollment workspace">
