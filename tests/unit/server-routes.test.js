@@ -2018,6 +2018,39 @@ describe("server routes", () => {
     expect(contextWrites[1].body.data.saashup_owner).toBeUndefined();
   });
 
+  test("templates route merges workflows across visible profiles", async () => {
+    const { dataPath, request } = await loadServer();
+    writeState(dataPath, {
+      config: {
+        profile: "alpha",
+        config_profile: "alpha",
+        profiles: {
+          beta: { tag: "beta", saashup_visible: true },
+          alpha: { tag: "alpha", saashup_visible: true },
+          hidden: { tag: "hidden", saashup_visible: false },
+        },
+      },
+      templates: {
+        Tile: { image: "saashup/tile" },
+      },
+      workflows: {
+        deploy: { steps: [{ template: "Tile" }] },
+      },
+      logs: "",
+    });
+
+    await request.get("/templates")
+      .query({ include_workflows: "true" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.profiles).toEqual(["alpha", "beta"]);
+        expect(res.body.workflows.deploy).toMatchObject({
+          config_profile: "alpha",
+          steps: [{ template: "Tile" }],
+        });
+      });
+  });
+
   test("calls NetBox for read endpoints", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock, { emptyImagesForName: "saashup/missing" });

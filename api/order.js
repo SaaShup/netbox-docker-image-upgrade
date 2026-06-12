@@ -114,12 +114,12 @@ function createOrderHelpers({
         instances: [],
       };
     }
-    if (profiles.length === 1) return currentProfileUsage(req, profiles[0]);
 
     const usages = await Promise.all(profiles.map((name) => currentProfileUsage(req, name)));
-    const instances = usages.flatMap((usage) => usage.instances || []);
-    const used = usages.reduce((total, usage) => total + Number(usage.used || 0), 0);
-    const max = usages.reduce((total, usage) => total + Number(usage.max || 0), 0);
+    const instances = usages.flatMap((usage) => usage.instances);
+    const used = usages.reduce((total, usage) => total + Number(usage.used), 0);
+    const max = usages.reduce((total, usage) => total + Number(usage.max), 0);
+    if (profiles.length === 1) return usages[0];
     return {
       profile: "",
       profiles,

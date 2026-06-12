@@ -54,9 +54,9 @@ function createEnrollHelpers({
     if (profiles.length === 1) return currentProfileEnrollmentUsage(req, profiles[0], options);
 
     const usages = await Promise.all(profiles.map((name) => currentProfileEnrollmentUsage(req, name, options)));
-    const instances = usages.flatMap((usage) => usage.instances || []);
-    const used = usages.reduce((total, usage) => total + Number(usage.used || 0), 0);
-    const max = usages.reduce((total, usage) => total + Number(usage.max || 0), 0);
+    const instances = usages.flatMap((usage) => usage.instances);
+    const used = usages.reduce((total, usage) => total + Number(usage.used), 0);
+    const max = usages.reduce((total, usage) => total + Number(usage.max), 0);
     return {
       profile: "",
       profiles,

@@ -79,12 +79,20 @@ function publicConfigForResponse(config, selectedProfileConfig, parseProfiles, p
   if (expanded.profile && !profiles[expanded.profile] && (includeHidden || expandedVisible)) {
     profiles[expanded.profile] = publicProfile(expanded);
   }
-  const selectedPublic = includeHidden || expandedVisible ? publicProfile(expanded) : {};
+  const showSelectedProfile = includeHidden || expandedVisible;
+  let selectedPublic = {};
+  let selectedProfileName = "";
+  let selectedConfigProfileName = "";
+  if (showSelectedProfile) {
+    selectedPublic = publicProfile(expanded);
+    selectedProfileName = expanded.profile;
+    selectedConfigProfileName = expanded.config_profile;
+  }
 
   return {
     customer_name: expanded.customer_name || "",
-    profile: includeHidden || expandedVisible ? expanded.profile || "" : "",
-    config_profile: includeHidden || expandedVisible ? expanded.config_profile || "" : "",
+    profile: selectedProfileName,
+    config_profile: selectedConfigProfileName,
     ...selectedPublic,
     profiles,
   };
@@ -138,7 +146,7 @@ function workflowsWithoutTemplate(workflows, templateName, plainObject) {
 }
 
 function unquoteDockerfileEnvValue(value) {
-  const text = String(value ?? "");
+  const text = String(value);
   if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
     return text.slice(1, -1);
   }
@@ -186,6 +194,70 @@ function dockerfileEnvEntries(dockerfileText = "") {
 function environmentVariablesForResponse(env = process.env, dockerfileText = "") {
   return dockerfileEnvEntries(dockerfileText)
     .map(({ name, defaultValue }) => ({ name, value: String(env?.[name] ?? defaultValue ?? "") }));
+}
+
+function includeTemplateWorkflows(query = {}) {
+  return query.include_workflows === "true";
+}
+
+function templateNameRequired(name) {
+  return !String(name || "").trim();
+}
+
+async function templatesOnlyResponse({ templates }) {
+  return templates;
+}
+
+async function templatesWithWorkflowsResponse({
+  req,
+  requestedProfile,
+  profile,
+  ownerOnly,
+  templates,
+  workflowsForRequest,
+  workflowsForVisibleProfiles,
+  visibleProfileNames,
+}) {
+  const workflows = requestedProfile
+    ? await workflowsForRequest(req, profile)
+    : await workflowsForVisibleProfiles(req);
+  return {
+    templates,
+    workflows: ownerOnly ? workflowsForVisibleTemplates(workflows, templates) : workflows,
+    profiles: requestedProfile ? [requestedProfile] : visibleProfileNames(),
+  };
+}
+
+async function templatesResponseForRequest(req, {
+  readState,
+  templatesForRequest,
+  templatesForVisibleProfiles,
+  workflowsForRequest,
+  workflowsForVisibleProfiles,
+  visibleProfileNames,
+}) {
+  const state = readState();
+  const requestedProfile = req.query.profile || req.query.config_profile || "";
+  const profile = requestedProfile || state.config?.profile || state.config?.config_profile || "";
+  const ownerOnly = req.query.owner_only === "true" || req.query.enroll === "true";
+  const templates = requestedProfile
+    ? await templatesForRequest(req, requestedProfile, { ownerOnly })
+    : await templatesForVisibleProfiles(req, { ownerOnly });
+
+  const responseBuilder = {
+    false: templatesOnlyResponse,
+    true: templatesWithWorkflowsResponse,
+  }[String(includeTemplateWorkflows(req.query))];
+  return responseBuilder({
+    req,
+    requestedProfile,
+    profile,
+    ownerOnly,
+    templates,
+    workflowsForRequest,
+    workflowsForVisibleProfiles,
+    visibleProfileNames,
+  });
 }
 
 function registerConfigRoutes(app, {
@@ -364,25 +436,14 @@ function registerConfigRoutes(app, {
   });
 
   app.get("/templates", async (req, res) => {
-    const state = readState();
-    const requestedProfile = req.query.profile || req.query.config_profile || "";
-    const profile = requestedProfile || state.config?.profile || state.config?.config_profile || "";
-    const ownerOnly = req.query.owner_only === "true" || req.query.enroll === "true";
-    const templates = requestedProfile
-      ? await templatesForRequest(req, requestedProfile, { ownerOnly })
-      : await templatesForVisibleProfiles(req, { ownerOnly });
-    if (req.query.include_workflows === "true") {
-      const workflows = requestedProfile
-        ? await workflowsForRequest(req, profile)
-        : await workflowsForVisibleProfiles(req);
-      res.json({
-        templates,
-        workflows: ownerOnly ? workflowsForVisibleTemplates(workflows, templates) : workflows,
-        profiles: requestedProfile ? [requestedProfile] : visibleProfileNames(),
-      });
-      return;
-    }
-    res.json(templates);
+    res.json(await templatesResponseForRequest(req, {
+      readState,
+      templatesForRequest,
+      templatesForVisibleProfiles,
+      workflowsForRequest,
+      workflowsForVisibleProfiles,
+      visibleProfileNames,
+    }));
   });
   app.post("/templates", requireAdmin, async (req, res) => {
     const creatorEmail = authUserFromRequest(req).email || "";
@@ -417,7 +478,10 @@ function registerConfigRoutes(app, {
     const authUser = authUserFromRequest(req);
     const creator = String(authUser.email || authUser.user || "").trim().toLowerCase();
     if (!creator) return res.status(401).json({ code: "auth_required", detail: "Authentication is required." });
-    if (!name) return res.status(400).json({ code: "template_required", detail: "Template name is required." });
+    if (templateNameRequired(name)) {
+      res.status(400).json({ code: "template_required", detail: "Template name is required." });
+      return;
+    }
 
     const state = readState();
     const usage = enrollmentTemplateDeleteUsage
@@ -518,6 +582,9 @@ module.exports = {
   enrollmentTemplateUsage,
   dockerfileEnvEntries,
   environmentVariablesForResponse,
+  includeTemplateWorkflows,
+  templatesResponseForRequest,
   templateEntryByName,
+  templateNameRequired,
   workflowsWithoutTemplate,
 };
