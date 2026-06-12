@@ -66,6 +66,9 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      - name: Upload coverage
+        uses: codecov/codecov-action@v5
+
       - name: Upload Playwright report
         if: always()
         uses: actions/upload-artifact@v4

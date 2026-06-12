@@ -1,9 +1,9 @@
 const path = require("path");
-const crypto = require("crypto");
 const fs = require("fs");
 const express = require("express");
 const { fetch: undiciFetch } = require("undici");
 const packageJson = require("./package.json");
+const { loadEnv } = require("./lib/env");
 const { registerConfigRoutes } = require("./api/config");
 const { createCreateHelpers } = require("./api/create");
 const { createEnrollHelpers, registerEnrollRoutes } = require("./api/enroll");
@@ -14,7 +14,7 @@ const { createOrderHelpers, registerOrderRoutes } = require("./api/order");
 const { registerRegistryWebhookRoutes } = require("./api/registry-webhooks");
 const { createReportHandlers } = require("./api/reports");
 const { registerSystemRoutes } = require("./api/system");
-const { authUserFromRequest, createAuthHelpers, maxInstancesValue } = require("./lib/auth");
+const { authUserFromRequest, createAuthHelpers, createPublicImageAccess, maxInstancesValue } = require("./lib/auth");
 const {
   asArray,
   bindPayloadsFromForm,
@@ -42,15 +42,37 @@ const { createMetrics, metricLabel, metricLine, operationLabel: operationLabelFo
 const { NetBoxClient, dockerHosts, hostIdQuery, setNetBoxFetchForTests } = require("./lib/netbox");
 const { createOidcAuth, setOidcFetchForTests } = require("./lib/oidc");
 const { createOperationHelpers, delay } = require("./lib/operations");
+const { createPublicApiGuard, requestOrigin, timingSafeStringEqual } = require("./lib/public-api");
 const { checkRegistryImageExists, setRegistryFetchForTests } = require("./lib/registry");
+const {
+  createRegistryWebhookEvents,
+  createRegistryWebhookHelpers,
+  githubPackageImage: githubPackageImageRaw,
+  githubPackageTag: githubPackageTagRaw,
+  imageFromDistributionTarget: imageFromDistributionTargetRaw,
+} = require("./lib/registry-webhooks");
 const { parseSmtpConfig, sendSmtpMail, smtpClientName, smtpMessage, smtpSenderAddress, smtpTransportOptions } = require("./lib/smtp");
 const { createStateStore, parseProfiles, plainObject } = require("./lib/state");
 const { createTemplateCatalogHelpers } = require("./lib/template-catalog");
 
+const env = loadEnv(process.env, __dirname);
 const app = express();
-const dataPath = path.resolve(process.env.DATAPATH || path.join(__dirname, "data"));
-const appPath = path.resolve(process.env.APPPATH || __dirname);
-const publicPath = path.join(appPath, "public");
+const {
+  adminAllowedEmails,
+  appOwnerEmail,
+  blockedEnrollmentImages,
+  createConfigureDelayMs,
+  createRecreateDelayMs,
+  dataPath,
+  oidc,
+  operationPollMs,
+  operationTimeoutSeconds,
+  publicApiAllowedOriginSet,
+  publicApiSecret,
+  publicPath,
+  registryWebhookSecret,
+  turnstileSecretKey,
+} = env;
 const saashupEmailLogo = (() => {
   try {
     return fs.readFileSync(path.join(publicPath, "assets/email/saashup-logo.png")).toString("base64");
@@ -59,50 +81,28 @@ const saashupEmailLogo = (() => {
   }
 })();
 const startedAt = Date.now();
-const operationTimeoutSeconds = Number(process.env.OPERATION_TIMEOUT_SECONDS || 30);
-const operationPollMs = Number(process.env.OPERATION_POLL_MS || 3000);
-const createConfigureDelayMs = Number(process.env.CREATE_CONFIGURE_DELAY_MS || 5000);
-const createRecreateDelayMs = Number(process.env.CREATE_RECREATE_DELAY_MS || 5000);
-const registryWebhookSecret = String(process.env.REGISTRY_WEBHOOK_SECRET || "");
-const appOwnerEmail = String(process.env.APP_OWNER_EMAIL || "").trim();
-const blockedEnrollmentImages = String(process.env.SAASHUP_ENROLL_BLOCKED_IMAGES || "")
-  .split(",")
-  .map((image) => image.trim().toLowerCase())
-  .filter(Boolean);
-const adminAllowedEmails = String(process.env.ADMIN_ALLOWED_EMAILS || "")
-  .split(",")
-  .map((email) => email.trim().toLowerCase())
-  .filter(Boolean);
-const publicImage = ["true", "1"].includes(String(process.env.PUBLIC_IMAGE || "").trim().toLowerCase());
-const publicApiAllowedOrigins = String(process.env.PUBLIC_API_ALLOWED_ORIGINS || "")
-  .split(",")
-  .map((origin) => origin.trim().replace(/\/+$/, ""))
-  .filter(Boolean);
-const publicApiAllowedOriginSet = new Set(publicApiAllowedOrigins.flatMap((origin) => {
-  try {
-    const url = new URL(origin);
-    const host = url.hostname.toLowerCase();
-    if (host === "saashup.com") return [origin, `${url.protocol}//www.saashup.com${url.port ? `:${url.port}` : ""}`];
-    if (host === "www.saashup.com") return [origin, `${url.protocol}//saashup.com${url.port ? `:${url.port}` : ""}`];
-  } catch {
-    return [origin];
-  }
-  return [origin];
-}));
-const publicApiSecret = String(process.env.PUBLIC_API_SECRET || "");
-const turnstileSecretKey = String(process.env.TURNSTILE_SECRET_KEY || "");
 const oidcAuth = createOidcAuth({
-  clientId: process.env.OIDC_CLIENT_ID || process.env.SAASHUP_OIDC_CLIENT_ID,
-  clientSecret: process.env.OIDC_CLIENT_SECRET || process.env.SAASHUP_OIDC_CLIENT_SECRET,
-  enabled: process.env.OIDC_ENABLED !== "false",
-  issuerUrl: process.env.OIDC_ISSUER_URL || process.env.KEYCLOAK_ISSUER_URL,
-  redirectUri: process.env.OIDC_REDIRECT_URI,
-  sessionSecret: process.env.SESSION_SECRET || process.env.SAASHUP_SESSION_SECRET,
+  clientId: oidc.clientId,
+  clientSecret: oidc.clientSecret,
+  enabled: oidc.enabled,
+  issuerUrl: oidc.issuerUrl,
+  redirectUri: oidc.redirectUri,
+  sessionSecret: oidc.sessionSecret,
 });
 
 const metrics = createMetrics();
 const { readState, writeState, logLine } = createStateStore(dataPath);
 const { isAdminAllowed, selectedProfileConfig } = createAuthHelpers({ adminAllowedEmails, readState });
+const canCreatePublicImage = createPublicImageAccess({ adminAllowedEmails, publicImage: env.publicImage });
+const publicApiGuard = createPublicApiGuard({
+  allowedOrigins: env.publicApiAllowedOrigins,
+  allowedOriginSet: publicApiAllowedOriginSet,
+  secret: publicApiSecret,
+});
+const registryWebhookEvents = createRegistryWebhookEvents({ imageNameFromRef, plainObject });
+const imageFromDistributionTarget = (target) => imageFromDistributionTargetRaw(target, plainObject);
+const githubPackageImage = (payload) => githubPackageImageRaw(payload, plainObject);
+const githubPackageTag = (payload) => githubPackageTagRaw(payload, plainObject);
 let smtpSender = sendSmtpMail;
 let turnstileFetch = undiciFetch;
 const {
@@ -791,169 +791,18 @@ function requireAdmin(req, res, next) {
   res.status(403).sendFile(path.join(publicPath, "forbidden.html"));
 }
 
-function canCreatePublicImage(req) {
-  if (publicImage) return true;
-  const { email } = authUserFromRequest(req);
-  return Boolean(email && adminAllowedEmails.includes(String(email).toLowerCase()));
-}
-
-function timingSafeStringEqual(left, right) {
-  const leftBuffer = Buffer.from(String(left || ""));
-  const rightBuffer = Buffer.from(String(right || ""));
-  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
-}
-
-function requestOrigin(req) {
-  const origin = String(req.get("origin") || "").replace(/\/+$/, "");
-  if (origin) return origin;
-  const referer = String(req.get("referer") || "");
-  if (!referer) return "";
-  try {
-    const url = new URL(referer);
-    return `${url.protocol}//${url.host}`;
-  } catch {
-    return "";
-  }
-}
-
-function publicApiSecretAllowed(req) {
-  if (!publicApiSecret) return false;
-  const provided = req.get("x-public-api-secret") || req.query.public_api_secret || "";
-  return timingSafeStringEqual(provided, publicApiSecret);
-}
-
-function publicApiSecretProvided(req) {
-  return Boolean(req.get("x-public-api-secret") || req.query.public_api_secret);
-}
-
-function publicApiAllowed(req) {
-  if (publicApiSecretAllowed(req)) return true;
-  if (publicApiSecretProvided(req)) return false;
-  const origin = requestOrigin(req);
-  if (!origin && req.method === "GET" && req.path === "/registry/check") return true;
-  return Boolean(origin && publicApiAllowedOriginSet.has(origin));
-}
-
-function publicApiGuard(req, res, next) {
-  const origin = requestOrigin(req);
-  if (origin && publicApiAllowedOriginSet.has(origin)) {
-    res.set("Access-Control-Allow-Origin", origin);
-    res.set("Vary", "Origin");
-  }
-  res.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  res.set("Access-Control-Allow-Headers", "Content-Type, X-Public-Api-Secret");
-  if (!publicApiAllowedOrigins.length && !publicApiSecret) {
-    return res.status(401).json({ detail: "public api is not configured" });
-  }
-  if (!publicApiAllowed(req)) return res.status(403).json({ detail: "public api access denied" });
-  if (req.method === "OPTIONS") return res.status(204).send("");
-  return next();
-}
-
-function templateMatchesRegistryWebhook(template, profile, image) {
-  const entry = plainObject(template);
-  const templateProfile = String(entry.config_profile || entry.profile || "").trim();
-  const templateImage = imageNameFromRef(entry.image || "");
-  return templateImage === image && (!templateProfile || templateProfile === profile);
-}
-
-function registryWebhookTemplates(profile, image) {
-  const templates = plainObject(readState().templates);
-  return Object.entries(templates)
-    .map(([name, template]) => ({ name, template: plainObject(template) }))
-    .filter((entry) => templateMatchesRegistryWebhook(entry.template, profile, image));
-}
-
-function registryWebhookTemplateSecret(profile, templateName, events = []) {
-  const entry = orderTemplateEntry(templateName);
-  if (!entry) return "";
-  const imageMatches = events.length
-    ? events.some((event) => templateMatchesRegistryWebhook(entry.template, profile, event.image))
-    : templateMatchesRegistryWebhook(entry.template, profile, "");
-  if (!imageMatches) return "";
-  return String(entry.template.registry_webhook_secret || entry.template.dockerhub_webhook_secret || "");
-}
-
-function registrySecretForTemplate(name, image = "") {
-  const entry = orderTemplateEntry(name);
-  if (!entry) return registryWebhookSecret;
-  if (image && !templateMatchesRegistryWebhook(entry.template, String(entry.template.config_profile || entry.template.profile || ""), imageNameFromRef(image))) return registryWebhookSecret;
-  return String(entry.template.registry_webhook_secret || entry.template.dockerhub_webhook_secret || registryWebhookSecret || "");
-}
-
-function addRegistryWebhookEvent(events, image, tag) {
-  const eventImage = imageNameFromRef(image || "");
-  const eventTag = String(tag || "").trim();
-  if (eventImage && eventTag) events.push({ image: eventImage, tag: eventTag });
-}
-
-function imageFromDistributionTarget(target) {
-  const entry = plainObject(target);
-  const url = String(entry.url || "");
-  if (!url) return entry.repository || "";
-  try {
-    const parsed = new URL(url);
-    const match = parsed.pathname.match(/^\/v2\/(.+)\/manifests\/[^/]+$/);
-    return match ? `${parsed.host}/${match[1]}` : entry.repository || "";
-  } catch {
-    return entry.repository || "";
-  }
-}
-
-function githubPackageImage(payload) {
-  const root = plainObject(payload);
-  const registryPackage = plainObject(root.registry_package || root.package);
-  const packageName = String(registryPackage.name || root.name || "").trim();
-  if (!packageName) return "";
-  if (packageName.includes("/") || packageName.startsWith("ghcr.io/")) return packageName;
-  const owner = plainObject(registryPackage.owner || root.organization || root.repository?.owner || root.sender);
-  const login = String(owner.login || owner.name || "").trim();
-  return login ? `ghcr.io/${login}/${packageName}` : packageName;
-}
-
-function githubPackageTag(payload) {
-  const root = plainObject(payload);
-  const version = plainObject(root.package_version || root.registry_package?.package_version);
-  const metadata = plainObject(version.container_metadata);
-  const tag = plainObject(metadata.tag);
-  return tag.name || version.name || root.package_version_name || "";
-}
-
-function registryWebhookEvents(payload) {
-  const body = plainObject(payload);
-  const events = [];
-
-  addRegistryWebhookEvent(events, body.repository?.repo_name, body.push_data?.tag);
-
-  const quayTags = Array.isArray(body.updated_tags) ? body.updated_tags : Array.isArray(body.docker_tags) ? body.docker_tags : [];
-  quayTags.forEach((tag) => addRegistryWebhookEvent(events, body.docker_url || body.repository, tag));
-
-  const distributionEvents = Array.isArray(body.events) ? body.events : [];
-  distributionEvents
-    .filter((event) => !event.action || event.action === "push")
-    .forEach((event) => {
-      const target = plainObject(event.target);
-      addRegistryWebhookEvent(events, imageFromDistributionTarget(target), target.tag);
-    });
-
-  addRegistryWebhookEvent(events, githubPackageImage(body), githubPackageTag(body));
-
-  return events;
-}
-
-function registryWebhookAllowed(req, events = registryWebhookEvents(req.body)) {
-  const profile = String(req.params.profile || "");
-  const template = String(req.params.template || req.query.template || "");
-  const matchingSecrets = template
-    ? [registryWebhookTemplateSecret(profile, template, events)].filter(Boolean)
-    : events.flatMap((event) => registryWebhookTemplates(profile, event.image)
-      .map((entry) => String(entry.template.registry_webhook_secret || entry.template.dockerhub_webhook_secret || ""))
-      .filter(Boolean));
-  const secrets = matchingSecrets.length ? matchingSecrets : [registryWebhookSecret].filter(Boolean);
-  if (!secrets.length) return true;
-  const provided = req.params.secret || req.query.secret || req.get("x-saashup-webhook-secret") || "";
-  return secrets.some((secret) => timingSafeStringEqual(provided, secret));
-}
+const {
+  registrySecretForTemplate,
+  registryWebhookAllowed,
+} = createRegistryWebhookHelpers({
+  imageNameFromRef,
+  orderTemplateEntry,
+  plainObject,
+  readState,
+  registryWebhookEvents,
+  registryWebhookSecret,
+  timingSafeStringEqual,
+});
 
 app.disable("x-powered-by");
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
@@ -1260,9 +1109,8 @@ app.use(express.static(publicPath));
 
 /* v8 ignore next 6 */
 if (require.main === module) {
-  const port = Number(process.env.PORT || 1880);
-  app.listen(port, () => {
-    console.log(`${packageJson.name} listening on ${port}`);
+  app.listen(env.port, () => {
+    console.log(`${packageJson.name} listening on ${env.port}`);
   });
 }
 
