@@ -1732,7 +1732,7 @@ input[type="checkbox"]:disabled {
   }
 
   .main {
-    padding: 76px 20px 20px;
+    padding: 18px 20px 20px;
   }
 
   .sidebar {
@@ -1765,6 +1765,7 @@ input[type="checkbox"]:disabled {
 
   .page-header {
     flex-direction: column;
+    padding-right: 54px;
   }
 
   .header-tools {
