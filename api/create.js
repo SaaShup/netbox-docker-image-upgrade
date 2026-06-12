@@ -22,6 +22,25 @@ function createCreateHelpers({
   volumePayloadsFromForm,
   waitForContainerConfigured,
 }) {
+  function logDriverOptionsList(options) {
+    if (typeof options === "string") {
+      try {
+        options = JSON.parse(options);
+      } catch {
+        return [];
+      }
+    }
+    if (!options || typeof options !== "object") return [];
+    if (Array.isArray(options)) return options;
+
+    return Object.entries(options)
+      .map(([name, value]) => {
+        if (!name || value === undefined) return "";
+        return `${String(name)}=${String(value)}`;
+      })
+      .filter(Boolean);
+  }
+
   function allHostsEnabled(data) {
     return data.all_hosts === true || data.all_hosts === "true" || data.all_hosts === "on";
   }
@@ -104,6 +123,14 @@ function createCreateHelpers({
       logLine(`CREATE : container ${containerPayload.name} created on ${hostName(selectedHost)}`);
       if (createConfigureDelayMs > 0) await delay(createConfigureDelayMs);
       const containerConfig = containerConfigPayloadFromForm(data, container.id);
+      if (containerConfig.log_driver && containerConfig.log_driver_options) {
+        const logOptions = logDriverOptionsList(containerConfig.log_driver_options);
+        if (logOptions.length) {
+          containerConfig.log_driver_options = logOptions;
+        } else {
+          delete containerConfig.log_driver_options;
+        }
+      }
       await client.request("PATCH", "/api/plugins/docker/containers/", { body: [containerConfig] });
       logLine(`CREATE : container ${containerPayload.name} configured on ${hostName(selectedHost)} env=${containerConfig.env.length} labels=${containerConfig.labels.length} mounts=${containerConfig.mounts.length}`);
       if (createRecreateDelayMs > 0) await delay(createRecreateDelayMs);

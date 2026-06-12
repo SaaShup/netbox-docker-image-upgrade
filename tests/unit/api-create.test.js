@@ -232,6 +232,48 @@ describe("api create helpers", () => {
     }));
   });
 
+  test("createInstance converts container log driver options to a list for NetBox patch", async () => {
+    const requestBodies = [];
+    const { helpers } = createHelpers({
+      containerConfigPayloadFromForm: (data, id) => ({
+        id,
+        env: [],
+        labels: [],
+        mounts: [],
+        log_driver: "syslog",
+        log_driver_options: { "syslog-address": "udp://127.0.0.1:5514", tag: "{{.Name}}" },
+      }),
+      NetBoxClient: class {
+        async list(path) {
+          if (path.includes("/containers/")) return [];
+          if (path.includes("/volumes/")) return [];
+          return [];
+        }
+        async request(method, path, options = {}) {
+          requestBodies.push({ method, path, body: options.body });
+          if (method === "POST" && path.includes("/containers/")) {
+            return { payload: { id: `container-${options.body.name}`, name: options.body.name, host: { name: "host-a" } } };
+          }
+          return { payload: {} };
+        }
+      },
+      volumePayloadsFromForm: () => [],
+    });
+
+    await helpers.createInstance({}, { instance: "tile", image: "repo/app", version: "1.0" }, {
+      isEnrollRequest: true,
+      isOrderRequest: false,
+      orderProfile: "prod",
+      authUser: { email: "owner@example.com" },
+    });
+
+    const patch = requestBodies.find((item) => item.method === "PATCH" && item.path === "/api/plugins/docker/containers/");
+    expect(patch?.body?.[0]?.log_driver_options).toEqual([
+      "syslog-address=udp://127.0.0.1:5514",
+      "tag={{.Name}}",
+    ]);
+  });
+
   test("createInstance skips volume creation when all requested volumes already exist", async () => {
     const requestBodies = [];
     const { calls, helpers } = createHelpers({
