@@ -197,7 +197,14 @@ describe("api config helpers", () => {
       plainObject,
     );
 
-    expect(sanitized.profiles.prod).toEqual({ domain: "example.com", tag: "tile" });
+    expect(sanitized.profiles.prod).toEqual({
+      domain: "example.com",
+      tag: "tile",
+      netbox_configured: true,
+      token_configured: true,
+      proxy_configured: false,
+      smtp_configured: false,
+    });
     expect(JSON.stringify(sanitized)).not.toContain("secret");
   });
 
@@ -214,6 +221,10 @@ describe("api config helpers", () => {
       customer_name: "",
       profile: "",
       config_profile: "",
+      netbox_configured: false,
+      token_configured: false,
+      proxy_configured: false,
+      smtp_configured: false,
       profiles: {},
     });
   });
@@ -319,7 +330,7 @@ describe("api config routes", () => {
     expect(templateSecretRes.body).toEqual({ secret: "Tile:none", default_secret: "default-secret" });
   });
 
-  test("config route redacts secrets for non-admin users only", async () => {
+  test("config route redacts credentials for all users", async () => {
     const state = {
       config: {
         customer_name: "Acme",
@@ -355,17 +366,31 @@ describe("api config routes", () => {
 
     const nonAdminRes = mockResponse();
     await nonAdmin.routes["GET /config"]({}, nonAdminRes);
-    expect(nonAdminRes.body.profiles.prod).toMatchObject({ domain: "example.com", tag: "tile", enrollment_limit: 2 });
+    expect(nonAdminRes.body.profiles.prod).toMatchObject({
+      domain: "example.com",
+      tag: "tile",
+      enrollment_limit: 2,
+      netbox_configured: true,
+      token_configured: true,
+      proxy_configured: true,
+      smtp_configured: true,
+    });
     expect(JSON.stringify(nonAdminRes.body)).not.toContain("secret");
+    expect(JSON.stringify(nonAdminRes.body)).not.toContain("netbox.example.com");
 
     const adminRes = mockResponse();
     await admin.routes["GET /config"]({}, adminRes);
-    expect(adminRes.body).toMatchObject({
-      netbox: "https://netbox.example.com",
-      token: "secret",
-      proxy: "http://proxy:secret@example.com",
-      smtp_config: "mailer:smtp-secret@smtp.example.com:587",
+    expect(adminRes.body.profiles.prod).toMatchObject({
+      domain: "example.com",
+      tag: "tile",
+      enrollment_limit: 2,
+      netbox_configured: true,
+      token_configured: true,
+      proxy_configured: true,
+      smtp_configured: true,
     });
+    expect(JSON.stringify(adminRes.body)).not.toContain("secret");
+    expect(JSON.stringify(adminRes.body)).not.toContain("netbox.example.com");
   });
 
   test("config route defaults to non-admin responses", async () => {
@@ -394,7 +419,7 @@ describe("api config routes", () => {
     const res = mockResponse();
     await routes["GET /config"]({}, res);
 
-    expect(res.body.profiles.prod).toEqual({ domain: "example.com" });
+    expect(res.body.profiles.prod).toMatchObject({ domain: "example.com", netbox_configured: true, token_configured: true });
     expect(JSON.stringify(res.body)).not.toContain("secret");
   });
 
@@ -422,6 +447,51 @@ describe("api config routes", () => {
       query: { profile: "filtered", cloudflare_filter: "false", profiles: JSON.stringify({ filtered: {} }) },
     }, cloudflareRes);
     expect(cloudflareRes.body.cloudflare_filter).toBe(false);
+
+    const preserve = createRoutes();
+    preserve.setState({
+      config: {
+        customer_name: "Acme",
+        profile: "prod",
+        config_profile: "prod",
+        profiles: {
+          prod: {
+            netbox: "https://netbox.example.com",
+            token: "secret",
+            proxy: "http://proxy:secret@example.com",
+            smtp_config: "mailer:smtp-secret@smtp.example.com:587",
+            domain: "old.example.com",
+            tag: "old",
+          },
+        },
+      },
+      templates: {},
+      workflows: {},
+      logs: "",
+    });
+    const preserveRes = mockResponse();
+    await preserve.routes["GET /webhook"]({
+      query: {
+        profile: "prod",
+        domain: "new.example.com",
+        tag: "new",
+        profiles: JSON.stringify({
+          prod: {
+            netbox_configured: true,
+            token_configured: true,
+            smtp_configured: true,
+          },
+        }),
+      },
+    }, preserveRes);
+    expect(preserveRes.body).toMatchObject({
+      netbox: "https://netbox.example.com",
+      token: "secret",
+      proxy: "http://proxy:secret@example.com",
+      smtp_config: "mailer:smtp-secret@smtp.example.com:587",
+      domain: "new.example.com",
+      tag: "new",
+    });
 
     const failed = createRoutes({
       syncTemplatesToNetBoxConfigContext: async () => { throw {}; },

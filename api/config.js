@@ -52,9 +52,22 @@ function publicConfigForResponse(config, selectedProfileConfig, parseProfiles, p
     "cloudflare_filter",
     "saashup_default",
   ];
-  const publicProfile = (profile) => Object.fromEntries(publicProfileFields
-    .filter((key) => plainObject(profile)[key] !== undefined)
-    .map((key) => [key, plainObject(profile)[key]]));
+  const credentialFields = {
+    netbox: "netbox_configured",
+    token: "token_configured",
+    proxy: "proxy_configured",
+    smtp_config: "smtp_configured",
+  };
+  const publicProfile = (profile) => {
+    const data = plainObject(profile);
+    return {
+      ...Object.fromEntries(publicProfileFields
+        .filter((key) => data[key] !== undefined)
+        .map((key) => [key, data[key]])),
+      ...Object.fromEntries(Object.entries(credentialFields)
+        .map(([key, flag]) => [flag, Boolean(data[key] || data[flag])])),
+    };
+  };
   const profiles = Object.fromEntries(Object.entries(plainObject(expanded.profiles))
     .map(([name, profile]) => [name, publicProfile(profile)]));
 
@@ -130,7 +143,6 @@ function registerConfigRoutes(app, {
   registrySecretForTemplate,
   registryWebhookSecret,
   requireAdmin,
-  isAdminAllowed = () => false,
   selectedProfileConfig,
   sendContactEmail,
   sendTestEmail,
@@ -148,10 +160,7 @@ function registerConfigRoutes(app, {
       res.json({});
       return;
     }
-    const responseConfig = isAdminAllowed(req)
-      ? expandedConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject)
-      : publicConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject);
-    res.json(responseConfig);
+    res.json(publicConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject));
   });
   app.get("/mail-settings", requireAdmin, (req, res) => res.json({ owner_email_configured: Boolean(appOwnerEmail) }));
   app.get("/registry-webhook-secret", requireAdmin, (req, res) => {
@@ -203,8 +212,15 @@ function registerConfigRoutes(app, {
   app.get("/webhook", requireAdmin, async (req, res) => {
     const profileName = req.query.profile || req.query.config_profile || "";
     const configProfileName = req.query.config_profile || req.query.profile || "";
+    const existingConfig = plainObject(readState().config);
+    const storedProfiles = parseProfiles(existingConfig.profiles);
     const parsedProfiles = profilesWithSingleDefault(normalizeImportedProfiles(parseProfiles(req.query.profiles), maxInstancesValue, plainObject));
     const selectedInputProfile = plainObject(parsedProfiles[profileName]);
+    const existingProfile = plainObject(storedProfiles[profileName]);
+    const secretValue = (key) => {
+      const values = [req.query[key], selectedInputProfile[key], existingProfile[key], existingConfig[key]];
+      return values.find((value) => String(value || "").trim()) || "";
+    };
     const selectedProfileLimit = selectedInputProfile.enrollment_limit
       ?? selectedInputProfile.max_templates
       ?? selectedInputProfile.max_instances;
@@ -216,15 +232,15 @@ function registerConfigRoutes(app, {
     if (profileName) {
       parsedProfiles[profileName] = {
         ...selectedInputProfile,
-        netbox: req.query.netbox ?? selectedInputProfile.netbox ?? "",
-        token: req.query.token ?? selectedInputProfile.token ?? "",
-        proxy: req.query.proxy ?? selectedInputProfile.proxy ?? "",
+        netbox: secretValue("netbox"),
+        token: secretValue("token"),
+        proxy: secretValue("proxy"),
         domain: req.query.domain ?? selectedInputProfile.domain ?? "",
         tag: req.query.tag ?? selectedInputProfile.tag ?? "",
         enrollment_limit: enrollmentLimit,
         owner_env_var: ownerEnvVar,
         cloudflare_filter: cloudflareFilter,
-        smtp_config: req.query.smtp_config ?? selectedInputProfile.smtp_config ?? "",
+        smtp_config: secretValue("smtp_config"),
       };
     }
     const profiles = profilesWithSingleDefault(parsedProfiles);

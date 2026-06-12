@@ -1553,13 +1553,21 @@ function profileCredentials(name = currentConfigProfile) {
     netbox: profile.netbox || "",
     token: profile.token || "",
     proxy: profile.proxy || "",
+    netbox_configured: Boolean(profile.netbox || profile.netbox_configured),
+    token_configured: Boolean(profile.token || profile.token_configured),
+    proxy_configured: Boolean(profile.proxy || profile.proxy_configured),
     domain: profile.domain || "",
     tag: profile.tag || "",
     enrollment_limit: enrollmentLimitValue(profile),
     owner_env_var: ownerEnvVarValue(profile.owner_env_var),
     cloudflare_filter: checkboxValue(profile.cloudflare_filter, true),
     smtp_config: smtpConfigValue(profile),
+    smtp_configured: Boolean(profile.smtp_config || profile.smtp_configured),
   };
+}
+
+function profileHasNetBoxCredentials(credentials = selectedProfileCredentials()) {
+  return Boolean((credentials.netbox && credentials.token) || (credentials.netbox_configured && credentials.token_configured));
 }
 
 function normalizeMaxInstances(value) {
@@ -4856,16 +4864,27 @@ function loadSavedConfig() {
 
 async function test() {
   let { netbox, token, proxy } = selectedProfileCredentials();
+  let credentials = selectedProfileCredentials();
 
   if (!netbox || !token) {
     const config = await loadSavedConfig();
-    const credentials = selectedProfileCredentials();
-    netbox = netbox || credentials.netbox || config.netbox || "";
-    token = token || credentials.token || config.token || "";
-    proxy = proxy || credentials.proxy || config.proxy || "";
+    const refreshedCredentials = selectedProfileCredentials();
+    credentials = refreshedCredentials;
+    netbox = netbox || refreshedCredentials.netbox || config.netbox || "";
+    token = token || refreshedCredentials.token || config.token || "";
+    proxy = proxy || refreshedCredentials.proxy || config.proxy || "";
   }
 
   if (!netbox || !token) {
+    const refreshedCredentials = selectedProfileCredentials();
+    if (profileHasNetBoxCredentials(refreshedCredentials)) {
+      netbox = netbox || "";
+      token = token || "";
+      proxy = proxy || "";
+    }
+  }
+
+  if ((!netbox || !token) && !profileHasNetBoxCredentials(selectedProfileCredentials())) {
     setTestButtonState("error");
     setNotice("Save NetBox URL and token for this profile first", "error");
     return;
@@ -4880,6 +4899,8 @@ async function test() {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        profile: credentials.profile,
+        config_profile: credentials.profile,
         netbox,
         token,
         proxy,
@@ -4914,7 +4935,7 @@ async function testEmail() {
   const credentials = selectedProfileCredentials();
   const smtp_config = fieldValue("smtp_config") || credentials.smtp_config || "";
 
-  if (!smtp_config) {
+  if (!smtp_config && !credentials.smtp_configured) {
     setNotice("SMTP config is required", "error");
     return;
   }
@@ -4977,13 +4998,15 @@ async function saveConfig() {
   const cloudflare_filter = fieldChecked("cloudflare_filter", true);
   const smtp_config = fieldValue("smtp_config");
   const saashup_default = Boolean(configDefaultInput?.checked && !configDefaultInput.disabled);
+  const existingCredentials = profileCredentials(profile);
+  const hasExistingNetBoxCredentials = profileHasNetBoxCredentials(existingCredentials);
 
   if (!profile) {
     setNotice("Profile name is required", "error");
     return;
   }
 
-  if (!netbox || !token) {
+  if ((!netbox || !token) && !hasExistingNetBoxCredentials) {
     setNotice("NetBox URL and token are required", "error");
     return;
   }
@@ -5003,7 +5026,22 @@ async function saveConfig() {
   setFieldValue("tag", tag);
   setFieldValue("enrollment_limit", enrollment_limit);
   setFieldValue("owner_env_var", owner_env_var);
-  configProfiles[profile] = { netbox, token, proxy, domain, tag, enrollment_limit, owner_env_var, cloudflare_filter, smtp_config, ...(saashup_default ? { saashup_default: true } : {}) };
+  configProfiles[profile] = {
+    ...(netbox ? { netbox } : {}),
+    ...(token ? { token } : {}),
+    ...(proxy ? { proxy } : {}),
+    ...(smtp_config ? { smtp_config } : {}),
+    netbox_configured: Boolean(netbox || existingCredentials.netbox_configured),
+    token_configured: Boolean(token || existingCredentials.token_configured),
+    proxy_configured: Boolean(proxy || existingCredentials.proxy_configured),
+    smtp_configured: Boolean(smtp_config || existingCredentials.smtp_configured),
+    domain,
+    tag,
+    enrollment_limit,
+    owner_env_var,
+    cloudflare_filter,
+    ...(saashup_default ? { saashup_default: true } : {}),
+  };
   if (saashup_default) enforceSingleDefaultConfig(profile);
   currentConfigProfile = profile;
   updateProfileOptions();
@@ -5192,7 +5230,7 @@ function workflowCreateBody(template, templateName) {
   template = normalizeCreateTemplate(template);
   const profileName = template.config_profile || template.profile || currentConfigProfile || "";
   const credentials = profileCredentials(profileName);
-  if (!credentials.netbox || !credentials.token) throw new Error(`Config "${profileLabel(profileName)}" is missing NetBox URL or token`);
+  if (!profileHasNetBoxCredentials(credentials)) throw new Error(`Config "${profileLabel(profileName)}" is missing NetBox URL or token`);
 
   const instanceName = String(template.instance || templateName || "").trim();
   const hasTraefik = checkboxValue(template.traefik, true);
@@ -5290,7 +5328,7 @@ function workflowDeleteBody(template, templateName) {
   template = normalizeCreateTemplate(template);
   const profileName = template.config_profile || template.profile || currentConfigProfile || "";
   const credentials = profileCredentials(profileName);
-  if (!credentials.netbox || !credentials.token) throw new Error(`Config "${profileLabel(profileName)}" is missing NetBox URL or token`);
+  if (!profileHasNetBoxCredentials(credentials)) throw new Error(`Config "${profileLabel(profileName)}" is missing NetBox URL or token`);
 
   const image = String(template.image || "").trim();
   if (!image) throw new Error(`Template "${templateName}" is missing an image name for delete`);
@@ -5312,7 +5350,7 @@ function workflowUpgradeBody(template, templateName) {
   template = normalizeCreateTemplate(template);
   const profileName = template.config_profile || template.profile || currentConfigProfile || "";
   const credentials = profileCredentials(profileName);
-  if (!credentials.netbox || !credentials.token) throw new Error(`Config "${profileLabel(profileName)}" is missing NetBox URL or token`);
+  if (!profileHasNetBoxCredentials(credentials)) throw new Error(`Config "${profileLabel(profileName)}" is missing NetBox URL or token`);
 
   const image = String(template.image || "").trim();
   if (!image) throw new Error(`Template "${templateName}" is missing an image name for upgrade`);
@@ -5484,7 +5522,7 @@ async function submitAction(config, submitter) {
     return;
   }
 
-  if (!isOrderPage && !isEnrollPage && (!credentials.netbox || !credentials.token)) {
+  if (!isOrderPage && !isEnrollPage && !profileHasNetBoxCredentials(credentials)) {
     setNotice("Save NetBox URL and token for this profile first", "error");
     return;
   }
