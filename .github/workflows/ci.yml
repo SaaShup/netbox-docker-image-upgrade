@@ -51,9 +51,6 @@ jobs:
       - name: Run unit tests with coverage
         run: npm run coverage
 
-      - name: Upload coverage
-        uses: codecov/codecov-action@v5
-
       - name: Run end-to-end tests
         run: npm run test:e2e
 
