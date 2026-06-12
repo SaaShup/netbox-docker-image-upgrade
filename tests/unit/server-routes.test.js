@@ -1,8 +1,10 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const express = require("express");
 const supertest = require("supertest");
 const packageJson = require("../../package.json");
+const { registerSystemRoutes } = require("../../api/system");
 const activeTestServers = [];
 
 function jsonResponse(payload, status = 200) {
@@ -751,7 +753,7 @@ describe("server routes", () => {
     });
   });
 
-  test("session user reports public image permission from env and admin allow-list", async () => {
+  test("session user reports public image permission from env only", async () => {
     const disabled = await loadServer({ adminEmails: "allowed@example.com", publicImage: "false" });
     await disabled.request.get("/session/user").set("x-auth-request-email", "buyer@example.com").expect(200).expect((res) => {
       expect(res.body.admin).toBe(false);
@@ -759,13 +761,19 @@ describe("server routes", () => {
     });
     await disabled.request.get("/session/user").set("x-auth-request-email", "allowed@example.com").expect(200).expect((res) => {
       expect(res.body.admin).toBe(true);
-      expect(res.body.public_image).toBe(true);
+      expect(res.body.public_image).toBe(false);
     });
 
     const enabled = await loadServer({ adminEmails: "allowed@example.com", publicImage: "true" });
     await enabled.request.get("/session/user").set("x-auth-request-email", "buyer@example.com").expect(200).expect((res) => {
       expect(res.body.admin).toBe(false);
       expect(res.body.public_image).toBe(true);
+    });
+
+    const openAdmin = await loadServer({ adminEmails: "", publicImage: "false" });
+    await openAdmin.request.get("/session/user").set("x-auth-request-email", "buyer@example.com").expect(200).expect((res) => {
+      expect(res.body.admin).toBe(true);
+      expect(res.body.public_image).toBe(false);
     });
   });
 
@@ -830,7 +838,7 @@ describe("server routes", () => {
       });
   });
 
-  test("returns 403 for non-admin enroll access when public images are disabled", async () => {
+  test("returns 403 for enroll access when public images are disabled", async () => {
     const { request } = await loadServer({ adminEmails: "admin@example.com", publicImage: "false" });
 
     await request.get("/enroll")
@@ -849,10 +857,70 @@ describe("server routes", () => {
 
     await request.get("/enroll")
       .set("x-auth-request-email", "admin@example.com")
-      .expect(200)
+      .expect(403)
       .expect((res) => {
-        expect(res.text).toContain("<html");
+        expect(res.text).toContain("403 forbidden");
       });
+  });
+
+  test("returns 403 for enroll access when public images are 0 or unset", async () => {
+    for (const publicImage of ["0", ""]) {
+      const { request } = await loadServer({ adminEmails: "admin@example.com", publicImage });
+
+      await request.get("/enroll")
+        .set("x-auth-request-email", "buyer@example.com")
+        .expect(403)
+        .expect((res) => {
+          expect(res.text).toContain("403 forbidden");
+        });
+
+      await request.get("/enroll")
+        .set("x-auth-request-email", "admin@example.com")
+        .expect(403)
+        .expect((res) => {
+          expect(res.text).toContain("403 forbidden");
+        });
+    }
+  });
+
+  test("returns 403 for enroll access when admin allow-list is empty and public images are disabled", async () => {
+    const { request } = await loadServer({ adminEmails: "", publicImage: "false" });
+
+    await request.get("/enroll")
+      .set("x-auth-request-email", "buyer@example.com")
+      .expect(403)
+      .expect((res) => {
+        expect(res.text).toContain("403 forbidden");
+      });
+  });
+
+  test("redirects anonymous OIDC enroll requests to login before authorization checks", async () => {
+    const app = express();
+    registerSystemRoutes(app, {
+      authUserFromRequest: () => ({}),
+      canCreatePublicImage: () => false,
+      isAdminAllowed: () => false,
+      oidcAuth: {
+        attachUser: (req, res, next) => next(),
+        callback: (req, res) => res.status(204).end(),
+        enabled: true,
+        login: (req, res) => res.status(204).end(),
+        loginRequired: (req, res) => res.redirect(`/login?rd=${encodeURIComponent(req.originalUrl)}`),
+        logout: (req, res) => res.status(204).end(),
+      },
+      packageJson,
+      publicPath: path.resolve(__dirname, "../../public"),
+      requireAdmin: (req, res) => res.status(403).end(),
+    });
+    const request = supertest(app);
+
+    await request.get("/enroll").expect(302).expect((res) => {
+      expect(res.headers.location).toContain("/login?rd=%2Fenroll");
+    });
+
+    await request.get("/enroll.html").expect(302).expect((res) => {
+      expect(res.headers.location).toContain("/login?rd=%2Fenroll.html");
+    });
   });
 
   test("checks Docker Hub registry image availability", async () => {
@@ -1265,11 +1333,13 @@ describe("server routes", () => {
       });
 
     await request.get("/config").expect(200).expect((res) => {
-      expect(res.body.owner_env_var).toBe("SAASHUP_OWNER");
       expect(res.body.profile).toBe("prod");
       expect(res.body.customer_name).toBe("CuriooCity");
-      expect(parseProfiles(res.body.profiles).prod.saashup_default).toBe(true);
-      expect(parseProfiles(res.body.profiles).dev.saashup_default).toBeUndefined();
+      expect(res.body.owner_env_var).toBeUndefined();
+      const profiles = parseProfiles(res.body.profiles);
+      expect(profiles.prod.owner_env_var).toBe("SAASHUP_OWNER");
+      expect(profiles.prod.saashup_visible).toBe(true);
+      expect(profiles.dev.saashup_visible).toBe(true);
     });
     await request.post("/templates").set("x-auth-request-email", "owner@example.com").send({ tile: { image: "saashup/tile" } }).expect(200);
     await request.get("/templates").set("x-auth-request-email", "owner@example.com").expect(200).expect((res) => {
@@ -1950,11 +2020,54 @@ describe("server routes", () => {
     expect(contextWrites[1].body.data.saashup_owner).toBeUndefined();
   });
 
+  test("templates route merges workflows across visible profiles", async () => {
+    const { dataPath, request } = await loadServer();
+    writeState(dataPath, {
+      config: {
+        profile: "alpha",
+        config_profile: "alpha",
+        profiles: {
+          beta: { tag: "beta", saashup_visible: true },
+          alpha: { tag: "alpha", saashup_visible: true },
+          hidden: { tag: "hidden", saashup_visible: false },
+        },
+      },
+      templates: {
+        Tile: { image: "saashup/tile" },
+      },
+      workflows: {
+        deploy: { steps: [{ template: "Tile" }] },
+      },
+      logs: "",
+    });
+
+    await request.get("/templates")
+      .query({ include_workflows: "true" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.profiles).toEqual(["alpha", "beta"]);
+        expect(res.body.workflows.deploy).toMatchObject({
+          config_profile: "alpha",
+          steps: [{ template: "Tile" }],
+        });
+      });
+  });
+
   test("calls NetBox for read endpoints", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock, { emptyImagesForName: "saashup/missing" });
     writeState(dataPath, {
-      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 3 },
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        tag: "tile",
+        max_instances: 3,
+        profile: "prod",
+        config_profile: "prod",
+        profiles: {
+          prod: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 3, saashup_visible: true },
+        },
+      },
       templates: {},
       order_counts: {},
       logs: "",
@@ -2254,7 +2367,17 @@ describe("server routes", () => {
   test("returns NetBox read errors and empty-list fallbacks", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
     writeState(dataPath, {
-      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 3 },
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        tag: "tile",
+        max_instances: 3,
+        profile: "prod",
+        config_profile: "prod",
+        profiles: {
+          prod: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 3, saashup_visible: true },
+        },
+      },
       templates: {},
       order_counts: {},
       logs: "",
@@ -2365,7 +2488,17 @@ describe("server routes", () => {
       ],
     });
     writeState(dataPath, {
-      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", enrollment_limit: 4, profile: "prod", config_profile: "prod" },
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        tag: "tile",
+        enrollment_limit: 4,
+        profile: "prod",
+        config_profile: "prod",
+        profiles: {
+          prod: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 1, saashup_visible: true },
+        },
+      },
       logs: "",
     });
 
@@ -2385,7 +2518,7 @@ describe("server routes", () => {
       expect(res.body.total_used).toBe(2);
     });
     await request.get("/order/limit").expect(200).expect((res) => {
-      expect(res.body.profile).toBe("");
+      expect(res.body.profile).toBe("prod");
     });
     await request.post("/create")
       .set("x-auth-request-email", "buyer@example.com")
@@ -2396,7 +2529,17 @@ describe("server routes", () => {
       });
 
     writeState(dataPath, {
-      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", enrollment_limit: 4, profile: "prod", config_profile: "prod" },
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        tag: "tile",
+        enrollment_limit: 4,
+        profile: "prod",
+        config_profile: "prod",
+        profiles: {
+          prod: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", max_instances: 1, saashup_visible: true },
+        },
+      },
       logs: "",
     });
     await request.post("/create")
@@ -3288,7 +3431,7 @@ describe("server routes", () => {
       expect(res.text).toContain("Order Saashup Instance");
     });
     await request.get("/enroll.html").set("x-auth-request-email", "buyer@example.com").expect(200).expect((res) => {
-      expect(res.text).toContain("Enroll Saashup Instance");
+      expect(res.text).toContain("Enroll Saashup Image");
       expect(res.text).toContain('id="submitBtn" disabled');
       expect(res.headers["cache-control"]).toContain("no-store");
     });
@@ -5155,13 +5298,11 @@ describe("server routes", () => {
   test("create wait mode reports failures and marks order failed", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock);
-    let hostsCalled = 0;
     rejectNextMatchingNetBoxFetch(
       fetchMock,
       (url, options) => (
-        url.pathname.replace(/\/$/, "") === "/api/plugins/docker/hosts"
-        && String(options.method || "GET").toUpperCase() === "GET"
-        && ++hostsCalled >= 2
+        url.pathname === "/api/plugins/docker/containers/"
+        && String(options.method || "GET").toUpperCase() === "POST"
       ),
       Object.assign(new Error("netbox unavailable"), { statusCode: 503, payload: { detail: "down" } }),
     );
@@ -5241,13 +5382,11 @@ describe("server routes", () => {
   test("create wait mode reports failures without an order reservation", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock);
-    let hostsCalled = 0;
     rejectNextMatchingNetBoxFetch(
       fetchMock,
       (url, options) => (
-        url.pathname.replace(/\/$/, "") === "/api/plugins/docker/hosts"
-        && String(options.method || "GET").toUpperCase() === "GET"
-        && ++hostsCalled >= 2
+        url.pathname === "/api/plugins/docker/containers/"
+        && String(options.method || "GET").toUpperCase() === "POST"
       ),
       Object.assign(new Error("wait create failed"), { statusCode: 502, payload: { detail: "bad gateway" } }),
     );

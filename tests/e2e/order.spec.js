@@ -95,6 +95,7 @@ test("order page creates an instance from the requested template", async ({ page
         proxy: "",
         domain: "daily.paashup.cloud",
         tag: "TILE",
+        saashup_visible: true,
       },
     }),
   }, templates, (route) => {
@@ -179,7 +180,7 @@ test("order page informs the user when the max instance limit is reached", async
     });
   });
 
-  await page.route("**/order/limit?**", async (route) => {
+  await page.route("**/order/limit*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -296,7 +297,7 @@ test("order page remains usable when public images are disabled for non-admin us
     });
   });
 
-  await page.route("**/order/limit?**", async (route) => {
+  await page.route("**/order/limit*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -368,7 +369,7 @@ test("order page shows oauth user and logs out through app auth", async ({ page 
       ]),
     });
   });
-  await page.route("**/order/limit?**", async (route) => {
+  await page.route("**/order/limit*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -448,7 +449,7 @@ test("order page shows cached oauth user while refreshing session", async ({ pag
       ]),
     });
   });
-  await page.route("**/order/limit?**", async (route) => {
+  await page.route("**/order/limit*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -540,6 +541,21 @@ test("order page generates and submits an instance name when the template has no
       body: "{}",
     });
   });
+  await page.route("**/order/limit*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        instances: [],
+        max: 1,
+        profile: "tile",
+        remaining: 1,
+        reached: false,
+        used: 0,
+        total_used: 0,
+      }),
+    });
+  });
 
   const imagesRequest = page.waitForRequest(
     (request) => request.method() === "GET" && new URL(request.url()).pathname.endsWith("/images"),
@@ -555,6 +571,7 @@ test("order page generates and submits an instance name when the template has no
         proxy: "",
         domain: "daily.paashup.cloud",
         tag: "TILE",
+        saashup_visible: true,
       },
     }),
   }, templates, [
@@ -615,7 +632,7 @@ test("order page uses the server default profile for bare template links", async
     }));
   });
 
-  await page.route("**/order/limit?**", async (route) => {
+  await page.route("**/order/limit*", async (route) => {
     const url = new URL(route.request().url());
     await route.fulfill({
       status: 200,
@@ -685,9 +702,9 @@ test("order page uses the server default profile for bare template links", async
 });
 
 test("order page without a template lists all owned containers", async ({ page }) => {
-  await page.route("**/order/limit?**", async (route) => {
+  await page.route("**/order/limit*", async (route) => {
     const url = new URL(route.request().url());
-    expect(url.searchParams.get("template")).toBe("");
+    expect(url.searchParams.get("template")).toBeNull();
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -708,6 +725,7 @@ test("order page without a template lists all owned containers", async ({ page }
 
   await openAdmin(page, {
     profile: "prod",
+    public_image: true,
     profiles: JSON.stringify({
       prod: {
         netbox: "https://netbox.example.com",
@@ -786,6 +804,21 @@ test("order page displays an error when create is not accepted", async ({ page }
       body: "{}",
     });
   });
+  await page.route("**/order/limit*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        instances: [],
+        max: 1,
+        profile: "tile",
+        remaining: 1,
+        reached: false,
+        used: 0,
+        total_used: 0,
+      }),
+    });
+  });
 
   await openAdmin(page, {
     profile: "tile",
@@ -796,6 +829,7 @@ test("order page displays an error when create is not accepted", async ({ page }
         proxy: "",
         domain: "daily.paashup.cloud",
         tag: "TILE",
+        saashup_visible: true,
       },
     }),
   }, templates, [
@@ -832,6 +866,21 @@ test("order page no button redirects to home", async ({ page }) => {
       body: JSON.stringify([{ name: "saashup/curiootiles", version: "v2.0.0" }]),
     });
   });
+  await page.route("**/order/limit*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        instances: [],
+        max: 1,
+        profile: "tile",
+        remaining: 1,
+        reached: false,
+        used: 0,
+        total_used: 0,
+      }),
+    });
+  });
 
   await openAdmin(page, {
     profile: "tile",
@@ -842,10 +891,12 @@ test("order page no button redirects to home", async ({ page }) => {
         proxy: "",
         domain: "daily.paashup.cloud",
         tag: "TILE",
+        saashup_visible: true,
       },
     }),
   }, templates, [], undefined, "/order?template=curiootiles");
 
+  await expect(page.locator("#orderActions")).toBeVisible();
   await page.locator("#orderCancelBtn").click();
   await expect(page).toHaveURL(/\/curiootiles-home$/);
 });

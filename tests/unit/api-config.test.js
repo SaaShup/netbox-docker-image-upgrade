@@ -128,7 +128,12 @@ describe("api config helpers", () => {
   test("expandedConfigForResponse merges selected profile config when available", () => {
     const config = { customer_name: "Acme", profile: "prod", profiles: { prod: { tag: "prod" } } };
     const expanded = configHelpers.expandedConfigForResponse(config, ({ profile }) => ({ extra: profile }), (profiles) => profiles, (profiles) => profiles, plainObject);
-    expect(expanded).toMatchObject({ customer_name: "Acme", profile: "prod", config_profile: "prod", extra: "prod" });
+    expect(expanded).toMatchObject({
+      customer_name: "Acme",
+      profile: "prod",
+      config_profile: "prod",
+      profiles: { prod: { tag: "prod", extra: "prod" } },
+    });
 
     const empty = configHelpers.expandedConfigForResponse({}, () => ({ extra: "unused" }), (profiles) => profiles || {}, (profiles) => profiles, plainObject);
     expect(empty).toEqual({ customer_name: "", profile: "", config_profile: "", profiles: {} });
@@ -147,6 +152,7 @@ describe("api config helpers", () => {
           tag: "tile",
           enrollment_limit: 2,
           smtp_config: "mailer:smtp-secret@smtp.example.com:587",
+          saashup_visible: true,
         },
       },
     };
@@ -163,18 +169,137 @@ describe("api config helpers", () => {
       customer_name: "Acme",
       profile: "prod",
       config_profile: "prod",
-      domain: "example.com",
-      tag: "tile",
-      enrollment_limit: 2,
       profiles: {
         prod: { domain: "example.com", tag: "tile", enrollment_limit: 2 },
       },
     });
+    expect(sanitized.domain).toBeUndefined();
+    expect(sanitized.tag).toBeUndefined();
+    expect(sanitized.enrollment_limit).toBeUndefined();
     expect(JSON.stringify(sanitized)).not.toContain("secret");
     expect(sanitized.netbox).toBeUndefined();
     expect(sanitized.token).toBeUndefined();
     expect(sanitized.proxy).toBeUndefined();
     expect(sanitized.smtp_config).toBeUndefined();
+  });
+
+  test("publicConfigForResponse adds selected profile metadata when profiles omit it", () => {
+    const config = {
+      customer_name: "Acme",
+      profile: "prod",
+      profiles: {},
+    };
+
+    const sanitized = configHelpers.publicConfigForResponse(
+      config,
+      () => ({
+        domain: "example.com",
+        tag: "tile",
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        saashup_visible: true,
+      }),
+      (profiles) => profiles,
+      (profiles) => profiles,
+      plainObject,
+    );
+
+    expect(sanitized.profiles.prod).toEqual({
+      domain: "example.com",
+      tag: "tile",
+      netbox_configured: true,
+      token_configured: true,
+      proxy_configured: false,
+      smtp_configured: false,
+      saashup_visible: true,
+    });
+    expect(JSON.stringify(sanitized)).not.toContain("secret");
+  });
+
+  test("publicConfigForResponse returns empty strings for missing config identity", () => {
+    const sanitized = configHelpers.publicConfigForResponse(
+      {},
+      () => ({}),
+      (profiles) => profiles || {},
+      (profiles) => profiles,
+      plainObject,
+    );
+
+    expect(sanitized).toEqual({
+      customer_name: "",
+      profile: "",
+      config_profile: "",
+      profiles: {},
+    });
+  });
+
+  test("publicConfigForResponse hides selected identity when the profile is not visible", () => {
+    const config = {
+      customer_name: "Acme",
+      profile: "hidden",
+      config_profile: "hidden",
+      profiles: {
+        hidden: { domain: "hidden.example.com", tag: "hidden", saashup_visible: false },
+      },
+    };
+
+    const sanitized = configHelpers.publicConfigForResponse(
+      config,
+      ({ profile }) => ({ ...config.profiles[profile], profile, config_profile: profile }),
+      (profiles) => profiles,
+      (profiles) => profiles,
+      plainObject,
+    );
+
+    expect(sanitized).toEqual({
+      customer_name: "Acme",
+      profile: "",
+      config_profile: "",
+      profiles: {},
+    });
+  });
+
+  test("dockerfileEnvEntries handles quoted values, duplicates, and trailing continuations", () => {
+    const entries = configHelpers.dockerfileEnvEntries([
+      "ENV FIRST=\"one\" SECOND='two'",
+      "ENV FIRST=duplicate",
+      "ENV TRAILING=three \\",
+    ].join("\n"));
+
+    expect(entries).toEqual([
+      { name: "FIRST", defaultValue: "one" },
+      { name: "SECOND", defaultValue: "two" },
+      { name: "TRAILING", defaultValue: "three" },
+    ]);
+  });
+
+  test("route predicate helpers classify workflow and template-name requests", () => {
+    expect(configHelpers.includeTemplateWorkflows({ include_workflows: "true" })).toBe(true);
+    expect(configHelpers.includeTemplateWorkflows({ include_workflows: "false" })).toBe(false);
+    expect(configHelpers.includeTemplateWorkflows({})).toBe(false);
+    expect(configHelpers.templateNameRequired("")).toBe(true);
+    expect(configHelpers.templateNameRequired("   ")).toBe(true);
+    expect(configHelpers.templateNameRequired("Tile")).toBe(false);
+  });
+
+  test("templatesResponseForRequest returns templates with and without workflows", async () => {
+    const dependencies = {
+      readState: () => ({ config: { profile: "prod", config_profile: "prod" } }),
+      templatesForRequest: async () => ({ Tile: { image: "saashup/tile" } }),
+      templatesForVisibleProfiles: async () => ({ Visible: { image: "saashup/visible" } }),
+      workflowsForRequest: async () => ({ deploy: { steps: [{ template: "Tile" }] } }),
+      workflowsForVisibleProfiles: async () => ({ catalog: { steps: [{ template: "Visible" }] } }),
+      visibleProfileNames: () => ["prod"],
+    };
+
+    await expect(configHelpers.templatesResponseForRequest({ query: {} }, dependencies))
+      .resolves.toEqual({ Visible: { image: "saashup/visible" } });
+    await expect(configHelpers.templatesResponseForRequest({ query: { profile: "prod", include_workflows: "true" } }, dependencies))
+      .resolves.toEqual({
+        templates: { Tile: { image: "saashup/tile" } },
+        workflows: { deploy: { steps: [{ template: "Tile" }] } },
+        profiles: ["prod"],
+      });
   });
 
   test("workflowsForVisibleTemplates filters steps based on visible templates", () => {
@@ -278,7 +403,7 @@ describe("api config routes", () => {
     expect(templateSecretRes.body).toEqual({ secret: "Tile:none", default_secret: "default-secret" });
   });
 
-  test("config route redacts secrets for non-admin users only", async () => {
+  test("config route redacts credentials for all users", async () => {
     const state = {
       config: {
         customer_name: "Acme",
@@ -293,6 +418,7 @@ describe("api config routes", () => {
             tag: "tile",
             enrollment_limit: 2,
             smtp_config: "mailer:smtp-secret@smtp.example.com:587",
+            saashup_visible: true,
           },
         },
       },
@@ -314,17 +440,145 @@ describe("api config routes", () => {
 
     const nonAdminRes = mockResponse();
     await nonAdmin.routes["GET /config"]({}, nonAdminRes);
-    expect(nonAdminRes.body.profiles.prod).toMatchObject({ domain: "example.com", tag: "tile", enrollment_limit: 2 });
+    expect(nonAdminRes.body.profiles.prod).toMatchObject({
+      domain: "example.com",
+      tag: "tile",
+      enrollment_limit: 2,
+      netbox_configured: true,
+      token_configured: true,
+      proxy_configured: true,
+      smtp_configured: true,
+    });
+    expect(nonAdminRes.body.domain).toBeUndefined();
+    expect(nonAdminRes.body.tag).toBeUndefined();
+    expect(nonAdminRes.body.enrollment_limit).toBeUndefined();
     expect(JSON.stringify(nonAdminRes.body)).not.toContain("secret");
+    expect(JSON.stringify(nonAdminRes.body)).not.toContain("netbox.example.com");
 
     const adminRes = mockResponse();
     await admin.routes["GET /config"]({}, adminRes);
-    expect(adminRes.body).toMatchObject({
+    expect(adminRes.body.profiles.prod).toMatchObject({
+      domain: "example.com",
+      tag: "tile",
+      enrollment_limit: 2,
+      netbox_configured: true,
+      token_configured: true,
+      proxy_configured: true,
+      smtp_configured: true,
+    });
+    expect(adminRes.body.domain).toBeUndefined();
+    expect(adminRes.body.tag).toBeUndefined();
+    expect(adminRes.body.enrollment_limit).toBeUndefined();
+    expect(JSON.stringify(adminRes.body)).not.toContain("secret");
+    expect(JSON.stringify(adminRes.body)).not.toContain("netbox.example.com");
+
+    const adminFullRes = mockResponse();
+    await admin.routes["GET /admin/config"]({}, adminFullRes);
+    expect(adminFullRes.body.profiles.prod).toMatchObject({
       netbox: "https://netbox.example.com",
       token: "secret",
       proxy: "http://proxy:secret@example.com",
       smtp_config: "mailer:smtp-secret@smtp.example.com:587",
+      domain: "example.com",
+      tag: "tile",
+      enrollment_limit: 2,
     });
+    expect(adminFullRes.body.profiles.prod.profiles).toBeUndefined();
+    expect(adminFullRes.body.netbox).toBeUndefined();
+    expect(adminFullRes.body.token).toBeUndefined();
+    expect(adminFullRes.body.domain).toBeUndefined();
+    expect(adminFullRes.body.tag).toBeUndefined();
+  });
+
+  test("admin environment route returns only Dockerfile environment variables", async () => {
+    const { routes } = createRoutes({
+      processEnv: {
+        NODE_ENV: "test",
+        PUBLIC_IMAGE: "true",
+        UNRELATED_SECRET: "do-not-send",
+      },
+      readDockerfile: () => [
+        "FROM node:24-alpine",
+        "ENV NODE_ENV=production \\",
+        "    PUBLIC_IMAGE=false \\",
+        "    ADMIN_ALLOWED_EMAILS=\"\"",
+      ].join("\n"),
+    });
+
+    const res = mockResponse();
+    await routes["GET /admin/environment"]({}, res);
+
+    expect(res.body).toEqual({
+      variables: [
+        { name: "NODE_ENV", value: "test" },
+        { name: "PUBLIC_IMAGE", value: "true" },
+        { name: "ADMIN_ALLOWED_EMAILS", value: "" },
+      ],
+    });
+    expect(JSON.stringify(res.body)).not.toContain("UNRELATED_SECRET");
+  });
+
+  test("admin config route returns an empty object when config is not stored", async () => {
+    const { routes } = createRoutes();
+    const res = mockResponse();
+
+    await routes["GET /admin/config"]({}, res);
+
+    expect(res.body).toEqual({});
+  });
+
+  test("admin environment route returns no variables when Dockerfile cannot be read", async () => {
+    const { routes } = createRoutes({
+      readDockerfile: () => {
+        throw new Error("missing Dockerfile");
+      },
+    });
+    const res = mockResponse();
+
+    await routes["GET /admin/environment"]({}, res);
+
+    expect(res.body).toEqual({ variables: [] });
+  });
+
+  test("admin environment route uses the default Dockerfile reader dependency", async () => {
+    const { routes } = createRoutes({
+      dockerfilePath: "/definitely/not/a/dockerfile",
+    });
+    const res = mockResponse();
+
+    await routes["GET /admin/environment"]({}, res);
+
+    expect(res.body).toEqual({ variables: [] });
+  });
+
+  test("config route defaults to non-admin responses", async () => {
+    const state = {
+      config: {
+        customer_name: "Acme",
+        profile: "prod",
+        profiles: {
+          prod: {
+            domain: "example.com",
+            netbox: "https://netbox.example.com",
+            token: "secret",
+          },
+        },
+      },
+      templates: {},
+      workflows: {},
+      logs: "",
+    };
+    const { routes } = createRoutes({
+      isAdminAllowed: undefined,
+      readState: () => state,
+      selectedProfileConfig: ({ profile }) => state.config.profiles[profile] || {},
+    });
+
+    const res = mockResponse();
+    await routes["GET /config"]({}, res);
+
+    expect(res.body.profiles.prod).toBeUndefined();
+    expect(JSON.stringify(res.body)).not.toContain("secret");
   });
 
   test("webhook accepts profile values from imported profiles and empty fallbacks", async () => {
@@ -352,6 +606,51 @@ describe("api config routes", () => {
     }, cloudflareRes);
     expect(cloudflareRes.body.cloudflare_filter).toBe(false);
 
+    const preserve = createRoutes();
+    preserve.setState({
+      config: {
+        customer_name: "Acme",
+        profile: "prod",
+        config_profile: "prod",
+        profiles: {
+          prod: {
+            netbox: "https://netbox.example.com",
+            token: "secret",
+            proxy: "http://proxy:secret@example.com",
+            smtp_config: "mailer:smtp-secret@smtp.example.com:587",
+            domain: "old.example.com",
+            tag: "old",
+          },
+        },
+      },
+      templates: {},
+      workflows: {},
+      logs: "",
+    });
+    const preserveRes = mockResponse();
+    await preserve.routes["GET /webhook"]({
+      query: {
+        profile: "prod",
+        domain: "new.example.com",
+        tag: "new",
+        profiles: JSON.stringify({
+          prod: {
+            netbox_configured: true,
+            token_configured: true,
+            smtp_configured: true,
+          },
+        }),
+      },
+    }, preserveRes);
+    expect(preserveRes.body).toMatchObject({
+      netbox: "https://netbox.example.com",
+      token: "secret",
+      proxy: "http://proxy:secret@example.com",
+      smtp_config: "mailer:smtp-secret@smtp.example.com:587",
+      domain: "new.example.com",
+      tag: "new",
+    });
+
     const failed = createRoutes({
       syncTemplatesToNetBoxConfigContext: async () => { throw {}; },
     });
@@ -376,6 +675,41 @@ describe("api config routes", () => {
     await routes["GET /templates"]({ query: { include_workflows: "true", owner_only: "true" } }, res);
     expect(res.body.workflows.keep.steps).toEqual([{ template: "Tile" }]);
     expect(res.body.workflows.drop).toBeUndefined();
+  });
+
+  test("templates route includes workflows for requested profiles and returns plain templates otherwise", async () => {
+    const { routes } = createRoutes({
+      templatesForRequest: async () => ({ Tile: { image: "saashup/tile" } }),
+      workflowsForRequest: async () => ({ deploy: { steps: [{ template: "Tile" }] } }),
+      templatesForVisibleProfiles: async () => ({ Visible: { image: "saashup/visible" } }),
+    });
+
+    const withWorkflowsRes = mockResponse();
+    await routes["GET /templates"]({ query: { profile: "prod", include_workflows: "true" } }, withWorkflowsRes);
+    expect(withWorkflowsRes.body).toEqual({
+      templates: { Tile: { image: "saashup/tile" } },
+      workflows: { deploy: { steps: [{ template: "Tile" }] } },
+      profiles: ["prod"],
+    });
+
+    const templatesOnlyRes = mockResponse();
+    await routes["GET /templates"]({ query: { profile: "prod" } }, templatesOnlyRes);
+    expect(templatesOnlyRes.body).toEqual({ Tile: { image: "saashup/tile" } });
+
+    const visibleTemplatesOnlyRes = mockResponse();
+    await routes["GET /templates"]({ query: {} }, visibleTemplatesOnlyRes);
+    expect(visibleTemplatesOnlyRes.body).toEqual({ Visible: { image: "saashup/visible" } });
+  });
+
+  test("templates route returns visible templates when workflows are not requested", async () => {
+    const { routes } = createRoutes({
+      templatesForVisibleProfiles: async () => ({ Tile: { image: "saashup/tile" } }),
+    });
+    const res = mockResponse();
+
+    await routes["GET /templates"]({ query: { include_workflows: "false" } }, res);
+
+    expect(res.body).toEqual({ Tile: { image: "saashup/tile" } });
   });
 
   test("templates route reports default sync failure details", async () => {
@@ -437,6 +771,16 @@ describe("api config routes", () => {
     expect(wrongProfileRes.body.code).toBe("template_not_found");
   });
 
+  test("enroll template delete rejects requests without a template name", async () => {
+    const { routes } = createRoutes();
+    const res = mockResponse();
+
+    await routes["DELETE /enroll/template/:name"]({ params: {}, query: { profile: "prod" } }, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.code).toBe("template_required");
+  });
+
   test("local enroll template delete handles auth guards and local catalog entries", async () => {
     const missingAuth = createRoutes({ authUserFromRequest: () => ({}) });
     const missingAuthRes = mockResponse();
@@ -449,6 +793,11 @@ describe("api config routes", () => {
     await blankName.routes["DELETE /enroll/template/:name"]({ params: { name: "   " }, query: { profile: "prod" } }, blankNameRes);
     expect(blankNameRes.statusCode).toBe(400);
     expect(blankNameRes.body.code).toBe("template_required");
+
+    const missingNameRes = mockResponse();
+    await blankName.routes["DELETE /enroll/template/:name"]({ params: {}, query: { profile: "prod" } }, missingNameRes);
+    expect(missingNameRes.statusCode).toBe(400);
+    expect(missingNameRes.body.code).toBe("template_required");
 
     const { getState, routes, setState } = createRoutes({ authUserFromRequest: () => ({ user: "owner@example.com" }) });
     setState({

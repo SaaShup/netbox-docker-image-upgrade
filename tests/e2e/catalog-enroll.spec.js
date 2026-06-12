@@ -33,7 +33,7 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
       body: JSON.stringify({ exists: true, image: "saashup/guide:v1.2.3" }),
     });
   });
-  await page.route("**/enroll/limit?**", async (route) => {
+  await page.route("**/enroll/limit*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -226,7 +226,7 @@ test("catalog page shows the account menu", async ({ page }) => {
   await expect(page.locator(".catalog-card").first()).toContainText("Template");
   await expect(page.locator(".catalog-status-ready")).toHaveText("Ready");
   await expect(page.locator(".catalog-status-failed")).toHaveText("Failed");
-  await expect(page.locator(".catalog-card").first().getByRole("link", { name: "flowg" })).toHaveAttribute("href", /\/order\?template=flowg&profile=production$/);
+  await expect(page.locator(".catalog-card").first().getByRole("link", { name: "flowg" })).toHaveAttribute("href", /\/order\?template=flowg$/);
   await page.locator("#catalogSearch").fill("nginx");
   await expect(page.locator(".catalog-card")).toHaveCount(1);
   await expect(page.locator(".catalog-card")).toContainText("nginx:1.27");
@@ -263,8 +263,103 @@ test("catalog page shows the account menu", async ({ page }) => {
   expect(Math.abs(themeCenter - brandCenter)).toBeLessThanOrEqual(1);
 });
 
+test("catalog page hides enroll menu when public images are disabled for non-admin users", async ({ page }) => {
+  await page.route("**/session/user", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        name: "Buyer Example",
+        user: "buyer",
+        email: "buyer@example.com",
+        admin: false,
+        public_image: false,
+      }),
+    });
+  });
+
+  await page.route("**/enroll/limit**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        instances: [
+          { instance: "demo", image: "saashup/demo", version: "v1.0.0", status: "ready", source: "template", instance_count: 0 },
+        ],
+        max: 2,
+        profile: "demo",
+        remaining: 2,
+        reached: false,
+        used: 0,
+      }),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "demo",
+    profiles: JSON.stringify({
+      demo: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        domain: "daily.paashup.cloud",
+        tag: "DEMO",
+      },
+    }),
+  }, {}, [], undefined, "/catalog");
+
+  await expect(page.locator("#catalogList")).toContainText("saashup/demo:v1.0.0");
+  await expect(page.locator('.order-page-menu a[href="/enroll"]')).toBeHidden();
+  await expect(page.locator("#adminLink")).toBeHidden();
+});
+
+test("catalog page hides enroll menu for admins when public images are disabled", async ({ page }) => {
+  await page.route("**/session/user", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        name: "Admin Example",
+        user: "admin",
+        email: "admin@example.com",
+        admin: true,
+        public_image: false,
+      }),
+    });
+  });
+
+  await page.route("**/enroll/limit**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        instances: [],
+        max: 2,
+        profile: "demo",
+        remaining: 2,
+        reached: false,
+        used: 0,
+      }),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "demo",
+    profiles: JSON.stringify({
+      demo: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        domain: "daily.paashup.cloud",
+        tag: "DEMO",
+      },
+    }),
+  }, {}, [], undefined, "/catalog");
+
+  await expect(page.locator('.order-page-menu a[href="/enroll"]')).toBeHidden();
+  await expect(page.locator("#adminLink")).toBeVisible();
+});
+
 test("enroll page reports only missing port when docker run has image", async ({ page }) => {
-  await page.route("**/enroll/limit?**", async (route) => {
+  await page.route("**/enroll/limit*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -313,6 +408,11 @@ test("enroll page reports only missing port when docker run has image", async ({
 
   await page.locator("#dockerRunInput").fill(`${commandBase} -p 8080:80 nginx:1.27`);
   await expect(page.locator("#submitBtn")).toBeEnabled();
+
+  const copiedCommand = "copied from a shell prompt\n$ docker run --name guide-app -p 8080:3000 saashup/guide:v1.2.3";
+  await page.locator("#dockerRunInput").fill(copiedCommand);
+  await expect(page.locator("#dockerRunInput")).toHaveValue("docker run --name guide-app -p 8080:3000 saashup/guide:v1.2.3");
+  await expect(page.locator("#submitBtn")).toBeEnabled();
 });
 
 test("enroll page restores enrolled templates when creation fails", async ({ page }) => {
@@ -345,7 +445,7 @@ test("enroll page restores enrolled templates when creation fails", async ({ pag
       body: JSON.stringify({ exists: true, image: "saashup/guide:v1.2.3" }),
     });
   });
-  await page.route("**/enroll/limit?**", async (route) => {
+  await page.route("**/enroll/limit*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -428,7 +528,7 @@ test("enroll page checks provider registry before creating", async ({ page }) =>
       body: JSON.stringify({ exists: false, image: "saashup/guide:v1.2.3" }),
     });
   });
-  await page.route("**/enroll/limit?**", async (route) => {
+  await page.route("**/enroll/limit*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -513,7 +613,7 @@ test("enroll page accepts Docker Hub image that exists in registry but is not pu
       body: JSON.stringify({ exists: true, image: registryImage }),
     });
   });
-  await page.route("**/enroll/limit?**", async (route) => {
+  await page.route("**/enroll/limit*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -580,7 +680,7 @@ test("enroll page blocks docker run bind mounts", async ({ page }) => {
       body: "{}",
     });
   });
-  await page.route("**/enroll/limit?**", async (route) => {
+  await page.route("**/enroll/limit*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -643,7 +743,7 @@ test("enroll page restores enrolled templates after creation when limit remains 
       body: JSON.stringify({ exists: true, image: "saashup/guide:v1.2.3" }),
     });
   });
-  await page.route("**/enroll/limit?**", async (route) => {
+  await page.route("**/enroll/limit*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -699,7 +799,7 @@ test("enroll page waits for limit before showing create panel or cards", async (
     resolveLimit = resolve;
   });
 
-  await page.route("**/enroll/limit?**", async (route) => {
+  await page.route("**/enroll/limit*", async (route) => {
     await limitPending;
     await route.fulfill({
       status: 200,
@@ -775,7 +875,7 @@ test("enroll page keeps submit disabled before import content", async ({ page })
       body: JSON.stringify({ email: "ada@example.com", user: "ada", name: "Ada Lovelace" }),
     });
   });
-  await page.route("**/enroll/limit?**", async (route) => {
+  await page.route("**/enroll/limit*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -819,7 +919,7 @@ test("enroll page hides enrollment panel when no templates are returned", async 
       body: JSON.stringify({ email: "ada@example.com", user: "ada", name: "Ada Lovelace" }),
     });
   });
-  await page.route("**/enroll/limit?**", async (route) => {
+  await page.route("**/enroll/limit*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -855,6 +955,7 @@ test("enroll page hides enrollment panel when no templates are returned", async 
 
 test("enroll page shows templates created by the user", async ({ page }) => {
   let deletedTemplate = "";
+  let registryWebhookSecretRequests = 0;
   let resolveDelete;
   const deleteReady = new Promise((resolve) => {
     resolveDelete = resolve;
@@ -879,10 +980,13 @@ test("enroll page shows templates created by the user", async ({ page }) => {
       body: JSON.stringify({ email: "ada@example.com", user: "ada", name: "Ada Lovelace" }),
     });
   });
-  await page.route("**/enroll/limit?**", async (route) => {
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/registry-webhook-secret") registryWebhookSecretRequests += 1;
+  });
+  await page.route("**/enroll/limit*", async (route) => {
     const instances = [
       { instance: "guide-template", image: "saashup/guide", version: "v1.2.3", status: "ready", source: "template", registry_webhook_secret: "guide-secret", instance_count: 2 },
-      ...(deletedTemplate === "install-template" ? [] : [{ instance: "install-template", image: "saashup/install", version: "v4.0.0", status: "ready", source: "template", instance_count: 0 }]),
+      ...(deletedTemplate === "install-template" ? [] : [{ instance: "install-template", image: "saashup/install", version: "v4.0.0", status: "ready", source: "template", registry_webhook_secret: "install-secret", instance_count: 0 }]),
       ...(deletedTemplate === "failed-template" ? [] : [{ instance: "failed-template", image: "saashup/failed", version: "v9.0.0", status: "failed", source: "template", instance_count: 0 }]),
     ];
     await route.fulfill({
@@ -937,7 +1041,7 @@ test("enroll page shows templates created by the user", async ({ page }) => {
   await expect(page.locator("#enrollInstances .order-instance-delete svg").first()).toBeVisible();
   await expect(page.locator("#enrollInstances .order-template-copy")).toHaveCount(2);
   await expect(page.locator("#enrollInstances [data-template-webhook-copy]")).toHaveCount(2);
-  const guideOrderUrl = `${page.url().replace(/\/enroll(?:\.html)?$/, "")}/order?template=guide-template&profile=production`;
+  const guideOrderUrl = `${page.url().replace(/\/enroll(?:\.html)?$/, "")}/order?template=guide-template`;
   const guideOrderHtml = `<a href="${guideOrderUrl.replaceAll("&", "&amp;")}"><img src="${new URL(page.url()).origin}/assets/deploy.svg" alt="Deploy with SaaShup"></a>`;
   const guideWebhookUrl = `${new URL(page.url()).origin}/registry-webhook/production/guide-template/guide-secret`;
   await expect(page.locator("#enrollInstances .enroll-template-title a").first()).toHaveAttribute("href", guideOrderUrl);
@@ -949,7 +1053,8 @@ test("enroll page shows templates created by the user", async ({ page }) => {
   await expect.poll(() => page.evaluate(() => window.__copiedText)).toBe(guideWebhookUrl);
   await page.locator("#enrollInstances [data-template-webhook-copy]").nth(1).click();
   await expect(page.locator("#notif")).toContainText('Webhook URL copied for "install-template"');
-  await expect.poll(() => page.evaluate(() => window.__copiedText)).toBe(`${new URL(page.url()).origin}/registry-webhook/production/install-template/hook-secret`);
+  await expect.poll(() => page.evaluate(() => window.__copiedText)).toBe(`${new URL(page.url()).origin}/registry-webhook/production/install-template/install-secret`);
+  expect(registryWebhookSecretRequests).toBe(0);
   page.once("dialog", async (dialog) => {
     expect(dialog.message()).toBe('Delete enrolled template "install-template"?');
     await dialog.accept();
@@ -971,7 +1076,7 @@ test("enroll page template name opens the order page", async ({ page }) => {
       body: JSON.stringify({ email: "ada@example.com", user: "ada", name: "Ada Lovelace" }),
     });
   });
-  await page.route("**/enroll/limit?**", async (route) => {
+  await page.route("**/enroll/limit*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -1004,7 +1109,7 @@ test("enroll page template name opens the order page", async ({ page }) => {
   }, {}, [], undefined, "/enroll.html");
 
   await page.locator("#enrollInstances .enroll-template-title a").click();
-  await expect(page).toHaveURL(/\/order\?template=guide-template&profile=production$/);
+  await expect(page).toHaveURL(/\/order\?template=guide-template$/);
 });
 
 test("enroll page hides deploy panel without a default config", async ({ page }) => {
@@ -1029,7 +1134,7 @@ test("enroll page hides deploy panel without a default config", async ({ page })
   }, {}, [], undefined, "/enroll.html");
 
   await expect(page.locator("#instanceForm")).toBeHidden();
-  await expect(page.locator("#notif")).toContainText("You cannot deploy a new SaaS yet. Ask an administrator to configure a config.");
+  await expect(page.locator("#notif")).toContainText("You cannot deploy a new SaaS yet. Ask an administrator to make a config visible.");
 });
 
 test("enroll page hides create controls when public images are disabled for non-admin users", async ({ page }) => {
@@ -1047,7 +1152,7 @@ test("enroll page hides create controls when public images are disabled for non-
     });
   });
 
-  await page.route("**/enroll/limit?**", async (route) => {
+  await page.route("**/enroll/limit*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -1103,7 +1208,7 @@ test("enroll page blocks docker compose files with multiple services", async ({ 
       body: "{}",
     });
   });
-  await page.route("**/enroll/limit?**", async (route) => {
+  await page.route("**/enroll/limit*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -1198,7 +1303,7 @@ test("enroll page flags multi-service compose pasted in run input", async ({ pag
       body: JSON.stringify({ email: "ada@example.com", user: "ada", name: "Ada Lovelace" }),
     });
   });
-  await page.route("**/enroll/limit?**", async (route) => {
+  await page.route("**/enroll/limit*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",

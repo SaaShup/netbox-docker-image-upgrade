@@ -89,6 +89,77 @@ test("config tab starts without a forced default profile", async ({ page }) => {
   await expect(page.locator("#saveTemplateBtn")).toBeHidden();
 });
 
+test("environment menu shows read-only server environment variables", async ({ page }) => {
+  await openAdmin(page, {
+    profile: "production",
+    config_profile: "production",
+    profiles: JSON.stringify({
+      production: { netbox: "https://netbox.example.com", token: "secret", tag: "prod" },
+    }),
+  });
+
+  await expect(page.locator(".nav .nav-label").nth(0)).toHaveText("Environment");
+  await expect(page.locator(".nav .nav-label").nth(1)).toHaveText("Profiles");
+
+  await page.getByRole("link", { name: "Environment" }).click();
+
+  await expect(page.locator("#environmentCard")).toBeVisible();
+  await expect(page.locator(".form-card")).toBeHidden();
+  await expect(page.locator("#testBtn")).toBeVisible();
+  await expect(page.locator("#testBtn")).toHaveText("Test connection: production");
+  await expect(page.locator("#environmentSummary")).toHaveText("2 environment variables");
+  await expect(page.locator(".environment-row").first().locator(".environment-name")).toHaveText("NODE_ENV");
+  await expect(page.locator(".environment-row").first().locator(".environment-value")).toHaveValue("production");
+  await expect(page.locator(".environment-row").first().locator(".environment-value")).toHaveAttribute("readonly", "");
+  await expect(page.locator(".environment-row").nth(1).locator(".environment-name")).toHaveText("PUBLIC_IMAGE");
+  await expect(page.locator(".environment-row").nth(1).locator(".environment-value")).toHaveValue("false");
+
+  await page.getByRole("link", { name: "Profiles" }).click();
+  await expect(page.locator("#environmentCard")).toBeHidden();
+  await expect(page.locator(".form-card")).toBeVisible();
+  await expect(page.locator("#testBtn")).toBeVisible();
+  await expect(page.locator("#testBtn")).toHaveText("Test connection: production");
+});
+
+test("admin config load prefers server credentials over stale local profile cache", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("config_profiles", JSON.stringify({
+      production: {
+        domain: "stale.example.com",
+        tag: "stale",
+        netbox_configured: true,
+        token_configured: true,
+      },
+    }));
+    localStorage.setItem("current_config_profile", "production");
+  });
+
+  await openAdmin(page, {
+    profile: "production",
+    config_profile: "production",
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "server-secret",
+        proxy: "http://proxy.example.com",
+        domain: "apps.example.com",
+        tag: "production",
+        enrollment_limit: 2,
+        owner_env_var: "OWNER_EMAIL",
+      },
+    }),
+  });
+
+  await expect(page.locator("#config_profile")).toHaveValue("production");
+  await expect(page.locator("#netbox")).toHaveValue("https://netbox.example.com");
+  await expect(page.locator("#token")).toHaveValue("server-secret");
+  await expect(page.locator("#proxy")).toHaveValue("http://proxy.example.com");
+  await expect(page.locator("#domain")).toHaveValue("apps.example.com");
+  await expect(page.locator("#tag")).toHaveValue("production");
+  await expect(page.locator("#enrollment_limit")).toHaveValue("2");
+  await expect(page.locator("#owner_env_var")).toHaveValue("OWNER_EMAIL");
+});
+
 test("config profile requires a tag before saving", async ({ page }) => {
   let webhookRequests = 0;
   await page.route("**/webhook?**", async (route) => {
@@ -202,7 +273,7 @@ test("config profile shows green status when synced to server", async ({ page })
   await expect(page.locator("#profileSyncWarning")).toHaveAttribute("aria-label", "Profile synced with server.");
 });
 
-test("config profile default flag allows only one default", async ({ page }) => {
+test("config profile visible flag allows multiple visible profiles", async ({ page }) => {
   await openAdmin(page, {});
 
   await page.evaluate(() => {
@@ -235,11 +306,18 @@ test("config profile default flag allows only one default", async ({ page }) => 
 
   await page.locator("#config_profile").selectOption("staging");
   await expect(page.locator("#configDefaultInput")).not.toBeChecked();
-  await expect(page.locator("#configDefaultInput")).toBeDisabled();
+  await expect(page.locator("#configDefaultInput")).toBeEnabled();
+  await page.locator("#configDefaultInput").check();
+  await expect(page.locator("#configDefaultInput")).toBeChecked();
+
+  await page.locator("#config_profile").selectOption("prod");
+  await expect(page.locator("#configDefaultInput")).toBeChecked();
+  await expect(page.locator("#configDefaultInput")).toBeEnabled();
 
   await page.evaluate(() => {
     const profiles = JSON.parse(localStorage.getItem("config_profiles"));
     delete profiles.prod.saashup_default;
+    delete profiles.prod.saashup_visible;
     localStorage.setItem("config_profiles", JSON.stringify(profiles));
   });
   await page.reload();
@@ -530,6 +608,7 @@ test("report menu shows image usage for one config", async ({ page }) => {
 
   await openAdmin(page, config);
   await expect(page.locator(".sidebar .nav-label")).toHaveText([
+    "Environment",
     "Profiles",
     "Template",
     "Create",
@@ -704,7 +783,8 @@ test("saving config refreshes templates for that profile", async ({ page }) => {
   resolveWebhook();
 
   await expect(page.locator("#notif")).toContainText('Config "production" saved');
-  await expect.poll(() => templateProfiles).toContain("production");
+  await expect.poll(() => templateProfiles).toContain("");
+  expect(templateProfiles).not.toContain("production");
   await expect(page.locator("#submitBtn")).toHaveText("Save config");
   await expect(page.locator("#submitBtn")).toBeEnabled();
   const localTemplates = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")));

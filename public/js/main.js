@@ -110,6 +110,10 @@ const reportSummary = document.getElementById("reportSummary");
 const reportTableHead = document.getElementById("reportTableHead");
 const reportTableBody = document.getElementById("reportTableBody");
 const reportViewButtons = Array.from(document.querySelectorAll("[data-report-view]"));
+const environmentCard = document.getElementById("environmentCard");
+const environmentSummary = document.getElementById("environmentSummary");
+const environmentList = document.getElementById("environmentList");
+const refreshEnvironmentBtn = document.getElementById("refreshEnvironmentBtn");
 const workflowCard = document.getElementById("workflowCard");
 const workflowActionSelect = document.getElementById("workflowActionSelect");
 const workflowDeleteVolumesField = document.getElementById("workflowDeleteVolumesField");
@@ -172,6 +176,7 @@ const orderDeletingInstances = new Set();
 let publicImageAllowed = true;
 let currentReportView = "images";
 let lastReportData = null;
+let environmentLoaded = false;
 let orderStatusPollTimer = null;
 let enrollmentStatusPollTimer = null;
 let mailSettings = { owner_email_configured: false };
@@ -310,6 +315,16 @@ function selectedTemplateName() {
 }
 
 const actions = {
+  environment: {
+    endpoint: "/admin/environment",
+    method: "get",
+    menu: "menu_environment",
+    title: "Environment",
+    description: "Review the server runtime environment.",
+    submitLabel: "Refresh",
+    buttonClass: "btn btn-primary",
+    fields: [],
+  },
   config: {
     endpoint: "/webhook",
     method: "get",
@@ -501,7 +516,7 @@ function normalizeAuthUser(user = {}) {
     user: String(user.user || "").trim(),
     email: String(user.email || "").trim(),
     admin: Boolean(user.admin),
-    public_image: user.public_image !== false || Boolean(user.admin),
+    public_image: user.public_image !== false,
   };
 }
 
@@ -534,7 +549,7 @@ function clearAuthUserDisplay() {
 
 function updateAccountMenuAccess(user = {}) {
   const isAdmin = Boolean(user.admin);
-  const canEnrollImages = user.public_image !== false || isAdmin;
+  const canEnrollImages = user.public_image !== false;
   if (adminLink) adminLink.classList.toggle("hidden", !isAdmin);
   if (enrollLink) enrollLink.classList.toggle("hidden", !canEnrollImages);
 }
@@ -908,26 +923,11 @@ function profileLabel(name) {
 }
 
 function knownProfileEntries() {
-  const entries = {
+  return {
     ...parseProfiles(savedConfig.profiles),
     ...serverConfigProfiles,
     ...configProfiles,
   };
-  const profile = savedConfig.profile || savedConfig.config_profile || "";
-  if (profile && !entries[profile] && savedConfig.netbox && savedConfig.token) {
-    entries[profile] = {
-      netbox: savedConfig.netbox,
-      token: savedConfig.token,
-      proxy: savedConfig.proxy || "",
-      domain: savedConfig.domain || "",
-      tag: savedConfig.tag || "",
-      enrollment_limit: enrollmentLimitValue(savedConfig),
-      owner_env_var: ownerEnvVarValue(savedConfig.owner_env_var),
-      cloudflare_filter: checkboxValue(savedConfig.cloudflare_filter, true),
-      smtp_config: smtpConfigValue(savedConfig),
-    };
-  }
-  return entries;
 }
 
 function knownProfileNames() {
@@ -980,7 +980,7 @@ function normalizedProfileForSync(profile = {}) {
     owner_env_var: ownerEnvVarValue(profile.owner_env_var),
     cloudflare_filter: checkboxValue(profile.cloudflare_filter, true),
     smtp_config: smtpConfigValue(profile),
-    saashup_default: profile.saashup_default === true,
+    saashup_visible: profile.saashup_visible === true || profile.saashup_default === true,
   };
 }
 
@@ -995,6 +995,7 @@ function currentProfileFieldValues() {
     owner_env_var: fieldValue("owner_env_var"),
     cloudflare_filter: fieldChecked("cloudflare_filter", true),
     smtp_config: fieldValue("smtp_config"),
+    saashup_visible: Boolean(configDefaultInput?.checked),
   };
 }
 
@@ -1067,8 +1068,6 @@ function loadCreateTemplates({ useCache = true } = {}) {
   createTemplates = useCache ? normalizeCreateTemplates(parseStoredObject("create_templates")) : {};
   createWorkflows = useCache ? normalizeCreateWorkflows(parseStoredObject("create_workflows")) : {};
   const query = new URLSearchParams();
-  const profile = selectedProfileCredentials().profile;
-  if (profile) query.set("profile", profile);
   if (isEnrollPage) query.set("enroll", "true");
   query.set("include_workflows", "true");
 
@@ -1477,9 +1476,9 @@ function syncTemplateActions() {
   if (saveAllTemplatesBtn) saveAllTemplatesBtn.disabled = !Object.keys(createTemplates).length;
 }
 
-function defaultConfigProfileName(exceptName = "") {
+function visibleConfigProfileName(exceptName = "") {
   return Object.entries(knownProfileEntries())
-    .find(([name, profile]) => name !== exceptName && profile?.saashup_default === true)?.[0] || "";
+    .find(([name, profile]) => name !== exceptName && (profile?.saashup_visible === true || profile?.saashup_default === true))?.[0] || "";
 }
 
 function updateTemplateCreatorEmail(template) {
@@ -1497,17 +1496,15 @@ function updateConfigDefaultControl() {
 
   const profileName = fieldValue("config_name") || fieldValue("config_profile") || currentConfigProfile || "";
   const profile = profileName ? knownProfileEntries()[profileName] : null;
-  const otherDefault = defaultConfigProfileName(profileName);
-  configDefaultInput.checked = profile?.saashup_default === true;
-  configDefaultInput.disabled = Boolean(otherDefault);
-  configDefaultInput.title = otherDefault ? `Config "${profileLabel(otherDefault)}" is already default` : "";
+  configDefaultInput.checked = profile?.saashup_visible === true || profile?.saashup_default === true;
+  configDefaultInput.disabled = false;
+  configDefaultInput.title = "Show this profile on public pages.";
   configDefaultWrap.classList.toggle("hidden", currentAction !== "config");
 }
 
-function enforceSingleDefaultConfig(defaultName) {
+function markVisibleConfig(profileName) {
   Object.keys(configProfiles).forEach((name) => {
-    if (defaultName && name === defaultName) configProfiles[name].saashup_default = true;
-    else delete configProfiles[name].saashup_default;
+    if (profileName && name === profileName) configProfiles[name].saashup_visible = true;
   });
 }
 
@@ -1553,13 +1550,21 @@ function profileCredentials(name = currentConfigProfile) {
     netbox: profile.netbox || "",
     token: profile.token || "",
     proxy: profile.proxy || "",
+    netbox_configured: Boolean(profile.netbox || profile.netbox_configured),
+    token_configured: Boolean(profile.token || profile.token_configured),
+    proxy_configured: Boolean(profile.proxy || profile.proxy_configured),
     domain: profile.domain || "",
     tag: profile.tag || "",
     enrollment_limit: enrollmentLimitValue(profile),
     owner_env_var: ownerEnvVarValue(profile.owner_env_var),
     cloudflare_filter: checkboxValue(profile.cloudflare_filter, true),
     smtp_config: smtpConfigValue(profile),
+    smtp_configured: Boolean(profile.smtp_config || profile.smtp_configured),
   };
+}
+
+function profileHasNetBoxCredentials(credentials = selectedProfileCredentials()) {
+  return Boolean((credentials.netbox && credentials.token) || (credentials.netbox_configured && credentials.token_configured));
 }
 
 function normalizeMaxInstances(value) {
@@ -1589,8 +1594,9 @@ function templateMaxInstancesValue(template = {}) {
   return normalizeMaxInstances(template.max_instances);
 }
 
-async function orderLimitForProfile(profile) {
-  const query = new URLSearchParams({ profile: profile || "", template: orderTemplateName || "" });
+async function orderLimitForProfile() {
+  const query = new URLSearchParams();
+  if (orderTemplateName) query.set("template", orderTemplateName);
   const response = await fetch(`/order/limit?${query.toString()}`, {
     headers: { Accept: "application/json" },
   });
@@ -1599,8 +1605,8 @@ async function orderLimitForProfile(profile) {
   return response.json();
 }
 
-async function enrollLimitForProfile(profile, { ownerOnly = true } = {}) {
-  const query = new URLSearchParams({ profile: profile || "" });
+async function enrollLimitForProfile(_profile, { ownerOnly = true } = {}) {
+  const query = new URLSearchParams();
   if (!ownerOnly) query.set("owner_only", "false");
   const response = await fetch(`/enroll/limit?${query.toString()}`, {
     headers: { Accept: "application/json" },
@@ -1637,6 +1643,7 @@ function updateProfileOptions() {
   updateReportProfileOptions();
   updateConfigDefaultControl();
   updateFormTitleBadge();
+  updateTestConnectionButtonLabel();
 }
 
 function updateFormTitleBadge(actionName = currentAction) {
@@ -1697,6 +1704,7 @@ function applyProfileToFields(name = currentConfigProfile, { syncNetwork = true 
   updateProfileSyncWarning();
   updateTestEmailVisibility();
   updateConfigDefaultControl();
+  updateTestConnectionButtonLabel();
 }
 
 function currentSmtpConfigValue() {
@@ -1719,7 +1727,7 @@ function updateTestEmailVisibility() {
 }
 
 async function loadRegistryDefaultSecret() {
-  if (isOrderPage || isCatalogPage) return;
+  if (isOrderPage || isEnrollPage || isCatalogPage) return;
   if (registryWebhookDefaultLoaded) return;
   registryWebhookDefaultLoaded = true;
 
@@ -1752,7 +1760,7 @@ function credentialsQuery({ includeTag = false } = {}) {
   let credentials = selectedProfileCredentials();
   if (!credentials.profile) {
     const knownProfiles = Object.keys(knownProfileEntries()).sort((a, b) => a.localeCompare(b));
-    const fallbackProfile = defaultConfigProfileName() || (knownProfiles[0] || "");
+    const fallbackProfile = visibleConfigProfileName() || (knownProfiles[0] || "");
     if (fallbackProfile) {
       credentials = profileCredentials(fallbackProfile);
     }
@@ -1782,6 +1790,15 @@ function setTestButtonState(state = "default") {
   testBtn.classList.toggle("btn-success", state === "success");
   testBtn.classList.toggle("btn-danger", state === "error");
   testBtn.classList.toggle("btn-primary", state === "default");
+}
+
+function updateTestConnectionButtonLabel() {
+  if (!testBtn) return;
+
+  const profile = currentConfigProfile || configProfileSelect?.value || "";
+  const label = profile ? `Test connection: ${profile}` : "Test connection: no profile";
+  testBtn.textContent = label;
+  testBtn.title = label;
 }
 
 function escapeHtml(value) {
@@ -1970,6 +1987,69 @@ async function refreshImageReport() {
     setNotice("Image report failed", "error");
   } finally {
     refreshReportBtn.disabled = false;
+  }
+}
+
+function renderEnvironmentVariables(variables) {
+  if (!environmentList || !environmentSummary) return;
+
+  const entries = Array.isArray(variables) ? variables : [];
+  environmentSummary.textContent = `${entries.length} environment ${entries.length === 1 ? "variable" : "variables"}`;
+  environmentList.replaceChildren();
+
+  if (!entries.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = "No environment variables found.";
+    environmentList.appendChild(empty);
+    return;
+  }
+
+  entries.forEach(({ name, value }) => {
+    const row = document.createElement("label");
+    row.className = "environment-row";
+
+    const label = document.createElement("span");
+    label.className = "environment-name";
+    label.textContent = String(name || "");
+
+    const input = document.createElement("input");
+    input.className = "environment-value";
+    input.type = "text";
+    input.readOnly = true;
+    input.value = String(value ?? "");
+    input.setAttribute("aria-label", `${String(name || "Environment variable")} value`);
+
+    row.append(label, input);
+    environmentList.appendChild(row);
+  });
+}
+
+async function loadEnvironmentVariables({ force = false } = {}) {
+  if (!environmentCard || (!force && environmentLoaded)) return;
+
+  if (refreshEnvironmentBtn) refreshEnvironmentBtn.disabled = true;
+  if (environmentSummary) {
+    environmentSummary.classList.remove("is-error");
+    environmentSummary.textContent = "Loading environment...";
+  }
+
+  try {
+    const response = await fetch("/admin/environment", {
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    renderEnvironmentVariables(data.variables);
+    environmentLoaded = true;
+  } catch {
+    environmentLoaded = false;
+    environmentSummary?.classList.add("is-error");
+    if (environmentSummary) environmentSummary.textContent = "Environment failed to load";
+    environmentList?.replaceChildren();
+    setNotice("Environment failed to load", "error");
+  } finally {
+    if (refreshEnvironmentBtn) refreshEnvironmentBtn.disabled = false;
   }
 }
 
@@ -2677,14 +2757,14 @@ function renderCatalogItems(items = catalogCards, limit = catalogLimit) {
 
   catalogCards = Array.isArray(items) ? items : [];
   catalogLimit = limit || {};
-  const profile = String(catalogLimit.profile || selectedProfileCredentials().profile || defaultConfigProfileName() || "").trim() || "default";
+  const profile = String(catalogLimit.profile || selectedProfileCredentials().profile || visibleConfigProfileName() || "").trim() || "default";
   const query = String(catalogSearch?.value || "").trim().toLowerCase();
   const visibleItems = sortedCatalogItems(query
     ? catalogCards.filter((item) => catalogSearchText(item, profile).includes(query))
     : catalogCards);
 
   if (!catalogCards.length) {
-    catalogList.innerHTML = '<div class="catalog-empty">No enrolled images found in the default profile.</div>';
+    catalogList.innerHTML = '<div class="catalog-empty">No visible enrolled images found.</div>';
     return;
   }
 
@@ -2727,9 +2807,7 @@ async function refreshCatalog() {
 
   catalogList.innerHTML = '<div class="catalog-empty">Loading catalog...</div>';
   try {
-    const profile = defaultConfigProfileName() || currentConfigProfile || selectedProfileCredentials().profile || "";
-    if (profile) applyProfileToFields(profile);
-    const limit = await enrollLimitForProfile(selectedProfileCredentials().profile || profile, { ownerOnly: false });
+    const limit = await enrollLimitForProfile("", { ownerOnly: false });
     renderCatalogItems(limit.instances, limit);
   } catch {
     catalogList.innerHTML = '<div class="catalog-empty catalog-empty-error">Catalog unavailable.</div>';
@@ -2951,6 +3029,7 @@ function setAction(actionName, { skipAutoRefresh = false } = {}) {
 
   currentAction = actionName;
   localStorage.setItem("current_action", currentAction);
+  updateTestConnectionButtonLabel();
 
   document.querySelectorAll(".nav-item").forEach((item) => item.classList.remove("active"));
   document.getElementById(config.menu)?.classList.add("active");
@@ -2976,7 +3055,7 @@ function setAction(actionName, { skipAutoRefresh = false } = {}) {
   exportConfigBtn?.classList.toggle("hidden", actionName !== "config");
   importConfigBtn?.classList.toggle("hidden", actionName !== "config");
   clearCacheBtn?.classList.toggle("hidden", actionName !== "config");
-  clearBtn?.classList.toggle("hidden", actionName === "config" || actionName === "report" || actionName === "workflow");
+  clearBtn?.classList.toggle("hidden", actionName === "config" || actionName === "environment" || actionName === "report" || actionName === "workflow");
   dockerRunBtn?.classList.toggle("hidden", actionName !== "template");
   templateSelect?.classList.toggle("hidden", actionName !== "template");
   if (isCreateFormAction(actionName)) syncTemplateActions();
@@ -2994,7 +3073,8 @@ function setAction(actionName, { skipAutoRefresh = false } = {}) {
   deleteImageBtn?.classList.toggle("hidden", actionName !== "delete");
   refreshInstancesBtn?.classList.toggle("hidden", isCreateFormAction(actionName));
   if (refreshInstancesBtn && isCreateFormAction(actionName)) refreshInstancesBtn.disabled = true;
-  formCard?.classList.toggle("hidden", actionName === "report" || actionName === "workflow");
+  formCard?.classList.toggle("hidden", actionName === "environment" || actionName === "report" || actionName === "workflow");
+  environmentCard?.classList.toggle("hidden", actionName !== "environment");
   reportCard?.classList.toggle("hidden", actionName !== "report");
   workflowCard?.classList.toggle("hidden", actionName !== "workflow");
 
@@ -3037,6 +3117,9 @@ function setAction(actionName, { skipAutoRefresh = false } = {}) {
   if (actionName === "report") {
     updateReportProfileOptions();
     refreshImageReport();
+  }
+  if (actionName === "environment") {
+    loadEnvironmentVariables();
   }
   if (actionName === "workflow") {
     updateWorkflowOptions();
@@ -3247,6 +3330,26 @@ function validateEnrollRunText(runText, { notify = true } = {}) {
   return valid;
 }
 
+function dockerRunTextFromFirstCommand(value = "") {
+  const text = String(value || "");
+  const match = text.match(/docker\s+run(?:\s|$)/i);
+  return match ? text.slice(match.index) : text;
+}
+
+function normalizeDockerRunInput() {
+  if (!dockerRunInput) return "";
+  const normalized = dockerRunTextFromFirstCommand(dockerRunInput.value);
+  if (normalized !== dockerRunInput.value) {
+    dockerRunInput.value = normalized;
+  }
+  return normalized;
+}
+
+function handleDockerRunInput() {
+  normalizeDockerRunInput();
+  updateEnrollSubmitState();
+}
+
 function enrollImageVersionAllowed(image = "", version = "") {
   const imageParts = splitImageRef(image);
   const resolvedVersion = String(version || imageParts.version || "").trim();
@@ -3327,7 +3430,7 @@ function applyEnrollProfileSelection() {
 function configureEnrollDefaultConfig() {
   if (!isEnrollPage) return false;
 
-  const profileName = defaultConfigProfileName();
+  const profileName = visibleConfigProfileName();
   updateImportProfileOptions();
   if (importProfileSelect) importProfileSelect.value = profileName;
   if (profileName && currentConfigProfile !== profileName) applyProfileToFields(profileName, { syncNetwork: false });
@@ -3335,7 +3438,7 @@ function configureEnrollDefaultConfig() {
   if (!profileName) {
     hideEnrollLoading();
     form?.classList.add("hidden");
-    setNotice("You cannot deploy a new SaaS yet. Ask an administrator to configure a config.", "error", false);
+    setNotice("You cannot deploy a new SaaS yet. Ask an administrator to make a config visible.", "error", false);
     return false;
   }
 
@@ -4383,8 +4486,6 @@ function orderTemplateUrl(name) {
   const templateName = String(name || "").trim();
   if (!templateName) return "";
   const query = new URLSearchParams({ template: templateName });
-  const profile = selectedProfileCredentials().profile || defaultConfigProfileName() || "";
-  if (profile) query.set("profile", profile);
   return `${window.location.origin}/order?${query.toString()}`;
 }
 
@@ -4403,7 +4504,7 @@ function enrolledTemplateEntry(name) {
 
 function templateWebhookUrl(name) {
   const templateName = String(name || "").trim();
-  const profile = selectedProfileCredentials().profile || defaultConfigProfileName() || "";
+  const profile = selectedProfileCredentials().profile || visibleConfigProfileName() || "";
   if (!profile || !templateName) return "";
 
   const entry = enrolledTemplateEntry(templateName);
@@ -4712,7 +4813,7 @@ async function applyDockerRunCommand() {
     return applyDockerComposeFile();
   }
 
-  const runText = dockerRunInput?.value || "";
+  const runText = normalizeDockerRunInput();
   if (dockerComposeServiceCount(runText)) {
     return applyDockerComposeFile(runText);
   }
@@ -4778,13 +4879,15 @@ async function applyDockerRunCommand() {
 }
 
 function loadSavedConfig() {
-  return fetch("/config", {
+  const configEndpoint = (!isOrderPage && !isEnrollPage && !isCatalogPage) ? "/admin/config" : "/config";
+  return fetch(configEndpoint, {
     method: "GET",
     headers: { Accept: "application/json" },
   })
     .then((response) => response.json())
     .then((data) => {
-      const localProfiles = (isEnrollPage || isOrderPage) ? {} : applyDeletedProfileFilter(storedProfiles());
+      const usesPublicConfig = isEnrollPage || isOrderPage || isCatalogPage;
+      const localProfiles = usesPublicConfig ? {} : applyDeletedProfileFilter(storedProfiles());
       if (!data) {
         serverConfigProfiles = {};
         configProfiles = localProfiles;
@@ -4796,27 +4899,11 @@ function loadSavedConfig() {
       savedConfig = data;
       const serverProfiles = applyDeletedProfileFilter(parseProfiles(data.profiles));
       serverConfigProfiles = { ...serverProfiles };
-      configProfiles = { ...serverProfiles, ...localProfiles };
+      configProfiles = usesPublicConfig ? { ...serverProfiles } : { ...localProfiles, ...serverProfiles };
 
       const profile = String(data.profile || data.config_profile || "").trim();
       if (profile && !deletedProfiles().includes(profile) && Object.hasOwn(serverProfiles, profile)) {
         currentConfigProfile = (isEnrollPage || isOrderPage) ? profile : (localStorage.getItem("current_config_profile") || profile);
-      }
-
-      if (data.netbox && data.token && profile) {
-        const serverProfile = {
-          netbox: data.netbox,
-          token: data.token,
-          proxy: data.proxy || "",
-          domain: data.domain || "",
-          tag: data.tag || "",
-          enrollment_limit: enrollmentLimitValue(data),
-          cloudflare_filter: checkboxValue(data.cloudflare_filter, true),
-          smtp_config: smtpConfigValue(data),
-          ...(serverProfiles[profile]?.saashup_default === true ? { saashup_default: true } : {}),
-        };
-        serverConfigProfiles[profile] = serverProfile;
-        configProfiles[profile] = localProfiles[profile] || serverProfile;
       }
 
       updateProfileOptions();
@@ -4836,16 +4923,27 @@ function loadSavedConfig() {
 
 async function test() {
   let { netbox, token, proxy } = selectedProfileCredentials();
+  let credentials = selectedProfileCredentials();
 
   if (!netbox || !token) {
     const config = await loadSavedConfig();
-    const credentials = selectedProfileCredentials();
-    netbox = netbox || credentials.netbox || config.netbox || "";
-    token = token || credentials.token || config.token || "";
-    proxy = proxy || credentials.proxy || config.proxy || "";
+    const refreshedCredentials = selectedProfileCredentials();
+    credentials = refreshedCredentials;
+    netbox = netbox || refreshedCredentials.netbox || "";
+    token = token || refreshedCredentials.token || "";
+    proxy = proxy || refreshedCredentials.proxy || "";
   }
 
   if (!netbox || !token) {
+    const refreshedCredentials = selectedProfileCredentials();
+    if (profileHasNetBoxCredentials(refreshedCredentials)) {
+      netbox = netbox || "";
+      token = token || "";
+      proxy = proxy || "";
+    }
+  }
+
+  if ((!netbox || !token) && !profileHasNetBoxCredentials(selectedProfileCredentials())) {
     setTestButtonState("error");
     setNotice("Save NetBox URL and token for this profile first", "error");
     return;
@@ -4860,6 +4958,8 @@ async function test() {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        profile: credentials.profile,
+        config_profile: credentials.profile,
         netbox,
         token,
         proxy,
@@ -4894,7 +4994,7 @@ async function testEmail() {
   const credentials = selectedProfileCredentials();
   const smtp_config = fieldValue("smtp_config") || credentials.smtp_config || "";
 
-  if (!smtp_config) {
+  if (!smtp_config && !credentials.smtp_configured) {
     setNotice("SMTP config is required", "error");
     return;
   }
@@ -4956,14 +5056,16 @@ async function saveConfig() {
   const owner_env_var = ownerEnvVarValue(fieldValue("owner_env_var"));
   const cloudflare_filter = fieldChecked("cloudflare_filter", true);
   const smtp_config = fieldValue("smtp_config");
-  const saashup_default = Boolean(configDefaultInput?.checked && !configDefaultInput.disabled);
+  const saashup_visible = Boolean(configDefaultInput?.checked);
+  const existingCredentials = profileCredentials(profile);
+  const hasExistingNetBoxCredentials = profileHasNetBoxCredentials(existingCredentials);
 
   if (!profile) {
     setNotice("Profile name is required", "error");
     return;
   }
 
-  if (!netbox || !token) {
+  if ((!netbox || !token) && !hasExistingNetBoxCredentials) {
     setNotice("NetBox URL and token are required", "error");
     return;
   }
@@ -4983,8 +5085,23 @@ async function saveConfig() {
   setFieldValue("tag", tag);
   setFieldValue("enrollment_limit", enrollment_limit);
   setFieldValue("owner_env_var", owner_env_var);
-  configProfiles[profile] = { netbox, token, proxy, domain, tag, enrollment_limit, owner_env_var, cloudflare_filter, smtp_config, ...(saashup_default ? { saashup_default: true } : {}) };
-  if (saashup_default) enforceSingleDefaultConfig(profile);
+  configProfiles[profile] = {
+    ...(netbox ? { netbox } : {}),
+    ...(token ? { token } : {}),
+    ...(proxy ? { proxy } : {}),
+    ...(smtp_config ? { smtp_config } : {}),
+    netbox_configured: Boolean(netbox || existingCredentials.netbox_configured),
+    token_configured: Boolean(token || existingCredentials.token_configured),
+    proxy_configured: Boolean(proxy || existingCredentials.proxy_configured),
+    smtp_configured: Boolean(smtp_config || existingCredentials.smtp_configured),
+    domain,
+    tag,
+    enrollment_limit,
+    owner_env_var,
+    cloudflare_filter,
+    ...(saashup_visible ? { saashup_visible: true } : {}),
+  };
+  if (saashup_visible) markVisibleConfig(profile);
   currentConfigProfile = profile;
   updateProfileOptions();
   persistProfiles();
@@ -5172,7 +5289,7 @@ function workflowCreateBody(template, templateName) {
   template = normalizeCreateTemplate(template);
   const profileName = template.config_profile || template.profile || currentConfigProfile || "";
   const credentials = profileCredentials(profileName);
-  if (!credentials.netbox || !credentials.token) throw new Error(`Config "${profileLabel(profileName)}" is missing NetBox URL or token`);
+  if (!profileHasNetBoxCredentials(credentials)) throw new Error(`Config "${profileLabel(profileName)}" is missing NetBox URL or token`);
 
   const instanceName = String(template.instance || templateName || "").trim();
   const hasTraefik = checkboxValue(template.traefik, true);
@@ -5270,7 +5387,7 @@ function workflowDeleteBody(template, templateName) {
   template = normalizeCreateTemplate(template);
   const profileName = template.config_profile || template.profile || currentConfigProfile || "";
   const credentials = profileCredentials(profileName);
-  if (!credentials.netbox || !credentials.token) throw new Error(`Config "${profileLabel(profileName)}" is missing NetBox URL or token`);
+  if (!profileHasNetBoxCredentials(credentials)) throw new Error(`Config "${profileLabel(profileName)}" is missing NetBox URL or token`);
 
   const image = String(template.image || "").trim();
   if (!image) throw new Error(`Template "${templateName}" is missing an image name for delete`);
@@ -5292,7 +5409,7 @@ function workflowUpgradeBody(template, templateName) {
   template = normalizeCreateTemplate(template);
   const profileName = template.config_profile || template.profile || currentConfigProfile || "";
   const credentials = profileCredentials(profileName);
-  if (!credentials.netbox || !credentials.token) throw new Error(`Config "${profileLabel(profileName)}" is missing NetBox URL or token`);
+  if (!profileHasNetBoxCredentials(credentials)) throw new Error(`Config "${profileLabel(profileName)}" is missing NetBox URL or token`);
 
   const image = String(template.image || "").trim();
   if (!image) throw new Error(`Template "${templateName}" is missing an image name for upgrade`);
@@ -5464,7 +5581,7 @@ async function submitAction(config, submitter) {
     return;
   }
 
-  if (!isOrderPage && !isEnrollPage && (!credentials.netbox || !credentials.token)) {
+  if (!isOrderPage && !isEnrollPage && !profileHasNetBoxCredentials(credentials)) {
     setNotice("Save NetBox URL and token for this profile first", "error");
     return;
   }
@@ -6133,6 +6250,7 @@ form?.addEventListener("submit", async (event) => {
 
 testBtn?.addEventListener("click", test);
 testEmailBtn?.addEventListener("click", testEmail);
+refreshEnvironmentBtn?.addEventListener("click", () => loadEnvironmentVariables({ force: true }));
 deleteConfigBtn?.addEventListener("click", deleteConfig);
 exportConfigBtn?.addEventListener("click", exportPortableConfig);
 importConfigBtn?.addEventListener("click", importPortableConfigFile);
@@ -6315,7 +6433,7 @@ createTemplateSelect?.addEventListener("change", () => {
 dockerRunApplyBtn?.addEventListener("click", applyDockerRunCommand);
 dockerRunCancelBtn?.addEventListener("click", closeDockerRunModal);
 dockerRunCloseBtn?.addEventListener("click", closeDockerRunModal);
-dockerRunInput?.addEventListener("input", updateEnrollSubmitState);
+dockerRunInput?.addEventListener("input", handleDockerRunInput);
 dockerComposeInput?.addEventListener("input", updateEnrollSubmitState);
 catalogSearch?.addEventListener("input", () => renderCatalogItems());
 catalogSort?.addEventListener("change", () => renderCatalogItems());
@@ -6488,10 +6606,9 @@ async function initializePage() {
     const authReady = loadAuthUser();
     if (isOrderPage || isEnrollPage || isCatalogPage) await authReady;
     if (!isOrderPage && !isEnrollPage && !isCatalogPage) await loadMailSettings();
-    if (isEnrollPage) await loadRegistryDefaultSecret();
     await loadSavedConfig();
     if (isOrderPage || isCatalogPage) {
-      const profileName = urlParams.get("profile") || defaultConfigProfileName() || currentConfigProfile;
+      const profileName = visibleConfigProfileName() || currentConfigProfile;
       if (profileName) applyProfileToFields(profileName, { syncNetwork: !isOrderPage });
     }
     if (!isEnrollPage && !isCatalogPage) await loadCreateTemplates({ useCache: !isOrderPage });

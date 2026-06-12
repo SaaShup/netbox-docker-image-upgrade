@@ -143,6 +143,15 @@ function profileUsesNetBoxTemplates(profile) {
   return Boolean(config.netbox && config.token);
 }
 
+function visibleProfileNames() {
+  const config = plainObject(readState().config);
+  const profiles = profilesWithSingleDefault(parseProfiles(config.profiles));
+  return Object.entries(profiles)
+    .filter(([, profile]) => plainObject(profile).saashup_visible === true)
+    .map(([name]) => name)
+    .sort((a, b) => a.localeCompare(b));
+}
+
 function labelMapFromContainer(container) {
   const labels = plainObject(container?.labels);
   const entries = Array.isArray(container?.labels)
@@ -429,6 +438,18 @@ async function templatesForRequest(req, profile = "", options = {}) {
     .map(({ name, template }) => [name, template]));
 }
 
+async function templatesForVisibleProfiles(req, options = {}) {
+  const merged = new Map();
+  for (const profile of visibleProfileNames()) {
+    const templates = await templatesForRequest(req, profile, options);
+    Object.entries(templates).forEach(([name, template]) => {
+      const key = name.toLowerCase();
+      if (!merged.has(key)) merged.set(key, { name, template: { ...plainObject(template), config_profile: plainObject(template).config_profile || profile } });
+    });
+  }
+  return Object.fromEntries([...merged.values()].map(({ name, template }) => [name, template]));
+}
+
 async function workflowsForRequest(req, profile = "") {
   const state = readState();
   const merged = new Map();
@@ -452,6 +473,18 @@ async function workflowsForRequest(req, profile = "") {
     });
   }
 
+  return Object.fromEntries([...merged.values()].map(({ name, workflow }) => [name, workflow]));
+}
+
+async function workflowsForVisibleProfiles(req) {
+  const merged = new Map();
+  for (const profile of visibleProfileNames()) {
+    const workflows = await workflowsForRequest(req, profile);
+    Object.entries(workflows).forEach(([name, workflow]) => {
+      const key = name.toLowerCase();
+      if (!merged.has(key)) merged.set(key, { name, workflow: { ...plainObject(workflow), config_profile: plainObject(workflow).config_profile || profile } });
+    });
+  }
   return Object.fromEntries([...merged.values()].map(({ name, workflow }) => [name, workflow]));
 }
 
@@ -861,6 +894,7 @@ const {
   templateEntryForRequest,
   templateLabelValue,
   templatesForRequest,
+  visibleProfileNames,
   workflowsForRequest,
   writeState,
 });
@@ -884,9 +918,12 @@ registerConfigRoutes(app, {
   syncTemplatesToNetBoxConfigContext,
   enrollmentTemplateDeleteUsage,
   templatesForRequest,
+  templatesForVisibleProfiles,
   templatesWithCreatorEmails,
+  visibleProfileNames,
   verifyContactTurnstile,
   writeState,
+  workflowsForVisibleProfiles,
   workflowsForRequest,
 });
 
@@ -965,6 +1002,7 @@ const {
   selectedProfileConfig,
   templateEntryForRequest,
   templateLabelValue,
+  visibleProfileNames,
   valueText,
 });
 

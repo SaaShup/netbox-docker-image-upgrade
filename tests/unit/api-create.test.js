@@ -274,6 +274,57 @@ describe("api create helpers", () => {
     ]);
   });
 
+  test("createInstance parses string log driver options and drops invalid values", async () => {
+    const patchBodies = [];
+    async function runWithLogOptions(logDriverOptions) {
+      const { helpers } = createHelpers({
+        containerConfigPayloadFromForm: (data, id) => ({
+          id,
+          env: [],
+          labels: [],
+          mounts: [],
+          log_driver: "json-file",
+          log_driver_options: logDriverOptions,
+        }),
+        NetBoxClient: class {
+          async list(path) {
+            if (path.includes("/containers/")) return [];
+            if (path.includes("/volumes/")) return [];
+            return [];
+          }
+          async request(method, path, options = {}) {
+            if (method === "POST" && path.includes("/containers/")) {
+              return { payload: { id: `container-${options.body.name}`, name: options.body.name, host: { name: "host-a" } } };
+            }
+            if (method === "PATCH" && path === "/api/plugins/docker/containers/") {
+              patchBodies.push(options.body[0]);
+            }
+            return { payload: {} };
+          }
+        },
+      });
+
+      await helpers.createInstance({}, { instance: "tile" }, {
+        isEnrollRequest: false,
+        isOrderRequest: false,
+        orderProfile: "prod",
+        authUser: {},
+      });
+    }
+
+    await runWithLogOptions('{"max-size":"10m","max-file":3}');
+    await runWithLogOptions("{invalid-json");
+    await runWithLogOptions(["mode=non-blocking"]);
+    await runWithLogOptions(42);
+    await runWithLogOptions({ "": "skip", missing: undefined, ok: "yes" });
+
+    expect(patchBodies[0].log_driver_options).toEqual(["max-size=10m", "max-file=3"]);
+    expect(patchBodies[1]).not.toHaveProperty("log_driver_options");
+    expect(patchBodies[2].log_driver_options).toEqual(["mode=non-blocking"]);
+    expect(patchBodies[3]).not.toHaveProperty("log_driver_options");
+    expect(patchBodies[4].log_driver_options).toEqual(["ok=yes"]);
+  });
+
   test("createInstance skips volume creation when all requested volumes already exist", async () => {
     const requestBodies = [];
     const { calls, helpers } = createHelpers({

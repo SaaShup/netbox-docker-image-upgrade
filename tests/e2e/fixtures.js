@@ -62,6 +62,19 @@ async function openAdmin(page, config = {}, templates = {}, instances = [
     });
   });
 
+  await page.route("**/admin/environment", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        variables: [
+          { name: "NODE_ENV", value: "production" },
+          { name: "PUBLIC_IMAGE", value: "false" },
+        ],
+      }),
+    });
+  });
+
   await page.route("**/instances?**", async (route) => {
     const body = typeof instances === "function" ? instances(route) : instances;
 

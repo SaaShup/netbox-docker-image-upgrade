@@ -1,3 +1,6 @@
+const fs = require("fs");
+const path = require("path");
+
 function plainObject(value) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? JSON.parse(JSON.stringify(value))
@@ -31,17 +34,24 @@ function cleanStoredConfig(config, parseProfiles, profilesWithSingleDefault, pla
 function expandedConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject) {
   const stored = cleanStoredConfig(config, parseProfiles, profilesWithSingleDefault, plainObject);
   const selected = stored.profile ? selectedProfileConfig({ profile: stored.profile, config_profile: stored.profile }) : {};
+  const profiles = { ...stored.profiles };
+  if (stored.profile) {
+    const selectedProfile = { ...plainObject(selected) };
+    delete selectedProfile.customer_name;
+    delete selectedProfile.profile;
+    delete selectedProfile.config_profile;
+    delete selectedProfile.profiles;
+    profiles[stored.profile] = { ...plainObject(profiles[stored.profile]), ...selectedProfile };
+  }
   return {
-    ...stored,
-    ...selected,
     customer_name: stored.customer_name,
     profile: stored.profile,
     config_profile: stored.config_profile,
-    profiles: stored.profiles,
+    profiles,
   };
 }
 
-function publicConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject) {
+function publicConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject, { includeHidden = false } = {}) {
   const expanded = expandedConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject);
   const publicProfileFields = [
     "domain",
@@ -50,23 +60,45 @@ function publicConfigForResponse(config, selectedProfileConfig, parseProfiles, p
     "max_instances",
     "owner_env_var",
     "cloudflare_filter",
-    "saashup_default",
+    "saashup_visible",
   ];
-  const publicProfile = (profile) => Object.fromEntries(publicProfileFields
-    .filter((key) => plainObject(profile)[key] !== undefined)
-    .map((key) => [key, plainObject(profile)[key]]));
+  const credentialFields = {
+    netbox: "netbox_configured",
+    token: "token_configured",
+    proxy: "proxy_configured",
+    smtp_config: "smtp_configured",
+  };
+  const publicProfile = (profile) => {
+    const data = plainObject(profile);
+    return {
+      ...Object.fromEntries(publicProfileFields
+        .filter((key) => data[key] !== undefined)
+        .map((key) => [key, data[key]])),
+      ...Object.fromEntries(Object.entries(credentialFields)
+        .map(([key, flag]) => [flag, Boolean(data[key] || data[flag])])),
+    };
+  };
   const profiles = Object.fromEntries(Object.entries(plainObject(expanded.profiles))
+    .filter(([, profile]) => includeHidden || plainObject(profile).saashup_visible === true || plainObject(profile).saashup_default === true)
     .map(([name, profile]) => [name, publicProfile(profile)]));
 
-  if (expanded.profile && !profiles[expanded.profile]) {
-    profiles[expanded.profile] = publicProfile(expanded);
+  const selectedProfile = plainObject(expanded.profiles[expanded.profile]);
+  const expandedVisible = selectedProfile.saashup_visible === true || selectedProfile.saashup_default === true;
+  if (expanded.profile && !profiles[expanded.profile] && (includeHidden || expandedVisible)) {
+    profiles[expanded.profile] = publicProfile(selectedProfile);
+  }
+  const showSelectedProfile = includeHidden || expandedVisible;
+  let selectedProfileName = "";
+  let selectedConfigProfileName = "";
+  if (showSelectedProfile) {
+    selectedProfileName = expanded.profile;
+    selectedConfigProfileName = expanded.config_profile;
   }
 
   return {
     customer_name: expanded.customer_name || "",
-    profile: expanded.profile || "",
-    config_profile: expanded.config_profile || "",
-    ...publicProfile(expanded),
+    profile: selectedProfileName,
+    config_profile: selectedConfigProfileName,
     profiles,
   };
 }
@@ -118,40 +150,174 @@ function workflowsWithoutTemplate(workflows, templateName, plainObject) {
     .filter(([, workflow]) => !Array.isArray(workflow.steps) || workflow.steps.length));
 }
 
+function unquoteDockerfileEnvValue(value) {
+  const text = String(value);
+  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
+    return text.slice(1, -1);
+  }
+  return text;
+}
+
+function dockerfileEnvEntries(dockerfileText = "") {
+  const instructions = [];
+  let current = "";
+
+  String(dockerfileText).split(/\r?\n/).forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) return;
+
+    current = current ? `${current} ${trimmed}` : trimmed;
+    if (trimmed.endsWith("\\")) {
+      current = current.slice(0, -1).trim();
+      return;
+    }
+
+    instructions.push(current);
+    current = "";
+  });
+
+  if (current) instructions.push(current);
+
+  const seen = new Set();
+  const entries = [];
+  instructions
+    .filter((instruction) => /^ENV\s+/i.test(instruction))
+    .forEach((instruction) => {
+      const body = instruction.replace(/^ENV\s+/i, "");
+      const matches = body.matchAll(/([A-Za-z_][A-Za-z0-9_]*)=("[^"]*"|'[^']*'|\S*)/g);
+      for (const match of matches) {
+        const name = match[1];
+        if (seen.has(name)) continue;
+        seen.add(name);
+        entries.push({ name, defaultValue: unquoteDockerfileEnvValue(match[2]) });
+      }
+    });
+
+  return entries;
+}
+
+function environmentVariablesForResponse(env = process.env, dockerfileText = "") {
+  return dockerfileEnvEntries(dockerfileText)
+    .map(({ name, defaultValue }) => ({ name, value: String(env?.[name] ?? defaultValue ?? "") }));
+}
+
+function includeTemplateWorkflows(query = {}) {
+  return query.include_workflows === "true";
+}
+
+function templateNameRequired(name) {
+  return !String(name || "").trim();
+}
+
+async function templatesOnlyResponse({ templates }) {
+  return templates;
+}
+
+async function templatesWithWorkflowsResponse({
+  req,
+  requestedProfile,
+  profile,
+  ownerOnly,
+  templates,
+  workflowsForRequest,
+  workflowsForVisibleProfiles,
+  visibleProfileNames,
+}) {
+  const workflows = requestedProfile
+    ? await workflowsForRequest(req, profile)
+    : await workflowsForVisibleProfiles(req);
+  return {
+    templates,
+    workflows: ownerOnly ? workflowsForVisibleTemplates(workflows, templates) : workflows,
+    profiles: requestedProfile ? [requestedProfile] : visibleProfileNames(),
+  };
+}
+
+async function templatesResponseForRequest(req, {
+  readState,
+  templatesForRequest,
+  templatesForVisibleProfiles,
+  workflowsForRequest,
+  workflowsForVisibleProfiles,
+  visibleProfileNames,
+}) {
+  const state = readState();
+  const requestedProfile = req.query.profile || req.query.config_profile || "";
+  const profile = requestedProfile || state.config?.profile || state.config?.config_profile || "";
+  const ownerOnly = req.query.owner_only === "true" || req.query.enroll === "true";
+  const templates = requestedProfile
+    ? await templatesForRequest(req, requestedProfile, { ownerOnly })
+    : await templatesForVisibleProfiles(req, { ownerOnly });
+
+  const responseBuilder = {
+    false: templatesOnlyResponse,
+    true: templatesWithWorkflowsResponse,
+  }[String(includeTemplateWorkflows(req.query))];
+  return responseBuilder({
+    req,
+    requestedProfile,
+    profile,
+    ownerOnly,
+    templates,
+    workflowsForRequest,
+    workflowsForVisibleProfiles,
+    visibleProfileNames,
+  });
+}
+
 function registerConfigRoutes(app, {
   appOwnerEmail,
   authUserFromRequest,
   maxInstancesValue,
   parseProfiles,
   plainObject,
+  processEnv = process.env,
+  readDockerfile = (dockerfilePath) => fs.readFileSync(dockerfilePath, "utf8"),
+  dockerfilePath = path.join(process.cwd(), "Dockerfile"),
   profilesWithSingleDefault,
   publicApiGuard,
   readState,
   registrySecretForTemplate,
   registryWebhookSecret,
   requireAdmin,
-  isAdminAllowed = () => false,
   selectedProfileConfig,
   sendContactEmail,
   sendTestEmail,
   syncTemplatesToNetBoxConfigContext,
   enrollmentTemplateDeleteUsage,
   templatesForRequest,
+  templatesForVisibleProfiles = templatesForRequest,
   templatesWithCreatorEmails,
+  visibleProfileNames = () => [],
   verifyContactTurnstile,
   writeState,
   workflowsForRequest,
+  workflowsForVisibleProfiles = workflowsForRequest,
 }) {
+  app.get("/admin/config", requireAdmin, (req, res) => {
+    const config = readState().config || {};
+    if (!Object.keys(plainObject(config)).length) {
+      res.json({});
+      return;
+    }
+    res.json(expandedConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject));
+  });
+  app.get("/admin/environment", requireAdmin, (req, res) => {
+    let dockerfileText = "";
+    try {
+      dockerfileText = readDockerfile(dockerfilePath);
+    } catch {
+      dockerfileText = "";
+    }
+    res.json({ variables: environmentVariablesForResponse(processEnv, dockerfileText) });
+  });
   app.get("/config", (req, res) => {
     const config = readState().config || {};
     if (!Object.keys(plainObject(config)).length) {
       res.json({});
       return;
     }
-    const responseConfig = isAdminAllowed(req)
-      ? expandedConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject)
-      : publicConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject);
-    res.json(responseConfig);
+    res.json(publicConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject));
   });
   app.get("/mail-settings", requireAdmin, (req, res) => res.json({ owner_email_configured: Boolean(appOwnerEmail) }));
   app.get("/registry-webhook-secret", requireAdmin, (req, res) => {
@@ -203,8 +369,15 @@ function registerConfigRoutes(app, {
   app.get("/webhook", requireAdmin, async (req, res) => {
     const profileName = req.query.profile || req.query.config_profile || "";
     const configProfileName = req.query.config_profile || req.query.profile || "";
+    const existingConfig = plainObject(readState().config);
+    const storedProfiles = parseProfiles(existingConfig.profiles);
     const parsedProfiles = profilesWithSingleDefault(normalizeImportedProfiles(parseProfiles(req.query.profiles), maxInstancesValue, plainObject));
     const selectedInputProfile = plainObject(parsedProfiles[profileName]);
+    const existingProfile = plainObject(storedProfiles[profileName]);
+    const secretValue = (key) => {
+      const values = [req.query[key], selectedInputProfile[key], existingProfile[key], existingConfig[key]];
+      return values.find((value) => String(value || "").trim()) || "";
+    };
     const selectedProfileLimit = selectedInputProfile.enrollment_limit
       ?? selectedInputProfile.max_templates
       ?? selectedInputProfile.max_instances;
@@ -216,15 +389,16 @@ function registerConfigRoutes(app, {
     if (profileName) {
       parsedProfiles[profileName] = {
         ...selectedInputProfile,
-        netbox: req.query.netbox ?? selectedInputProfile.netbox ?? "",
-        token: req.query.token ?? selectedInputProfile.token ?? "",
-        proxy: req.query.proxy ?? selectedInputProfile.proxy ?? "",
+        netbox: secretValue("netbox"),
+        token: secretValue("token"),
+        proxy: secretValue("proxy"),
         domain: req.query.domain ?? selectedInputProfile.domain ?? "",
         tag: req.query.tag ?? selectedInputProfile.tag ?? "",
         enrollment_limit: enrollmentLimit,
         owner_env_var: ownerEnvVar,
         cloudflare_filter: cloudflareFilter,
-        smtp_config: req.query.smtp_config ?? selectedInputProfile.smtp_config ?? "",
+        smtp_config: secretValue("smtp_config"),
+        ...(selectedInputProfile.saashup_visible === true || selectedInputProfile.saashup_default === true ? { saashup_visible: true } : {}),
       };
     }
     const profiles = profilesWithSingleDefault(parsedProfiles);
@@ -267,19 +441,14 @@ function registerConfigRoutes(app, {
   });
 
   app.get("/templates", async (req, res) => {
-    const state = readState();
-    const profile = req.query.profile || req.query.config_profile || state.config?.profile || state.config?.config_profile || "";
-    const ownerOnly = req.query.owner_only === "true" || req.query.enroll === "true";
-    const templates = await templatesForRequest(req, profile, { ownerOnly });
-    if (req.query.include_workflows === "true") {
-      const workflows = await workflowsForRequest(req, profile);
-      res.json({
-        templates,
-        workflows: ownerOnly ? workflowsForVisibleTemplates(workflows, templates) : workflows,
-      });
-      return;
-    }
-    res.json(templates);
+    res.json(await templatesResponseForRequest(req, {
+      readState,
+      templatesForRequest,
+      templatesForVisibleProfiles,
+      workflowsForRequest,
+      workflowsForVisibleProfiles,
+      visibleProfileNames,
+    }));
   });
   app.post("/templates", requireAdmin, async (req, res) => {
     const creatorEmail = authUserFromRequest(req).email || "";
@@ -314,7 +483,10 @@ function registerConfigRoutes(app, {
     const authUser = authUserFromRequest(req);
     const creator = String(authUser.email || authUser.user || "").trim().toLowerCase();
     if (!creator) return res.status(401).json({ code: "auth_required", detail: "Authentication is required." });
-    if (!name) return res.status(400).json({ code: "template_required", detail: "Template name is required." });
+    if (templateNameRequired(name)) {
+      res.status(400).json({ code: "template_required", detail: "Template name is required." });
+      return;
+    }
 
     const state = readState();
     const usage = enrollmentTemplateDeleteUsage
@@ -413,6 +585,11 @@ module.exports = {
   publicConfigForResponse,
   workflowsForVisibleTemplates,
   enrollmentTemplateUsage,
+  dockerfileEnvEntries,
+  environmentVariablesForResponse,
+  includeTemplateWorkflows,
+  templatesResponseForRequest,
   templateEntryByName,
+  templateNameRequired,
   workflowsWithoutTemplate,
 };

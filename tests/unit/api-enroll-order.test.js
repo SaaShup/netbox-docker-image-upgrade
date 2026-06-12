@@ -1,4 +1,4 @@
-const { createEnrollHelpers } = require("../../api/enroll");
+const { createEnrollHelpers, registerEnrollRoutes } = require("../../api/enroll");
 const { createOrderHelpers } = require("../../api/order");
 
 function mockResponse() {
@@ -122,6 +122,97 @@ describe("api/enroll helpers", () => {
       remaining: 0,
       reached: true,
     });
+  });
+
+  test("currentEnrollmentUsage returns empty aggregate when no visible profiles are configured", async () => {
+    const helpers = createEnroll();
+    const usage = await helpers.currentEnrollmentUsage({}, "");
+
+    expect(usage).toEqual({
+      profile: "",
+      profiles: [],
+      used: 0,
+      max: 0,
+      remaining: 0,
+      reached: false,
+      instances: [],
+    });
+  });
+
+  test("currentEnrollmentUsage uses the single visible profile when profile is not specified", async () => {
+    const helpers = createEnroll({
+      visibleProfileNames: () => ["prod"],
+      selectedProfileConfig: () => ({ enrollment_limit: 2 }),
+      maxInstancesValue: (value) => Number(value),
+      profileUsesNetBoxTemplates: () => false,
+      readState: () => ({
+        templates: {
+          image: { image: "repo/image:1.0", version: "1.0", creator_email: "owner@example.com" },
+        },
+      }),
+    });
+
+    const usage = await helpers.currentEnrollmentUsage({}, "");
+    expect(usage).toMatchObject({
+      profile: "prod",
+      used: 1,
+      max: 2,
+      remaining: 1,
+      reached: false,
+    });
+    expect(usage.instances).toHaveLength(1);
+  });
+
+  test("currentEnrollmentUsage aggregates visible profile enrollment limits", async () => {
+    const helpers = createEnroll({
+      visibleProfileNames: () => ["prod", "alt"],
+      selectedProfileConfig: ({ profile }) => ({
+        netbox: true,
+        token: "token",
+        enrollment_limit: profile === "prod" ? 2 : 3,
+      }),
+      maxInstancesValue: (value) => Number(value),
+      profileUsesNetBoxTemplates: () => true,
+      templatesForRequest: async (_req, profile) => ({
+        [`${profile}-image`]: {
+          image: `repo/${profile}:1.0`,
+          version: "1.0",
+          creator_email: "owner@example.com",
+          config_profile: profile,
+        },
+      }),
+    });
+
+    const usage = await helpers.currentEnrollmentUsage({}, "");
+    expect(usage).toMatchObject({
+      profile: "",
+      profiles: ["prod", "alt"],
+      used: 2,
+      max: 5,
+      remaining: 3,
+      reached: false,
+    });
+    expect(usage.instances.map((entry) => entry.instance).sort()).toEqual(["alt-image", "prod-image"]);
+  });
+
+  test("registerEnrollRoutes wires enroll limit profile and owner filters", async () => {
+    const routes = {};
+    const currentEnrollmentUsage = vi.fn(async () => ({ ok: true }));
+    registerEnrollRoutes({
+      get(path, handler) {
+        routes[path] = handler;
+      },
+    }, { currentEnrollmentUsage });
+
+    const res = mockResponse();
+    await routes["/enroll/limit"]({ query: { config_profile: "prod", all: "true" } }, res);
+
+    expect(currentEnrollmentUsage).toHaveBeenCalledWith(
+      { query: { config_profile: "prod", all: "true" } },
+      "prod",
+      { ownerOnly: false },
+    );
+    expect(res.body).toEqual({ ok: true });
   });
 
   test("currentEnrollmentUsage returns empty usage for anonymous users when ownerOnly is true", async () => {
@@ -655,6 +746,158 @@ describe("api/order helpers", () => {
     const usage = await helpers.currentUsage({ body: {}, query: { template: "demo" } }, "prod");
     expect(usage).toMatchObject({ profile: "prod", template: "demo", used: 1, max: 3, remaining: 2, reached: false });
     expect(usage.instances).toHaveLength(1);
+  });
+
+  test("currentUsage returns empty profile aggregate when no visible profiles are configured", async () => {
+    const helpers = createOrder({
+      templateEntryForRequest: vi.fn(),
+    });
+
+    const usage = await helpers.currentUsage({ body: {}, query: {} });
+    expect(usage).toMatchObject({
+      profile: "",
+      profiles: [],
+      template: "",
+      used: 0,
+      total_used: 0,
+      max: 0,
+      remaining: 0,
+      reached: false,
+      instances: [],
+    });
+  });
+
+  test("currentUsage uses the single visible profile when profile is not specified", async () => {
+    const helpers = createOrder({
+      visibleProfileNames: () => ["prod"],
+      selectedProfileConfig: (requested) => ({
+        netbox: true,
+        token: "token",
+        tag: `${requested.config_profile || requested.profile}`,
+      }),
+      hostIdQuery: async () => ({ host_id: 1 }),
+      NetBoxClient: class {
+        constructor() {
+          this.list = async () => [
+            { id: "one", display: "single.example.com", labels: { name: "demo", owner: "owner@example.com" } },
+          ];
+        }
+      },
+      templateEntryForRequest: async () => ({ template: { max_instances: 2 } }),
+    });
+
+    const usage = await helpers.currentUsage({ body: {}, query: {} });
+    expect(usage).toMatchObject({
+      profile: "prod",
+      template: "",
+      used: 1,
+      max: 2,
+      remaining: 1,
+      reached: false,
+    });
+    expect(usage.instances).toHaveLength(1);
+  });
+
+  test("currentUsage aggregates instances and limits across multiple visible profiles", async () => {
+    const templateEntryForRequest = vi.fn(async (_req, profile) => ({
+      template: { max_instances: profile === "prod" ? 1 : 1 },
+    }));
+    const helpers = createOrder({
+      visibleProfileNames: () => ["prod", "alt"],
+      selectedProfileConfig: (request) => ({
+        netbox: true,
+        token: "token",
+        tag: request.config_profile || request.profile,
+      }),
+      hostIdQuery: async () => ({ host_id: 1 }),
+      NetBoxClient: class {
+        constructor(config) {
+          this.list = async () => {
+            if (config.tag === "prod") {
+              return [
+                { id: "p1", display: "prod-1.example.com", labels: { name: "demo", owner: "owner@example.com" } },
+                { id: "p2", display: "prod-2.example.com", labels: { name: "demo", owner: "owner@example.com" } },
+              ];
+            }
+            if (config.tag === "alt") {
+              return [
+                { id: "a1", display: "alt.example.com", labels: { name: "demo", owner: "owner@example.com" } },
+              ];
+            }
+            return [];
+          };
+        }
+      },
+      templateEntryForRequest,
+      templateLabelValue: (labels, key) => labels[key] || "",
+      imagePartsFromContainer: () => ({ image: "repo/image", version: "v1" }),
+      isReadyContainer: () => true,
+      isContainerStopped: () => false,
+      valueText: (value) => String(value || ""),
+    });
+
+    const usage = await helpers.currentUsage({ body: {}, query: {} });
+    expect(usage).toMatchObject({
+      profile: "",
+      profiles: ["prod", "alt"],
+      template: "",
+      used: 3,
+      max: 2,
+      remaining: 0,
+      reached: true,
+    });
+    expect(templateEntryForRequest).toHaveBeenCalledTimes(2);
+    expect(usage.instances).toHaveLength(3);
+    expect(usage.instances.map((entry) => entry.instance).sort()).toEqual([
+      "alt.example.com",
+      "prod-1.example.com",
+      "prod-2.example.com",
+    ].sort());
+  });
+
+  test("currentUsage aggregates multi-profile usage with mixed limits", async () => {
+    const helpers = createOrder({
+      visibleProfileNames: () => ["alpha", "beta", "gamma"],
+      selectedProfileConfig: (request) => ({
+        netbox: true,
+        token: "token",
+        tag: request.config_profile || request.profile,
+      }),
+      templateEntryForRequest: async (_req, profile) => ({
+        template: { max_instances: profile === "alpha" ? 2 : profile === "beta" ? 3 : 4 },
+      }),
+      hostIdQuery: async () => ({ host_id: 1 }),
+      NetBoxClient: class {
+        constructor(config) {
+          this.list = async () => {
+            if (config.tag === "alpha") {
+              return [{ display: "alpha.example.com", labels: { name: "demo", owner: "owner@example.com" } }];
+            }
+            if (config.tag === "beta") {
+              return [{ display: "beta.example.com", labels: { name: "demo", owner: "owner@example.com" } }];
+            }
+            if (config.tag === "gamma") {
+              return [{ display: "gamma.example.com", labels: { name: "demo", owner: "owner@example.com" } }];
+            }
+            return [];
+          };
+        }
+      },
+      templateLabelValue: (labels, key) => labels[key] || "",
+      imagePartsFromContainer: () => ({ image: "repo/image", version: "v1" }),
+      isReadyContainer: () => true,
+      isContainerStopped: () => false,
+      valueText: (value) => String(value || ""),
+    });
+
+    const usage = await helpers.currentUsage({ body: {}, query: { template: "demo" } });
+    expect(usage).toMatchObject({
+      used: 3,
+      max: 9,
+      remaining: 6,
+      reached: false,
+    });
+    expect(usage.instances).toHaveLength(3);
   });
 
   test("currentUsage shows owned containers without template labels on the instances page", async () => {
