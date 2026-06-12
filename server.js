@@ -73,6 +73,7 @@ const adminAllowedEmails = String(process.env.ADMIN_ALLOWED_EMAILS || "")
   .split(",")
   .map((email) => email.trim().toLowerCase())
   .filter(Boolean);
+const publicImage = ["true", "1"].includes(String(process.env.PUBLIC_IMAGE || "").trim().toLowerCase());
 const publicApiAllowedOrigins = String(process.env.PUBLIC_API_ALLOWED_ORIGINS || "")
   .split(",")
   .map((origin) => origin.trim().replace(/\/+$/, ""))
@@ -790,6 +791,12 @@ function requireAdmin(req, res, next) {
   res.status(403).sendFile(path.join(publicPath, "forbidden.html"));
 }
 
+function canCreatePublicImage(req) {
+  if (publicImage) return true;
+  const { email } = authUserFromRequest(req);
+  return Boolean(email && adminAllowedEmails.includes(String(email).toLowerCase()));
+}
+
 function timingSafeStringEqual(left, right) {
   const leftBuffer = Buffer.from(String(left || ""));
   const rightBuffer = Buffer.from(String(right || ""));
@@ -963,6 +970,7 @@ registerRegistryWebhookRoutes(app, {
 
 registerSystemRoutes(app, {
   authUserFromRequest,
+  canCreatePublicImage,
   oidcAuth,
   packageJson,
   publicPath,
@@ -1219,6 +1227,7 @@ registerOperationRoutes(app, {
   asyncOperation,
   authUserFromRequest,
   bindPayloadsFromForm,
+  canCreatePublicImage,
   createInstance,
   currentEnrollmentUsage,
   currentUsage,

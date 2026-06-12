@@ -18,6 +18,8 @@ docker run -d -v netbox-docker-image-upgrade:/data \
  saashup/netbox-docker-image-upgrade
 ```
 
+Set `PUBLIC_IMAGE=true` or `PUBLIC_IMAGE=1` to allow any signed-in user to order or enroll images. When `PUBLIC_IMAGE` is unset, `false`, or `0`, only emails listed in `ADMIN_ALLOWED_EMAILS` can order or enroll images.
+
 ## Documentation
 
 - [Authentication](docs/authentication.md)

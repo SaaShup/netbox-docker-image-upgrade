@@ -167,6 +167,7 @@ let catalogCards = [];
 let catalogLimit = {};
 let enrollSubmitInProgress = false;
 const orderDeletingInstances = new Set();
+let publicImageAllowed = true;
 let currentReportView = "images";
 let lastReportData = null;
 let orderStatusPollTimer = null;
@@ -498,6 +499,7 @@ function normalizeAuthUser(user = {}) {
     user: String(user.user || "").trim(),
     email: String(user.email || "").trim(),
     admin: Boolean(user.admin),
+    public_image: user.public_image !== false || Boolean(user.admin),
   };
 }
 
@@ -534,6 +536,8 @@ function renderAuthUser(user) {
   const normalized = normalizeAuthUser(user);
 
   if (!normalized) return false;
+  publicImageAllowed = normalized.public_image;
+  updatePublicImageAccess();
 
   if (authName) authName.textContent = normalized.name;
   if (authEmail) authEmail.textContent = normalized.email && normalized.email !== normalized.name ? normalized.email : "";
@@ -542,6 +546,14 @@ function renderAuthUser(user) {
 
   authUser.classList.remove("hidden");
   return true;
+}
+
+function canCreatePublicImage() {
+  return publicImageAllowed;
+}
+
+function publicImageDisabledMessage() {
+  return "Only administrators can create or enroll images.";
 }
 
 function renderCachedAuthUser() {
@@ -2807,7 +2819,37 @@ function hideOrderActions() {
 }
 
 function showOrderActions() {
+  if (!canCreatePublicImage()) {
+    hidePublicImageForm();
+    return;
+  }
   orderActions?.classList.remove("hidden");
+}
+
+function hidePublicImageForm(message = publicImageDisabledMessage()) {
+  form?.classList.add("hidden");
+  if (submitBtn) {
+    submitBtn.classList.add("hidden");
+    submitBtn.hidden = true;
+    submitBtn.disabled = true;
+    submitBtn.style.display = "none";
+  }
+
+  if (isOrderPage) {
+    hideOrderActions();
+    setOrderStatus(message, "error", "public-image-disabled");
+  } else if (isEnrollPage) {
+    setNotice(message, "error", false);
+  }
+}
+
+function updatePublicImageAccess() {
+  if (!isOrderPage && !isEnrollPage) return;
+  if (!canCreatePublicImage()) {
+    hidePublicImageForm();
+  } else if (isEnrollPage) {
+    updateEnrollSubmitState({ notify: false });
+  }
 }
 
 function hideOrderLoading() {
@@ -2845,6 +2887,11 @@ function collapseLogs() {
 function setAction(actionName) {
   const config = actions[actionName];
   if (!config || !form) return;
+
+  if ((isOrderPage || isEnrollPage) && actionName === "create" && !canCreatePublicImage()) {
+    hidePublicImageForm();
+    return;
+  }
 
   collapseLogs();
 
@@ -3154,6 +3201,10 @@ function enrollImageVersionAllowed(image = "", version = "") {
 
 function updateEnrollSubmitState({ notify = true } = {}) {
   if (!isEnrollPage) return true;
+  if (!canCreatePublicImage()) {
+    hidePublicImageForm();
+    return false;
+  }
 
   const valid = currentImportTab === "compose"
     ? validateEnrollComposeText(dockerComposeInput?.value || "", { notify })
@@ -5340,6 +5391,11 @@ async function submitAction(config, submitter) {
   const credentials = selectedProfileCredentials();
   let createdInstanceFqdn = "";
 
+  if ((isOrderPage || isEnrollPage) && !canCreatePublicImage()) {
+    hidePublicImageForm();
+    return;
+  }
+
   if (!credentials.netbox || !credentials.token) {
     setNotice("Save NetBox URL and token for this profile first", "error");
     return;
@@ -6368,6 +6424,8 @@ async function initializePage() {
   try {
     initializeSidebar();
     renderCachedAuthUser();
+    const authReady = loadAuthUser();
+    if (isOrderPage || isEnrollPage || isCatalogPage) await authReady;
     if (!isEnrollPage) await loadMailSettings();
     await loadSavedConfig();
     if (isOrderPage || isCatalogPage) {
@@ -6393,15 +6451,11 @@ async function initializePage() {
 
     if (isOrderPage) {
       hideOrderActions();
-      const authReady = loadAuthUser();
       const orderReady = await applyOrderTemplate({ reveal: false });
-      await authReady;
       hideOrderLoading();
       if (orderReady) showOrderActions();
     } else if (isCatalogPage) {
-      const authReady = loadAuthUser();
       await refreshCatalog();
-      await authReady;
     } else if (actionFromUrl) {
       setNotice(actionFromUrl, "success");
 
@@ -6412,7 +6466,7 @@ async function initializePage() {
       window.history.replaceState(window.history.state, "", cleanUrl);
     }
 
-    if (!isOrderPage && !isCatalogPage) loadAuthUser();
+    if (!isOrderPage && !isCatalogPage) await authReady;
 
     if (!isOrderPage && !isEnrollPage && !isCatalogPage) {
       getLogs();
