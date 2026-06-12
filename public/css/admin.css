@@ -423,8 +423,22 @@ body.app-booting .admin-menu-toggle {
 }
 
 .auth-logout {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 36px;
+  width: 36px;
   min-height: 36px;
-  padding: 0 12px;
+  padding: 0;
+}
+
+.auth-logout svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .eyebrow {
@@ -1765,17 +1779,33 @@ input[type="checkbox"]:disabled {
 
   .page-header {
     flex-direction: column;
-    padding-right: 54px;
+    padding-right: 0;
+  }
+
+  .page-header > :first-child {
+    padding-right: 104px;
   }
 
   .header-tools {
     width: 100%;
-    justify-content: space-between;
+    justify-content: stretch;
+  }
+
+  .header-tools > .theme-toggle {
+    position: fixed;
+    top: 18px;
+    right: 70px;
+    z-index: 1001;
   }
 
   .auth-user {
     width: 100%;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+  }
+
+  .auth-user .auth-copy {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
   #orderTemplateBtn {

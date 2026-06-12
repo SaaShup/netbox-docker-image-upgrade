@@ -165,10 +165,28 @@ body.enroll-page .order-auth {
   font-size: 0.8rem;
 }
 
-.auth-cache,
-.auth-logout {
+.auth-cache {
   min-height: 36px;
   padding: 0 12px;
+}
+
+.auth-logout {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 36px;
+  width: 36px;
+  min-height: 36px;
+  padding: 0;
+}
+
+.auth-logout svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .eyebrow {
