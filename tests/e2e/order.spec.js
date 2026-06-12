@@ -251,7 +251,7 @@ test("order page informs the user when the max instance limit is reached", async
   await expect(page.locator(".order-instance-card").nth(2).locator(".order-instance-status-failed")).toBeVisible();
   await expect(page.locator(".order-instance-card").nth(2).locator(".order-instance-state")).toHaveText("Failed");
   await expect(page.locator("#orderStatus")).toHaveClass(/error/);
-  await expect(page.locator("#orderStatus")).toContainText("You have reached your maximum of 3 instances for this config.");
+  await expect(page.locator("#orderStatus")).toContainText("You have reached your maximum of 3 instances.");
   await expect(page.locator("#orderStatus .order-status-home")).toHaveCount(0);
   expect(createCalled).toBe(false);
 

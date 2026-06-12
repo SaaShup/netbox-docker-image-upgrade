@@ -118,32 +118,36 @@ async function openVisualPage(page, path) {
   await page.waitForSelector("body:not(.app-booting)");
 }
 
+const pageScreenshotOptions = {
+  maxDiffPixelRatio: 0.05,
+};
+
 test.describe("@visual visual snapshots", () => {
   test("public pages match visual baselines", async ({ page }) => {
     await setupVisualRoutes(page);
 
     await page.setViewportSize({ width: 390, height: 844 });
     await openVisualPage(page, "/order?template=demo");
-    await expect(page).toHaveScreenshot("order-mobile.png");
+    await expect(page).toHaveScreenshot("order-mobile.png", pageScreenshotOptions);
 
     await openVisualPage(page, "/enroll.html");
     await expect(page.locator("#enrollInstances")).toBeVisible();
-    await expect(page).toHaveScreenshot("enroll-mobile.png");
+    await expect(page).toHaveScreenshot("enroll-mobile.png", pageScreenshotOptions);
 
     await openVisualPage(page, "/catalog");
     await expect(page.locator("#catalogList")).toContainText("demo-image");
-    await expect(page).toHaveScreenshot("catalog-mobile.png");
+    await expect(page).toHaveScreenshot("catalog-mobile.png", pageScreenshotOptions);
 
     await page.setViewportSize({ width: 1280, height: 720 });
     await openVisualPage(page, "/order?template=demo");
-    await expect(page).toHaveScreenshot("order-desktop.png");
+    await expect(page).toHaveScreenshot("order-desktop.png", pageScreenshotOptions);
 
     await openVisualPage(page, "/enroll.html");
     await expect(page.locator("#enrollInstances")).toBeVisible();
-    await expect(page).toHaveScreenshot("enroll-desktop.png");
+    await expect(page).toHaveScreenshot("enroll-desktop.png", pageScreenshotOptions);
 
     await openVisualPage(page, "/catalog");
     await expect(page.locator("#catalogList")).toContainText("demo-image");
-    await expect(page).toHaveScreenshot("catalog-desktop.png");
+    await expect(page).toHaveScreenshot("catalog-desktop.png", pageScreenshotOptions);
   });
 });

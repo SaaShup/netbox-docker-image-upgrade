@@ -2256,7 +2256,7 @@ function setOrderDeleteStatus(instance) {
 
 function orderLimitMessage(limit) {
   const max = Number(limit?.max || 0);
-  return `You have reached your maximum of ${max} instance${max === 1 ? "" : "s"} for this config.`;
+  return `You have reached your maximum of ${max} instance${max === 1 ? "" : "s"}.`;
 }
 
 function setOrderLimitStatus(limit) {

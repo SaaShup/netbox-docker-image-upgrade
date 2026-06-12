@@ -861,7 +861,7 @@ body.enroll-page .order-spinner {
 
 body.order-page .order-status {
   max-width: 460px;
-  margin: 0 0 18px;
+  margin: 0 auto 18px;
   padding: 18px 20px;
   border-radius: 12px;
   font-size: 1.05rem;
