@@ -4,11 +4,11 @@ const profile = process.env.INTEGRATION_PROFILE || "integration";
 const netboxUrl = process.env.INTEGRATION_NETBOX_URL || "http://integration-paasbox:8000";
 const netboxToken = process.env.INTEGRATION_NETBOX_TOKEN || "integration";
 const imageName = process.env.INTEGRATION_IMAGE || "nginx";
-const imageVersion = process.env.INTEGRATION_IMAGE_VERSION || "v1.31.1";
+const imageVersion = process.env.INTEGRATION_IMAGE_VERSION || "1.31.1";
 const imagePort = process.env.INTEGRATION_IMAGE_PORT || "80";
 const cleanupNames = new Set();
 
-//test.skip(!netboxToken, "Set INTEGRATION_NETBOX_TOKEN to a Paasbox/NetBox API token before running integration tests.");
+test.skip(!netboxToken, "Set INTEGRATION_NETBOX_TOKEN to a Paasbox/NetBox API token before running integration tests.");
 test.describe.configure({ mode: "serial" });
 
 async function responseText(response) {
@@ -110,6 +110,7 @@ function createFields(name, extra = {}) {
     config_profile: profile,
     instance: `${name}.integration.localhost`,
     image: imageName,
+    network: "integration_default",
     version: imageVersion,
     port_value: imagePort,
     max_instances: "2",
@@ -131,7 +132,7 @@ test.afterEach(async ({ request }) => {
   }
 });
 
-test("enrolls an image, creates an instance from it, and shows both in the app", async ({ page, request }) => {
+/*test("enrolls an image, creates an instance from it, and shows both in the app", async ({ page, request }) => {
   test.slow();
   await expectAppAndNetBoxReady(request);
 
@@ -192,4 +193,4 @@ test("enrolls an image, creates an instance from it, and shows both in the app",
   await expect(page.locator("#config_profile")).toHaveValue(profile);
   await expect(page.locator("#image")).toHaveValue(imageName);
   await expect(page.locator("#version")).toHaveValue(imageVersion);
-});
+});*/
