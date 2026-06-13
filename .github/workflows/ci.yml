@@ -83,3 +83,13 @@ jobs:
           path: test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: Start integration stack
+        run: npm run integration:up
+
+      - name: Run Playwright integration tests
+        run: npm run test:integration
+
+      - name: Cleanup
+        if: always()
+        run: npm run integration:down

@@ -9,6 +9,7 @@ browser e2e tests for user workflows, and a Docker smoke test in CI for packagin
 - `npm run coverage:text` runs unit tests with a terminal coverage summary.
 - `npm run test:e2e` runs Playwright against the local app.
 - `npm test` runs unit tests first, then e2e tests.
+- `npm run integration:up`, `INTEGRATION_NETBOX_TOKEN=<token> npm run test:integration`, and `npm run integration:down` run the optional local Docker integration suite.
 
 ## Unit Test Strategy
 
@@ -54,6 +55,14 @@ CI should keep these gates green before merging:
 
 Upload coverage and Playwright artifacts on every CI run so failures can be
 debugged from reports instead of rerunning blindly.
+
+## Local Integration Strategy
+
+The optional integration suite in `tests/integration` starts the app, Paasbox,
+and the SaaShup Docker agent with Docker Compose. It saves a real config profile,
+enrolls a real image, creates a real instance, then checks the catalog and order
+pages through Playwright. Keep this suite local unless the CI runner has a Docker
+socket and an isolated environment suitable for creating containers.
 
 ## Release Confidence Checklist
 
