@@ -133,7 +133,7 @@ const enrollDockerRunNotices = [
   "Docker run port is required",
   "Docker run image version is required",
   "Docker run image version cannot be latest",
-  "Bind mounts are not allowed for enrollment. Use a named Docker volume like flowg-data:/data.",
+  "Bind mounts are not allowed for enrollment. Use a named Docker volume like myimage-data:/data.",
 ];
 const enrollComposeNotices = [
   enrollMultiComposeNotice,
@@ -141,7 +141,7 @@ const enrollComposeNotices = [
   "Compose service must expose one port.",
   "Compose service image version is required",
   "Compose service image version cannot be latest",
-  "Bind mounts are not allowed for enrollment. Use a named Docker volume like flowg-data:/data.",
+  "Bind mounts are not allowed for enrollment. Use a named Docker volume like myimage-data:/data.",
 ];
 
 let currentAction = (isOrderPage || isEnrollPage) ? "create" : (localStorage.getItem("current_action") || "config");
@@ -3275,7 +3275,7 @@ function validateEnrollComposeText(composeText, { notify = true } = {}) {
   }
 
   if (templates[0].template.binds?.length) {
-    if (notify) setNotice("Bind mounts are not allowed for enrollment. Use a named Docker volume like flowg-data:/data.", "error", false);
+    if (notify) setNotice("Bind mounts are not allowed for enrollment. Use a named Docker volume like myimage-data:/data.", "error", false);
     return false;
   }
 
@@ -3319,7 +3319,7 @@ function validateEnrollRunText(runText, { notify = true } = {}) {
     else if (missingImage) message = "Docker run image is required";
     else if (missingPort) message = "Docker run port is required";
     else if (invalidVersion) message = "Docker run image version cannot be latest";
-    else if (hasBindMount) message = "Bind mounts are not allowed for enrollment. Use a named Docker volume like flowg-data:/data.";
+    else if (hasBindMount) message = "Bind mounts are not allowed for enrollment. Use a named Docker volume like myimage-data:/data.";
     setNotice(message, "error", false);
   } else if (valid && notify) {
     const notice = document.getElementById("notif");
