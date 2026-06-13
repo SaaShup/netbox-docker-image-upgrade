@@ -233,7 +233,6 @@ test("order page informs the user when the max instance limit is reached", async
       config_profile: "demo",
       network: "traefik-public",
       image: "saashup/demo",
-      template_url: "/demo-home",
       ports: [{ value: "3000" }],
     },
   }, [], undefined, "/order?template=demo");
@@ -763,7 +762,6 @@ test("order page hides the order form when the requested template is disabled", 
       config_profile: "tile",
       network: "traefik-public",
       image: "saashup/test",
-      template_url: "https://templates.example.com/test",
       ports: [{ value: "3000" }],
       saashup_enabled: false,
     },
@@ -851,7 +849,6 @@ test("order page no button redirects to home", async ({ page }) => {
       network: "traefik-public",
       instance: "curiootiles",
       image: "saashup/curiootiles",
-      template_url: "/curiootiles-home",
       env: [],
       labels: [],
       ports: [{ value: "3000" }],
@@ -898,5 +895,5 @@ test("order page no button redirects to home", async ({ page }) => {
 
   await expect(page.locator("#orderActions")).toBeVisible();
   await page.locator("#orderCancelBtn").click();
-  await expect(page).toHaveURL(/\/curiootiles-home$/);
+  await expect(page).toHaveURL(/\/$/);
 });

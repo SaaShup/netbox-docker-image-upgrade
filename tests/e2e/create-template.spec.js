@@ -583,7 +583,7 @@ test("create form can import a docker run command", async ({ page }) => {
   await page.locator("#dockerRunInput").fill([
     "docker run -d --name guide-app --network mgmt",
     "--log-driver=syslog --log-opt syslog-address=udp://127.0.0.1:5514 --log-opt tag=\"{{.Name}}\"",
-    "-e APP_ENV=production -e saashup_template_url=https://templates.example.com/guide --label traefik.enable=true -p 8080:3000",
+    "-e APP_ENV=production --label traefik.enable=true -p 8080:3000",
     "-v guide-data:/app/data -v /var/run/docker.sock:/var/run/docker.sock:ro saashup/guide:v1.2.3",
   ].join(" "));
   await page.locator("#dockerRunApplyBtn").click();
@@ -603,7 +603,6 @@ test("create form can import a docker run command", async ({ page }) => {
   await page.locator("#addLoggingBtn").click();
   await expect(page.locator("#loggingList .logging-row")).toBeVisible();
   await expect(page.locator("#log_driver")).toHaveValue("syslog");
-  await expect(page.locator("#template_url")).toHaveValue("https://templates.example.com/guide");
   await expect(page.locator("#var_env_key")).toHaveValue("APP_ENV");
   await expect(page.locator("#var_env_value")).toHaveValue("production");
   await expect(page.locator("#label_key")).toHaveValue("traefik.enable");
@@ -709,7 +708,6 @@ test("create import can save docker compose services as templates", async ({ pag
     "      saashup_traefik: \"true\"",
     "      saashup_dns: \"web.staging.example.com/dashboard\"",
     "      saashup_enabled: false;",
-    "      saashup_template_url: https://templates.example.com/web",
     "    volumes:",
     "      - web-data:/app/data",
     "      - /var/run/docker.sock:/var/run/docker.sock:ro",
@@ -760,7 +758,6 @@ test("create import can save docker compose services as templates", async ({ pag
     ],
     labels: [{ key: "traefik.enable", value: "true" }],
     saashup_enabled: false,
-    template_url: "https://templates.example.com/web",
     ports: [{ value: "3000" }],
     volumes: [{ name: "web-data", source: "/app/data" }],
     binds: [{ host_path: "/var/run/docker.sock", container_path: "/var/run/docker.sock", read_only: true }],
@@ -1110,7 +1107,6 @@ test("saved templates are normalized from SaaShup labels", async ({ page }) => {
         { key: "saashup_traefik", value: "false" },
         { key: "saashup_dns", value: "https://daily.paashup.cloud" },
         { key: "saashup_enabled", value: "false;" },
-        { key: "saashup_template_url", value: "https://templates.example.com/legacy" },
       ],
     },
   });
@@ -1121,14 +1117,12 @@ test("saved templates are normalized from SaaShup labels", async ({ page }) => {
   await expect(page.locator("[data-field='saashup_enabled']")).toHaveCount(0);
   await expect(page.locator("#orderTemplateBtn")).toBeDisabled();
   await expect(page.locator("[data-field='dns_name']")).toBeHidden();
-  await expect(page.locator("#template_url")).toHaveValue("https://templates.example.com/legacy");
 
   const templates = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")));
   expect(templates.legacy).toMatchObject({
     traefik: false,
     dns_name: "https://daily.paashup.cloud",
     saashup_enabled: false,
-    template_url: "https://templates.example.com/legacy",
     labels: [],
   });
 });

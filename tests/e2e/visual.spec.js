@@ -158,6 +158,18 @@ const adminScreenshotOptions = {
   maxDiffPixelRatio: 0.12,
 };
 
+async function setNoticeState(page, message, type = "info") {
+  await page.evaluate(({ message, type }) => {
+    window.setNotice?.(message, type, false);
+  }, { message, type });
+}
+
+async function setOrderStatusState(page, message, type = "info", reason = "visual") {
+  await page.evaluate(({ message, type, reason }) => {
+    window.setOrderActionStatus?.(message, type, reason);
+  }, { message, type, reason });
+}
+
 test.describe("@visual visual snapshots", () => {
   test("pages match visual baselines", async ({ page }) => {
     await setupVisualRoutes(page);
@@ -193,5 +205,91 @@ test.describe("@visual visual snapshots", () => {
     await openVisualPage(page, "/catalog");
     await expect(page.locator("#catalogList")).toContainText("demo-image");
     await expect(page).toHaveScreenshot("catalog-desktop.png", pageScreenshotOptions);
+  });
+
+  test("interaction states match visual baselines", async ({ page }) => {
+    await setupVisualRoutes(page);
+    await page.setViewportSize({ width: 1280, height: 720 });
+
+    await openVisualPage(page, "/order?template=demo");
+    await setOrderStatusState(page, "Thank you, your instance installation has been requested for demo-3.daily.paashup.cloud.", "success", "order-requested");
+    await expect(page).toHaveScreenshot("order-message-success-desktop.png", pageScreenshotOptions);
+
+    await setOrderStatusState(page, "Delete requested for demo-1.daily.paashup.cloud.", "success", "delete-requested");
+    await page.locator(".order-instance-card").first().evaluate((card) => {
+      card.querySelector(".order-instance-state").textContent = "Deleting";
+      card.querySelector(".order-instance-state").classList.add("order-instance-status-deleting");
+    });
+    await expect(page).toHaveScreenshot("order-action-delete-desktop.png", pageScreenshotOptions);
+
+    await setOrderStatusState(page, "Order failed: image registry check failed.", "error", "order-failed");
+    await expect(page).toHaveScreenshot("order-message-error-desktop.png", pageScreenshotOptions);
+
+    await page.unroute("**/enroll/limit*").catch(() => {});
+    await page.route("**/enroll/limit*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          profile: "demo",
+          used: 1,
+          max: 2,
+          remaining: 1,
+          reached: false,
+          instances: [
+            {
+              instance: "demo-image",
+              image: "saashup/demo",
+              version: "v1.0.0",
+              status: "ready",
+              source: "netbox-template",
+              instance_count: 1,
+            },
+            {
+              instance: "worker-image",
+              image: "saashup/worker",
+              version: "v2.4.1",
+              status: "creating",
+              source: "template",
+              instance_count: 0,
+            },
+          ],
+        }),
+      });
+    });
+
+    await openVisualPage(page, "/enroll.html");
+    await setNoticeState(page, "Import a Docker run command or compose with a single service.", "info");
+    await expect(page).toHaveScreenshot("enroll-message-info-desktop.png", pageScreenshotOptions);
+
+    await page.locator("#dockerRunInput").fill("docker run --name demo-image -p 8080:3000 saashup/demo:v1.0.0");
+    await setNoticeState(page, "Image found - saashup/demo:v1.0.0", "success");
+    await expect(page).toHaveScreenshot("enroll-action-import-ready-desktop.png", pageScreenshotOptions);
+
+    await setNoticeState(page, "Compose service image version cannot be latest", "error");
+    await expect(page).toHaveScreenshot("enroll-message-error-desktop.png", pageScreenshotOptions);
+
+    await page.locator("#dockerComposeTab").click();
+    await page.locator("#dockerComposeInput").fill([
+      "services:",
+      "  demo:",
+      "    image: saashup/demo:v1.0.0",
+      "    ports:",
+      "      - 8080:3000",
+    ].join("\n"));
+    await setNoticeState(page, "Compose service \"demo\" imported", "success");
+    await expect(page).toHaveScreenshot("enroll-action-compose-desktop.png", pageScreenshotOptions);
+
+    await openVisualPage(page, "/catalog");
+    await page.locator("#catalogSearch").fill("worker");
+    await expect(page).toHaveScreenshot("catalog-action-search-desktop.png", pageScreenshotOptions);
+
+    await page.locator("#catalogSearch").fill("nothing-matches-this");
+    await expect(page.locator("#catalogList")).toContainText("No catalog images match your search.");
+    await expect(page).toHaveScreenshot("catalog-message-empty-search-desktop.png", pageScreenshotOptions);
+
+    await page.locator("#catalogSearch").fill("");
+    await page.locator("#catalogSort").selectOption("image");
+    await expect(page).toHaveScreenshot("catalog-action-sort-desktop.png", pageScreenshotOptions);
   });
 });
