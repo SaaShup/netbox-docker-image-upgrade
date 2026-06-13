@@ -3,7 +3,7 @@ const { test, expect, fs, openAdmin, appVersion, packageJson } = require("./fixt
 test("root page shows the catalog account bar and extensionless admin", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.locator(".catalog-eyebrow")).toHaveText("Template catalog");
+  await expect(page.locator(".catalog-eyebrow")).toHaveText("Image catalog");
   await expect(page.locator(".top-left-bar .brand-badge")).toContainText("SaaShup");
   await expect(page.locator(".top-left-bar .brand-badge img")).toHaveAttribute("src", "saashup_logo.svg");
   await expect(page.getByRole("navigation", { name: "Account pages" }).getByRole("link", { name: "My instances" })).toHaveAttribute("href", "/order");

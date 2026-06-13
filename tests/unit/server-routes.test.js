@@ -1462,7 +1462,6 @@ describe("server routes", () => {
           source: "netbox-template",
           image: "saashup/guide",
           version: "v1.2.3",
-          template_url: "https://templates.example.com/guide",
           max_instances: 3,
         });
         expect(res.body.Local).toBeUndefined();
@@ -1514,7 +1513,6 @@ describe("server routes", () => {
         expect(res.body.Tile).toMatchObject({
           image: "saashup/tile",
           version: "v1.0.0",
-          template_url: "https://templates.example.com/tile",
           network: "frontend",
           instance_count: 1,
         });
@@ -1628,7 +1626,6 @@ describe("server routes", () => {
               Guide: {
                 image: "saashup/guide",
                 version: "v1.2.3",
-                template_url: "https://templates.example.com/guide",
                 max_instances: 3,
               },
               config_profile: "prod",
@@ -1662,7 +1659,6 @@ describe("server routes", () => {
               Legacy: {
                 image: "saashup/legacy",
                 version: "v9.9.9",
-                template_url: "https://templates.example.com/legacy",
               },
             },
             workflows: {
@@ -1766,7 +1762,6 @@ describe("server routes", () => {
           source: "netbox-config-context",
           image: "saashup/guide",
           version: "v1.2.3",
-          template_url: "https://templates.example.com/guide",
           max_instances: 3,
           instance_count: 0,
         });
@@ -1774,7 +1769,6 @@ describe("server routes", () => {
           source: "netbox-config-context",
           image: "saashup/legacy",
           version: "v9.9.9",
-          template_url: "https://templates.example.com/legacy",
         });
         expect(res.body.Nested).toMatchObject({
           source: "netbox-config-context",
@@ -3219,7 +3213,7 @@ describe("server routes", () => {
       .expect((res) => {
         expect(res.body).toMatchObject({ used: 1, max: 4, remaining: 3, reached: false });
         expect(res.body.instances).toEqual([
-          expect.objectContaining({ instance: "Guide", image: "saashup/guide", version: "v1.2.3", source: "netbox-template", instance_count: 2, template_url: "https://templates.example.com/guide" }),
+          expect.objectContaining({ instance: "Guide", image: "saashup/guide", version: "v1.2.3", source: "netbox-template", instance_count: 2 }),
         ]);
       });
   });
@@ -3240,7 +3234,6 @@ describe("server routes", () => {
               Tile: {
                 image: "saashup/tile",
                 version: "v1.0.0",
-                template_url: "https://templates.example.com/tile",
               },
             },
           },

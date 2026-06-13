@@ -236,7 +236,6 @@ function netboxTemplateEntryFromContainer(container, labels, ownerEnvNameValue, 
       source: "netbox-template",
       image,
       version,
-      template_url: templateLabelValue(labels, "url"),
       max_instances: maxInstancesValue(maxInstances || 1),
       network,
       traefik,
@@ -349,7 +348,6 @@ async function netboxTemplateEntriesForUser(req, profile, state, creator, option
       existing.instance_count = Number(existing.instance_count || 0) + 1;
       if (!existing.template.image && entry.template.image) existing.template.image = entry.template.image;
       if (!existing.template.version && entry.template.version) existing.template.version = entry.template.version;
-      if (!existing.template.template_url && entry.template.template_url) existing.template.template_url = entry.template.template_url;
       if (!existing.template.network && entry.template.network) existing.template.network = entry.template.network;
       if (!existing.template.ports?.length && entry.template.ports?.length) existing.template.ports = entry.template.ports;
       templates.set(key, existing);

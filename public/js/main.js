@@ -133,7 +133,7 @@ const enrollDockerRunNotices = [
   "Docker run port is required",
   "Docker run image version is required",
   "Docker run image version cannot be latest",
-  "Bind mounts are not allowed for enrollment. Use a named Docker volume like flowg-data:/data.",
+  "Bind mounts are not allowed for enrollment. Use a named Docker volume like myimage-data:/data.",
 ];
 const enrollComposeNotices = [
   enrollMultiComposeNotice,
@@ -141,7 +141,7 @@ const enrollComposeNotices = [
   "Compose service must expose one port.",
   "Compose service image version is required",
   "Compose service image version cannot be latest",
-  "Bind mounts are not allowed for enrollment. Use a named Docker volume like flowg-data:/data.",
+  "Bind mounts are not allowed for enrollment. Use a named Docker volume like myimage-data:/data.",
 ];
 
 let currentAction = (isOrderPage || isEnrollPage) ? "create" : (localStorage.getItem("current_action") || "config");
@@ -353,7 +353,7 @@ const actions = {
     description: "Create and manage reusable instance templates.",
     submitLabel: "Create instance",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "network", "traefik", "logging", "template_url", "max_instances", "registry_webhook_secret", "image", "version", "env_vars", "labels", "ports", "volumes", "binds"],
+    fields: ["config_profile", "network", "traefik", "logging", "max_instances", "registry_webhook_secret", "image", "version", "env_vars", "labels", "ports", "volumes", "binds"],
   },
   workflow: {
     endpoint: "",
@@ -436,7 +436,6 @@ const allFieldNames = [
   "logging",
   "all_hosts",
   "saashup_enabled",
-  "template_url",
   "instance",
   "dns_name",
   "image",
@@ -2386,7 +2385,7 @@ function safeNavigationUrl(value, fallback = "/") {
 }
 
 function orderHomeUrl() {
-  return safeNavigationUrl(createTemplateEntry(orderTemplateName)?.template?.template_url);
+  return safeNavigationUrl();
 }
 
 function setOrderActionStatus(messageText, type, reason) {
@@ -2632,7 +2631,7 @@ function renderEnrollmentInstances(instances = enrollmentCards, limit = enrollme
         <article class="order-instance-card" data-enroll-instance-card="${index}">
           <span class="order-instance-copy">
             ${isEnrollmentTemplateCard(item) ? enrollmentTemplateTitle(item) : orderInstanceNameLink(item.instance, item.dns_name)}
-            <small>${escapeHtml(item.template_url || item.image || "SaaShup template")}</small>
+            <small>${escapeHtml(item.image || "SaaShup template")}</small>
             <small class="${orderInstanceStatusTextClass(item)}">${orderInstanceStatusText(item)}</small>
           </span>
           ${isEnrollmentTemplateTerminal(item) ? `
@@ -2732,11 +2731,14 @@ function catalogSearchText(item, profile) {
     item?.instance,
     item?.image,
     item?.version,
-    item?.template_url,
     orderInstanceStatusText(item),
     catalogSourceLabel(item?.source),
-    profile,
+    catalogItemProfile(item, profile),
   ].join(" ").toLowerCase();
+}
+
+function catalogItemProfile(item, fallbackProfile = "") {
+  return String(item?.config_profile || item?.profile || fallbackProfile || "").trim() || "default";
 }
 
 function sortedCatalogItems(items) {
@@ -2757,10 +2759,10 @@ function renderCatalogItems(items = catalogCards, limit = catalogLimit) {
 
   catalogCards = Array.isArray(items) ? items : [];
   catalogLimit = limit || {};
-  const profile = String(catalogLimit.profile || selectedProfileCredentials().profile || visibleConfigProfileName() || "").trim() || "default";
+  const fallbackProfile = String(catalogLimit.profile || selectedProfileCredentials().profile || visibleConfigProfileName() || "").trim() || "default";
   const query = String(catalogSearch?.value || "").trim().toLowerCase();
   const visibleItems = sortedCatalogItems(query
-    ? catalogCards.filter((item) => catalogSearchText(item, profile).includes(query))
+    ? catalogCards.filter((item) => catalogSearchText(item, fallbackProfile).includes(query))
     : catalogCards);
 
   if (!catalogCards.length) {
@@ -2778,6 +2780,7 @@ function renderCatalogItems(items = catalogCards, limit = catalogLimit) {
       ${visibleItems.map((item) => {
         const name = String(item?.instance || "").trim() || "SaaShup template";
         const href = catalogTemplateUrl(item);
+        const profile = catalogItemProfile(item, fallbackProfile);
         const title = href
           ? `<a href="${escapeHtml(href)}">${escapeHtml(name)}</a>`
           : `<strong>${escapeHtml(name)}</strong>`;
@@ -3275,7 +3278,7 @@ function validateEnrollComposeText(composeText, { notify = true } = {}) {
   }
 
   if (templates[0].template.binds?.length) {
-    if (notify) setNotice("Bind mounts are not allowed for enrollment. Use a named Docker volume like flowg-data:/data.", "error", false);
+    if (notify) setNotice("Bind mounts are not allowed for enrollment. Use a named Docker volume like myimage-data:/data.", "error", false);
     return false;
   }
 
@@ -3319,7 +3322,7 @@ function validateEnrollRunText(runText, { notify = true } = {}) {
     else if (missingImage) message = "Docker run image is required";
     else if (missingPort) message = "Docker run port is required";
     else if (invalidVersion) message = "Docker run image version cannot be latest";
-    else if (hasBindMount) message = "Bind mounts are not allowed for enrollment. Use a named Docker volume like flowg-data:/data.";
+    else if (hasBindMount) message = "Bind mounts are not allowed for enrollment. Use a named Docker volume like myimage-data:/data.";
     setNotice(message, "error", false);
   } else if (valid && notify) {
     const notice = document.getElementById("notif");
@@ -3792,21 +3795,12 @@ function applySaashupTemplateLabels(template) {
       return;
     }
 
-    if (normalized === "saashup_template_url") {
-      template.template_url = value;
-      return;
-    }
-
     runtimeLabels.push(label);
   });
 
   (template.env || []).forEach((entry) => {
     const key = String(entry.key || "").trim();
     const value = String(entry.value ?? "").trim();
-    if (key.toLowerCase() === "saashup_template_url") {
-      template.template_url = value;
-      return;
-    }
     runtimeEnv.push(entry);
   });
 
@@ -3831,7 +3825,6 @@ function normalizeCreateTemplate(template) {
   const normalized = { ...plainObject(template) };
   normalized.labels = Array.isArray(normalized.labels) ? normalized.labels.map((label) => ({ ...plainObject(label) })) : [];
   normalized.saashup_enabled = checkboxValue(normalized.saashup_enabled, true);
-  normalized.template_url = String(normalized.template_url || normalized.saashup_template_url || "").trim();
   normalized.max_instances = templateMaxInstancesValue(normalized);
   normalized.log_driver = String(Object.hasOwn(normalized, "log_driver") ? normalized.log_driver : defaultLogDriver).trim();
   normalized.log_driver_options = normalized.log_driver ? templateLogDriverOptions(normalized) : {};
@@ -3863,8 +3856,6 @@ function templateLooksLikeTemplate(template) {
 
   const valueKeys = [
     "image",
-    "template_url",
-    "saashup_template_url",
     "version",
     "max_instances",
     "network",
@@ -3899,7 +3890,7 @@ function templateLooksLikeTemplateLegacy(template) {
   if (looksLikeWorkflowRecord(template)) return false;
   if (Object.hasOwn(template, "delete_volumes")) return false;
 
-  const legacyValueKeys = ["image", "template_url", "saashup_template_url", "source", "config_profile", "profile", "version", "max_instances", "network", "creator_email"];
+  const legacyValueKeys = ["image", "source", "config_profile", "profile", "version", "max_instances", "network", "creator_email"];
   return Object.keys(template).some((key) => legacyValueKeys.includes(key));
 }
 
@@ -4307,7 +4298,6 @@ function currentCreateTemplate() {
     traefik: fieldChecked("traefik", true),
     all_hosts: existingTemplate.all_hosts ?? false,
     saashup_enabled: existingTemplate.saashup_enabled ?? true,
-    template_url: fieldValue("template_url").trim(),
     max_instances: normalizeMaxInstances(fieldValue("max_instances")),
     registry_webhook_secret: registryWebhookSecretValue(),
     network: fieldValue("network"),
@@ -4350,7 +4340,6 @@ function applyCreateTemplate(template) {
   setLoggingRow(template.log_driver ? template : null);
   setFieldValue("all_hosts", template.all_hosts ?? false);
   setFieldValue("saashup_enabled", template.saashup_enabled ?? true);
-  setFieldValue("template_url", template.template_url || "");
   setFieldValue("max_instances", templateMaxInstancesValue(template));
   setFieldValue("registry_webhook_secret", template.registry_webhook_secret || template.dockerhub_webhook_secret || "");
   applyRegistryDefaultSecret();
@@ -4850,7 +4839,6 @@ async function applyDockerRunCommand() {
     if (fallbackNetwork) setFieldValue("network", fallbackNetwork);
   }
   if (parsed.traefik !== undefined) setFieldValue("traefik", parsed.traefik);
-  setFieldValue("template_url", parsed.template_url || "");
   if (parsed.instance) setFieldValue("instance", parsed.instance);
   syncCreateDnsName({ force: true });
   if (parsed.dns_name) {
@@ -5347,7 +5335,7 @@ function appendCreateTemplateBody(body, template, templateName = "") {
   const instanceName = String(body.get("instance") || template.instance || templateName || "").trim();
   const versionOverride = String(body.get("version") || "").trim();
   const templateKeys = [
-    "network", "log_driver", "log_driver_options", "log_syslog_address", "log_syslog_tag", "traefik", "saashup_enabled", "template_url", "max_instances", "registry_webhook_secret",
+    "network", "log_driver", "log_driver_options", "log_syslog_address", "log_syslog_tag", "traefik", "saashup_enabled", "max_instances", "registry_webhook_secret",
     "image", "version", "var_env_key", "var_env_value", "label_key", "label_value", "port_value",
     "volume_source", "volume_name", "bind_host_path", "bind_container_path", "bind_read_only",
   ];
@@ -5359,7 +5347,6 @@ function appendCreateTemplateBody(body, template, templateName = "") {
   }
   body.set("traefik", template.traefik === false ? "false" : "true");
   body.set("saashup_enabled", template.saashup_enabled === false ? "false" : "true");
-  body.set("template_url", template.template_url || "");
   body.set("max_instances", String(templateMaxInstancesValue(template)));
   body.set("registry_webhook_secret", template.registry_webhook_secret || template.dockerhub_webhook_secret || "");
   body.set("image", template.image || "");

@@ -147,7 +147,7 @@ function createEnrollHelpers({
     const useNetBox = profileUsesNetBoxTemplates(profile);
     const localTemplates = useNetBox ? [] : localEnrollmentTemplatesForUser(state, creator, { ownerOnly });
     const netboxTemplates = (await netboxTemplateEntriesForUser(req, profile, state, creator, { ownerOnly }))
-      .map((entry) => enrollmentTemplateItem(entry, state, "netbox-template"));
+      .map((entry) => enrollmentTemplateItem(entry, state, "netbox-template", profile));
     const merged = new Map();
 
     netboxTemplates.forEach((template) => merged.set(template.instance.toLowerCase(), template));
@@ -183,15 +183,17 @@ function createEnrollHelpers({
       .filter((item) => item.instance);
   }
 
-  function enrollmentTemplateItem({ name, template }, state, source) {
+  function enrollmentTemplateItem({ name, template }, state, source, profile = "") {
     template = plainObject(template);
     const discoveredCount = Number(template.instance_count || 0);
+    const itemProfile = String(template.config_profile || template.profile || profile || "").trim();
     return {
       instance: name,
       dns_name: "",
       image: template.image || "",
       version: template.version || "",
-      template_url: template.template_url || template.saashup_template_url || "",
+      profile: itemProfile,
+      config_profile: itemProfile,
       registry_webhook_secret: template.registry_webhook_secret || template.dockerhub_webhook_secret || "",
       status: template.status || "ready",
       source,
@@ -265,7 +267,6 @@ function createEnrollHelpers({
       version: data.version || existing.version || "",
       max_instances: maxInstancesValue(data.max_instances ?? existing.max_instances),
       registry_webhook_secret: data.registry_webhook_secret || data.dockerhub_webhook_secret || existing.registry_webhook_secret || existing.dockerhub_webhook_secret || "",
-      template_url: data.template_url || data.saashup_template_url || existing.template_url || existing.saashup_template_url || "",
       network: data.network || existing.network || "",
       log_driver: data.log_driver || existing.log_driver || "",
       log_driver_options: plainJsonObject(data.log_driver_options || existing.log_driver_options),

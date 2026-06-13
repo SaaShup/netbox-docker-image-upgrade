@@ -268,7 +268,7 @@ describe("api operation routes", () => {
     await routes["/create"]({ body: { enroll_request: "true", image: "repo/app", version: "1.0" } }, res);
 
     expect(res.statusCode).toBe(502);
-    expect(res.body).toEqual({ code: "template_catalog_sync_failed", detail: "Template catalog sync failed." });
+    expect(res.body).toEqual({ code: "template_catalog_sync_failed", detail: "Image catalog sync failed." });
     expect(createInstance).not.toHaveBeenCalled();
   });
 

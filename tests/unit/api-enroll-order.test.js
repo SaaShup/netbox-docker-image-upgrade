@@ -604,7 +604,6 @@ describe("api/enroll helpers", () => {
       label_value: ["prod"],
       port_value: ["8080"],
       saashup_enabled: "false",
-      template_url: "https://example.com",
     };
     const template = helpers.enrollmentTemplateFromData(data, {}, "prod", "owner@example.com");
     expect(template).toMatchObject({
@@ -637,7 +636,6 @@ describe("api/enroll helpers", () => {
       version: "1.0",
       max_instances: 2,
       registry_webhook_secret: "secret",
-      template_url: "https://example.com/template",
       network: "traefik",
       log_driver: "json-file",
       log_driver_options: { max_size: "10m" },
@@ -654,7 +652,6 @@ describe("api/enroll helpers", () => {
       version: "1.0",
       max_instances: 2,
       registry_webhook_secret: "secret",
-      template_url: "https://example.com/template",
       network: "traefik",
       log_driver: "json-file",
       log_driver_options: { max_size: "10m" },
