@@ -204,7 +204,7 @@ test("catalog page shows the account menu", async ({ page }) => {
   }, {}, [], undefined, "/catalog");
 
   await expect(page).toHaveURL(/\/catalog$/);
-  await expect(page.locator(".catalog-eyebrow")).toHaveText("Template catalog");
+  await expect(page.locator(".catalog-eyebrow")).toHaveText("Image catalog");
   await expect(page.locator(".catalog-summary")).toHaveCount(0);
   await expect(page.locator(".top-left-bar .brand-badge")).toBeVisible();
   await expect(page.locator(".top-left-bar .brand-badge")).toContainText("SaaShup");

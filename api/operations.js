@@ -141,7 +141,7 @@ function registerOperationRoutes(app, {
       try {
         await recordEnrollment(req, orderProfile, data);
       } catch (error) {
-        return res.status(502).json({ code: "template_catalog_sync_failed", detail: error.message || "Template catalog sync failed." });
+        return res.status(502).json({ code: "template_catalog_sync_failed", detail: error.message || "Image catalog sync failed." });
       }
     }
 
