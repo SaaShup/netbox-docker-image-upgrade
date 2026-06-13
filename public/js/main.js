@@ -2733,8 +2733,12 @@ function catalogSearchText(item, profile) {
     item?.version,
     orderInstanceStatusText(item),
     catalogSourceLabel(item?.source),
-    profile,
+    catalogItemProfile(item, profile),
   ].join(" ").toLowerCase();
+}
+
+function catalogItemProfile(item, fallbackProfile = "") {
+  return String(item?.config_profile || item?.profile || fallbackProfile || "").trim() || "default";
 }
 
 function sortedCatalogItems(items) {
@@ -2755,10 +2759,10 @@ function renderCatalogItems(items = catalogCards, limit = catalogLimit) {
 
   catalogCards = Array.isArray(items) ? items : [];
   catalogLimit = limit || {};
-  const profile = String(catalogLimit.profile || selectedProfileCredentials().profile || visibleConfigProfileName() || "").trim() || "default";
+  const fallbackProfile = String(catalogLimit.profile || selectedProfileCredentials().profile || visibleConfigProfileName() || "").trim() || "default";
   const query = String(catalogSearch?.value || "").trim().toLowerCase();
   const visibleItems = sortedCatalogItems(query
-    ? catalogCards.filter((item) => catalogSearchText(item, profile).includes(query))
+    ? catalogCards.filter((item) => catalogSearchText(item, fallbackProfile).includes(query))
     : catalogCards);
 
   if (!catalogCards.length) {
@@ -2776,6 +2780,7 @@ function renderCatalogItems(items = catalogCards, limit = catalogLimit) {
       ${visibleItems.map((item) => {
         const name = String(item?.instance || "").trim() || "SaaShup template";
         const href = catalogTemplateUrl(item);
+        const profile = catalogItemProfile(item, fallbackProfile);
         const title = href
           ? `<a href="${escapeHtml(href)}">${escapeHtml(name)}</a>`
           : `<strong>${escapeHtml(name)}</strong>`;

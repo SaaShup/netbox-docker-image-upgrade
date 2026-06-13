@@ -147,7 +147,7 @@ function createEnrollHelpers({
     const useNetBox = profileUsesNetBoxTemplates(profile);
     const localTemplates = useNetBox ? [] : localEnrollmentTemplatesForUser(state, creator, { ownerOnly });
     const netboxTemplates = (await netboxTemplateEntriesForUser(req, profile, state, creator, { ownerOnly }))
-      .map((entry) => enrollmentTemplateItem(entry, state, "netbox-template"));
+      .map((entry) => enrollmentTemplateItem(entry, state, "netbox-template", profile));
     const merged = new Map();
 
     netboxTemplates.forEach((template) => merged.set(template.instance.toLowerCase(), template));
@@ -183,14 +183,17 @@ function createEnrollHelpers({
       .filter((item) => item.instance);
   }
 
-  function enrollmentTemplateItem({ name, template }, state, source) {
+  function enrollmentTemplateItem({ name, template }, state, source, profile = "") {
     template = plainObject(template);
     const discoveredCount = Number(template.instance_count || 0);
+    const itemProfile = String(template.config_profile || template.profile || profile || "").trim();
     return {
       instance: name,
       dns_name: "",
       image: template.image || "",
       version: template.version || "",
+      profile: itemProfile,
+      config_profile: itemProfile,
       registry_webhook_secret: template.registry_webhook_secret || template.dockerhub_webhook_secret || "",
       status: template.status || "ready",
       source,

@@ -84,9 +84,6 @@ function publicConfigForResponse(config, selectedProfileConfig, parseProfiles, p
 
   const selectedProfile = plainObject(expanded.profiles[expanded.profile]);
   const expandedVisible = selectedProfile.saashup_visible === true || selectedProfile.saashup_default === true;
-  if (expanded.profile && !profiles[expanded.profile] && (includeHidden || expandedVisible)) {
-    profiles[expanded.profile] = publicProfile(selectedProfile);
-  }
   const showSelectedProfile = includeHidden || expandedVisible;
   let selectedProfileName = "";
   let selectedConfigProfileName = "";

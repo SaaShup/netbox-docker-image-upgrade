@@ -182,8 +182,8 @@ test("catalog page shows the account menu", async ({ page }) => {
         remaining: 2,
         reached: false,
         instances: [
-          { instance: "flowg", image: "linksociety/flowg", version: "v0.58.0", status: "ready", source: "netbox-template", instance_count: 1 },
-          { instance: "nginx", image: "nginx", version: "1.27", status: "failed", source: "template", instance_count: 0 },
+          { instance: "flowg", image: "linksociety/flowg", version: "v0.58.0", config_profile: "netbox-prod", status: "ready", source: "netbox-template", instance_count: 1 },
+          { instance: "nginx", image: "nginx", version: "1.27", profile: "local-dev", status: "failed", source: "template", instance_count: 0 },
         ],
       }),
     });
@@ -222,7 +222,9 @@ test("catalog page shows the account menu", async ({ page }) => {
   await expect(page.locator("#catalogList")).toContainText("Failed");
   await expect(page.locator("#clearCacheBtn")).toHaveCount(0);
   await expect(page.locator("#logoutBtn")).toBeVisible();
-  await expect(page.locator(".catalog-card").first()).toContainText("production");
+  await expect(page.locator(".catalog-card").first()).toContainText("netbox-prod");
+  await expect(page.locator(".catalog-card").nth(1)).toContainText("local-dev");
+  await expect(page.locator(".catalog-card").first()).not.toContainText("production");
   await expect(page.locator(".catalog-card").first()).toContainText("Template");
   await expect(page.locator(".catalog-status-ready")).toHaveText("Ready");
   await expect(page.locator(".catalog-status-failed")).toHaveText("Failed");
@@ -230,6 +232,9 @@ test("catalog page shows the account menu", async ({ page }) => {
   await page.locator("#catalogSearch").fill("nginx");
   await expect(page.locator(".catalog-card")).toHaveCount(1);
   await expect(page.locator(".catalog-card")).toContainText("nginx:1.27");
+  await page.locator("#catalogSearch").fill("netbox-prod");
+  await expect(page.locator(".catalog-card")).toHaveCount(1);
+  await expect(page.locator(".catalog-card")).toContainText("flowg");
   await page.locator("#catalogSearch").fill("");
   await page.locator("#catalogSort").selectOption("usage");
   await expect(page.locator(".catalog-card").first()).toContainText("flowg");
