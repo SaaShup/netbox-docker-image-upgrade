@@ -83,3 +83,17 @@ jobs:
           path: test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: Start integration stack
+        run: docker compose -f docker-compose.integration.yml up -d
+
+      - name: Run Playwright integration tests
+        run: npm run test:integration
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.integration.yml logs
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f docker-compose.integration.yml down -v --remove-orphans
