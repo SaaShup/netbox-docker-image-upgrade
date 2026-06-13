@@ -3,8 +3,8 @@ const { test, expect } = require("@playwright/test");
 const profile = process.env.INTEGRATION_PROFILE || "integration";
 const netboxUrl = process.env.INTEGRATION_NETBOX_URL || "http://integration-paasbox:8000";
 const netboxToken = process.env.INTEGRATION_NETBOX_TOKEN || "integration";
-const imageName = process.env.INTEGRATION_IMAGE || "traefik/whoami";
-const imageVersion = process.env.INTEGRATION_IMAGE_VERSION || "v1.10.3";
+const imageName = process.env.INTEGRATION_IMAGE || "nginx";
+const imageVersion = process.env.INTEGRATION_IMAGE_VERSION || "v1.31.1";
 const imagePort = process.env.INTEGRATION_IMAGE_PORT || "80";
 const cleanupNames = new Set();
 
@@ -97,7 +97,7 @@ async function expectAppAndNetBoxReady(request) {
     const response = await request.get("/test", { params: { profile } });
     return response.status();
   }, {
-    timeout: 120_000,
+    timeout: 10_000,
     intervals: [2_000],
     message: "configured Paasbox/NetBox profile should be reachable",
   }).toBe(200);
@@ -113,7 +113,7 @@ function createFields(name, extra = {}) {
     version: imageVersion,
     port_value: imagePort,
     max_instances: "2",
-    traefik: "false",
+    traefik: "true",
     cloudflare_filter: "false",
     saashup_enabled: "true",
     ...extra,

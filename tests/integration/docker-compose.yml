@@ -2,6 +2,8 @@ services:
   agent:
     image: saashup/netbox-docker-agent:v1.24.1
     container_name: integration-agent
+    environment:
+      ENABLE_EDITOR: 1
     group_add:
       - "0"
     ports:
@@ -11,7 +13,7 @@ services:
     restart: unless-stopped
 
   paasbox:
-    image: saashup/paasbox:v1.0.1
+    image: saashup/paasbox:v1.0.2
     container_name: integration-paasbox
     environment:
       PB_MIGRATE: 1
@@ -29,9 +31,10 @@ services:
     environment:
       APP_OWNER_EMAIL: contact@saashup.com
       OPERATION_TIMEOUT_SECONDS: 120
-      OPERATION_POLL_MS: 2000
-      CREATE_CONFIGURE_DELAY_MS: 1000
-      CREATE_RECREATE_DELAY_MS: 1000
+      OPERATION_POLL_MS: 3000
+      CREATE_CONFIGURE_DELAY_MS: 3000
+      CREATE_RECREATE_DELAY_MS: 5000
+      ENROLL_CREATE_RECREATE_DELAY_MS: 2000
       REGISTRY_WEBHOOK_SECRET: secret
       ENABLE_EDITOR: 1
       ADMIN_ALLOWED_EMAILS: admin@local.test
