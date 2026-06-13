@@ -132,7 +132,7 @@ test.afterEach(async ({ request }) => {
   }
 });
 
-/*test("enrolls an image, creates an instance from it, and shows both in the app", async ({ page, request }) => {
+test("enrolls an image, creates an instance from it, and shows both in the app", async ({ page, request }) => {
   test.slow();
   await expectAppAndNetBoxReady(request);
 
@@ -193,4 +193,4 @@ test.afterEach(async ({ request }) => {
   await expect(page.locator("#config_profile")).toHaveValue(profile);
   await expect(page.locator("#image")).toHaveValue(imageName);
   await expect(page.locator("#version")).toHaveValue(imageVersion);
-});*/
+});
