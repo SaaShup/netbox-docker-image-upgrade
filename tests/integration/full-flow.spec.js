@@ -3,10 +3,11 @@ const { test, expect } = require("@playwright/test");
 const profile = process.env.INTEGRATION_PROFILE || "integration";
 const netboxUrl = process.env.INTEGRATION_NETBOX_URL || "http://integration-paasbox:8000";
 const netboxToken = process.env.INTEGRATION_NETBOX_TOKEN || "integration";
-const imageName = process.env.INTEGRATION_IMAGE || "nginx";
-const imageVersion = process.env.INTEGRATION_IMAGE_VERSION || "1.31.1";
+const imageName = process.env.INTEGRATION_IMAGE || "saashup/curioo-tiles";
+const imageVersion = process.env.INTEGRATION_IMAGE_VERSION || "v2.7.1";
 const imagePort = process.env.INTEGRATION_IMAGE_PORT || "80";
 const cleanupNames = new Set();
+const cleanupTemplates = new Set();
 
 test.skip(!netboxToken, "Set INTEGRATION_NETBOX_TOKEN to a Paasbox/NetBox API token before running integration tests.");
 test.describe.configure({ mode: "serial" });
@@ -27,31 +28,98 @@ async function postForm(request, path, fields) {
   });
 }
 
+async function firstResult(response, label) {
+  await expectOk(response, label);
+  const payload = await response.json();
+  return Array.isArray(payload.results) ? payload.results[0] : null;
+}
+
+async function refreshHost(request, host) {
+  if (!host?.id) return;
+  await request.patch(`http://localhost:8001/api/plugins/docker/hosts/${host.id}/`, {
+    data: { operation: "refresh" },
+  }).catch(() => {});
+}
+
+async function waitForHostReady(request, host) {
+  if (!host?.id) return;
+  await expect.poll(async () => {
+    const response = await request.get(`http://localhost:8001/api/plugins/docker/hosts/${host.id}/`);
+    if (!response.ok()) return "";
+    const payload = await response.json();
+    return String(payload.operation || "").toLowerCase();
+  }, {
+    timeout: 45_000,
+    intervals: [3_000],
+    message: "integration Docker host refresh should finish",
+  }).toBe("none");
+}
+
 test('create docker host', async ({ request }) => {
-  const tagResponse = await request.post(
-    'http://localhost:8001/api/extras/tags/',
-    {
-      data: {
-        name: "integration",
-        slug: "integration",
-      }
-    }
+  test.setTimeout(60000);
+  let tag = await firstResult(
+    await request.get('http://localhost:8001/api/extras/tags/', { params: { slug: "integration" } }),
+    "lookup integration tag",
   );
-  expect(tagResponse.ok()).toBeTruthy();
-
-  const hostResponse = await request.post(
-    'http://localhost:8001/api/plugins/docker/hosts/',
-    {
-      data: {
-        endpoint: "http://admin:saashup@integration-agent:1880",
-        name: "integration-agent",
-        tags: ["1"],
-        netbox_base_url: 'http://integration-paasbox:8000'
+  if (!tag) {
+    const tagResponse = await request.post(
+      'http://localhost:8001/api/extras/tags/',
+      {
+        data: {
+          name: "integration",
+          slug: "integration",
+        }
       }
-    }
-  );
+    );
+    await expectOk(tagResponse, "create integration tag");
+    tag = await tagResponse.json();
+  }
 
-  expect(hostResponse.ok()).toBeTruthy();
+  let host = await firstResult(
+    await request.get('http://localhost:8001/api/plugins/docker/hosts/', { params: { name: "integration-agent" } }),
+    "lookup integration host",
+  );
+  if (!host) {
+    const hostResponse = await request.post(
+      'http://localhost:8001/api/plugins/docker/hosts/',
+      {
+        data: {
+          endpoint: "http://admin:saashup@integration-agent:1880",
+          name: "integration-agent",
+          tags: [tag.id],
+          netbox_base_url: 'http://integration-paasbox:8000'
+        }
+      }
+    );
+
+    await expectOk(hostResponse, "create integration host");
+    host = await hostResponse.json();
+  }
+
+  await expect.poll(async () => {
+    const containersResponse = await request.get("http://localhost:8001/api/plugins/docker/containers/", {
+      params: { limit: 1000 },
+    });
+    await expectOk(containersResponse, "lookup integration containers");
+    const containersPayload = await containersResponse.json();
+    const containerNames = (Array.isArray(containersPayload.results) ? containersPayload.results : [])
+      .map((item) => item.name || item.display || "");
+    return containerNames
+      .filter((name) => [
+        "integration-agent",
+        "integration-paasbox",
+        "integration-app",
+      ].includes(name))
+      .sort();
+  }, {
+    timeout: 45000,
+    intervals: [3000],
+    message: "integration agent should report the three stack containers",
+  }).toEqual([
+    "integration-agent",
+    "integration-app",
+    "integration-paasbox",
+  ]);
 });
 
 async function saveIntegrationConfig(request) {
@@ -121,18 +189,33 @@ function createFields(name, extra = {}) {
   };
 }
 
+async function deleteTemplate(request, name) {
+  if (!name) return;
+  await request.delete(`/enroll/template/${encodeURIComponent(name)}`).catch(() => {});
+}
+
+async function deleteInstance(request, name) {
+  if (!name) return;
+  await postForm(request, "/delete", {
+    wait: "true",
+    profile,
+    config_profile: profile,
+    instance: name,
+  }).catch(() => {});
+}
+
 test.afterEach(async ({ request }) => {
   for (const name of [...cleanupNames].reverse()) {
-    await postForm(request, "/delete", {
-      profile,
-      config_profile: profile,
-      instance: `${name}.integration.localhost`,
-    }).catch(() => {});
+    await deleteInstance(request, `${name}.integration.localhost`);
     cleanupNames.delete(name);
+  }
+  for (const name of [...cleanupTemplates].reverse()) {
+    await deleteTemplate(request, name);
+    cleanupTemplates.delete(name);
   }
 });
 
-/*test("enrolls an image, creates an instance from it, and shows both in the app", async ({ page, request }) => {
+test("enrolls an image, creates an instance from it, and shows both in the app", async ({ page, request }) => {
   test.slow();
   await expectAppAndNetBoxReady(request);
 
@@ -142,6 +225,7 @@ test.afterEach(async ({ request }) => {
   const orderInstance = `it-order-${suffix}`;
   cleanupNames.add(orderInstance);
   cleanupNames.add(templateInstance);
+  cleanupTemplates.add(templateName);
 
   const enrollResponse = await postForm(request, "/create", createFields(templateInstance, {
     enroll_request: "true",
@@ -193,4 +277,4 @@ test.afterEach(async ({ request }) => {
   await expect(page.locator("#config_profile")).toHaveValue(profile);
   await expect(page.locator("#image")).toHaveValue(imageName);
   await expect(page.locator("#version")).toHaveValue(imageVersion);
-});*/
+});

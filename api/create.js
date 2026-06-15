@@ -104,6 +104,18 @@ function createCreateHelpers({
     }
     let readyCount = 0;
 
+    function normalizedContainerConfig(config) {
+      if (config.log_driver && config.log_driver_options) {
+        const logOptions = logDriverOptionsList(config.log_driver_options);
+        if (logOptions.length) {
+          config.log_driver_options = logOptions;
+        } else {
+          delete config.log_driver_options;
+        }
+      }
+      return config;
+    }
+
     for (const [index, selectedHost] of targetHosts.entries()) {
       data.host_id = selectedHost.id;
       const image = await ensureImageOnHost(client, selectedHost, data.image, data.version, "CREATE");
@@ -117,20 +129,17 @@ function createCreateHelpers({
         const details = reused ? ` (${reused} reused, ${missing.length} created)` : "";
         logLine(`CREATE : ${volumes.length} volume${volumes.length === 1 ? "" : "s"} prepared on ${hostName(selectedHost)}${details}`);
       }
-      const containerPayload = containerCreatePayloadFromForm(data, image.id);
+      const containerConfigPayload = normalizedContainerConfig(containerConfigPayloadFromForm(data));
+      const { id: _unusedConfigId, ...containerCreateConfig } = containerConfigPayload;
+      const containerPayload = {
+        ...containerCreatePayloadFromForm(data, image.id),
+        ...containerCreateConfig,
+      };
       const { payload } = await client.request("POST", "/api/plugins/docker/containers/", { body: containerPayload, expected: [200, 201, 202] });
       const container = Array.isArray(payload) ? payload[0] : payload;
       logLine(`CREATE : container ${containerPayload.name} created on ${hostName(selectedHost)}`);
       if (createConfigureDelayMs > 0) await delay(createConfigureDelayMs);
-      const containerConfig = containerConfigPayloadFromForm(data, container.id);
-      if (containerConfig.log_driver && containerConfig.log_driver_options) {
-        const logOptions = logDriverOptionsList(containerConfig.log_driver_options);
-        if (logOptions.length) {
-          containerConfig.log_driver_options = logOptions;
-        } else {
-          delete containerConfig.log_driver_options;
-        }
-      }
+      const containerConfig = { ...containerConfigPayload, id: container.id };
       await client.request("PATCH", "/api/plugins/docker/containers/", { body: [containerConfig] });
       logLine(`CREATE : container ${containerPayload.name} configured on ${hostName(selectedHost)} env=${containerConfig.env.length} labels=${containerConfig.labels.length} mounts=${containerConfig.mounts.length}`);
       if (createRecreateDelayMs > 0) await delay(createRecreateDelayMs);

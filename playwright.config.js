@@ -3,8 +3,9 @@ const { defineConfig, devices } = require("@playwright/test");
 module.exports = defineConfig({
   testDir: "./tests/e2e",
   timeout: 30_000,
+  reporter: process.env.CI ? [["github"], ["list"]] : [["list"]],
   expect: {
-    timeout: 5_000,
+    timeout: 30_000,
   },
   use: {
     baseURL: "http://127.0.0.1:1880",

@@ -4,8 +4,9 @@ services:
     container_name: integration-agent
     environment:
       ENABLE_EDITOR: 1
+      NETBOX_URL: http://integration-paasbox:8000
     group_add:
-      - "0"
+      - "${DOCKER_SOCK_GID:-0}"
     ports:
       - "${INTEGRATION_AGENT_PORT:-1881}:1880"
     volumes:
@@ -13,7 +14,7 @@ services:
     restart: unless-stopped
 
   paasbox:
-    image: saashup/paasbox:v1.0.2
+    image: saashup/paasbox:v1.0.4
     container_name: integration-paasbox
     environment:
       PB_MIGRATE: 1
