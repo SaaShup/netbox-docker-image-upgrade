@@ -88,6 +88,12 @@ jobs:
         run: |
           DOCKER_SOCK_GID="$(stat -c '%g' /var/run/docker.sock)" npm run integration:up
 
+      - name: Check integration Docker socket
+        run: |
+          stat -c 'host socket %a %u:%g %n' /var/run/docker.sock
+          sudo docker exec integration-agent ls -l /var/run/docker.sock
+          sudo docker exec integration-agent sh -lc 'id && node -e "require(\"http\").request({socketPath:\"/var/run/docker.sock\",path:\"/containers/json\"},res=>{console.log(\"docker status\",res.statusCode);res.resume();}).on(\"error\",err=>{console.error(err.message);process.exit(1);}).end()"'
+
       - name: Run Playwright integration tests
         run: npm run test:integration
 
