@@ -93,7 +93,7 @@ jobs:
         run: |
           stat -c 'host socket %a %u:%g %n' /var/run/docker.sock
           sudo docker exec integration-agent ls -l /var/run/docker.sock
-          sudo docker exec integration-agent sh -lc 'id && node -e "require(\"http\").request({socketPath:\"/var/run/docker.sock\",path:\"/containers/json\"},res=>{console.log(\"docker status\",res.statusCode);res.resume();}).on(\"error\",err=>{console.error(err.message);process.exit(1);}).end()"'
+          sudo docker exec integration-agent sh -lc 'id; if command -v curl >/dev/null 2>&1; then curl --silent --show-error --unix-socket /var/run/docker.sock http://localhost/version; echo; curl --silent --show-error --unix-socket /var/run/docker.sock "http://localhost/containers/json?all=1"; echo; else node -e "const http=require(\"http\"); for (const path of [\"/version\", \"/containers/json?all=1\"]) http.request({socketPath:\"/var/run/docker.sock\",path},res=>{let body=\"\";res.on(\"data\",chunk=>body+=chunk);res.on(\"end\",()=>console.log(path, res.statusCode, body));}).on(\"error\",err=>{console.error(path, err.message);process.exitCode=1;}).end();"; fi'
 
       - name: Run Playwright integration tests
         run: npm run test:integration
