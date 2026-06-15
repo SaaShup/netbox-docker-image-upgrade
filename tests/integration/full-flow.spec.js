@@ -74,6 +74,24 @@ test('create docker host', async ({ request }) => {
     await expectOk(hostResponse, "create integration host");
   }
   await new Promise(resolve => setTimeout(resolve, 12000));
+
+  const containersResponse = await request.get("http://localhost:8001/api/plugins/docker/containers/", {
+    params: { limit: 5 },
+  });
+  await expectOk(containersResponse, "lookup integration containers");
+  const containersPayload = await containersResponse.json();
+  const containerNames = (Array.isArray(containersPayload.results) ? containersPayload.results : [])
+    .map((item) => item.name || item.display || "");
+  const stackContainers = containerNames.filter((name) => [
+    "integration-agent",
+    "integration-paasbox",
+    "integration-app",
+  ].includes(name));
+  expect(stackContainers.sort()).toEqual([
+    "integration-agent",
+    "integration-app",
+    "integration-paasbox",
+  ]);
 });
 
 async function saveIntegrationConfig(request) {
