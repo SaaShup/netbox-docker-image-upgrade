@@ -35,7 +35,7 @@ async function firstResult(response, label) {
 }
 
 test('create docker host', async ({ request }) => {
-  test.setTimeout(15000);
+  test.setTimeout(60000);
   let tag = await firstResult(
     await request.get('http://localhost:8001/api/extras/tags/', { params: { slug: "integration" } }),
     "lookup integration tag",
@@ -54,7 +54,7 @@ test('create docker host', async ({ request }) => {
     tag = await tagResponse.json();
   }
 
-  const host = await firstResult(
+  let host = await firstResult(
     await request.get('http://localhost:8001/api/plugins/docker/hosts/', { params: { name: "integration-agent" } }),
     "lookup integration host",
   );
@@ -72,22 +72,35 @@ test('create docker host', async ({ request }) => {
     );
 
     await expectOk(hostResponse, "create integration host");
+    host = await hostResponse.json();
   }
-  await new Promise(resolve => setTimeout(resolve, 12000));
 
-  const containersResponse = await request.get("http://localhost:8001/api/plugins/docker/containers/", {
-    params: { limit: 5 },
-  });
-  await expectOk(containersResponse, "lookup integration containers");
-  const containersPayload = await containersResponse.json();
-  const containerNames = (Array.isArray(containersPayload.results) ? containersPayload.results : [])
-    .map((item) => item.name || item.display || "");
-  const stackContainers = containerNames.filter((name) => [
-    "integration-agent",
-    "integration-paasbox",
-    "integration-app",
-  ].includes(name));
-  expect(stackContainers.sort()).toEqual([
+  if (host?.id) {
+    await request.patch(`http://localhost:8001/api/plugins/docker/hosts/${host.id}/`, {
+      data: { operation: "refresh" },
+    }).catch(() => {});
+  }
+
+  await expect.poll(async () => {
+    const containersResponse = await request.get("http://localhost:8001/api/plugins/docker/containers/", {
+      params: { limit: 1000 },
+    });
+    await expectOk(containersResponse, "lookup integration containers");
+    const containersPayload = await containersResponse.json();
+    const containerNames = (Array.isArray(containersPayload.results) ? containersPayload.results : [])
+      .map((item) => item.name || item.display || "");
+    return containerNames
+      .filter((name) => [
+        "integration-agent",
+        "integration-paasbox",
+        "integration-app",
+      ].includes(name))
+      .sort();
+  }, {
+    timeout: 45000,
+    intervals: [3000],
+    message: "integration agent should report the three stack containers",
+  }).toEqual([
     "integration-agent",
     "integration-app",
     "integration-paasbox",

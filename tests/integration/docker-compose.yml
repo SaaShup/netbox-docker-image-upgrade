@@ -5,7 +5,7 @@ services:
     environment:
       ENABLE_EDITOR: 1
     group_add:
-      - "0"
+      - "${DOCKER_SOCK_GID:-0}"
     ports:
       - "${INTEGRATION_AGENT_PORT:-1881}:1880"
     volumes:

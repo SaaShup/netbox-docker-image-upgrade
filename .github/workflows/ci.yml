@@ -85,7 +85,8 @@ jobs:
           retention-days: 7
 
       - name: Start integration stack
-        run: npm run integration:up
+        run: |
+          DOCKER_SOCK_GID="$(stat -c '%g' /var/run/docker.sock)" npm run integration:up
 
       - name: Run Playwright integration tests
         run: npm run test:integration
