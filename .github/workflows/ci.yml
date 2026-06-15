@@ -100,7 +100,15 @@ jobs:
 
       - name: Show integration logs
         if: failure()
-        run: sudo docker compose -f tests/integration/docker-compose.yml logs --tail=200
+        run: |
+          sudo docker compose -f tests/integration/docker-compose.yml ps
+          sudo docker ps -a
+          sudo docker images
+          curl -s http://127.0.0.1:3000/logs || true
+          curl -s 'http://127.0.0.1:8001/api/plugins/docker/hosts/?limit=1000' || true
+          curl -s 'http://127.0.0.1:8001/api/plugins/docker/containers/?limit=1000' || true
+          curl -s 'http://127.0.0.1:8001/api/plugins/docker/images/?limit=1000' || true
+          sudo docker compose -f tests/integration/docker-compose.yml logs --tail=200
 
       - name: Cleanup
         if: always()
