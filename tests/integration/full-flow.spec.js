@@ -96,9 +96,6 @@ test('create docker host', async ({ request }) => {
     host = await hostResponse.json();
   }
 
-  await refreshHost(request, host);
-  await waitForHostReady(request, host);
-
   await expect.poll(async () => {
     const containersResponse = await request.get("http://localhost:8001/api/plugins/docker/containers/", {
       params: { limit: 1000 },
@@ -207,39 +204,6 @@ async function deleteInstance(request, name) {
   }).catch(() => {});
 }
 
-async function cleanupPreviousIntegrationContainers(request) {
-  const host = await firstResult(
-    await request.get('http://localhost:8001/api/plugins/docker/hosts/', { params: { name: "integration-agent" } }),
-    "lookup integration host before cleanup",
-  );
-  await refreshHost(request, host);
-  await waitForHostReady(request, host);
-
-  const response = await request.get("http://localhost:8001/api/plugins/docker/containers/", {
-    params: { limit: 1000 },
-  });
-  await expectOk(response, "lookup previous integration containers");
-  const payload = await response.json();
-  const previousNames = (Array.isArray(payload.results) ? payload.results : [])
-    .map((item) => item.name || item.display || "")
-    .filter((name) => String(name).startsWith("it-enroll-") || String(name).startsWith("it-order-"));
-  for (const name of previousNames) await deleteInstance(request, name);
-}
-
-async function cleanupPreviousEnrollmentTemplates(request) {
-  await cleanupPreviousIntegrationContainers(request);
-  const response = await request.get("/enroll/limit", {
-    params: { profile, owner_only: "false" },
-  });
-  await expectOk(response, "lookup previous enrollments");
-  const payload = await response.json();
-  const previousTemplates = (Array.isArray(payload.instances) ? payload.instances : [])
-    .filter((item) => String(item.instance || "").startsWith("it-template-"))
-    .filter((item) => String(item.image || "") === imageName)
-    .map((item) => item.instance);
-  for (const name of previousTemplates) await deleteTemplate(request, name);
-}
-
 test.afterEach(async ({ request }) => {
   for (const name of [...cleanupNames].reverse()) {
     await deleteInstance(request, `${name}.integration.localhost`);
@@ -254,7 +218,6 @@ test.afterEach(async ({ request }) => {
 test("enrolls an image, creates an instance from it, and shows both in the app", async ({ page, request }) => {
   test.slow();
   await expectAppAndNetBoxReady(request);
-  await cleanupPreviousEnrollmentTemplates(request);
 
   const suffix = Date.now().toString(36);
   const templateName = `it-template-${suffix}`;
