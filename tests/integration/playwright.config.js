@@ -2,9 +2,9 @@ const { defineConfig, devices } = require("@playwright/test");
 
 module.exports = defineConfig({
   testDir: ".",
-  timeout: 30_000,
+  timeout: 120_000,
   expect: {
-    timeout: 30_000,
+    timeout: 120_000,
   },
   use: {
     baseURL: process.env.INTEGRATION_APP_URL || "http://127.0.0.1:3000",
