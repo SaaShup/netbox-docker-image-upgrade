@@ -3,6 +3,7 @@ const { defineConfig, devices } = require("@playwright/test");
 module.exports = defineConfig({
   testDir: ".",
   timeout: 120_000,
+  reporter: process.env.CI ? [["github"], ["list"]] : [["list"]],
   expect: {
     timeout: 120_000,
   },
