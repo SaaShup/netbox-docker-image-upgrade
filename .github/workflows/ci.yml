@@ -17,7 +17,7 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   test:
@@ -86,6 +86,7 @@ jobs:
 
       - name: Start integration stack
         run: |
+          npm run integration:down || true
           DOCKER_SOCK_GID="$(stat -c '%g' /var/run/docker.sock)" npm run integration:up
 
       - name: Check integration Docker socket
