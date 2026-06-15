@@ -28,6 +28,7 @@ async function postForm(request, path, fields) {
 }
 
 test('create docker host', async ({ request }) => {
+  test.setTimeout(15000);
   const tagResponse = await request.post(
     'http://localhost:8001/api/extras/tags/',
     {
@@ -52,6 +53,7 @@ test('create docker host', async ({ request }) => {
   );
 
   expect(hostResponse.ok()).toBeTruthy();
+  await new Promise(resolve => setTimeout(resolve, 12000));
 });
 
 async function saveIntegrationConfig(request) {
