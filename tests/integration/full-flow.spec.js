@@ -34,6 +34,27 @@ async function firstResult(response, label) {
   return Array.isArray(payload.results) ? payload.results[0] : null;
 }
 
+async function refreshHost(request, host) {
+  if (!host?.id) return;
+  await request.patch(`http://localhost:8001/api/plugins/docker/hosts/${host.id}/`, {
+    data: { operation: "refresh" },
+  }).catch(() => {});
+}
+
+async function waitForHostReady(request, host) {
+  if (!host?.id) return;
+  await expect.poll(async () => {
+    const response = await request.get(`http://localhost:8001/api/plugins/docker/hosts/${host.id}/`);
+    if (!response.ok()) return "";
+    const payload = await response.json();
+    return String(payload.operation || "").toLowerCase();
+  }, {
+    timeout: 45_000,
+    intervals: [3_000],
+    message: "integration Docker host refresh should finish",
+  }).toBe("none");
+}
+
 test('create docker host', async ({ request }) => {
   test.setTimeout(60000);
   let tag = await firstResult(
@@ -75,11 +96,8 @@ test('create docker host', async ({ request }) => {
     host = await hostResponse.json();
   }
 
-  if (host?.id) {
-    await request.patch(`http://localhost:8001/api/plugins/docker/hosts/${host.id}/`, {
-      data: { operation: "refresh" },
-    }).catch(() => {});
-  }
+  await refreshHost(request, host);
+  await waitForHostReady(request, host);
 
   await expect.poll(async () => {
     const containersResponse = await request.get("http://localhost:8001/api/plugins/docker/containers/", {
@@ -190,6 +208,13 @@ async function deleteInstance(request, name) {
 }
 
 async function cleanupPreviousIntegrationContainers(request) {
+  const host = await firstResult(
+    await request.get('http://localhost:8001/api/plugins/docker/hosts/', { params: { name: "integration-agent" } }),
+    "lookup integration host before cleanup",
+  );
+  await refreshHost(request, host);
+  await waitForHostReady(request, host);
+
   const response = await request.get("http://localhost:8001/api/plugins/docker/containers/", {
     params: { limit: 1000 },
   });
