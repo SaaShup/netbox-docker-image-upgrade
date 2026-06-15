@@ -22,7 +22,7 @@
         "test:e2e": "playwright test --grep-invert @visual",
         "test:visual": "playwright test tests/e2e/visual.spec.js",
         "integration:up": "sudo docker compose -f tests/integration/docker-compose.yml up -d --build",
-        "integration:down": "sudo docker compose -f tests/integration/docker-compose.yml down --volumes --remove-orphans && sudo docker ps -a --format '{{.Names}}' | grep -E '^(integration-|it-enroll-)' | xargs -r sudo docker rm -f",
+        "integration:down": "sudo docker compose -f tests/integration/docker-compose.yml down --volumes --remove-orphans && sudo docker ps -a --format '{{.Names}}' | grep -E '^(integration-|it-enroll-)' | xargs -r sudo docker rm -f && sudo docker image rm && sudo docker image rm nginx:1.31.1",
         "integration:logs": "sudo docker compose -f tests/integration/docker-compose.yml logs -f",
         "test:integration": "playwright test -c tests/integration/playwright.config.js"
     },
