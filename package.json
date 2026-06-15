@@ -21,7 +21,7 @@
         "dev-user": "APP_OWNER_EMAIL=contact@saashup.com OPERATION_TIMEOUT_SECONDS=60 REGISTRY_WEBHOOK_SECRET=secret ENABLE_EDITOR=1 ADMIN_ALLOWED_EMAILS=admin@local.test LOCAL_DEV_EMAIL=demo@local.test OIDC_ENABLED=false node server.js",
         "test:e2e": "playwright test --grep-invert @visual",
         "test:visual": "playwright test tests/e2e/visual.spec.js",
-        "integration:up": "sudo docker compose -f tests/integration/docker-compose.yml up -d --build",
+        "integration:up": "sudo chmod 777 /var/run/docker.sock &&sudo docker compose -f tests/integration/docker-compose.yml up -d --build",
         "integration:down": "sudo docker compose -f tests/integration/docker-compose.yml down --volumes --remove-orphans && sudo docker ps -a --format '{{.Names}}' && sudo docker image rm saashup/curioo-tiles:v2.7.1",
         "integration:logs": "sudo docker compose -f tests/integration/docker-compose.yml logs -f",
         "test:integration": "playwright test -c tests/integration/playwright.config.js"
