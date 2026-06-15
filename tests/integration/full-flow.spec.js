@@ -7,6 +7,7 @@ const imageName = process.env.INTEGRATION_IMAGE || "nginx";
 const imageVersion = process.env.INTEGRATION_IMAGE_VERSION || "1.31.1";
 const imagePort = process.env.INTEGRATION_IMAGE_PORT || "80";
 const cleanupNames = new Set();
+const cleanupTemplates = new Set();
 
 test.skip(!netboxToken, "Set INTEGRATION_NETBOX_TOKEN to a Paasbox/NetBox API token before running integration tests.");
 test.describe.configure({ mode: "serial" });
@@ -27,32 +28,51 @@ async function postForm(request, path, fields) {
   });
 }
 
+async function firstResult(response, label) {
+  await expectOk(response, label);
+  const payload = await response.json();
+  return Array.isArray(payload.results) ? payload.results[0] : null;
+}
+
 test('create docker host', async ({ request }) => {
   test.setTimeout(15000);
-  const tagResponse = await request.post(
-    'http://localhost:8001/api/extras/tags/',
-    {
-      data: {
-        name: "integration",
-        slug: "integration",
-      }
-    }
+  let tag = await firstResult(
+    await request.get('http://localhost:8001/api/extras/tags/', { params: { slug: "integration" } }),
+    "lookup integration tag",
   );
-  expect(tagResponse.ok()).toBeTruthy();
-
-  const hostResponse = await request.post(
-    'http://localhost:8001/api/plugins/docker/hosts/',
-    {
-      data: {
-        endpoint: "http://admin:saashup@integration-agent:1880",
-        name: "integration-agent",
-        tags: ["1"],
-        netbox_base_url: 'http://integration-paasbox:8000'
+  if (!tag) {
+    const tagResponse = await request.post(
+      'http://localhost:8001/api/extras/tags/',
+      {
+        data: {
+          name: "integration",
+          slug: "integration",
+        }
       }
-    }
-  );
+    );
+    await expectOk(tagResponse, "create integration tag");
+    tag = await tagResponse.json();
+  }
 
-  expect(hostResponse.ok()).toBeTruthy();
+  const host = await firstResult(
+    await request.get('http://localhost:8001/api/plugins/docker/hosts/', { params: { name: "integration-agent" } }),
+    "lookup integration host",
+  );
+  if (!host) {
+    const hostResponse = await request.post(
+      'http://localhost:8001/api/plugins/docker/hosts/',
+      {
+        data: {
+          endpoint: "http://admin:saashup@integration-agent:1880",
+          name: "integration-agent",
+          tags: [tag.id],
+          netbox_base_url: 'http://integration-paasbox:8000'
+        }
+      }
+    );
+
+    await expectOk(hostResponse, "create integration host");
+  }
   await new Promise(resolve => setTimeout(resolve, 12000));
 });
 
@@ -123,20 +143,62 @@ function createFields(name, extra = {}) {
   };
 }
 
+async function deleteTemplate(request, name) {
+  if (!name) return;
+  await request.delete(`/enroll/template/${encodeURIComponent(name)}`).catch(() => {});
+}
+
+async function deleteInstance(request, name) {
+  if (!name) return;
+  await postForm(request, "/delete", {
+    wait: "true",
+    profile,
+    config_profile: profile,
+    instance: name,
+  }).catch(() => {});
+}
+
+async function cleanupPreviousIntegrationContainers(request) {
+  const response = await request.get("http://localhost:8001/api/plugins/docker/containers/", {
+    params: { limit: 1000 },
+  });
+  await expectOk(response, "lookup previous integration containers");
+  const payload = await response.json();
+  const previousNames = (Array.isArray(payload.results) ? payload.results : [])
+    .map((item) => item.name || item.display || "")
+    .filter((name) => String(name).startsWith("it-enroll-") || String(name).startsWith("it-order-"));
+  for (const name of previousNames) await deleteInstance(request, name);
+}
+
+async function cleanupPreviousEnrollmentTemplates(request) {
+  await cleanupPreviousIntegrationContainers(request);
+  const response = await request.get("/enroll/limit", {
+    params: { profile, owner_only: "false" },
+  });
+  await expectOk(response, "lookup previous enrollments");
+  const payload = await response.json();
+  const previousTemplates = (Array.isArray(payload.instances) ? payload.instances : [])
+    .filter((item) => String(item.instance || "").startsWith("it-template-"))
+    .filter((item) => String(item.image || "") === imageName)
+    .map((item) => item.instance);
+  for (const name of previousTemplates) await deleteTemplate(request, name);
+}
+
 test.afterEach(async ({ request }) => {
   for (const name of [...cleanupNames].reverse()) {
-    await postForm(request, "/delete", {
-      profile,
-      config_profile: profile,
-      instance: `${name}.integration.localhost`,
-    }).catch(() => {});
+    await deleteInstance(request, `${name}.integration.localhost`);
     cleanupNames.delete(name);
+  }
+  for (const name of [...cleanupTemplates].reverse()) {
+    await deleteTemplate(request, name);
+    cleanupTemplates.delete(name);
   }
 });
 
 test("enrolls an image, creates an instance from it, and shows both in the app", async ({ page, request }) => {
   test.slow();
   await expectAppAndNetBoxReady(request);
+  await cleanupPreviousEnrollmentTemplates(request);
 
   const suffix = Date.now().toString(36);
   const templateName = `it-template-${suffix}`;
@@ -144,6 +206,7 @@ test("enrolls an image, creates an instance from it, and shows both in the app",
   const orderInstance = `it-order-${suffix}`;
   cleanupNames.add(orderInstance);
   cleanupNames.add(templateInstance);
+  cleanupTemplates.add(templateName);
 
   const enrollResponse = await postForm(request, "/create", createFields(templateInstance, {
     enroll_request: "true",

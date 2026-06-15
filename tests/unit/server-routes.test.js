@@ -3578,12 +3578,27 @@ describe("server routes", () => {
     expect(volumeCreate.body).toEqual({ host: 1, name: "payload-data" });
 
     const containerCreate = calls.find((call) => call.url.pathname === "/api/plugins/docker/containers/" && call.method === "POST");
-    expect(containerCreate.body).toEqual({
+    expect(containerCreate.body).toMatchObject({
       host: 1,
       name: "payload-check",
       image: 20,
       restart_policy: "unless-stopped",
+      network_settings: [{ network: { host: 1, name: "traefik-public" } }],
+      ports: [{ public_port: -1, private_port: 8080, type: "tcp" }],
+      binds: [{ host_path: "/var/run/docker.sock", container_path: "/var/run/docker.sock", read_only: true }],
+      mounts: [{ source: "/data", volume: { host: 1, name: "payload-data" }, read_only: false }],
     });
+    expect(containerCreate.body).not.toHaveProperty("id");
+    expect(containerCreate.body.env).toEqual([
+      { var_name: "APP_ENV", value: "production" },
+      { var_name: "OWNER", value: "payload@example.com" },
+    ]);
+    expect(containerCreate.body.labels).toEqual(expect.arrayContaining([
+      { key: "traefik.enable", value: "true" },
+      { key: "traefik.http.routers.payload-check.rule", value: "Host(`payload-check.example.com`) && PathPrefix(`/app`)" },
+      { key: "traefik.http.services.payload-check.loadbalancer.server.port", value: "8080" },
+      { key: "custom.label", value: "custom-value" },
+    ]));
 
     const containerConfig = calls.find((call) => (
       call.url.pathname === "/api/plugins/docker/containers/"
