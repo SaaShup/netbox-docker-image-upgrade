@@ -27,6 +27,7 @@ The app is exposed at `http://127.0.0.1:3000` by default.
 - `INTEGRATION_APP_URL`: Playwright base URL, default `http://127.0.0.1:3000`.
 - `INTEGRATION_AGENT_PORT`: host port for the agent, default `1881`.
 - `INTEGRATION_PAASBOX_PORT`: host port for Paasbox, default `8001`.
+- `INTEGRATION_PAASBOX_URL`: URL used by the tests to verify Paasbox state directly, default `http://localhost:8001`.
 - `INTEGRATION_NETBOX_URL`: URL used by the app container to reach Paasbox, default `http://paasbox:8000`.
 - `INTEGRATION_NETBOX_TOKEN`: required API token for Paasbox/NetBox.
 - `INTEGRATION_IMAGE`: image to enroll/order, default `traefik/whoami`.
@@ -35,7 +36,7 @@ The app is exposed at `http://127.0.0.1:3000` by default.
 
 ## What It Checks
 
-The first integration test:
+The serial full-flow integration tests:
 
 1. Saves an integration config profile through the real admin config endpoint.
 2. Checks NetBox/Paasbox connectivity.
@@ -44,6 +45,8 @@ The first integration test:
 5. Creates an order instance from that enrolled image.
 6. Verifies `/order/limit` returns the created instance.
 7. Opens `/catalog` and `/order?template=...` in Chromium to confirm the UI sees the data.
+8. Deletes the ordered instance, deletes the enrolled instance, and removes the enrolled template.
+9. Verifies `/order/limit` and `/enroll/limit` no longer return the deleted records.
 
-The test tries to delete created containers at the end, but if a run is interrupted
-you may need to clean up `it-enroll-*` or `it-order-*` containers manually.
+If a run is interrupted before the delete steps, you may need to clean up
+`it-enroll-*`, `it-order-*`, or `it-template-*` records manually.
