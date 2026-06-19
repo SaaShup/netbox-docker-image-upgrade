@@ -111,6 +111,7 @@ function registerOperationRoutes(app, {
   app.post("/create", oidcAuth.loginRequired, async (req, res) => {
     const data = selectedProfileConfig(req.body);
     const authUser = authUserFromRequest(req);
+    const requesterEmail = String(authUser.email || authUser.user || "").trim().toLowerCase();
     data.saashup_owner = authUser.email || "";
     const orderProfile = data.profile || data.config_profile || "";
     const usage = await currentUsage(req, orderProfile);
@@ -131,10 +132,22 @@ function registerOperationRoutes(app, {
     const enrollUsage = isEnrollRequest ? await currentEnrollmentUsage(req, orderProfile) : { reached: false };
     if (isOrderRequest && !await validateOrderTemplate(req, res, orderProfile)) return;
     if (isOrderRequest && usage.reached) {
-      return res.status(429).json({ code: "max_instances_reached", detail: `You have reached your maximum of ${usage.max} instance${usage.max === 1 ? "" : "s"} for this config.`, max_instances: usage.max, used_instances: usage.used });
+      return res.status(429).json({
+        code: "max_instances_reached",
+        detail: `You have reached your maximum of ${usage.max} instance${usage.max === 1 ? "" : "s"} for this config.`,
+        max_instances: usage.max,
+        used_instances: usage.used,
+        requester_email: requesterEmail,
+      });
     }
     if (isEnrollRequest && enrollUsage.reached) {
-      return res.status(429).json({ code: "enrollment_limit_reached", detail: `You have reached your maximum of ${enrollUsage.max} enrolled image${enrollUsage.max === 1 ? "" : "s"} for this config.`, enrollment_limit: enrollUsage.max, used_enrollments: enrollUsage.used });
+      return res.status(429).json({
+        code: "enrollment_limit_reached",
+        detail: `You have reached your maximum of ${enrollUsage.max} enrolled image${enrollUsage.max === 1 ? "" : "s"} for this config.`,
+        enrollment_limit: enrollUsage.max,
+        used_enrollments: enrollUsage.used,
+        requester_email: requesterEmail,
+      });
     }
     if (isEnrollRequest && !await validateEnrollmentTemplate(req, res, orderProfile, data)) return;
     if (isEnrollRequest) {
