@@ -1,6 +1,6 @@
 services:
   agent:
-    image: saashup/netbox-docker-agent:v1.24.1
+    image: saashup/netbox-docker-agent:v1.24.2
     container_name: integration-agent
     environment:
       ENABLE_EDITOR: 1
@@ -14,7 +14,7 @@ services:
     restart: unless-stopped
 
   paasbox:
-    image: saashup/paasbox:v1.5.0
+    image: saashup/paasbox:v1.7.0
     container_name: integration-paasbox
     environment:
       PB_MIGRATE: 1

@@ -150,6 +150,7 @@ describe("api operation routes", () => {
     expect(orderRes.body).toMatchObject({
       code: "max_instances_reached",
       detail: "You have reached your maximum of 1 instance for this config.",
+      requester_email: "owner@example.com",
     });
 
     const enrollRoutes = createRoutes({
@@ -174,6 +175,7 @@ describe("api operation routes", () => {
     expect(orderRes.body).toMatchObject({
       code: "max_instances_reached",
       detail: "You have reached your maximum of 2 instances for this config.",
+      requester_email: "owner@example.com",
     });
 
     const enrollRoutes = createRoutes({
