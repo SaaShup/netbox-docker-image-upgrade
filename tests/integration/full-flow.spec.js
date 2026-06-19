@@ -9,6 +9,9 @@ const integrationAppUrl = process.env.INTEGRATION_APP_URL || "http://127.0.0.1:3
 const imageName = process.env.INTEGRATION_IMAGE || "saashup/curioo-tiles";
 const imageVersion = process.env.INTEGRATION_IMAGE_VERSION || "v2.7.1";
 const imagePort = process.env.INTEGRATION_IMAGE_PORT || "80";
+const integrationCloudflareZone = String(process.env.INTEGRATION_CLOUDFLARE_ZONE || "").trim().toLowerCase();
+const integrationCloudflareZoneId = String(process.env.INTEGRATION_CLOUDFLARE_ZONE_ID || "").trim().toLowerCase();
+const integrationCloudflareApiSecret = String(process.env.INTEGRATION_CLOUDFLARE_API_TOKEN || process.env.INTEGRATION_CLOUDFLARE_SECRET_KEY || "").trim();
 const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 const flow = {
   templateName: `it-template-${suffix}`,
@@ -211,6 +214,18 @@ test('create docker host', async ({ request }) => {
   ]);
 });
 
+test("create cloudflare in paasbox", async ({ request }) => {
+  if (!integrationCloudflareZone || !integrationCloudflareZoneId || !integrationCloudflareApiSecret) {
+    throw new Error("Set INTEGRATION_CLOUDFLARE_ZONE, INTEGRATION_CLOUDFLARE_ZONE_ID and INTEGRATION_CLOUDFLARE_API_TOKEN (or INTEGRATION_CLOUDFLARE_SECRET_KEY) before running the cloudflare provisioning test.");
+  }
+  const account = await ensureCloudflareAccountInPaasbox(request);
+  expect(account).not.toBeNull();
+  expect(account).toMatchObject({
+    zone_name: integrationCloudflareZone,
+    zone_id: integrationCloudflareZoneId,
+  });
+});
+
 async function saveIntegrationConfig(request) {
   const profileConfig = {
     netbox: netboxUrl,
@@ -276,6 +291,162 @@ function createFields(name, extra = {}) {
     saashup_enabled: "true",
     ...extra,
   };
+}
+
+function firstMatchField(schema = {}, candidates = []) {
+  for (const candidate of candidates) {
+    if (Object.prototype.hasOwnProperty.call(schema, candidate)) return candidate;
+  }
+  return "";
+}
+
+function pickCloudflareField(schema, candidates) {
+  return firstMatchField(schema || {}, candidates);
+}
+
+function buildCloudflareAccountPayload(zoneName, zoneId, secret) {
+  const payload = {
+    zone_name: zoneName,
+    zone_id: zoneId,
+  };
+  if (secret) payload.token = secret;
+  return payload;
+}
+
+function normalizeCloudflareAccount(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  const normalizedZoneName = String(payload.zone_name || payload.name || "").trim();
+  return {
+    id: String(payload.id || "").trim(),
+    zone_name: normalizedZoneName,
+    name: String(payload.name || "").trim(),
+    zone_id: String(payload.zone_id || "").trim().toLowerCase(),
+    zone: String(payload.zone || "").trim().toLowerCase(),
+  };
+}
+
+function cloudflareAccountMatch(item, zoneName, zoneId) {
+  if (!item) return false;
+  const normalizedZoneName = String(zoneName || "").trim().toLowerCase();
+  const normalizedZoneId = String(zoneId || "").trim().toLowerCase();
+  const name = String(item.zone_name || "").trim().toLowerCase();
+  const itemZone = String(item.zone_id || item.zone || "").trim().toLowerCase();
+  if (normalizedZoneId && itemZone === normalizedZoneId) return true;
+  if (normalizedZoneName && name === normalizedZoneName) return true;
+  return false;
+}
+
+async function listCloudflareAccounts(request, nameLike = "") {
+  const endpoint = `${paasboxUrl}/api/plugins/cloudflare/dns/accounts/`;
+  const response = await request.get(endpoint, {
+    params: { zone_name: nameLike || integrationCloudflareZone, limit: 1000 },
+  });
+  await expectOk(response, "cloudflare account list");
+  const payload = await response.json();
+  return Array.isArray(payload?.results) ? payload.results : [];
+}
+
+async function tryCreateCloudflareAccount(request, postBody) {
+  const endpoint = `${paasboxUrl}/api/plugins/cloudflare/dns/accounts/`;
+  const createResponse = await request.post(endpoint, { data: postBody });
+  if (createResponse.ok()) {
+    return {
+      ok: true,
+      status: createResponse.status(),
+      payload: await createResponse.json(),
+    };
+  }
+
+  const createStatus = createResponse.status();
+  const bodyText = await createResponse.text();
+  if (createStatus === 400 || createStatus === 409) {
+    return {
+      ok: false,
+      status: createStatus,
+      bodyText,
+    };
+  }
+
+  throw new Error(`cloudflare account create failed with HTTP ${createStatus}: ${bodyText}`);
+}
+
+function cloudflareCreatePayloadFromSchema(schema, fallbackZoneName, fallbackZoneId, fallbackSecret) {
+  const zoneField = pickCloudflareField(schema || {}, ["zone_name", "name", "zone", "zone_name"]);
+  const zoneIdField = pickCloudflareField(schema || {}, ["zone_id", "zone", "cloudflare_zone_id"]);
+  const secretField = pickCloudflareField(schema || {}, ["token", "api_token", "access_token"]);
+
+  const postBody = {};
+  const resolvedZoneField = zoneField || "zone_name";
+  const resolvedZoneIdField = zoneIdField || "zone_id";
+  const resolvedSecretField = secretField || "token";
+
+  postBody[resolvedZoneField] = fallbackZoneName;
+  postBody[resolvedZoneIdField] = fallbackZoneId;
+  postBody[resolvedSecretField] = fallbackSecret;
+  return postBody;
+}
+
+async function ensureCloudflareAccountInPaasbox(request) {
+  if (!integrationCloudflareZone || !integrationCloudflareZoneId || !integrationCloudflareApiSecret) return null;
+  const endpoint = `${paasboxUrl}/api/plugins/cloudflare/dns/accounts/`;
+
+  const existing = (await listCloudflareAccounts(request, integrationCloudflareZone))
+    .find((item) => cloudflareAccountMatch(item, integrationCloudflareZone, integrationCloudflareZoneId));
+
+  if (existing) {
+    return normalizeCloudflareAccount(existing);
+  }
+
+  let postBody = buildCloudflareAccountPayload(
+    integrationCloudflareZone,
+    integrationCloudflareZoneId,
+    integrationCloudflareApiSecret,
+  );
+
+  const optionsResponse = await request.fetch(endpoint, { method: "OPTIONS" });
+  if (optionsResponse.ok()) {
+    const optionsPayload = await optionsResponse.json();
+    const postSchema = optionsPayload?.actions?.POST || {};
+    postBody = cloudflareCreatePayloadFromSchema(
+      postSchema,
+      integrationCloudflareZone,
+      integrationCloudflareZoneId,
+      integrationCloudflareApiSecret,
+    );
+  }
+
+  const createResult = await tryCreateCloudflareAccount(request, postBody);
+  if (createResult.ok) {
+    const created = normalizeCloudflareAccount(createResult.payload);
+    expect([200, 201]).toContain(createResult.status);
+    expect(created).toMatchObject({
+      zone_name: integrationCloudflareZone,
+    });
+    return created;
+  }
+
+  // Keep idempotent behaviour when create is denied because account already exists.
+  const reread = (await listCloudflareAccounts(request, integrationCloudflareZone))
+    .find((item) => cloudflareAccountMatch(item, integrationCloudflareZone, integrationCloudflareZoneId));
+  if (reread) {
+    return normalizeCloudflareAccount(reread);
+  }
+
+  if (createResult.status === 400 || createResult.status === 409) {
+    await expect.poll(async () => {
+      const pollAccounts = await listCloudflareAccounts(request, integrationCloudflareZone);
+      return pollAccounts.some((item) => cloudflareAccountMatch(item, integrationCloudflareZone, integrationCloudflareZoneId));
+    }, {
+      timeout: 10_000,
+      intervals: [2_000],
+      message: `cloudflare account ${integrationCloudflareZone} should be created in Paasbox`,
+    }).toBe(true);
+    const account = (await listCloudflareAccounts(request, integrationCloudflareZone))
+      .find((item) => cloudflareAccountMatch(item, integrationCloudflareZone, integrationCloudflareZoneId));
+    if (account) return normalizeCloudflareAccount(account);
+  }
+
+  throw new Error(`Failed to ensure Cloudflare account for zone ${integrationCloudflareZone}`);
 }
 
 async function deleteTemplate(request, name) {

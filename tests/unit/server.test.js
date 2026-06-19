@@ -1824,6 +1824,51 @@ describe("server helpers", () => {
     await expect(helpers.createDnsRecord({ list: vi.fn(async () => { throw new Error("zone down"); }) }, { instance: "app.example.com" }, { name: "host" })).resolves.toBeUndefined();
     await expect(helpers.createDnsRecord({ list: vi.fn(async () => { throw {}; }) }, { instance: "app.example.com" }, { name: "host" })).resolves.toBeUndefined();
     await expect(helpers.createDnsRecord({ list: vi.fn(async () => { throw { message: "" }; }) }, { instance: "" }, { name: "host" })).resolves.toBeUndefined();
+    const requestFailureClient = {
+      list: vi.fn(async (apiPath) => {
+        if (apiPath.includes("/cloudflare/dns/accounts/")) return [{ id: 58, name: "example.com" }];
+        return [];
+      }),
+      request: vi.fn(async () => {
+        const error = new Error("cloudflare failed");
+        error.request = { method: "POST", path: "/api/plugins/cloudflare/dns/records/" };
+        error.payload = { detail: "bad response", code: 400 };
+        throw error;
+      }),
+    };
+    await expect(helpers.createDnsRecord(requestFailureClient, { instance: "app.example.com" }, { name: "host" })).resolves.toBeUndefined();
+    const stringRequestFailureClient = {
+      list: vi.fn(async (apiPath) => {
+        if (apiPath.includes("/cloudflare/dns/accounts/")) return [{ id: 59, name: "example.com" }];
+        return [];
+      }),
+      request: vi.fn(async () => {
+        const error = new Error("cloudflare string failure");
+        error.request = "/api/plugins/cloudflare/dns/records/";
+        error.payload = "bad payload";
+        throw error;
+      }),
+    };
+    await expect(helpers.createDnsRecord(stringRequestFailureClient, { instance: "other.example.com" }, { name: "host" })).resolves.toBeUndefined();
+    const nullRequestFailureClient = {
+      list: vi.fn(async (apiPath) => {
+        if (apiPath.includes("/cloudflare/dns/accounts/")) return [{ id: 60, name: "example.com" }];
+        return [];
+      }),
+      request: vi.fn(async () => {
+        const error = new Error("cloudflare null failure");
+        error.request = null;
+        error.payload = null;
+        throw error;
+      }),
+    };
+    await expect(helpers.createDnsRecord(nullRequestFailureClient, { instance: "null.example.com" }, { name: "host" })).resolves.toBeUndefined();
+    await expect(helpers.waitForContainerConfigured({
+      request: vi.fn(async () => ({ payload: { state: "none", status: "running", operation: "pulling" }, statusCode: 200 })),
+    }, 10, "host/partial")).resolves.toBe(true);
+    await expect(helpers.waitForContainerConfigured({
+      request: vi.fn(async () => ({ payload: { state: "", status: "running", operation: "pulling" }, statusCode: 200 })),
+    }, 11, "host/empty-state")).resolves.toBe(true);
     await expect(helpers.deleteDnsRecord({ list: vi.fn(async () => []) }, { instance: "app.example.com" })).resolves.toBeUndefined();
     await expect(helpers.deleteDnsRecord({ list: vi.fn(async () => { throw new Error("record down"); }) }, { instance: "app.example.com" })).resolves.toBeUndefined();
     await expect(helpers.deleteDnsRecord({ list: vi.fn(async () => { throw {}; }) }, { instance: "app.example.com" })).resolves.toBeUndefined();
@@ -1834,6 +1879,10 @@ describe("server helpers", () => {
     expect(logs.join("\n")).toContain("stop timeout");
     expect(logs.join("\n")).toContain("STOP : host/pending timeout");
     expect(logs.join("\n")).toContain("Cloudflare DNS record failed");
+    expect(logs.join("\n")).toContain("request={\"method\":\"POST\",\"path\":\"/api/plugins/cloudflare/dns/records/\"}");
+    expect(logs.join("\n")).toContain("payload={\"detail\":\"bad response\",\"code\":400}");
+    expect(logs.join("\n")).toContain("request=/api/plugins/cloudflare/dns/records/");
+    expect(logs.join("\n")).toContain("payload=bad payload");
     expect(logs.join("\n")).toContain("Cloudflare DNS record delete failed");
     vi.useRealTimers();
   });
