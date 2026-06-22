@@ -1114,6 +1114,7 @@ registerOperationRoutes(app, {
   authUserFromRequest,
   bindPayloadsFromForm,
   canCreatePublicImage,
+  isAdminAllowed,
   createInstance,
   currentEnrollmentUsage,
   currentUsage,

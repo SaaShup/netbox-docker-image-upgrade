@@ -317,7 +317,7 @@ test("catalog page hides enroll menu when public images are disabled for non-adm
   await expect(page.locator("#adminLink")).toBeHidden();
 });
 
-test("catalog page hides enroll menu for admins when public images are disabled", async ({ page }) => {
+test("catalog page shows enroll menu for admins when public images are disabled", async ({ page }) => {
   await page.route("**/session/user", async (route) => {
     await route.fulfill({
       status: 200,
@@ -359,7 +359,7 @@ test("catalog page hides enroll menu for admins when public images are disabled"
     }),
   }, {}, [], undefined, "/catalog");
 
-  await expect(page.locator('.order-page-menu a[href="/enroll"]')).toBeHidden();
+  await expect(page.locator('.order-page-menu a[href="/enroll"]')).toBeVisible();
   await expect(page.locator("#adminLink")).toBeVisible();
 });
 

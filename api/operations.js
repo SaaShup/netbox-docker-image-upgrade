@@ -3,6 +3,7 @@ function registerOperationRoutes(app, {
   authUserFromRequest,
   bindPayloadsFromForm,
   canCreatePublicImage,
+  isAdminAllowed,
   currentEnrollmentUsage,
   currentUsage,
   deleteContainerVolumes,
@@ -117,7 +118,7 @@ function registerOperationRoutes(app, {
     const usage = await currentUsage(req, orderProfile);
     const isOrderRequest = req.body.order_request === "true";
     const isEnrollRequest = req.body.enroll_request === "true";
-    if (isEnrollRequest && canCreatePublicImage && !canCreatePublicImage(req)) {
+    if (isEnrollRequest && !(canCreatePublicImage?.(req) || isAdminAllowed?.(req))) {
       return res.status(403).json({
         code: "public_image_disabled",
         detail: "Only administrators can create or enroll images.",
