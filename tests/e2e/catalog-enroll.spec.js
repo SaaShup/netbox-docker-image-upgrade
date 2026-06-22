@@ -1073,6 +1073,74 @@ test("enroll page shows templates created by the user", async ({ page }) => {
   await expect(page.locator("#instanceForm")).toBeHidden();
 });
 
+test("enroll page copies default webhook URL for allowlisted admins when public images are disabled", async ({ page }) => {
+  let registryWebhookSecretRequests = 0;
+  await page.addInitScript(() => {
+    window.__copiedText = "";
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (text) => {
+          window.__copiedText = text;
+        },
+      },
+    });
+  });
+  await page.route("**/session/user", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        email: "allowed@example.com",
+        user: "allowed",
+        name: "Allowed Admin",
+        admin: true,
+        public_image: false,
+      }),
+    });
+  });
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/registry-webhook-secret") registryWebhookSecretRequests += 1;
+  });
+  await page.route("**/enroll/limit*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        profile: "",
+        profiles: ["production"],
+        used: 1,
+        max: 2,
+        remaining: 1,
+        reached: false,
+        instances: [
+          { instance: "guide-template", image: "saashup/guide", version: "v1.2.3", config_profile: "production", status: "ready", source: "template", instance_count: 0 },
+        ],
+      }),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "production",
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token_configured: true,
+        domain: "example.com",
+        tag: "production",
+        enrollment_limit: 2,
+        saashup_default: true,
+      },
+    }),
+  }, {}, [], undefined, "/enroll.html");
+
+  await expect(page.locator("#enrollInstances [data-template-webhook-copy]")).toHaveCount(1);
+  await page.locator("#enrollInstances [data-template-webhook-copy]").click();
+  await expect(page.locator("#notif")).toContainText('Webhook URL copied for "guide-template"');
+  await expect.poll(() => page.evaluate(() => window.__copiedText)).toBe(`${new URL(page.url()).origin}/registry-webhook/production/guide-template/hook-secret`);
+  expect(registryWebhookSecretRequests).toBe(1);
+});
+
 test("enroll page template name opens the order page", async ({ page }) => {
   await page.route("**/session/user", async (route) => {
     await route.fulfill({

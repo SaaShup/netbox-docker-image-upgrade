@@ -173,6 +173,7 @@ let catalogCards = [];
 let catalogLimit = {};
 let enrollSubmitInProgress = false;
 const orderDeletingInstances = new Set();
+let currentAuthUser = null;
 let publicImageAllowed = true;
 let currentReportView = "images";
 let lastReportData = null;
@@ -542,6 +543,7 @@ function cacheAuthUser(user) {
 
 function clearAuthUserDisplay() {
   localStorage.removeItem(authUserCacheKey);
+  currentAuthUser = null;
   if (authUser) authUser.classList.add("hidden");
   updateAccountMenuAccess({ admin: false, public_image: false });
 }
@@ -559,6 +561,7 @@ function renderAuthUser(user, { updateMenu = true } = {}) {
   const normalized = normalizeAuthUser(user);
 
   if (!normalized) return false;
+  currentAuthUser = normalized;
   publicImageAllowed = Boolean(normalized.admin) || normalized.public_image !== false;
   updatePublicImageAccess();
 
@@ -1726,7 +1729,8 @@ function updateTestEmailVisibility() {
 }
 
 async function loadRegistryDefaultSecret() {
-  if (isOrderPage || isEnrollPage || isCatalogPage) return;
+  if (isOrderPage || isCatalogPage) return;
+  if (isEnrollPage && !currentAuthUser?.admin) return;
   if (registryWebhookDefaultLoaded) return;
   registryWebhookDefaultLoaded = true;
 
@@ -4493,10 +4497,12 @@ function enrolledTemplateEntry(name) {
 
 function templateWebhookUrl(name) {
   const templateName = String(name || "").trim();
-  const profile = selectedProfileCredentials().profile || visibleConfigProfileName() || "";
-  if (!profile || !templateName) return "";
+  if (!templateName) return "";
 
   const entry = enrolledTemplateEntry(templateName);
+  const profile = String(entry?.config_profile || entry?.profile || selectedProfileCredentials().profile || visibleConfigProfileName() || "").trim();
+  if (!profile) return "";
+
   const secret = String(entry?.registry_webhook_secret || entry?.dockerhub_webhook_secret || registryWebhookDefaultSecret || "").trim();
   if (!secret) return "";
   return `${window.location.origin}/registry-webhook/${encodeURIComponent(profile)}/${encodeURIComponent(templateName)}/${encodeURIComponent(secret)}`;
@@ -4891,7 +4897,9 @@ function loadSavedConfig() {
 
       const profile = String(data.profile || data.config_profile || "").trim();
       if (profile && !deletedProfiles().includes(profile) && Object.hasOwn(serverProfiles, profile)) {
-        currentConfigProfile = (isEnrollPage || isOrderPage) ? profile : (localStorage.getItem("current_config_profile") || profile);
+        const storedProfile = localStorage.getItem("current_config_profile") || "";
+        const storedProfileSynced = Object.hasOwn(serverProfiles, storedProfile);
+        currentConfigProfile = (isEnrollPage || isOrderPage || !storedProfileSynced) ? profile : storedProfile;
       }
 
       updateProfileOptions();
@@ -6605,6 +6613,7 @@ async function initializePage() {
       const canEnroll = configureEnrollDefaultConfig();
       if (canEnroll) {
         setImportTab("run");
+        await loadRegistryDefaultSecret();
         await refreshEnrollLimit();
         if (submitBtn) {
           submitBtn.textContent = "Enroll image";
