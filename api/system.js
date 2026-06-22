@@ -37,13 +37,13 @@ function registerSystemRoutes(app, {
   app.get("/enroll", (req, res, next) => {
     const user = authUserFromRequest(req);
     if (oidcAuth.enabled && !user.email && !user.user && !user.name) return oidcAuth.loginRequired(req, res, next);
-    if (canCreatePublicImage?.(req)) return next();
+    if (canCreatePublicImage?.(req) || isAdminAllowed?.(req)) return next();
     res.status(403).sendFile(path.join(publicPath, "forbidden.html"));
   }, (req, res) => sendNoCachePage(publicPath, res, "enroll.html"));
   app.get("/enroll.html", (req, res, next) => {
     const user = authUserFromRequest(req);
     if (oidcAuth.enabled && !user.email && !user.user && !user.name) return oidcAuth.loginRequired(req, res, next);
-    if (canCreatePublicImage?.(req)) return next();
+    if (canCreatePublicImage?.(req) || isAdminAllowed?.(req)) return next();
     res.status(403).sendFile(path.join(publicPath, "forbidden.html"));
   }, (req, res) => sendNoCachePage(publicPath, res, "enroll.html"));
   app.get("/", oidcAuth.loginRequired, (req, res) => sendNoCachePage(publicPath, res, "catalog.html"));

@@ -755,36 +755,17 @@ test("shows both in the app", async ({ page }) => {
 
 test("deletes them", async ({ request }) => {
   test.slow();
+
   await expectNetBoxContainerListed(request, flow.orderInstanceName, true);
   await deleteInstance(request, flow.orderInstanceName);
   await expectNetBoxContainerListed(request, flow.orderInstanceName, false);
   await expectOrderInstanceListed(request, flow.orderInstanceName, false);
-
-  resolvedTemplateInstanceName = await resolveTemplateInstanceContainer(request, resolvedTemplateName);
-  if (resolvedTemplateInstanceName) {
-    await expectNetBoxContainerListed(request, resolvedTemplateInstanceName, true);
-    await deleteInstance(request, resolvedTemplateInstanceName);
-    await expectNetBoxContainerListed(request, resolvedTemplateInstanceName, false);
-  }
-  const templateNames = (await netBoxTemplateNames(request)).map((name) => String(name || "").trim().toLowerCase());
-  if (templateNames.includes(String(resolvedTemplateName || "").trim().toLowerCase())) {
-    await expectNetBoxTemplateListed(request, resolvedTemplateName, true);
-  }
-
-  const preDeleteOtherPayload = await orderLimitPayload(request, undefined, otherUserHeaders);
-  const otherOrderStillExists = (preDeleteOtherPayload.instances || []).some((item) => item.instance === flow.orderInstanceOtherUserName);
-  if (otherOrderStillExists) {
-    await expectNetBoxContainerListed(request, flow.orderInstanceOtherUserName, true);
-    await deleteInstance(request, flow.orderInstanceOtherUserName, { headers: otherUserHeaders });
-    await expectNetBoxContainerListed(request, flow.orderInstanceOtherUserName, false);
-  }
+  await expectNetBoxContainerListed(request, flow.orderInstanceOtherUserName, true);
+  await deleteInstance(request, flow.orderInstanceOtherUserName, { headers: otherUserHeaders });
+  await expectNetBoxContainerListed(request, flow.orderInstanceOtherUserName, false);
   await expectOrderInstanceListed(request, flow.orderInstanceOtherUserName, false, {}, { headers: otherUserHeaders });
 
-  if (templateNames.includes(String(resolvedTemplateName || "").trim().toLowerCase())) {
-    await deleteTemplate(request, resolvedTemplateName);
-    await expectNetBoxTemplateListed(request, resolvedTemplateName, false);
-    await expectEnrollmentListed(request, resolvedTemplateName, false);
-  } else {
-    await expectEnrollmentListed(request, resolvedTemplateName, false);
-  }
+  await deleteTemplate(request, resolvedTemplateName);
+  await expectNetBoxTemplateListed(request, resolvedTemplateName, false);
+  await expectEnrollmentListed(request, resolvedTemplateName, false);
 });

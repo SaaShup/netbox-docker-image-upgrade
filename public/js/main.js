@@ -548,7 +548,7 @@ function clearAuthUserDisplay() {
 
 function updateAccountMenuAccess(user = {}) {
   const isAdmin = Boolean(user.admin);
-  const canEnrollImages = user.public_image !== false;
+  const canEnrollImages = isAdmin || user.public_image !== false;
   if (adminLink) adminLink.classList.toggle("hidden", !isAdmin);
   if (enrollLink) enrollLink.classList.toggle("hidden", !canEnrollImages);
 }
@@ -559,7 +559,7 @@ function renderAuthUser(user, { updateMenu = true } = {}) {
   const normalized = normalizeAuthUser(user);
 
   if (!normalized) return false;
-  publicImageAllowed = normalized.public_image;
+  publicImageAllowed = Boolean(normalized.admin) || normalized.public_image !== false;
   updatePublicImageAccess();
 
   if (authName) authName.textContent = normalized.name;

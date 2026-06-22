@@ -857,10 +857,7 @@ describe("server routes", () => {
 
     await request.get("/enroll")
       .set("x-auth-request-email", "admin@example.com")
-      .expect(403)
-      .expect((res) => {
-        expect(res.text).toContain("403 forbidden");
-      });
+      .expect(200);
   });
 
   test("returns 403 for enroll access when public images are 0 or unset", async () => {
@@ -876,15 +873,20 @@ describe("server routes", () => {
 
       await request.get("/enroll")
         .set("x-auth-request-email", "admin@example.com")
-        .expect(403)
-        .expect((res) => {
-          expect(res.text).toContain("403 forbidden");
-        });
+        .expect(200);
     }
   });
 
-  test("returns 403 for enroll access when admin allow-list is empty and public images are disabled", async () => {
+  test("returns 200 for enroll access when admin allow-list is empty and public images are disabled", async () => {
     const { request } = await loadServer({ adminEmails: "", publicImage: "false" });
+
+    await request.get("/enroll")
+      .set("x-auth-request-email", "buyer@example.com")
+      .expect(200);
+  });
+
+  test("returns 403 for enroll access when admin allow-list is set and user is not allowed", async () => {
+    const { request } = await loadServer({ adminEmails: "admin@example.com", publicImage: "false" });
 
     await request.get("/enroll")
       .set("x-auth-request-email", "buyer@example.com")
@@ -893,7 +895,6 @@ describe("server routes", () => {
         expect(res.text).toContain("403 forbidden");
       });
   });
-
   test("redirects anonymous OIDC enroll requests to login before authorization checks", async () => {
     const app = express();
     registerSystemRoutes(app, {
