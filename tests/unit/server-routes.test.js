@@ -4063,6 +4063,62 @@ describe("server routes", () => {
     });
   });
 
+  test("registry webhook sends ready email to matching enrolled image owner after recreate", async () => {
+    const { dataPath, fetchMock, request, setSmtpSenderForTests } = await loadServer({ ownerEmail: "owner@example.com" });
+    setupNetBoxFetch(fetchMock);
+    const smtpSender = vi.fn().mockResolvedValue({ messageId: "webhook-ready-message", accepted: ["creator@example.com"], response: "250 queued" });
+    setSmtpSenderForTests(smtpSender);
+    writeState(dataPath, {
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        profiles: {
+          prod: {
+            tag: "tile",
+            smtp_config: "mailer:smtp-secret@smtp.example.com:587",
+          },
+        },
+      },
+      templates: {
+        Tile: {
+          config_profile: "prod",
+          image: "saashup/tile",
+          instance: "tile-template.example.com",
+          creator_email: "creator@example.com",
+        },
+        Other: {
+          config_profile: "prod",
+          image: "saashup/other",
+          instance: "other-template.example.com",
+          creator_email: "other@example.com",
+        },
+      },
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.post("/registry-webhook/prod")
+      .send({ push_data: { tag: "v2.0.0" }, repository: { repo_name: "saashup/tile" } })
+      .expect(202);
+
+    await vi.waitFor(() => expect(smtpSender).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: "smtp.example.com",
+        port: 587,
+      }),
+      expect.objectContaining({
+        to: "creator@example.com",
+        cc: ["owner@example.com"],
+        subject: "tile-template.example.com is ready",
+        text: expect.stringContaining("Image: saashup/tile"),
+      }),
+    ));
+    expect(smtpSender).toHaveBeenCalledTimes(1);
+    expect(readState(dataPath).logs).toContain("RECREATE : finished saashup/tile:all previous versions -> v2.0.0");
+    expect(readState(dataPath).logs).toContain("EMAIL : ready notification sent to creator@example.com for tile-template.example.com");
+  });
+
   test("registry webhook accepts GitLab distribution notification payloads", async () => {
     const { dataPath, fetchMock, request } = await loadServer();
     setupNetBoxFetch(fetchMock);

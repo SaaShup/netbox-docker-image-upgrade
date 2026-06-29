@@ -24,6 +24,16 @@ services:
     depends_on:
       - agent
 
+  smtp:
+    build:
+      context: ./smtp-sink
+    image: netbox-docker-image-upgrade-smtp-sink:integration
+    container_name: integration-smtp
+    ports:
+      - "${INTEGRATION_SMTP_PORT:-587}:587"
+    volumes:
+      - ./smtp-out:/mail
+
   app:
     build:
       context: ../..
@@ -42,10 +52,12 @@ services:
       LOCAL_DEV_EMAIL: admin@local.test
       OIDC_ENABLED: false
       PUBLIC_IMAGE: true
+      NODE_TLS_REJECT_UNAUTHORIZED: 0
     ports:
       - "${INTEGRATION_APP_PORT:-3000}:1880"
     depends_on:
       - paasbox
+      - smtp
     volumes:
       - integration-app-data:/data
 

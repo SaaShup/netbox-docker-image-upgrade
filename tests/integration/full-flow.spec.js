@@ -1,5 +1,7 @@
 const { request: apiRequest, test, expect } = require("@playwright/test");
 const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
 
 const profile = process.env.INTEGRATION_PROFILE || "integration";
 const netboxUrl = process.env.INTEGRATION_NETBOX_URL || "http://integration-paasbox:8000";
@@ -8,7 +10,12 @@ const paasboxUrl = process.env.INTEGRATION_PAASBOX_URL || "http://localhost:8001
 const integrationAppUrl = process.env.INTEGRATION_APP_URL || "http://127.0.0.1:3000";
 const imageName = process.env.INTEGRATION_IMAGE || "saashup/curioo-tiles";
 const imageVersion = process.env.INTEGRATION_IMAGE_VERSION || "v2.7.1";
+const defaultWebhookImageVersion = imageName === "saashup/curioo-tiles" && imageVersion === "v2.7.1" ? "v2.7.2" : "";
+const webhookImageVersion = String(process.env.INTEGRATION_WEBHOOK_IMAGE_VERSION || defaultWebhookImageVersion).trim();
 const imagePort = process.env.INTEGRATION_IMAGE_PORT || "80";
+const smtpOutputDir = process.env.INTEGRATION_SMTP_OUTPUT_DIR || path.join(__dirname, "smtp-out");
+const smtpMessagesFile = path.join(smtpOutputDir, "messages.jsonl");
+const smtpLatestFile = path.join(smtpOutputDir, "latest.eml");
 const integrationCloudflareZone = String(process.env.INTEGRATION_CLOUDFLARE_ZONE || "").trim().toLowerCase();
 const integrationCloudflareZoneId = String(process.env.INTEGRATION_CLOUDFLARE_ZONE_ID || "").trim().toLowerCase();
 const integrationCloudflareApiSecret = String(process.env.INTEGRATION_CLOUDFLARE_API_TOKEN || process.env.INTEGRATION_CLOUDFLARE_SECRET_KEY || "").trim();
@@ -237,6 +244,7 @@ async function saveIntegrationConfig(request) {
     owner_env_var: "SAASHUP_OWNER",
     cloudflare_filter: false,
     saashup_visible: true,
+    smtp_config: "integration-smtp:587",
   };
   const response = await request.get("/webhook", {
     params: {
@@ -251,6 +259,7 @@ async function saveIntegrationConfig(request) {
       enrollment_limit: "5",
       owner_env_var: "SAASHUP_OWNER",
       cloudflare_filter: "false",
+      smtp_config: "integration-smtp:587",
       profiles: JSON.stringify({ [profile]: profileConfig }),
     },
   });
@@ -613,6 +622,26 @@ async function expectNetBoxTemplateListed(request, templateName, listed) {
   }).toBe(listed);
 }
 
+function clearSmtpMessages() {
+  fs.rmSync(smtpMessagesFile, { force: true });
+  fs.rmSync(smtpLatestFile, { force: true });
+}
+
+function smtpMessages() {
+  if (!fs.existsSync(smtpMessagesFile)) return [];
+  return fs.readFileSync(smtpMessagesFile, "utf8")
+    .split(/\n+/)
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
 test("enrolls an image, creates an instance from it", async ({ request }) => {
   test.slow();
   await expectAppAndNetBoxReady(request);
@@ -751,6 +780,32 @@ test("shows both in the app", async ({ page }) => {
   await expect(page.locator("#config_profile")).toHaveValue(profile);
   await expect(page.locator("#image")).toHaveValue(imageName);
   await expect(page.locator("#version")).toHaveValue(imageVersion);
+});
+
+test("registry webhook updates enrolled image and writes ready email to SMTP sink", async ({ request }) => {
+  test.skip(!webhookImageVersion || webhookImageVersion === imageVersion, "Set INTEGRATION_WEBHOOK_IMAGE_VERSION to a different pullable tag for INTEGRATION_IMAGE.");
+  clearSmtpMessages();
+
+  const response = await request.post(`/registry-webhook/${encodeURIComponent(profile)}/secret`, {
+    data: {
+      push_data: { tag: webhookImageVersion },
+      repository: { repo_name: imageName },
+    },
+  });
+  await expectOk(response, "registry webhook");
+
+  await expect.poll(() => smtpMessages().some((message) => {
+    const recipients = Array.isArray(message.recipients) ? message.recipients.join(" ").toLowerCase() : "";
+    const data = String(message.data || "").toLowerCase();
+    return fs.existsSync(smtpLatestFile)
+      && recipients.includes(defaultUserEmail)
+      && data.includes("is ready")
+      && data.includes(imageName.toLowerCase());
+  }), {
+    timeout: 120_000,
+    intervals: [3_000],
+    message: "SMTP sink should receive the webhook ready email",
+  }).toBe(true);
 });
 
 test("deletes them", async ({ request }) => {

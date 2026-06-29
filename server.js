@@ -825,6 +825,7 @@ function requireAdmin(req, res, next) {
 const {
   registrySecretForTemplate,
   registryWebhookAllowed,
+  registryWebhookTemplates,
 } = createRegistryWebhookHelpers({
   imageNameFromRef,
   orderTemplateEntry,
@@ -845,6 +846,8 @@ registerRegistryWebhookRoutes(app, {
   recreateContainers,
   registryWebhookAllowed,
   registryWebhookEvents,
+  registryWebhookTemplates,
+  sendOrderReadyEmail,
   selectedProfileConfig,
 });
 
@@ -1015,22 +1018,32 @@ registerEnrollRoutes(app, {
 async function recreateContainers(data) {
   const client = new NetBoxClient(data);
   const hostFilter = await hostIdQuery(client, data.tag);
-  if (hostFilter.host_id === "__none__") return logLine(`RECREATE : no Docker hosts found with tag ${data.tag}`);
+  if (hostFilter.host_id === "__none__") {
+    logLine(`RECREATE : no Docker hosts found with tag ${data.tag}`);
+    return false;
+  }
   const query = { name: data.image, limit: 200, ...hostFilter };
   if (data.oldversion) query.version = data.oldversion;
   const oldImages = (await client.list("/api/plugins/docker/images/", query)).filter((image) => data.oldversion ? String(image.version) === String(data.oldversion) : String(image.version) !== String(data.version));
-  if (!oldImages.length) return logLine(`RECREATE : no old images found for ${data.image}:${data.oldversion || "all previous versions"}`);
+  if (!oldImages.length) {
+    logLine(`RECREATE : no old images found for ${data.image}:${data.oldversion || "all previous versions"}`);
+    return false;
+  }
   const removeOldImages = (data.remove_old_images === true || data.remove_old_images === "true" || data.remove_old_images === "on")
     && (!data.oldversion || String(data.oldversion) !== String(data.version));
+  let readyCount = 0;
+  let containerCount = 0;
   for (const oldImage of oldImages) {
     const newImage = await ensureImageOnHost(client, oldImage, data.image, data.version);
     const containers = await client.list("/api/plugins/docker/containers/", { image_id: oldImage.id, limit: 200 });
     for (const container of containers) {
+      containerCount += 1;
       const sourceName = firstValueText(container.name, container.display);
       const targetName = (data.clean_name === true || data.clean_name === "true" || data.clean_name === "on") ? sourceName.replace(/-17[0-9]{8,}$/, "") : sourceName;
       await client.request("PATCH", "/api/plugins/docker/containers/", { body: [{ id: container.id, image: newImage.id, ...(targetName && targetName !== container.name ? { name: targetName } : {}) }] });
       logLine(`RECREATE : ${hostName(container)}/${valueText(container.display || container.name)} image set to ${data.image}:${data.version}`);
-      await requestContainerOperation(client, container, "recreate", "RECREATE");
+      const ready = await requestContainerOperation(client, container, "recreate", "RECREATE");
+      if (ready) readyCount += 1;
     }
     if (removeOldImages) {
       await client.request("DELETE", `/api/plugins/docker/images/${oldImage.id}/`, { expected: [200, 202, 204] });
@@ -1038,6 +1051,7 @@ async function recreateContainers(data) {
     }
   }
   logLine(`RECREATE : finished ${data.image}:${data.oldversion || "all previous versions"} -> ${data.version}`);
+  return containerCount > 0 && readyCount === containerCount;
 }
 
 function deleteVolumesEnabled(data) {
