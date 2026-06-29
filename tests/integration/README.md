@@ -33,7 +33,7 @@ The app is exposed at `http://127.0.0.1:3000` by default.
 - `INTEGRATION_NETBOX_TOKEN`: required API token for Paasbox/NetBox.
 - `INTEGRATION_IMAGE`: image to enroll/order, default `traefik/whoami`.
 - `INTEGRATION_IMAGE_VERSION`: image tag, default `v1.10.3`.
-- `INTEGRATION_WEBHOOK_IMAGE_VERSION`: second pullable tag for `INTEGRATION_IMAGE`; default `v2.7.2` when using the default `saashup/curioo-tiles:v2.7.1`. When set to a value different from `INTEGRATION_IMAGE_VERSION`, the suite triggers the registry webhook and verifies that the SMTP sink writes the ready email.
+- `INTEGRATION_WEBHOOK_IMAGE_VERSION`: second pullable tag for `INTEGRATION_IMAGE`; default `v2.8.0` when using the default `saashup/curioo-tiles:v2.7.1`. When set to a value different from `INTEGRATION_IMAGE_VERSION`, the suite triggers the registry webhook and verifies that the SMTP sink writes the ready email.
 - `INTEGRATION_IMAGE_PORT`: private container port, default `80`.
 - `INTEGRATION_SMTP_OUTPUT_DIR`: directory where the SMTP sink writes received mail, default `tests/integration/smtp-out`.
 

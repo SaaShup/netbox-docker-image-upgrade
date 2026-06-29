@@ -4065,7 +4065,34 @@ describe("server routes", () => {
 
   test("registry webhook sends ready email to matching enrolled image owner after recreate", async () => {
     const { dataPath, fetchMock, request, setSmtpSenderForTests } = await loadServer({ ownerEmail: "owner@example.com" });
-    setupNetBoxFetch(fetchMock);
+    setupNetBoxFetch(fetchMock, {
+      netboxTemplateContexts: [{
+        id: 650,
+        name: "saashup-template-catalog-prod",
+        is_active: true,
+        data: {
+          saashup_template_catalog: true,
+          saashup_profile: "prod",
+          saashup_netbox_url: "https://netbox.example.com",
+          saashup_tag: "tile",
+          saashup_templates: {
+            Tile: {
+              config_profile: "prod",
+              image: "saashup/tile",
+              version: "v1.0.0",
+              instance: "tile-template.example.com",
+              creator_email: "creator@example.com",
+            },
+            Other: {
+              config_profile: "prod",
+              image: "saashup/other",
+              instance: "other-template.example.com",
+              creator_email: "other@example.com",
+            },
+          },
+        },
+      }],
+    });
     const smtpSender = vi.fn().mockResolvedValue({ messageId: "webhook-ready-message", accepted: ["creator@example.com"], response: "250 queued" });
     setSmtpSenderForTests(smtpSender);
     writeState(dataPath, {
@@ -4079,20 +4106,7 @@ describe("server routes", () => {
           },
         },
       },
-      templates: {
-        Tile: {
-          config_profile: "prod",
-          image: "saashup/tile",
-          instance: "tile-template.example.com",
-          creator_email: "creator@example.com",
-        },
-        Other: {
-          config_profile: "prod",
-          image: "saashup/other",
-          instance: "other-template.example.com",
-          creator_email: "other@example.com",
-        },
-      },
+      templates: {},
       order_counts: {},
       order_instances: {},
       logs: "",
@@ -4110,13 +4124,64 @@ describe("server routes", () => {
       expect.objectContaining({
         to: "creator@example.com",
         cc: ["owner@example.com"],
-        subject: "tile-template.example.com is ready",
-        text: expect.stringContaining("Image: saashup/tile"),
+        subject: "saashup/tile:v2.0.0 was upgraded",
+        text: expect.stringContaining("Your image has now been upgraded."),
       }),
     ));
+    expect(smtpSender.mock.calls[0][1].text).toContain("From Image: saashup/tile:v1.0.0");
+    expect(smtpSender.mock.calls[0][1].text).toContain("To Image: saashup/tile:v2.0.0");
     expect(smtpSender).toHaveBeenCalledTimes(1);
     expect(readState(dataPath).logs).toContain("RECREATE : finished saashup/tile:all previous versions -> v2.0.0");
-    expect(readState(dataPath).logs).toContain("EMAIL : ready notification sent to creator@example.com for tile-template.example.com");
+    expect(readState(dataPath).logs).toContain("EMAIL : image upgrade notification sent to creator@example.com for saashup/tile:v2.0.0");
+  });
+
+  test("registry webhook logs when image upgrade email fails", async () => {
+    const { dataPath, fetchMock, request, setSmtpSenderForTests } = await loadServer({ ownerEmail: "owner@example.com" });
+    setupNetBoxFetch(fetchMock, {
+      netboxTemplateContexts: [{
+        id: 651,
+        name: "saashup-template-catalog-prod",
+        is_active: true,
+        data: {
+          saashup_template_catalog: true,
+          saashup_profile: "prod",
+          saashup_netbox_url: "https://netbox.example.com",
+          saashup_tag: "tile",
+          saashup_templates: {
+            Tile: {
+              config_profile: "prod",
+              image: "saashup/tile",
+              version: "v1.0.0",
+              instance: "tile-template.example.com",
+              creator_email: "creator@example.com",
+            },
+          },
+        },
+      }],
+    });
+    setSmtpSenderForTests(vi.fn().mockRejectedValue(new Error("smtp unavailable")));
+    writeState(dataPath, {
+      config: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        profiles: {
+          prod: {
+            tag: "tile",
+            smtp_config: "mailer:smtp-secret@smtp.example.com:587",
+          },
+        },
+      },
+      templates: {},
+      order_counts: {},
+      order_instances: {},
+      logs: "",
+    });
+
+    await request.post("/registry-webhook/prod")
+      .send({ push_data: { tag: "v2.0.0" }, repository: { repo_name: "saashup/tile" } })
+      .expect(202);
+
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("EMAIL : ready notification failed for creator@example.com smtp unavailable"));
   });
 
   test("registry webhook accepts GitLab distribution notification payloads", async () => {
