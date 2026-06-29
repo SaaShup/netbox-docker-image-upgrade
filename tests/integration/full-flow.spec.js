@@ -1,5 +1,7 @@
 const { request: apiRequest, test, expect } = require("@playwright/test");
 const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
 
 const profile = process.env.INTEGRATION_PROFILE || "integration";
 const netboxUrl = process.env.INTEGRATION_NETBOX_URL || "http://integration-paasbox:8000";
@@ -8,7 +10,12 @@ const paasboxUrl = process.env.INTEGRATION_PAASBOX_URL || "http://localhost:8001
 const integrationAppUrl = process.env.INTEGRATION_APP_URL || "http://127.0.0.1:3000";
 const imageName = process.env.INTEGRATION_IMAGE || "saashup/curioo-tiles";
 const imageVersion = process.env.INTEGRATION_IMAGE_VERSION || "v2.7.1";
+const defaultWebhookImageVersion = imageName === "saashup/curioo-tiles" && imageVersion === "v2.7.1" ? "v2.8.0" : "";
+const webhookImageVersion = String(process.env.INTEGRATION_WEBHOOK_IMAGE_VERSION || defaultWebhookImageVersion).trim();
 const imagePort = process.env.INTEGRATION_IMAGE_PORT || "80";
+const smtpOutputDir = process.env.INTEGRATION_SMTP_OUTPUT_DIR || path.join(__dirname, "smtp-out");
+const smtpMessagesFile = path.join(smtpOutputDir, "messages.jsonl");
+const smtpLatestFile = path.join(smtpOutputDir, "latest.eml");
 const integrationCloudflareZone = String(process.env.INTEGRATION_CLOUDFLARE_ZONE || "").trim().toLowerCase();
 const integrationCloudflareZoneId = String(process.env.INTEGRATION_CLOUDFLARE_ZONE_ID || "").trim().toLowerCase();
 const integrationCloudflareApiSecret = String(process.env.INTEGRATION_CLOUDFLARE_API_TOKEN || process.env.INTEGRATION_CLOUDFLARE_SECRET_KEY || "").trim();
@@ -237,6 +244,7 @@ async function saveIntegrationConfig(request) {
     owner_env_var: "SAASHUP_OWNER",
     cloudflare_filter: false,
     saashup_visible: true,
+    smtp_config: "integration-smtp:587",
   };
   const response = await request.get("/webhook", {
     params: {
@@ -251,6 +259,7 @@ async function saveIntegrationConfig(request) {
       enrollment_limit: "5",
       owner_env_var: "SAASHUP_OWNER",
       cloudflare_filter: "false",
+      smtp_config: "integration-smtp:587",
       profiles: JSON.stringify({ [profile]: profileConfig }),
     },
   });
@@ -613,8 +622,49 @@ async function expectNetBoxTemplateListed(request, templateName, listed) {
   }).toBe(listed);
 }
 
+function clearSmtpMessages() {
+  fs.rmSync(smtpMessagesFile, { force: true });
+  fs.rmSync(smtpLatestFile, { force: true });
+}
+
+function smtpMessages() {
+  if (!fs.existsSync(smtpMessagesFile)) return [];
+  return fs.readFileSync(smtpMessagesFile, "utf8")
+    .split(/\n+/)
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
+function smtpMessageMatches(message, recipient, instance = "") {
+  const recipients = Array.isArray(message.recipients) ? message.recipients.join(" ").toLowerCase() : "";
+  const data = String(message.data || "").toLowerCase();
+  return fs.existsSync(smtpLatestFile)
+    && recipients.includes(String(recipient || "").toLowerCase())
+    && (!instance || data.includes(String(instance).toLowerCase()))
+    && data.includes("is ready")
+    && data.includes(imageName.toLowerCase());
+}
+
+function smtpUpgradeMessageMatches(message, recipient) {
+  const recipients = Array.isArray(message.recipients) ? message.recipients.join(" ").toLowerCase() : "";
+  const data = String(message.data || "").toLowerCase();
+  return fs.existsSync(smtpLatestFile)
+    && recipients.includes(String(recipient || "").toLowerCase())
+    && data.includes("your image has now been upgraded")
+    && data.includes(`from image: ${imageName.toLowerCase()}:${imageVersion.toLowerCase()}`)
+    && data.includes(`to image: ${imageName.toLowerCase()}:${webhookImageVersion.toLowerCase()}`);
+}
+
 test("enrolls an image, creates an instance from it", async ({ request }) => {
   test.slow();
+  clearSmtpMessages();
   await expectAppAndNetBoxReady(request);
 
   const defaultUserRequest = await createUserRequestContext(defaultUserHeaders);
@@ -690,6 +740,8 @@ test("enrolls an image, creates an instance from it", async ({ request }) => {
       }
     }
 
+    clearSmtpMessages();
+
     const orderResponse = await postForm(defaultUserRequest, "/create", createFields(flow.orderInstance, {
       order_request: "true",
       order_template: resolvedTemplateName,
@@ -731,6 +783,18 @@ test("enrolls an image, creates an instance from it", async ({ request }) => {
 
     await expectOrderInstanceListed(request, flow.orderInstanceOtherUserName, false);
 
+    await expect.poll(() => {
+      const messages = smtpMessages();
+      return [
+        messages.some((message) => smtpMessageMatches(message, defaultUserEmail, flow.orderInstanceName)),
+        messages.some((message) => smtpMessageMatches(message, otherUserEmail, flow.orderInstanceOtherUserName)),
+      ];
+    }, {
+      timeout: 45_000,
+      intervals: [2_000],
+      message: "SMTP sink should receive both order ready emails",
+    }).toEqual([true, true]);
+
   } finally {
     await defaultUserRequest.dispose();
     await otherUserRequest.dispose();
@@ -751,6 +815,37 @@ test("shows both in the app", async ({ page }) => {
   await expect(page.locator("#config_profile")).toHaveValue(profile);
   await expect(page.locator("#image")).toHaveValue(imageName);
   await expect(page.locator("#version")).toHaveValue(imageVersion);
+});
+
+test("registry webhook updates enrolled image and writes ready email to SMTP sink", async ({ request }) => {
+  test.skip(!webhookImageVersion || webhookImageVersion === imageVersion, "Set INTEGRATION_WEBHOOK_IMAGE_VERSION to a different pullable tag for INTEGRATION_IMAGE.");
+  const upgradeMessageCountBeforeWebhook = smtpMessages()
+    .filter((message) => String(message.data || "").toLowerCase().includes("your image has now been upgraded"))
+    .length;
+
+  const response = await request.post(`/registry-webhook/${encodeURIComponent(profile)}/secret`, {
+    data: {
+      push_data: { tag: webhookImageVersion },
+      repository: { repo_name: imageName },
+    },
+  });
+  await expectOk(response, "registry webhook");
+
+  await expect.poll(() => smtpMessages()
+    .filter((message) => smtpUpgradeMessageMatches(message, defaultUserEmail))
+    .length, {
+    timeout: 120_000,
+    intervals: [3_000],
+    message: "SMTP sink should receive the webhook image upgrade email",
+  }).toBeGreaterThan(0);
+
+  await expect.poll(() => smtpMessages()
+    .filter((message) => String(message.data || "").toLowerCase().includes("your image has now been upgraded"))
+    .length, {
+    timeout: 120_000,
+    intervals: [3_000],
+    message: "SMTP sink should receive one additional image upgrade email from the webhook",
+  }).toBeGreaterThan(upgradeMessageCountBeforeWebhook);
 });
 
 test("deletes them", async ({ request }) => {

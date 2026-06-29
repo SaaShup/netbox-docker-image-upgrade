@@ -641,6 +641,88 @@ async function sendOrderReadyEmail(data, recipient) {
   logLine(`EMAIL : ready notification sent to ${recipient} for ${data.instance || ""} ${smtpInfoText(info)}`);
 }
 
+function imageRefWithVersion(image, version) {
+  const name = String(image || "").trim();
+  const tag = String(version || "").trim();
+  return tag ? `${name}:${tag}` : name;
+}
+
+function imageUpgradeEmail(data, recipient, smtpConfig, { ccOwner = true } = {}) {
+  const image = data.image || "";
+  const fromImage = data.from_image || imageRefWithVersion(image, data.from_version);
+  const toImage = data.to_image || imageRefWithVersion(image, data.to_version || data.version);
+  const cc = ccOwner && appOwnerEmail && appOwnerEmail.toLowerCase() !== String(recipient || "").toLowerCase() ? [appOwnerEmail] : [];
+  const text = [
+    "Hello,",
+    "",
+    "Your image has now been upgraded.",
+    fromImage ? `From Image: ${fromImage}` : "",
+    toImage ? `To Image: ${toImage}` : "",
+    "",
+    "Your running instances have been recreated with the new image.",
+  ].filter((line) => line !== "").join("\n");
+  const html = `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f6f7fb;font-family:Arial,Helvetica,sans-serif;color:#172033;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f6f7fb;padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#ffffff;border:1px solid #e4e7ef;border-radius:8px;overflow:hidden;">
+            <tr>
+              <td style="padding:24px 28px;background:#111827;color:#ffffff;">
+                <div style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#ffffff;">
+                  ${saashupEmailLogo ? `<img src="cid:saashup-logo" width="28" height="26" alt="SaaShup" style="display:inline-block;vertical-align:middle;margin-right:8px;background:#ffffff;border-radius:4px;padding:2px;">` : ""}
+                  <span style="vertical-align:middle;color:#ffffff;">SaaShup</span>
+                </div>
+                <h1 style="margin:8px 0 0;font-size:24px;line-height:1.25;">Your image was upgraded</h1>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:28px;">
+                <p style="margin:0 0 16px;font-size:16px;line-height:1.5;">Hello,</p>
+                <p style="margin:0 0 20px;font-size:16px;line-height:1.5;">Your image has now been upgraded and your running instances were recreated.</p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 24px;border-collapse:collapse;">
+                  ${fromImage ? `<tr>
+                    <td style="padding:10px 0;color:#667085;font-size:13px;border-bottom:1px solid #eef0f5;">From Image</td>
+                    <td style="padding:10px 0;text-align:right;font-size:14px;border-bottom:1px solid #eef0f5;">${escapeHtml(fromImage)}</td>
+                  </tr>` : ""}
+                  ${toImage ? `<tr>
+                    <td style="padding:10px 0;color:#667085;font-size:13px;border-bottom:1px solid #eef0f5;">To Image</td>
+                    <td style="padding:10px 0;text-align:right;font-size:14px;border-bottom:1px solid #eef0f5;"><strong>${escapeHtml(toImage)}</strong></td>
+                  </tr>` : ""}
+                </table>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+  return {
+    from: smtpSenderAddress(smtpConfig, appOwnerEmail),
+    to: recipient,
+    cc,
+    subject: `${toImage || image || "Image"} was upgraded`,
+    text,
+    html,
+    inlineImages: saashupEmailLogo ? [{
+      cid: "saashup-logo",
+      filename: "saashup-logo.png",
+      contentType: "image/png",
+      content: saashupEmailLogo,
+    }] : [],
+  };
+}
+
+async function sendImageUpgradeEmail(data, recipient) {
+  const smtpConfig = parseSmtpConfig(data.smtp_config);
+  if (!smtpConfig || !recipient) return;
+
+  const info = await smtpSender(smtpConfig, imageUpgradeEmail(data, recipient, smtpConfig));
+  logLine(`EMAIL : image upgrade notification sent to ${recipient} for ${imageRefWithVersion(data.image, data.to_version || data.version)} ${smtpInfoText(info)}`);
+}
+
 function smtpInfoText(info) {
   if (!info || typeof info !== "object") return "";
   const accepted = Array.isArray(info.accepted) ? info.accepted.join(",") : "";
@@ -825,6 +907,7 @@ function requireAdmin(req, res, next) {
 const {
   registrySecretForTemplate,
   registryWebhookAllowed,
+  registryWebhookTemplates,
 } = createRegistryWebhookHelpers({
   imageNameFromRef,
   orderTemplateEntry,
@@ -841,11 +924,16 @@ app.use(express.json({ limit: "1mb" }));
 registerMetricsMiddleware(app, { metrics });
 
 registerRegistryWebhookRoutes(app, {
+  imageNameFromRef,
   logLine,
   recreateContainers,
   registryWebhookAllowed,
   registryWebhookEvents,
+  registryWebhookTemplates,
+  sendImageUpgradeEmail,
+  sendOrderReadyEmail,
   selectedProfileConfig,
+  templatesForRequest,
 });
 
 registerSystemRoutes(app, {
@@ -1015,22 +1103,32 @@ registerEnrollRoutes(app, {
 async function recreateContainers(data) {
   const client = new NetBoxClient(data);
   const hostFilter = await hostIdQuery(client, data.tag);
-  if (hostFilter.host_id === "__none__") return logLine(`RECREATE : no Docker hosts found with tag ${data.tag}`);
+  if (hostFilter.host_id === "__none__") {
+    logLine(`RECREATE : no Docker hosts found with tag ${data.tag}`);
+    return false;
+  }
   const query = { name: data.image, limit: 200, ...hostFilter };
   if (data.oldversion) query.version = data.oldversion;
   const oldImages = (await client.list("/api/plugins/docker/images/", query)).filter((image) => data.oldversion ? String(image.version) === String(data.oldversion) : String(image.version) !== String(data.version));
-  if (!oldImages.length) return logLine(`RECREATE : no old images found for ${data.image}:${data.oldversion || "all previous versions"}`);
+  if (!oldImages.length) {
+    logLine(`RECREATE : no old images found for ${data.image}:${data.oldversion || "all previous versions"}`);
+    return false;
+  }
   const removeOldImages = (data.remove_old_images === true || data.remove_old_images === "true" || data.remove_old_images === "on")
     && (!data.oldversion || String(data.oldversion) !== String(data.version));
+  let readyCount = 0;
+  let containerCount = 0;
   for (const oldImage of oldImages) {
     const newImage = await ensureImageOnHost(client, oldImage, data.image, data.version);
     const containers = await client.list("/api/plugins/docker/containers/", { image_id: oldImage.id, limit: 200 });
     for (const container of containers) {
+      containerCount += 1;
       const sourceName = firstValueText(container.name, container.display);
       const targetName = (data.clean_name === true || data.clean_name === "true" || data.clean_name === "on") ? sourceName.replace(/-17[0-9]{8,}$/, "") : sourceName;
       await client.request("PATCH", "/api/plugins/docker/containers/", { body: [{ id: container.id, image: newImage.id, ...(targetName && targetName !== container.name ? { name: targetName } : {}) }] });
       logLine(`RECREATE : ${hostName(container)}/${valueText(container.display || container.name)} image set to ${data.image}:${data.version}`);
-      await requestContainerOperation(client, container, "recreate", "RECREATE");
+      const ready = await requestContainerOperation(client, container, "recreate", "RECREATE");
+      if (ready) readyCount += 1;
     }
     if (removeOldImages) {
       await client.request("DELETE", `/api/plugins/docker/images/${oldImage.id}/`, { expected: [200, 202, 204] });
@@ -1038,6 +1136,7 @@ async function recreateContainers(data) {
     }
   }
   logLine(`RECREATE : finished ${data.image}:${data.oldversion || "all previous versions"} -> ${data.version}`);
+  return containerCount > 0 && readyCount === containerCount;
 }
 
 function deleteVolumesEnabled(data) {
