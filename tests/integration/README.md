@@ -28,13 +28,22 @@ The app is exposed at `http://127.0.0.1:3000` by default.
 - `INTEGRATION_AGENT_PORT`: host port for the agent, default `1881`.
 - `INTEGRATION_PAASBOX_PORT`: host port for Paasbox, default `8001`.
 - `INTEGRATION_SMTP_PORT`: host port for the integration SMTP sink, default `587`.
+- `INTEGRATION_TRAEFIK_PORT`: host port for the local Traefik HTTP entrypoint, default `80`.
+- `INTEGRATION_TRAEFIK_DASHBOARD_PORT`: host port for the local Traefik dashboard, default `8082`.
+- `INTEGRATION_TRAEFIK_URL`: URL used by version checks to reach local Traefik, default `http://127.0.0.1:<INTEGRATION_TRAEFIK_PORT>`.
 - `INTEGRATION_PAASBOX_URL`: URL used by the tests to verify Paasbox state directly, default `http://localhost:8001`.
 - `INTEGRATION_NETBOX_URL`: URL used by the app container to reach Paasbox, default `http://paasbox:8000`.
 - `INTEGRATION_NETBOX_TOKEN`: required API token for Paasbox/NetBox.
+- `INTEGRATION_DOMAIN`: domain appended to generated integration instances, default `INTEGRATION_CLOUDFLARE_ZONE` when set, otherwise `integration.localhost`.
+- `INTEGRATION_CLOUDFLARE_ZONE`: Cloudflare DNS zone to provision in Paasbox and use as the default integration domain.
+- `INTEGRATION_CLOUDFLARE_ZONE_ID`: Cloudflare DNS zone ID to provision in Paasbox.
+- `INTEGRATION_CLOUDFLARE_API_TOKEN`: Cloudflare API token to provision in Paasbox.
+- `INTEGRATION_DELETE_DELAY_MS`: delay before the cleanup test starts deleting instances, default `10000`.
+- `RECREATE_OPERATION_SETTLE_DELAY_MS`: delay after each webhook/manual image recreate before moving to the next container; integration compose sets `10000` because Paasbox can report ready before Docker has finished replacing the container.
 - `INTEGRATION_IMAGE`: image to enroll/order, default `traefik/whoami`.
 - `INTEGRATION_IMAGE_VERSION`: image tag, default `v1.10.3`.
 - `INTEGRATION_WEBHOOK_IMAGE_VERSION`: second pullable tag for `INTEGRATION_IMAGE`; default `v2.8.0` when using the default `saashup/curioo-tiles:v2.7.1`. When set to a value different from `INTEGRATION_IMAGE_VERSION`, the suite triggers the registry webhook and verifies that the SMTP sink writes the ready email.
-- `INTEGRATION_IMAGE_PORT`: private container port, default `80`.
+- `INTEGRATION_IMAGE_PORT`: private container port, default `3000` for `saashup/curioo-tiles`, otherwise `80`.
 - `INTEGRATION_SMTP_OUTPUT_DIR`: directory where the SMTP sink writes received mail, default `tests/integration/smtp-out`.
 
 ## What It Checks

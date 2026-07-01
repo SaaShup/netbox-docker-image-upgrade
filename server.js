@@ -70,6 +70,7 @@ const {
   publicApiAllowedOriginSet,
   publicApiSecret,
   publicPath,
+  recreateOperationSettleDelayMs,
   registryWebhookSecret,
   turnstileSecretKey,
 } = env;
@@ -1042,6 +1043,84 @@ function firstValueText(...values) {
   return values.map((value) => valueText(value)).find(Boolean) || "";
 }
 
+function imageVersionFromRef(ref) {
+  const text = String(ref || "");
+  const slash = text.lastIndexOf("/");
+  const colon = text.lastIndexOf(":");
+  return colon > slash ? text.slice(colon + 1) : "";
+}
+
+function containerImageRef(container) {
+  const image = container?.image;
+  return firstValueText(
+    image?.display,
+    image?.name,
+    image,
+    container?.image_display,
+    container?.image_name,
+  );
+}
+
+function containerImageVersion(container) {
+  const image = container?.image;
+  const ref = containerImageRef(container);
+  return firstValueText(
+    image?.version,
+    image?.tag,
+    container?.image_version,
+    container?.image_tag,
+    imageVersionFromRef(ref),
+  );
+}
+
+function containerImageId(container) {
+  const image = container?.image;
+  return firstValueText(
+    image?.id,
+    container?.image_id,
+    typeof image === "object" ? "" : image,
+  );
+}
+
+function containerMatchesRecreateImage(container, data) {
+  const name = imageNameFromRef(containerImageRef(container));
+  if (!name || name !== imageNameFromRef(data.image)) return false;
+  const version = containerImageVersion(container);
+  if (!version) return false;
+  return data.oldversion ? String(version) === String(data.oldversion) : String(version) !== String(data.version);
+}
+
+function containerMatchesTargetImage(container, data, image) {
+  const expectedId = valueText(image?.id);
+  const actualId = containerImageId(container);
+  if (expectedId && actualId && String(actualId) === String(expectedId)) return true;
+
+  const name = imageNameFromRef(containerImageRef(container));
+  const version = containerImageVersion(container);
+  return name === imageNameFromRef(data.image) && String(version) === String(data.version);
+}
+
+function setRecreateContainer(containersById, container, source) {
+  const id = valueText(container?.id);
+  if (!id || containersById.has(id)) return;
+  containersById.set(id, { container, source: source || container });
+}
+
+async function waitForRecreatedContainerReady(client, container, data, image) {
+  const display = `${hostName(container)}/${valueText(container.display || container.name)}`;
+  const deadline = Date.now() + operationTimeoutSeconds * 1000;
+  while (Date.now() < deadline) {
+    const { payload } = await client.request("GET", `/api/plugins/docker/containers/${container.id}/`);
+    if (isReadyContainer(payload) && containerMatchesTargetImage(payload, data, image)) {
+      logLine(`RECREATE : ${display} verified image=${data.image}:${data.version} status=${valueText(payload.status) || valueText(payload.state) || "unknown"} operation=${valueText(payload.operation) || "none"}`);
+      return true;
+    }
+    await delay(operationPollMs);
+  }
+  logLine(`RECREATE : ${display} did not verify image=${data.image}:${data.version} after ${operationTimeoutSeconds}s`);
+  return false;
+}
+
 const { reportImages } = createReportHandlers({
   containerEnvValue,
   dockerHosts,
@@ -1110,7 +1189,16 @@ async function recreateContainers(data) {
   const query = { name: data.image, limit: 200, ...hostFilter };
   if (data.oldversion) query.version = data.oldversion;
   const oldImages = (await client.list("/api/plugins/docker/images/", query)).filter((image) => data.oldversion ? String(image.version) === String(data.oldversion) : String(image.version) !== String(data.version));
-  if (!oldImages.length) {
+  const containersById = new Map();
+  for (const oldImage of oldImages) {
+    const containers = await client.list("/api/plugins/docker/containers/", { image_id: oldImage.id, limit: 200 });
+    for (const container of containers) setRecreateContainer(containersById, container, oldImage);
+  }
+  const scannedContainers = await client.list("/api/plugins/docker/containers/", { limit: 1000, ...hostFilter });
+  for (const container of scannedContainers.filter((item) => containerMatchesRecreateImage(item, data))) {
+    setRecreateContainer(containersById, container, container);
+  }
+  if (!oldImages.length && !containersById.size) {
     logLine(`RECREATE : no old images found for ${data.image}:${data.oldversion || "all previous versions"}`);
     return false;
   }
@@ -1118,18 +1206,24 @@ async function recreateContainers(data) {
     && (!data.oldversion || String(data.oldversion) !== String(data.version));
   let readyCount = 0;
   let containerCount = 0;
-  for (const oldImage of oldImages) {
-    const newImage = await ensureImageOnHost(client, oldImage, data.image, data.version);
-    const containers = await client.list("/api/plugins/docker/containers/", { image_id: oldImage.id, limit: 200 });
-    for (const container of containers) {
-      containerCount += 1;
-      const sourceName = firstValueText(container.name, container.display);
-      const targetName = (data.clean_name === true || data.clean_name === "true" || data.clean_name === "on") ? sourceName.replace(/-17[0-9]{8,}$/, "") : sourceName;
+  for (const { container, source } of containersById.values()) {
+    const newImage = await ensureImageOnHost(client, source, data.image, data.version);
+    containerCount += 1;
+    const sourceName = firstValueText(container.name, container.display);
+    const targetName = (data.clean_name === true || data.clean_name === "true" || data.clean_name === "on") ? sourceName.replace(/-17[0-9]{8,}$/, "") : sourceName;
+    let ready = false;
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
       await client.request("PATCH", "/api/plugins/docker/containers/", { body: [{ id: container.id, image: newImage.id, ...(targetName && targetName !== container.name ? { name: targetName } : {}) }] });
-      logLine(`RECREATE : ${hostName(container)}/${valueText(container.display || container.name)} image set to ${data.image}:${data.version}`);
-      const ready = await requestContainerOperation(client, container, "recreate", "RECREATE");
-      if (ready) readyCount += 1;
+      logLine(`RECREATE : ${hostName(container)}/${valueText(container.display || container.name)} image set to ${data.image}:${data.version}${attempt > 1 ? ` retry=${attempt}` : ""}`);
+      const operationReady = await requestContainerOperation(client, container, "recreate", "RECREATE");
+      if (operationReady && recreateOperationSettleDelayMs > 0) await delay(recreateOperationSettleDelayMs);
+      ready = operationReady && await waitForRecreatedContainerReady(client, container, data, newImage);
+      if (ready || attempt === 2) break;
+      logLine(`RECREATE : ${hostName(container)}/${valueText(container.display || container.name)} retrying recreate after verification failed`);
     }
+    if (ready) readyCount += 1;
+  }
+  for (const oldImage of oldImages) {
     if (removeOldImages) {
       await client.request("DELETE", `/api/plugins/docker/images/${oldImage.id}/`, { expected: [200, 202, 204] });
       logLine(`RECREATE : removed old image ${data.image}:${firstValueText(oldImage.version, data.oldversion)} from ${hostName(oldImage)}`);
