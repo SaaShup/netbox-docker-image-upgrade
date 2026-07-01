@@ -314,7 +314,13 @@ describe("api create helpers", () => {
 
     await runWithLogOptions('{"max-size":"10m","max-file":3}');
     await runWithLogOptions("{invalid-json");
-    await runWithLogOptions(["mode=non-blocking"]);
+    await runWithLogOptions(["mode=non-blocking", ""]);
+    await runWithLogOptions([
+      { option_name: "env", value: "prod" },
+      { name: "buffer", option_value: "async" },
+      { key: "empty" },
+      { value: "skip" },
+    ]);
     await runWithLogOptions(42);
     await runWithLogOptions({ "": "skip", missing: undefined, ok: "yes" });
 
@@ -324,8 +330,13 @@ describe("api create helpers", () => {
     ]);
     expect(patchBodies[1]).not.toHaveProperty("log_driver_options");
     expect(patchBodies[2].log_driver_options).toEqual([{ option_name: "mode", value: "non-blocking" }]);
-    expect(patchBodies[3]).not.toHaveProperty("log_driver_options");
-    expect(patchBodies[4].log_driver_options).toEqual([{ option_name: "ok", value: "yes" }]);
+    expect(patchBodies[3].log_driver_options).toEqual([
+      { option_name: "env", value: "prod" },
+      { option_name: "buffer", value: "async" },
+      { option_name: "empty", value: "" },
+    ]);
+    expect(patchBodies[4]).not.toHaveProperty("log_driver_options");
+    expect(patchBodies[5].log_driver_options).toEqual([{ option_name: "ok", value: "yes" }]);
   });
 
   test("createInstance skips volume creation when all requested volumes already exist", async () => {

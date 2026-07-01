@@ -11,6 +11,7 @@ const {
   githubPackageTag,
   hostMatchesTag,
   imageFromDistributionTarget,
+  imageVersionFromRef,
   imageNameFromRef,
   instanceShort,
   instanceZone,
@@ -156,6 +157,13 @@ describe("server helpers", () => {
 
     const fallback = imagePartsFromContainer({ image: { name: "repo/image", version: "1.0" } }, {});
     expect(fallback).toEqual({ image: "repo/image", version: "1.0" });
+  });
+
+  test("imageVersionFromRef extracts tags only from tagged refs", () => {
+    expect(imageVersionFromRef("repo/image:v1.2.3")).toBe("v1.2.3");
+    expect(imageVersionFromRef("registry.example.com:5000/repo/image:v2")).toBe("v2");
+    expect(imageVersionFromRef("repo/image")).toBe("");
+    expect(imageVersionFromRef()).toBe("");
   });
 
   test("containerPortValues respects label ports and container port objects", () => {
@@ -1573,7 +1581,9 @@ describe("server helpers", () => {
     await expect(helpers.waitForContainerConfigured(readyClient, 4, "host/no-status")).resolves.toBe(true);
     await expect(helpers.waitForContainerStopped(readyClient, 3, "host/container")).resolves.toBe(true);
     await expect(helpers.waitForHostReady(readyClient, 7, "host")).resolves.toBe(true);
-    await expect(helpers.requestContainerOperation(readyClient, { id: 1, host: { name: "host" }, name: "container" }, "restart", "RESTART")).resolves.toBe(true);
+    const readyOperation = helpers.requestContainerOperation(readyClient, { id: 1, host: { name: "host" }, name: "container" }, "restart", "RESTART");
+    await vi.advanceTimersByTimeAsync(5);
+    await expect(readyOperation).resolves.toBe(true);
     await expect(helpers.ensureImageOnHost(readyClient, { host: { id: 7, display: "host" } }, "app", "v2")).resolves.toEqual({ id: 22, host: { id: 7 } });
     await expect(helpers.createDnsRecord(readyClient, { instance: "app.example.com" }, { name: "host" })).resolves.toBeUndefined();
     await expect(helpers.createDnsRecord(readyClient, { instance: "app", dns_name: "app.example.com" }, { name: "host" })).resolves.toBeUndefined();

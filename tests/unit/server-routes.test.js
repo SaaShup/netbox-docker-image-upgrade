@@ -147,6 +147,8 @@ function setupNetBoxFetch(fetchMock, {
   fuzzyContainerNameMatches = false,
   createHostSelectionContainers,
   recreateScanContainers,
+  staleRecreateImageReads = 0,
+  defaultContainerLabels = [{ key: "saashup.template.version", value: "v1.0.0" }],
   fuzzyImageNameMatches = false,
   existingVolumes = [],
   dockerRegistries = [],
@@ -154,9 +156,14 @@ function setupNetBoxFetch(fetchMock, {
   let deleteContainerGetCount = 0;
   let stopRequested = false;
   const patchedContainerImageIds = new Map();
+  const containerImageReadCounts = new Map();
   const configContextStore = [...netboxTemplateContexts];
   const containerImagePayload = (id) => {
-    const imageId = patchedContainerImageIds.get(String(id)) || 10;
+    const key = String(id);
+    const readCount = (containerImageReadCounts.get(key) || 0) + 1;
+    containerImageReadCounts.set(key, readCount);
+    const patchedImageId = patchedContainerImageIds.get(key);
+    const imageId = patchedImageId && readCount > staleRecreateImageReads ? patchedImageId : 10;
     return {
       id: imageId,
       name: "saashup/tile",
@@ -419,6 +426,7 @@ function setupNetBoxFetch(fetchMock, {
             ...(omitContainerDisplay ? {} : { display: recreateContainerName }),
             ...(omitContainerHost ? {} : { host: containerHostAsId ? 1 : { id: 1, display: "host-a" } }),
             image: { id: 10 },
+            labels: defaultContainerLabels,
             state: deleteContainerRunning ? "running" : "created",
             status: deleteContainerRunning ? "running" : "created",
             network_settings: [{ network: { name: "bridge" } }, { network: { name: "traefik-public" } }],
@@ -5042,6 +5050,7 @@ describe("server routes", () => {
           display: "tiles-other",
           host: { id: 1, display: "host-a" },
           image: { id: 77, name: "saashup/tile", version: "v1.0.0" },
+          labels: [{ key: "saashup.template.version", value: "v1.0.0" }],
           state: "running",
           status: "running",
         },
@@ -5068,8 +5077,46 @@ describe("server routes", () => {
       call.url.pathname === "/api/plugins/docker/containers/"
       && call.method === "PATCH"
       && Array.isArray(call.body)
+      && call.body.some((item) => (
+        item.id === 32
+        && Array.isArray(item.labels)
+        && item.labels.some((label) => label.key === "saashup.template.version" && label.value === "v2.0.0")
+      ))
+    ))).toBe(true);
+    expect(calls.some((call) => (
+      call.url.pathname === "/api/plugins/docker/containers/"
+      && call.method === "PATCH"
+      && Array.isArray(call.body)
       && call.body.some((item) => item.id === 32 && item.operation === "recreate")
     ))).toBe(true);
+  });
+
+  test("recreate retries when ready containers still report the old image", async () => {
+    const { dataPath, fetchMock, request } = await loadServer({ operationTimeoutSeconds: "0.02" });
+    setupNetBoxFetch(fetchMock, {
+      staleRecreateImageReads: 3,
+      recreateContainerName: "tiles:old",
+      defaultContainerLabels: { "custom.label": "kept" },
+    });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/recreate").send({ image: "saashup/tile", version: "v2.0.0", oldversion: "v1.0.0" }).expect(202);
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("retrying recreate after verification failed"));
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("RECREATE : finished saashup/tile:v1.0.0 -> v2.0.0"));
+
+    const recreatePatches = parsedFetchCalls(fetchMock)
+      .filter((call) => call.url.pathname === "/api/plugins/docker/containers/" && call.method === "PATCH")
+      .filter((call) => Array.isArray(call.body) && call.body.some((item) => item.id === 30 && item.image === 20));
+    expect(recreatePatches.length).toBeGreaterThanOrEqual(2);
+    expect(recreatePatches.at(-1).body[0].labels).toEqual(expect.arrayContaining([
+      { key: "custom.label", value: "kept" },
+      { key: "saashup.template.version", value: "v2.0.0" },
+    ]));
   });
 
   test("covers create, recreate, and delete alternate branches", async () => {

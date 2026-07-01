@@ -166,6 +166,33 @@ function labelMapFromContainer(container) {
   }, {});
 }
 
+function labelListFromContainer(container) {
+  if (Array.isArray(container?.labels)) {
+    return container.labels
+      .map((label) => ({
+        key: String(label?.key || label?.name || label?.label || "").trim(),
+        value: String(label?.value ?? ""),
+      }))
+      .filter((label) => label.key);
+  }
+  return Object.entries(plainObject(container?.labels))
+    .map(([key, value]) => ({ key, value: String(value ?? "") }))
+    .filter((label) => label.key);
+}
+
+function recreateLabels(container, data) {
+  const labels = labelListFromContainer(container);
+  const versionKey = "saashup.template.version";
+  const match = labels.find((label) => label.key.trim().toLowerCase() === versionKey);
+  if (match) {
+    match.key = versionKey;
+    match.value = String(data.version || "");
+  } else {
+    labels.push({ key: versionKey, value: String(data.version || "") });
+  }
+  return labels;
+}
+
 function templateLabelValue(labels, key) {
   const normalizedKey = String(key || "").toLowerCase();
   return labels[`saashup.template.${normalizedKey}`]
@@ -1213,7 +1240,7 @@ async function recreateContainers(data) {
     const targetName = (data.clean_name === true || data.clean_name === "true" || data.clean_name === "on") ? sourceName.replace(/-17[0-9]{8,}$/, "") : sourceName;
     let ready = false;
     for (let attempt = 1; attempt <= 2; attempt += 1) {
-      await client.request("PATCH", "/api/plugins/docker/containers/", { body: [{ id: container.id, image: newImage.id, ...(targetName && targetName !== container.name ? { name: targetName } : {}) }] });
+      await client.request("PATCH", "/api/plugins/docker/containers/", { body: [{ id: container.id, image: newImage.id, labels: recreateLabels(container, data), ...(targetName && targetName !== container.name ? { name: targetName } : {}) }] });
       logLine(`RECREATE : ${hostName(container)}/${valueText(container.display || container.name)} image set to ${data.image}:${data.version}${attempt > 1 ? ` retry=${attempt}` : ""}`);
       const operationReady = await requestContainerOperation(client, container, "recreate", "RECREATE");
       if (operationReady && recreateOperationSettleDelayMs > 0) await delay(recreateOperationSettleDelayMs);
@@ -1360,6 +1387,7 @@ module.exports = {
   githubPackageTag,
   hostMatchesTag,
   imageFromDistributionTarget,
+  imageVersionFromRef,
   imagePartsFromContainer,
   imageNameFromRef,
   instanceShort,
