@@ -1,5 +1,6 @@
 const { request: apiRequest, test, expect } = require("@playwright/test");
 const crypto = require("crypto");
+const dns = require("dns").promises;
 const fs = require("fs");
 const path = require("path");
 
@@ -12,13 +13,26 @@ const imageName = process.env.INTEGRATION_IMAGE || "saashup/curioo-tiles";
 const imageVersion = process.env.INTEGRATION_IMAGE_VERSION || "v2.7.1";
 const defaultWebhookImageVersion = imageName === "saashup/curioo-tiles" && imageVersion === "v2.7.1" ? "v2.8.0" : "";
 const webhookImageVersion = String(process.env.INTEGRATION_WEBHOOK_IMAGE_VERSION || defaultWebhookImageVersion).trim();
-const imagePort = process.env.INTEGRATION_IMAGE_PORT || "80";
+const defaultImagePort = imageName === "saashup/curioo-tiles" ? "3000" : "80";
+const imagePort = process.env.INTEGRATION_IMAGE_PORT || defaultImagePort;
+const deleteDelayMs = Number.parseInt(process.env.INTEGRATION_DELETE_DELAY_MS || "10000", 10);
+const containerVersionCheckDelayMs = 5_000;
+const dnsDeleteCheckDelayMs = 5_000;
+const containerVersionPath = "/api/version";
+const integrationTraefikUrl = String(process.env.INTEGRATION_TRAEFIK_URL || `http://127.0.0.1:${process.env.INTEGRATION_TRAEFIK_PORT || "80"}`).replace(/\/+$/, "");
+const integrationLogDriver = process.env.INTEGRATION_LOG_DRIVER || "syslog";
+const integrationLogDriverOptions = {
+  "syslog-address": process.env.INTEGRATION_SYSLOG_ADDRESS || "udp://127.0.0.1:5514",
+  tag: process.env.INTEGRATION_SYSLOG_TAG || "{{.Name}}",
+};
 const smtpOutputDir = process.env.INTEGRATION_SMTP_OUTPUT_DIR || path.join(__dirname, "smtp-out");
 const smtpMessagesFile = path.join(smtpOutputDir, "messages.jsonl");
 const smtpLatestFile = path.join(smtpOutputDir, "latest.eml");
 const integrationCloudflareZone = String(process.env.INTEGRATION_CLOUDFLARE_ZONE || "").trim().toLowerCase();
 const integrationCloudflareZoneId = String(process.env.INTEGRATION_CLOUDFLARE_ZONE_ID || "").trim().toLowerCase();
 const integrationCloudflareApiSecret = String(process.env.INTEGRATION_CLOUDFLARE_API_TOKEN || process.env.INTEGRATION_CLOUDFLARE_SECRET_KEY || "").trim();
+const configuredIntegrationDomain = String(process.env.INTEGRATION_DOMAIN || "").trim().toLowerCase();
+const integrationDomain = configuredIntegrationDomain || integrationCloudflareZone || "integration.localhost";
 const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 const flow = {
   templateName: `it-template-${suffix}`,
@@ -28,10 +42,10 @@ const flow = {
   orderInstanceOtherUser: `it-order-other-${suffix}`,
 };
 let resolvedTemplateName = flow.templateName;
-let resolvedTemplateInstanceName = `${flow.templateInstance}.integration.localhost`;
-flow.templateInstanceName = `${flow.templateInstance}.integration.localhost`;
-flow.orderInstanceName = `${flow.orderInstance}.integration.localhost`;
-flow.orderInstanceOtherUserName = `${flow.orderInstanceOtherUser}.integration.localhost`;
+let resolvedTemplateInstanceName = integrationInstanceName(flow.templateInstance);
+flow.templateInstanceName = integrationInstanceName(flow.templateInstance);
+flow.orderInstanceName = integrationInstanceName(flow.orderInstance);
+flow.orderInstanceOtherUserName = integrationInstanceName(flow.orderInstanceOtherUser);
 const defaultUserEmail = String(process.env.INTEGRATION_DEFAULT_USER || "admin@local.test").trim().toLowerCase();
 const defaultUserHeaders = requestHeaders(defaultUserEmail);
 const otherUserEmail = String(process.env.INTEGRATION_OTHER_USER || "demo@local.test").trim().toLowerCase();
@@ -42,6 +56,10 @@ test.describe.configure({ mode: "serial" });
 
 async function responseText(response) {
   return response.text().catch(() => "");
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function expectOk(response, label) {
@@ -102,6 +120,14 @@ async function firstResult(response, label) {
 
 function instanceShort(name) {
   return String(name || "").split(".")[0];
+}
+
+function integrationInstanceName(name) {
+  return `${name}.${integrationDomain}`;
+}
+
+function expectedContainerVersion(version) {
+  return String(version || "").trim().replace(/^v/i, "");
 }
 
 function objectLabelValue(labels, wantedKey) {
@@ -238,7 +264,7 @@ async function saveIntegrationConfig(request) {
     netbox: netboxUrl,
     token: netboxToken,
     tag: "integration",
-    domain: "integration.localhost",
+    domain: integrationDomain,
     max_instances: 5,
     enrollment_limit: 5,
     owner_env_var: "SAASHUP_OWNER",
@@ -254,7 +280,7 @@ async function saveIntegrationConfig(request) {
       netbox: netboxUrl,
       token: netboxToken,
       tag: "integration",
-      domain: "integration.localhost",
+      domain: integrationDomain,
       max_instances: "5",
       enrollment_limit: "5",
       owner_env_var: "SAASHUP_OWNER",
@@ -289,11 +315,13 @@ function createFields(name, extra = {}) {
     wait: "true",
     profile,
     config_profile: profile,
-    instance: `${name}.integration.localhost`,
+    instance: integrationInstanceName(name),
     image: imageName,
     network: "integration_default",
     version: imageVersion,
     port_value: imagePort,
+    log_driver: integrationLogDriver,
+    log_driver_options: JSON.stringify(integrationLogDriverOptions),
     max_instances: "1",
     traefik: "true",
     cloudflare_filter: "false",
@@ -491,6 +519,154 @@ async function expectOrderInstanceListed(request, instance, listed, expected = {
   }
 }
 
+function containerImageVersion(item) {
+  return String(item?.image?.version || item?.image?.tag || item?.image_version || "").trim();
+}
+
+function logDriverOptionsMap(value) {
+  if (!value) return {};
+  if (typeof value === "string") {
+    try {
+      return logDriverOptionsMap(JSON.parse(value));
+    } catch {
+      const [key, ...rest] = value.split("=");
+      return key ? { [key]: rest.join("=") } : {};
+    }
+  }
+  if (Array.isArray(value)) {
+    return value.reduce((options, item) => ({ ...options, ...logDriverOptionsMap(item) }), {});
+  }
+  if (typeof value === "object") {
+    if (value.option_name || value.name || value.key) {
+      const key = value.option_name || value.name || value.key;
+      const optionValue = value.value ?? value.option_value ?? "";
+      return { [key]: String(optionValue) };
+    }
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, String(item)]));
+  }
+  return {};
+}
+
+function containerLogDriverOptions(item) {
+  return logDriverOptionsMap(item?.log_driver_options || item?.log_options || item?.logging_options);
+}
+
+async function expectNetBoxContainerLogging(request, instance) {
+  await expect.poll(async () => {
+    const containers = await netBoxContainersByInstance(request, instance);
+    return containers.map((item) => ({
+      log_driver: String(item?.log_driver || "").trim(),
+      log_driver_options: containerLogDriverOptions(item),
+    }));
+  }, {
+    timeout: 45_000,
+    intervals: [3_000],
+    message: `Paasbox container ${instance} should have ${integrationLogDriver} logging configured`,
+  }).toContainEqual(expect.objectContaining({
+    log_driver: integrationLogDriver,
+    log_driver_options: expect.objectContaining(integrationLogDriverOptions),
+  }));
+}
+
+async function expectOrderedContainersLogging(request) {
+  await expectNetBoxContainerLogging(request, flow.orderInstanceName);
+  await expectNetBoxContainerLogging(request, flow.orderInstanceOtherUserName);
+}
+
+async function expectNetBoxContainerImageVersion(request, instance, version) {
+  await expect.poll(async () => {
+    const containers = await netBoxContainersByInstance(request, instance);
+    return containers.map(containerImageVersion).filter(Boolean);
+  }, {
+    timeout: 60_000,
+    intervals: [3_000],
+    message: `Paasbox container ${instance} should use image version ${version}`,
+  }).toContain(version);
+}
+
+async function expectOrderedContainersImageVersion(request, version) {
+  await expectNetBoxContainerImageVersion(request, flow.orderInstanceName, version);
+  await expectNetBoxContainerImageVersion(request, flow.orderInstanceOtherUserName, version);
+}
+
+async function dnsCnameRecords(instance) {
+  try {
+    return (await dns.resolveCname(instance)).map(normalizeDnsName);
+  } catch (error) {
+    return [];
+  }
+}
+
+async function dnsAddressRecords(instance) {
+  try {
+    const [ipv4, ipv6] = await Promise.all([
+      dns.resolve4(instance).catch(() => []),
+      dns.resolve6(instance).catch(() => []),
+    ]);
+    return [...ipv4, ...ipv6].map((item) => String(item || "").trim()).filter(Boolean);
+  } catch (error) {
+    return [];
+  }
+}
+
+async function dnsRecords(instance) {
+  const [cnames, addresses] = await Promise.all([
+    dnsCnameRecords(instance),
+    dnsAddressRecords(instance),
+  ]);
+  return { cnames, addresses };
+}
+
+function normalizeDnsName(name) {
+  return String(name || "").trim().toLowerCase().replace(/\.+$/, "");
+}
+
+async function expectDnsRecordPresent(instance) {
+  const expectedTarget = normalizeDnsName(`integration-agent.${integrationDomain}`);
+  await expect.poll(async () => {
+    const records = await dnsRecords(instance);
+    return records.cnames.includes(expectedTarget) || records.addresses.length > 0;
+  }, {
+    timeout: 60_000,
+    intervals: [3_000],
+    message: `${instance} should resolve through Cloudflare DNS`,
+  }).toBe(true);
+}
+
+async function cloudflareDnsRecordsByName(request, instance) {
+  const response = await request.get(`${paasboxUrl}/api/plugins/cloudflare/dns/records/`, {
+    params: { name: instance, limit: 1000 },
+  });
+  await expectOk(response, `lookup Cloudflare DNS record ${instance}`);
+  const payload = await response.json();
+  const records = Array.isArray(payload?.results) ? payload.results : [];
+  const expectedName = normalizeDnsName(instance);
+  return records.filter((item) => {
+    const names = [item?.name, item?.display, item?.dns_name]
+      .filter(Boolean)
+      .map(normalizeDnsName);
+    return names.includes(expectedName);
+  });
+}
+
+async function expectCloudflareDnsRecordRemoved(request, instance) {
+  await expect.poll(async () => (await cloudflareDnsRecordsByName(request, instance)).length, {
+    timeout: 60_000,
+    intervals: [3_000],
+    message: `${instance} Cloudflare DNS record should be removed from Paasbox`,
+  }).toBe(0);
+}
+
+async function expectOrderedDnsRecordsPresent() {
+  await expectDnsRecordPresent(flow.orderInstanceName);
+  await expectDnsRecordPresent(flow.orderInstanceOtherUserName);
+}
+
+async function expectOrderedDnsRecordsRemoved(request) {
+  await expectCloudflareDnsRecordRemoved(request, flow.orderInstanceName);
+  await expectCloudflareDnsRecordRemoved(request, flow.orderInstanceOtherUserName);
+}
+
 async function expectEnrollmentListed(request, templateName, listed) {
   const headers = defaultUserHeaders;
   const response = await request.get("/enroll/limit", {
@@ -581,7 +757,7 @@ async function resolveTemplateInstanceContainer(request, templateName, ownerEmai
   const fallbackShort = normalizedContainerInstance(fallbackContainer || {});
   if (!fallbackShort) return "";
   if (fallbackShort.includes(".")) return fallbackShort;
-  if (normalizedTemplate.includes(".")) return `${normalizedTemplate}.integration.localhost`;
+  if (normalizedTemplate.includes(".")) return integrationInstanceName(normalizedTemplate);
   return fallbackShort;
 }
 
@@ -620,6 +796,48 @@ async function expectNetBoxTemplateListed(request, templateName, listed) {
     intervals: [2_000],
     message: `Paasbox template ${templateName} should ${listed ? "exist" : "be deleted"}`,
   }).toBe(listed);
+}
+
+async function expectContainerVersion(instance, version) {
+  const context = await apiRequest.newContext({
+    baseURL: integrationTraefikUrl,
+    extraHTTPHeaders: { Host: instance },
+  });
+  const expectedVersion = expectedContainerVersion(version);
+  try {
+    await expect.poll(async () => {
+      const response = await context.get(containerVersionPath);
+      const body = await responseText(response);
+      if (!response.ok()) {
+        return { ok: false, status: response.status(), version: "", body };
+      }
+      try {
+        const payload = JSON.parse(body);
+        return {
+          ok: true,
+          status: response.status(),
+          version: String(payload?.version || ""),
+          body,
+        };
+      } catch {
+        return { ok: false, status: response.status(), version: "", body };
+      }
+    }, {
+      timeout: 30_000,
+      intervals: [5_000],
+      message: `${instance}${containerVersionPath} through ${integrationTraefikUrl} should report ${expectedVersion}`,
+    }).toMatchObject({
+      ok: true,
+      version: expectedVersion,
+    });
+  } finally {
+    await context.dispose();
+  }
+}
+
+async function expectOrderedContainersVersion(version) {
+  await expectContainerVersion(flow.orderInstanceName, version);
+  await expectContainerVersion(flow.orderInstanceOtherUserName, version);
 }
 
 function clearSmtpMessages() {
@@ -817,11 +1035,20 @@ test("shows both in the app", async ({ page }) => {
   await expect(page.locator("#version")).toHaveValue(imageVersion);
 });
 
+test("ordered containers report the initial image version", async ({ request }) => {
+  await delay(containerVersionCheckDelayMs);
+  await expectOrderedDnsRecordsPresent();
+  await expectOrderedContainersLogging(request);
+  await expectOrderedContainersVersion(imageVersion);
+});
+
 test("registry webhook updates enrolled image and writes ready email to SMTP sink", async ({ request }) => {
   test.skip(!webhookImageVersion || webhookImageVersion === imageVersion, "Set INTEGRATION_WEBHOOK_IMAGE_VERSION to a different pullable tag for INTEGRATION_IMAGE.");
   const upgradeMessageCountBeforeWebhook = smtpMessages()
     .filter((message) => String(message.data || "").toLowerCase().includes("your image has now been upgraded"))
     .length;
+
+  await delay(containerVersionCheckDelayMs);
 
   const response = await request.post(`/registry-webhook/${encodeURIComponent(profile)}/secret`, {
     data: {
@@ -848,8 +1075,17 @@ test("registry webhook updates enrolled image and writes ready email to SMTP sin
   }).toBeGreaterThan(upgradeMessageCountBeforeWebhook);
 });
 
+test("ordered containers report the upgraded image version", async ({ request }) => {
+  test.skip(!webhookImageVersion || webhookImageVersion === imageVersion, "Set INTEGRATION_WEBHOOK_IMAGE_VERSION to a different pullable tag for INTEGRATION_IMAGE.");
+  await delay(containerVersionCheckDelayMs);
+  await expectOrderedContainersImageVersion(request, webhookImageVersion);
+  await expectOrderedContainersVersion(webhookImageVersion);
+});
+
 test("deletes them", async ({ request }) => {
   test.slow();
+
+  if (deleteDelayMs > 0) await delay(deleteDelayMs);
 
   await expectNetBoxContainerListed(request, flow.orderInstanceName, true);
   await deleteInstance(request, flow.orderInstanceName);
@@ -859,6 +1095,9 @@ test("deletes them", async ({ request }) => {
   await deleteInstance(request, flow.orderInstanceOtherUserName, { headers: otherUserHeaders });
   await expectNetBoxContainerListed(request, flow.orderInstanceOtherUserName, false);
   await expectOrderInstanceListed(request, flow.orderInstanceOtherUserName, false, {}, { headers: otherUserHeaders });
+
+  await delay(dnsDeleteCheckDelayMs);
+  await expectOrderedDnsRecordsRemoved(request);
 
   await deleteTemplate(request, resolvedTemplateName);
   await expectNetBoxTemplateListed(request, resolvedTemplateName, false);

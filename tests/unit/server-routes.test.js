@@ -146,13 +146,30 @@ function setupNetBoxFetch(fetchMock, {
   expectTraefikConfig = true,
   fuzzyContainerNameMatches = false,
   createHostSelectionContainers,
+  recreateScanContainers,
+  staleRecreateImageReads = 0,
+  defaultContainerLabels = [{ key: "saashup.template.version", value: "v1.0.0" }],
   fuzzyImageNameMatches = false,
   existingVolumes = [],
   dockerRegistries = [],
 } = {}) {
   let deleteContainerGetCount = 0;
   let stopRequested = false;
+  const patchedContainerImageIds = new Map();
+  const containerImageReadCounts = new Map();
   const configContextStore = [...netboxTemplateContexts];
+  const containerImagePayload = (id) => {
+    const key = String(id);
+    const readCount = (containerImageReadCounts.get(key) || 0) + 1;
+    containerImageReadCounts.set(key, readCount);
+    const patchedImageId = patchedContainerImageIds.get(key);
+    const imageId = patchedImageId && readCount > staleRecreateImageReads ? patchedImageId : 10;
+    return {
+      id: imageId,
+      name: "saashup/tile",
+      version: String(imageId) === "20" ? "v2.0.0" : "v1.0.0",
+    };
+  };
   fetchMock.mockImplementation(async (url, options = {}) => {
     const parsed = new URL(String(url));
     const method = options.method || "GET";
@@ -302,6 +319,9 @@ function setupNetBoxFetch(fetchMock, {
       if (createHostSelectionContainers && parsed.searchParams.get("limit") === "1000" && parsed.searchParams.has("host_id")) {
         return jsonResponse({ results: createHostSelectionContainers });
       }
+      if (recreateScanContainers && parsed.searchParams.get("limit") === "1000" && parsed.searchParams.has("host_id")) {
+        return jsonResponse({ results: recreateScanContainers });
+      }
       if (netboxTemplateContainers && parsed.searchParams.get("limit") === "1000" && parsed.searchParams.has("host_id")) {
         return jsonResponse({ results: netboxTemplateContainers });
       }
@@ -406,6 +426,7 @@ function setupNetBoxFetch(fetchMock, {
             ...(omitContainerDisplay ? {} : { display: recreateContainerName }),
             ...(omitContainerHost ? {} : { host: containerHostAsId ? 1 : { id: 1, display: "host-a" } }),
             image: { id: 10 },
+            labels: defaultContainerLabels,
             state: deleteContainerRunning ? "running" : "created",
             status: deleteContainerRunning ? "running" : "created",
             network_settings: [{ network: { name: "bridge" } }, { network: { name: "traefik-public" } }],
@@ -431,6 +452,11 @@ function setupNetBoxFetch(fetchMock, {
 
     if (pathname === "/api/plugins/docker/containers/" && method === "PATCH") {
       const body = JSON.parse(options.body);
+      if (Array.isArray(body)) {
+        body
+          .filter((item) => item?.id && item.image)
+          .forEach((item) => patchedContainerImageIds.set(String(item.id), item.image));
+      }
       if (Array.isArray(body) && body.some((item) => item.operation === "stop")) stopRequested = true;
       if (Array.isArray(body) && body.some((item) => item.id === 31 && item.operation)) {
         expect(body.some((item) => item.operation === "create")).toBe(false);
@@ -470,12 +496,13 @@ function setupNetBoxFetch(fetchMock, {
       }
       return jsonResponse({});
     }
-    if (pathname === "/api/plugins/docker/containers/31/" && method === "GET") return jsonResponse({ id: 31, status: "running", operation: "none" });
+    if (pathname === "/api/plugins/docker/containers/31/" && method === "GET") return jsonResponse({ id: 31, image: containerImagePayload(31), status: "running", operation: "none" });
+    if (pathname === "/api/plugins/docker/containers/32/" && method === "GET") return jsonResponse({ id: 32, image: containerImagePayload(32), status: "running", operation: "none" });
     if (pathname === "/api/plugins/docker/containers/30/" && method === "GET") {
-      if (!stopRequested) return jsonResponse({ id: 30, state: "running", status: "running", operation: "none" });
+      if (!stopRequested) return jsonResponse({ id: 30, image: containerImagePayload(30), state: "running", status: "running", operation: "none" });
       deleteContainerGetCount += 1;
-      if (deleteContainerRunning && deleteContainerGetCount === 1) return jsonResponse({ id: 30, state: "running", status: "running", operation: "stop" });
-      return jsonResponse({ id: 30, state: "exited", status: "exited", operation: "none" });
+      if (deleteContainerRunning && deleteContainerGetCount === 1) return jsonResponse({ id: 30, image: containerImagePayload(30), state: "running", status: "running", operation: "stop" });
+      return jsonResponse({ id: 30, image: containerImagePayload(30), state: "exited", status: "exited", operation: "none" });
     }
     if (pathname === "/api/plugins/docker/containers/30/" && method === "DELETE") return jsonResponse({}, 204);
     if (pathname === "/api/plugins/docker/hosts/1/" && method === "PATCH") return jsonResponse({});
@@ -5011,6 +5038,85 @@ describe("server routes", () => {
 
     await request.post("/restart").send({ restart_mode: "instance", instance: "tiles.example.com", tag: "absent" }).expect(202);
     await vi.waitFor(() => expect(readState(dataPath).logs).toContain("RESTART : no Docker hosts found with tag absent"));
+  });
+
+  test("recreate also updates matching containers missed by the image id lookup", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupNetBoxFetch(fetchMock, {
+      recreateScanContainers: [
+        {
+          id: 32,
+          name: "tiles-other",
+          display: "tiles-other",
+          host: { id: 1, display: "host-a" },
+          image: { id: 77, name: "saashup/tile", version: "v1.0.0" },
+          labels: [{ key: "saashup.template.version", value: "v1.0.0" }],
+          state: "running",
+          status: "running",
+        },
+      ],
+    });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/recreate").send({ image: "saashup/tile", version: "v2.0.0", oldversion: "v1.0.0" }).expect(202);
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("RECREATE : host-a/tiles-other image set to saashup/tile:v2.0.0"));
+
+    const calls = parsedFetchCalls(fetchMock);
+    expect(calls.some((call) => (
+      call.url.pathname === "/api/plugins/docker/containers/"
+      && call.method === "PATCH"
+      && Array.isArray(call.body)
+      && call.body.some((item) => item.id === 32 && item.image === 20)
+    ))).toBe(true);
+    expect(calls.some((call) => (
+      call.url.pathname === "/api/plugins/docker/containers/"
+      && call.method === "PATCH"
+      && Array.isArray(call.body)
+      && call.body.some((item) => (
+        item.id === 32
+        && Array.isArray(item.labels)
+        && item.labels.some((label) => label.key === "saashup.template.version" && label.value === "v2.0.0")
+      ))
+    ))).toBe(true);
+    expect(calls.some((call) => (
+      call.url.pathname === "/api/plugins/docker/containers/"
+      && call.method === "PATCH"
+      && Array.isArray(call.body)
+      && call.body.some((item) => item.id === 32 && item.operation === "recreate")
+    ))).toBe(true);
+  });
+
+  test("recreate retries when ready containers still report the old image", async () => {
+    const { dataPath, fetchMock, request } = await loadServer({ operationTimeoutSeconds: "0.02" });
+    setupNetBoxFetch(fetchMock, {
+      staleRecreateImageReads: 3,
+      recreateContainerName: "tiles:old",
+      defaultContainerLabels: { "custom.label": "kept" },
+    });
+    writeState(dataPath, {
+      config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile" },
+      templates: {},
+      order_counts: {},
+      logs: "",
+    });
+
+    await request.post("/recreate").send({ image: "saashup/tile", version: "v2.0.0", oldversion: "v1.0.0" }).expect(202);
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("retrying recreate after verification failed"));
+    await vi.waitFor(() => expect(readState(dataPath).logs).toContain("RECREATE : finished saashup/tile:v1.0.0 -> v2.0.0"));
+
+    const recreatePatches = parsedFetchCalls(fetchMock)
+      .filter((call) => call.url.pathname === "/api/plugins/docker/containers/" && call.method === "PATCH")
+      .filter((call) => Array.isArray(call.body) && call.body.some((item) => item.id === 30 && item.image === 20));
+    expect(recreatePatches.length).toBeGreaterThanOrEqual(2);
+    expect(recreatePatches.at(-1).body[0].labels).toEqual(expect.arrayContaining([
+      { key: "custom.label", value: "kept" },
+      { key: "saashup.template.version", value: "v2.0.0" },
+    ]));
   });
 
   test("covers create, recreate, and delete alternate branches", async () => {

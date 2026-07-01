@@ -14,7 +14,7 @@ services:
     restart: unless-stopped
 
   paasbox:
-    image: saashup/paasbox:v1.7.0
+    image: saashup/paasbox:v1.9.2
     container_name: integration-paasbox
     environment:
       PB_MIGRATE: 1
@@ -34,6 +34,23 @@ services:
     volumes:
       - ./smtp-out:/mail
 
+  traefik:
+    image: saashup/traefik:v3.7.5
+    container_name: integration-traefik
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.http.address=:80
+      - --api.dashboard=true
+      - --api.insecure=true
+    ports:
+      - "${INTEGRATION_TRAEFIK_PORT:-80}:80"
+      - "${INTEGRATION_TRAEFIK_DASHBOARD_PORT:-8082}:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - agent
+
   app:
     build:
       context: ../..
@@ -45,6 +62,7 @@ services:
       OPERATION_POLL_MS: 3000
       CREATE_CONFIGURE_DELAY_MS: 3000
       CREATE_RECREATE_DELAY_MS: 5000
+      RECREATE_OPERATION_SETTLE_DELAY_MS: 10000
       ENROLL_CREATE_RECREATE_DELAY_MS: 2000
       REGISTRY_WEBHOOK_SECRET: secret
       ENABLE_EDITOR: 1

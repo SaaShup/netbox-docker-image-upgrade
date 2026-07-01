@@ -1,6 +1,6 @@
 {
     "name": "netbox-docker-image-upgrade",
-    "version": "3.16.0",
+    "version": "3.17.0",
     "description": "App to deploy new image to all containers",
     "author": "vincent@saashup.com",
     "homepage": "https://github.com/SaaShup/netbox-docker-image-upgrade",
@@ -21,8 +21,8 @@
         "dev-user": "APP_OWNER_EMAIL=contact@saashup.com OPERATION_TIMEOUT_SECONDS=60 REGISTRY_WEBHOOK_SECRET=secret ENABLE_EDITOR=1 ADMIN_ALLOWED_EMAILS=admin@local.test LOCAL_DEV_EMAIL=demo@local.test OIDC_ENABLED=false node server.js",
         "test:e2e": "playwright test --grep-invert @visual",
         "test:visual": "playwright test tests/e2e/visual.spec.js",
-        "integration:up": "sudo chmod 777 /var/run/docker.sock && sudo --preserve-env=DOCKER_SOCK_GID docker compose -f tests/integration/docker-compose.yml up -d --build && AGENT_URL=$(sudo docker compose -f tests/integration/docker-compose.yml port agent 1880 | sed 's/^0\\.0\\.0\\.0:/localhost:/; s/^\\[::\\]:/localhost:/') && PAASBOX_URL=$(sudo docker compose -f tests/integration/docker-compose.yml port paasbox 8000 | sed 's/^0\\.0\\.0\\.0:/localhost:/; s/^\\[::\\]:/localhost:/') && APP_URL=$(sudo docker compose -f tests/integration/docker-compose.yml port app 1880 | sed 's/^0\\.0\\.0\\.0:/localhost:/; s/^\\[::\\]:/localhost:/') && printf \"\\nIntegration services are up:\\n  agent:   http://%s\\n  paasbox: http://%s\\n  app:     http://%s\\n\\n\" \"$AGENT_URL\" \"$PAASBOX_URL\" \"$APP_URL\"",
-        "integration:down": "sudo docker compose -f tests/integration/docker-compose.yml down --volumes --remove-orphans && sudo docker ps -a --format '{{.Names}}' && sudo docker image rm saashup/curioo-tiles:v2.7.1 saashup/curioo-tiles:v2.8.0 || true",
+        "integration:up": "sudo chmod 777 /var/run/docker.sock && sudo --preserve-env=DOCKER_SOCK_GID docker compose -f tests/integration/docker-compose.yml up -d --build && AGENT_URL=$(sudo docker compose -f tests/integration/docker-compose.yml port agent 1880 | sed 's/^0\\.0\\.0\\.0:/localhost:/; s/^\\[::\\]:/localhost:/') && PAASBOX_URL=$(sudo docker compose -f tests/integration/docker-compose.yml port paasbox 8000 | sed 's/^0\\.0\\.0\\.0:/localhost:/; s/^\\[::\\]:/localhost:/') && TRAEFIK_URL=$(sudo docker compose -f tests/integration/docker-compose.yml port traefik 80 | sed 's/^0\\.0\\.0\\.0:/localhost:/; s/^\\[::\\]:/localhost:/') && TRAEFIK_DASHBOARD_URL=$(sudo docker compose -f tests/integration/docker-compose.yml port traefik 8080 | sed 's/^0\\.0\\.0\\.0:/localhost:/; s/^\\[::\\]:/localhost:/') && APP_URL=$(sudo docker compose -f tests/integration/docker-compose.yml port app 1880 | sed 's/^0\\.0\\.0\\.0:/localhost:/; s/^\\[::\\]:/localhost:/') && printf \"\\nIntegration services are up:\\n  agent:             http://%s\\n  paasbox:           http://%s\\n  traefik:           http://%s\\n  traefik dashboard: http://%s\\n  app:               http://%s\\n\\n\" \"$AGENT_URL\" \"$PAASBOX_URL\" \"$TRAEFIK_URL\" \"$TRAEFIK_DASHBOARD_URL\" \"$APP_URL\"",
+        "integration:down": "sudo docker ps -a --format '{{.Names}}' | grep -E '^it-(enroll|order|template)-' | xargs -r sudo docker rm -f && sudo docker compose -f tests/integration/docker-compose.yml down --volumes --remove-orphans && sudo docker ps -a --format '{{.Names}}' && sudo docker image rm saashup/curioo-tiles:v2.7.1 saashup/curioo-tiles:v2.8.0 || true",
         "integration:logs": "sudo docker compose -f tests/integration/docker-compose.yml logs -f",
         "test:integration": "playwright test -c tests/integration/playwright.config.js",
         "integration:full": "npm run integration:down && npm run integration:up && sleep 5 && npm run test:integration"
