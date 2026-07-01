@@ -31,12 +31,24 @@ function createCreateHelpers({
       }
     }
     if (!options || typeof options !== "object") return [];
-    if (Array.isArray(options)) return options;
+    if (Array.isArray(options)) {
+      return options
+        .map((item) => {
+          if (item && typeof item === "object") {
+            const name = item.option_name || item.name || item.key;
+            const value = item.value ?? item.option_value;
+            return name ? { option_name: String(name), value: String(value ?? "") } : null;
+          }
+          const [name, ...valueParts] = String(item || "").split("=");
+          return name ? { option_name: name, value: valueParts.join("=") } : null;
+        })
+        .filter(Boolean);
+    }
 
     return Object.entries(options)
       .map(([name, value]) => {
-        if (!name || value === undefined) return "";
-        return `${String(name)}=${String(value)}`;
+        if (!name || value === undefined) return null;
+        return { option_name: String(name), value: String(value) };
       })
       .filter(Boolean);
   }

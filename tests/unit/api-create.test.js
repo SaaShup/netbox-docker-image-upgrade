@@ -269,8 +269,8 @@ describe("api create helpers", () => {
 
     const patch = requestBodies.find((item) => item.method === "PATCH" && item.path === "/api/plugins/docker/containers/");
     expect(patch?.body?.[0]?.log_driver_options).toEqual([
-      "syslog-address=udp://127.0.0.1:5514",
-      "tag={{.Name}}",
+      { option_name: "syslog-address", value: "udp://127.0.0.1:5514" },
+      { option_name: "tag", value: "{{.Name}}" },
     ]);
   });
 
@@ -318,11 +318,14 @@ describe("api create helpers", () => {
     await runWithLogOptions(42);
     await runWithLogOptions({ "": "skip", missing: undefined, ok: "yes" });
 
-    expect(patchBodies[0].log_driver_options).toEqual(["max-size=10m", "max-file=3"]);
+    expect(patchBodies[0].log_driver_options).toEqual([
+      { option_name: "max-size", value: "10m" },
+      { option_name: "max-file", value: "3" },
+    ]);
     expect(patchBodies[1]).not.toHaveProperty("log_driver_options");
-    expect(patchBodies[2].log_driver_options).toEqual(["mode=non-blocking"]);
+    expect(patchBodies[2].log_driver_options).toEqual([{ option_name: "mode", value: "non-blocking" }]);
     expect(patchBodies[3]).not.toHaveProperty("log_driver_options");
-    expect(patchBodies[4].log_driver_options).toEqual(["ok=yes"]);
+    expect(patchBodies[4].log_driver_options).toEqual([{ option_name: "ok", value: "yes" }]);
   });
 
   test("createInstance skips volume creation when all requested volumes already exist", async () => {

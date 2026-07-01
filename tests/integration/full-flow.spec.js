@@ -20,6 +20,11 @@ const containerVersionCheckDelayMs = 5_000;
 const dnsDeleteCheckDelayMs = 5_000;
 const containerVersionPath = "/api/version";
 const integrationTraefikUrl = String(process.env.INTEGRATION_TRAEFIK_URL || `http://127.0.0.1:${process.env.INTEGRATION_TRAEFIK_PORT || "80"}`).replace(/\/+$/, "");
+const integrationLogDriver = process.env.INTEGRATION_LOG_DRIVER || "syslog";
+const integrationLogDriverOptions = {
+  "syslog-address": process.env.INTEGRATION_SYSLOG_ADDRESS || "udp://127.0.0.1:5514",
+  tag: process.env.INTEGRATION_SYSLOG_TAG || "{{.Name}}",
+};
 const smtpOutputDir = process.env.INTEGRATION_SMTP_OUTPUT_DIR || path.join(__dirname, "smtp-out");
 const smtpMessagesFile = path.join(smtpOutputDir, "messages.jsonl");
 const smtpLatestFile = path.join(smtpOutputDir, "latest.eml");
@@ -315,6 +320,8 @@ function createFields(name, extra = {}) {
     network: "integration_default",
     version: imageVersion,
     port_value: imagePort,
+    log_driver: integrationLogDriver,
+    log_driver_options: JSON.stringify(integrationLogDriverOptions),
     max_instances: "1",
     traefik: "true",
     cloudflare_filter: "false",
@@ -514,6 +521,56 @@ async function expectOrderInstanceListed(request, instance, listed, expected = {
 
 function containerImageVersion(item) {
   return String(item?.image?.version || item?.image?.tag || item?.image_version || "").trim();
+}
+
+function logDriverOptionsMap(value) {
+  if (!value) return {};
+  if (typeof value === "string") {
+    try {
+      return logDriverOptionsMap(JSON.parse(value));
+    } catch {
+      const [key, ...rest] = value.split("=");
+      return key ? { [key]: rest.join("=") } : {};
+    }
+  }
+  if (Array.isArray(value)) {
+    return value.reduce((options, item) => ({ ...options, ...logDriverOptionsMap(item) }), {});
+  }
+  if (typeof value === "object") {
+    if (value.option_name || value.name || value.key) {
+      const key = value.option_name || value.name || value.key;
+      const optionValue = value.value ?? value.option_value ?? "";
+      return { [key]: String(optionValue) };
+    }
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, String(item)]));
+  }
+  return {};
+}
+
+function containerLogDriverOptions(item) {
+  return logDriverOptionsMap(item?.log_driver_options || item?.log_options || item?.logging_options);
+}
+
+async function expectNetBoxContainerLogging(request, instance) {
+  await expect.poll(async () => {
+    const containers = await netBoxContainersByInstance(request, instance);
+    return containers.map((item) => ({
+      log_driver: String(item?.log_driver || "").trim(),
+      log_driver_options: containerLogDriverOptions(item),
+    }));
+  }, {
+    timeout: 45_000,
+    intervals: [3_000],
+    message: `Paasbox container ${instance} should have ${integrationLogDriver} logging configured`,
+  }).toContainEqual(expect.objectContaining({
+    log_driver: integrationLogDriver,
+    log_driver_options: expect.objectContaining(integrationLogDriverOptions),
+  }));
+}
+
+async function expectOrderedContainersLogging(request) {
+  await expectNetBoxContainerLogging(request, flow.orderInstanceName);
+  await expectNetBoxContainerLogging(request, flow.orderInstanceOtherUserName);
 }
 
 async function expectNetBoxContainerImageVersion(request, instance, version) {
@@ -978,9 +1035,10 @@ test("shows both in the app", async ({ page }) => {
   await expect(page.locator("#version")).toHaveValue(imageVersion);
 });
 
-test("ordered containers report the initial image version", async () => {
+test("ordered containers report the initial image version", async ({ request }) => {
   await delay(containerVersionCheckDelayMs);
   await expectOrderedDnsRecordsPresent();
+  await expectOrderedContainersLogging(request);
   await expectOrderedContainersVersion(imageVersion);
 });
 

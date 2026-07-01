@@ -44,6 +44,9 @@ The app is exposed at `http://127.0.0.1:3000` by default.
 - `INTEGRATION_IMAGE_VERSION`: image tag, default `v1.10.3`.
 - `INTEGRATION_WEBHOOK_IMAGE_VERSION`: second pullable tag for `INTEGRATION_IMAGE`; default `v2.8.0` when using the default `saashup/curioo-tiles:v2.7.1`. When set to a value different from `INTEGRATION_IMAGE_VERSION`, the suite triggers the registry webhook and verifies that the SMTP sink writes the ready email.
 - `INTEGRATION_IMAGE_PORT`: private container port, default `3000` for `saashup/curioo-tiles`, otherwise `80`.
+- `INTEGRATION_LOG_DRIVER`: container log driver configured by create/order tests, default `syslog`.
+- `INTEGRATION_SYSLOG_ADDRESS`: syslog address used when `INTEGRATION_LOG_DRIVER=syslog`, default `udp://127.0.0.1:5514`.
+- `INTEGRATION_SYSLOG_TAG`: syslog tag used when `INTEGRATION_LOG_DRIVER=syslog`, default `{{.Name}}`.
 - `INTEGRATION_SMTP_OUTPUT_DIR`: directory where the SMTP sink writes received mail, default `tests/integration/smtp-out`.
 
 ## What It Checks
