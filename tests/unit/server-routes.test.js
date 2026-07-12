@@ -1026,6 +1026,33 @@ describe("server routes", () => {
       });
   });
 
+  test("reports a private GitLab image as unavailable when anonymous token access is denied", async () => {
+    const { request, setRegistryFetchForTests } = await loadServer();
+    setRegistryFetchForTests(vi.fn(async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.hostname === "registry.gitlab.com") {
+        return registryChallengeResponse('Bearer realm="https://gitlab.com/jwt/auth",service="container_registry",scope="repository:roman.melentov/mshield-core:pull"');
+      }
+      if (parsed.hostname === "gitlab.com" && parsed.pathname === "/jwt/auth") {
+        return jsonResponse({ message: "access forbidden" }, 403);
+      }
+      return jsonResponse({}, 404);
+    }));
+
+    await request.get("/registry/lookup")
+      .query({ image: "registry.gitlab.com/roman.melentov/mshield-core:1.0.2" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toMatchObject({
+          registry: "registry.gitlab.com",
+          name: "roman.melentov/mshield-core",
+          tag: "1.0.2",
+          exists: false,
+          status: 403,
+        });
+      });
+  });
+
   test("returns false when Docker Hub image tag is missing", async () => {
     const { request, setRegistryFetchForTests } = await loadServer({ publicApiSecret: "test-secret" });
     setRegistryFetchForTests(vi.fn(async (url, options = {}) => {

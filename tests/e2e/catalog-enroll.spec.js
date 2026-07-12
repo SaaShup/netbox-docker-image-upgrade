@@ -161,6 +161,48 @@ test("enroll page imports docker run and submits creation", async ({ page }) => 
   await expect(page.locator("#instanceForm")).toBeHidden();
 });
 
+test("admin enrollment disables public registry lookup when public images are disabled", async ({ page }) => {
+  await page.route("**/session/user", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        email: "admin@example.com",
+        user: "admin",
+        name: "Admin Example",
+        admin: true,
+        public_image: false,
+      }),
+    });
+  });
+  await page.route("**/enroll/limit*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ profile: "production", used: 0, max: 2, remaining: 2, reached: false, instances: [] }),
+    });
+  });
+
+  await openAdmin(page, {
+    profile: "production",
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        domain: "example.com",
+        tag: "production",
+        enrollment_limit: 2,
+        saashup_default: true,
+      },
+    }),
+  }, {}, [
+    { instance: "mshield-core", networks: ["bridge", "traefik-net"] },
+  ], undefined, "/enroll.html");
+
+  await expect(page.locator("#instanceForm")).toBeVisible();
+  expect(await page.evaluate(() => shouldVerifyEnrollImageAvailability())).toBe(false);
+});
+
 test("catalog page shows the account menu", async ({ page }) => {
   let catalogLimitUrl = "";
   await page.route("**/session/user", async (route) => {

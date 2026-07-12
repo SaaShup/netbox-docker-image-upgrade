@@ -578,6 +578,10 @@ function canCreatePublicImage() {
   return publicImageAllowed;
 }
 
+function shouldVerifyEnrollImageAvailability() {
+  return currentAuthUser?.public_image !== false;
+}
+
 function publicImageDisabledMessage() {
   return "Only administrators can create or enroll images.";
 }
@@ -6218,7 +6222,7 @@ form?.addEventListener("submit", async (event) => {
     return;
   }
 
-  if (isEnrollPage) {
+  if (isEnrollPage && shouldVerifyEnrollImageAvailability()) {
     const imageAvailable = await verifyEnrollImageAvailable();
     if (!imageAvailable) {
       setEnrollSubmitInProgress(false);
