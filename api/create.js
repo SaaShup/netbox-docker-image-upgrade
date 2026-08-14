@@ -1,6 +1,8 @@
 const { selectImageAwareHost } = require("../lib/host-selection");
 
 function createCreateHelpers({
+  authRedirectPayloadFromForm,
+  authRedirectRequestedFromForm,
   containerConfigPayloadFromForm,
   containerCreatePayloadFromForm,
   createConfigureDelayMs,
@@ -13,6 +15,7 @@ function createCreateHelpers({
   logLine,
   NetBoxClient,
   normalizedSaashupLabelConfig,
+  registerAuthRedirects,
   requestContainerOperation,
   sendOrderReadyEmail,
   templateNameFromEnrollmentData,
@@ -161,6 +164,12 @@ function createCreateHelpers({
     }
 
     const allReady = readyCount === targetHosts.length;
+    const authPayload = allReady ? authRedirectPayloadFromForm(data) : null;
+    if (authPayload) {
+      await registerAuthRedirects(client, authPayload, "CREATE");
+    } else if (authRedirectRequestedFromForm(data)) {
+      logLine(`CREATE : redirect urls skipped for ${valueText(data.instance) || "instance"} reason=${allReady ? "no-public-url" : "not-ready"}`);
+    }
     if ((isOrderRequest || isEnrollRequest) && allReady) {
       try {
         await sendOrderReadyEmail(data, authUser.email || "");

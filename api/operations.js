@@ -1,5 +1,7 @@
 function registerOperationRoutes(app, {
   asyncOperation,
+  authRedirectPayloadFromContainer,
+  authRedirectRequested,
   authUserFromRequest,
   bindPayloadsFromForm,
   canCreatePublicImage,
@@ -15,6 +17,7 @@ function registerOperationRoutes(app, {
   hostName,
   instanceShort,
   isContainerRunning,
+  labelMapFromContainer,
   logLine,
   NetBoxClient,
   oidcAuth,
@@ -22,6 +25,7 @@ function registerOperationRoutes(app, {
   recreateContainers,
   requestContainerOperation,
   selectedProfileConfig,
+  unregisterAuthRedirects,
   updateEnrollmentInstanceStatus,
   validateEnrollmentTemplate,
   validateOrderTemplate,
@@ -57,6 +61,13 @@ function registerOperationRoutes(app, {
       await client.request("PATCH", "/api/plugins/docker/containers/", { body: [{ id: container.id, operation: "stop" }] });
       logLine(`DELETE : container ${instanceShort(name)} stop requested id=${container.id}`);
       await waitForContainerStopped(client, container.id, `${hostName(container)}/${valueText(container.display || container.name)}`);
+    }
+    const containerLabels = labelMapFromContainer(container);
+    const authPayload = authRedirectPayloadFromContainer(containerLabels, valueText(container.name || container.display));
+    if (authPayload) {
+      await unregisterAuthRedirects(client, authPayload, "DELETE");
+    } else if (authRedirectRequested(containerLabels)) {
+      logLine(`DELETE : redirect urls skipped for ${instanceShort(name)} reason=no-public-url`);
     }
     await client.request("DELETE", `/api/plugins/docker/containers/${container.id}/`, { expected: [200, 202, 204] });
     logLine(`DELETE : container ${instanceShort(name)} deleted id=${container.id}`);

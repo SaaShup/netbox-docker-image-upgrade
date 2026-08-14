@@ -14,7 +14,7 @@ services:
     restart: unless-stopped
 
   paasbox:
-    image: saashup/paasbox:v1.9.2
+    image: saashup/paasbox:v1.10.3
     container_name: integration-paasbox
     environment:
       PB_MIGRATE: 1
@@ -50,6 +50,19 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       - agent
+  
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.6
+    container_name: integration-keycloak
+    command: start-dev --import-realm
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HOSTNAME_URL: http://integration-keycloak:8080
+    volumes:
+      - ./keycloak-realm.json:/opt/keycloak/data/import/realm.json:ro
+    ports:
+      - "${INTEGRATION_KEYCLOAK_PORT:-8083}:8080"
 
   app:
     build:

@@ -28,6 +28,16 @@ const integrationLogDriverOptions = {
 const smtpOutputDir = process.env.INTEGRATION_SMTP_OUTPUT_DIR || path.join(__dirname, "smtp-out");
 const smtpMessagesFile = path.join(smtpOutputDir, "messages.jsonl");
 const smtpLatestFile = path.join(smtpOutputDir, "latest.eml");
+const integrationKeycloakUrl = String(process.env.INTEGRATION_KEYCLOAK_URL || "http://integration-keycloak:8080").trim().replace(/\/+$/, "");
+const integrationKeycloakServerName = String(process.env.INTEGRATION_KEYCLOAK_SERVER_NAME || "keycloak-integration").trim();
+const integrationKeycloakAdmin = String(process.env.INTEGRATION_KEYCLOAK_ADMIN || "admin").trim();
+const integrationKeycloakPassword = String(process.env.INTEGRATION_KEYCLOAK_PASSWORD || "admin").trim();
+const integrationKeycloakRealm = String(process.env.INTEGRATION_KEYCLOAK_REALM || "integration-realm").trim();
+const integrationKeycloakClient = String(process.env.INTEGRATION_KEYCLOAK_CLIENT || "integration-client").trim();
+const integrationKeycloakCallbackPath = String(process.env.INTEGRATION_KEYCLOAK_CALLBACK_PATH || "/api/auth/callback").trim();
+const integrationKeycloakPostlogoutPath = String(process.env.INTEGRATION_KEYCLOAK_POSTLOGOUT_PATH || "/logout").trim();
+let keycloakRealmId = "";
+let keycloakClientId = "";
 const integrationCloudflareZone = String(process.env.INTEGRATION_CLOUDFLARE_ZONE || "").trim().toLowerCase();
 const integrationCloudflareZoneId = String(process.env.INTEGRATION_CLOUDFLARE_ZONE_ID || "").trim().toLowerCase();
 const integrationCloudflareApiSecret = String(process.env.INTEGRATION_CLOUDFLARE_API_TOKEN || process.env.INTEGRATION_CLOUDFLARE_SECRET_KEY || "").trim();
@@ -86,6 +96,76 @@ async function postForm(request, path, fields, headers = {}) {
     headers: { Accept: "application/json", ...headers },
     data: fields,
   });
+}
+
+async function postPairedForm(request, path, pairs, headers = {}) {
+  const body = new URLSearchParams();
+  pairs.forEach(([key, value]) => body.append(key, String(value)));
+  return request.post(path, {
+    headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded", ...headers },
+    data: body.toString(),
+  });
+}
+
+async function appLogText(request) {
+  const response = await request.get("/logs", { headers: { Accept: "text/html" } });
+  await expectOk(response, "read app logs");
+  return responseText(response);
+}
+
+async function findKeycloakServer(request) {
+  const response = await request.get(`${paasboxUrl}/api/plugins/keycloak/servers/`);
+  if (!response.ok()) return null;
+  const servers = (await response.json()).results || [];
+  return servers.find((item) => String(item?.name || "") === integrationKeycloakServerName) || null;
+}
+
+function keycloakAuthLabelPairs() {
+  return [
+    ["saashup.auth.callback.path", integrationKeycloakCallbackPath],
+    ["saashup.auth.postlogout.path", integrationKeycloakPostlogoutPath],
+    ["saashup.auth.client", integrationKeycloakClient],
+    ["saashup.auth.realm", integrationKeycloakRealm],
+  ];
+}
+
+function withAuthLabels(fields) {
+  const pairs = Object.entries(fields).map(([key, value]) => [key, value]);
+  if (!keycloakRealmId) return pairs;
+  keycloakAuthLabelPairs().forEach(([key, value]) => {
+    pairs.push(["label_key", key]);
+    pairs.push(["label_value", value]);
+  });
+  return pairs;
+}
+
+async function keycloakRedirectUris(request) {
+  const response = await request.get(`${paasboxUrl}/api/plugins/keycloak/redirect-urls/from-keycloak/`, {
+    params: { realm_id: keycloakRealmId, client: keycloakClientId },
+  });
+  await expectOk(response, "read redirect urls from keycloak");
+  const payload = await response.json();
+  return {
+    redirect: Array.isArray(payload.redirect_uris) ? payload.redirect_uris : [],
+    postLogout: Array.isArray(payload.post_logout_uris) ? payload.post_logout_uris : [],
+  };
+}
+
+async function expectKeycloakKnowsInstance(request, instanceName, known) {
+  if (!keycloakRealmId || !keycloakClientId) return;
+
+  let seen = { redirect: [], postLogout: [] };
+  try {
+    await expect.poll(async () => {
+      seen = await keycloakRedirectUris(request);
+      return [...seen.redirect, ...seen.postLogout].some((uri) => String(uri).includes(instanceName));
+    }, {
+      message: `keycloak redirect uris for ${instanceName} should be ${known ? "present" : "absent"}`,
+      timeout: 30_000,
+    }).toBe(known);
+  } catch (error) {
+    throw new Error(`${error.message}\nkeycloak uris in realm ${integrationKeycloakRealm}: ${JSON.stringify(seen)}`);
+  }
 }
 
 async function createUserRequestContext(emailOrHeaders) {
@@ -257,6 +337,75 @@ test("create cloudflare in paasbox", async ({ request }) => {
     zone_name: integrationCloudflareZone,
     zone_id: integrationCloudflareZoneId,
   });
+});
+
+test("create keycloak server in paasbox", async ({ request }) => {
+  const listResponse = await request.get(`${paasboxUrl}/api/plugins/keycloak/servers/`);
+  test.skip(listResponse.status() === 404, "This Paasbox build does not serve the keycloak plugin.");
+  await expectOk(listResponse, "list keycloak servers");
+
+  let server = null;
+  await expect.poll(async () => {
+    const existing = await findKeycloakServer(request);
+    if (existing) {
+      server = existing;
+      return "ready";
+    }
+
+    const createResponse = await request.post(`${paasboxUrl}/api/plugins/keycloak/servers/`, {
+      data: {
+        name: integrationKeycloakServerName,
+        server_url: integrationKeycloakUrl,
+        admin_username: integrationKeycloakAdmin,
+        admin_password: integrationKeycloakPassword,
+      },
+    });
+    if (createResponse.ok()) {
+      server = await createResponse.json();
+      return "ready";
+    }
+    return `HTTP ${createResponse.status()} ${(await responseText(createResponse)).slice(0, 160)}`;
+  }, {
+    timeout: 90_000,
+    intervals: [3000],
+    message: `paasbox should reach keycloak at ${integrationKeycloakUrl}`,
+  }).toBe("ready");
+
+  expect(server?.id).toBeTruthy();
+
+  await expect.poll(async () => {
+    const realmsResponse = await request.get(`${paasboxUrl}/api/plugins/keycloak/realms/`, {
+      params: { server: server.id },
+    });
+    if (!realmsResponse.ok()) return [];
+    const realms = (await realmsResponse.json()).results || [];
+    const match = realms.find((item) => String(item?.name || item?.realm || "") === integrationKeycloakRealm);
+    keycloakRealmId = match?.id ? String(match.id) : "";
+    return realms.map((item) => String(item?.name || item?.realm || ""));
+  }, {
+    timeout: 60_000,
+    intervals: [3000],
+    message: `keycloak realm ${integrationKeycloakRealm} should be synced from ${integrationKeycloakUrl}`,
+  }).toContain(integrationKeycloakRealm);
+
+  expect(keycloakRealmId).toBeTruthy();
+
+  await expect.poll(async () => {
+    const clientsResponse = await request.get(`${paasboxUrl}/api/plugins/keycloak/clients/`, {
+      params: { realm: keycloakRealmId },
+    });
+    if (!clientsResponse.ok()) return [];
+    const clients = (await clientsResponse.json()).results || [];
+    const match = clients.find((item) => String(item?.name || item?.display || "") === integrationKeycloakClient);
+    keycloakClientId = match?.id ? String(match.id) : "";
+    return clients.map((item) => String(item?.name || item?.display || ""));
+  }, {
+    timeout: 60_000,
+    intervals: [3000],
+    message: `keycloak client ${integrationKeycloakClient} should be synced from realm ${integrationKeycloakRealm}`,
+  }).toContain(integrationKeycloakClient);
+
+  expect(keycloakClientId).toBeTruthy();
 });
 
 async function saveIntegrationConfig(request) {
@@ -896,11 +1045,11 @@ test("enrolls an image, creates an instance from it", async ({ request }) => {
     expect(otherIdentity).toBeTruthy();
     expect(otherIdentity).not.toBe(defaultIdentity);
 
-    const enrollResponse = await postForm(defaultUserRequest, "/create", createFields(flow.templateInstance, {
+    const enrollResponse = await postPairedForm(defaultUserRequest, "/create", withAuthLabels(createFields(flow.templateInstance, {
       enroll_request: "true",
       template_name: resolvedTemplateName,
       order_template: resolvedTemplateName,
-    }));
+    })));
     if (enrollResponse.status() === 409) {
       const enrollError = await enrollResponse.json();
       const existingTemplate = String(enrollError.existing_template || "").trim();
@@ -913,6 +1062,11 @@ test("enrolls an image, creates an instance from it", async ({ request }) => {
       await expectOk(enrollResponse, "enroll image create");
       await expect(await enrollResponse.json()).toMatchObject({ status: "finished" });
       resolvedTemplateInstanceName = flow.templateInstanceName;
+
+      if (keycloakRealmId) {
+        expect(await appLogText(defaultUserRequest)).toContain(`redirect urls registered for https://${flow.templateInstanceName}`);
+        await expectKeycloakKnowsInstance(request, flow.templateInstanceName, true);
+      }
     }
 
     const duplicateEnrollResponse = await postForm(defaultUserRequest, "/create", createFields(flow.duplicateTemplateInstance, {
@@ -943,11 +1097,18 @@ test("enrolls an image, creates an instance from it", async ({ request }) => {
     ]));
 
     const preOrderPayloadDefaultUser = await orderLimitPayload(defaultUserRequest, undefined, defaultUserHeaders);
+    let enrolledInstanceRemoved = false;
     if (preOrderPayloadDefaultUser.instances?.length) {
       for (const item of preOrderPayloadDefaultUser.instances) {
         await deleteInstance(defaultUserRequest, item.instance, { headers: defaultUserHeaders });
         await expectNetBoxContainerListed(request, item.instance, false);
+        if (item.instance === flow.templateInstanceName) enrolledInstanceRemoved = true;
       }
+    }
+
+    if (keycloakRealmId && enrolledInstanceRemoved) {
+      expect(await appLogText(defaultUserRequest)).toContain(`redirect urls removed for https://${flow.templateInstanceName}`);
+      await expectKeycloakKnowsInstance(request, flow.templateInstanceName, false);
     }
 
     const preOrderPayloadOtherUser = await orderLimitPayload(otherUserRequest, undefined, otherUserHeaders);
@@ -1103,3 +1264,4 @@ test("deletes them", async ({ request }) => {
   await expectNetBoxTemplateListed(request, resolvedTemplateName, false);
   await expectEnrollmentListed(request, resolvedTemplateName, false);
 });
+

@@ -31,8 +31,12 @@ function createRoutes(overrides = {}) {
       asyncOperations.push(promise);
       return promise;
     },
+    authRedirectPayloadFromContainer: (labels) => labels?.auth_payload || null,
+    authRedirectRequested: (labels) => labels?.auth_requested === true,
     authUserFromRequest: () => ({ email: "owner@example.com" }),
     bindPayloadsFromForm: () => [],
+    labelMapFromContainer: (container) => container?.labels || {},
+    unregisterAuthRedirects: vi.fn(),
     canCreatePublicImage: () => true,
     currentEnrollmentUsage: async () => ({ reached: false }),
     currentUsage: async () => ({ reached: false }),
@@ -415,5 +419,54 @@ describe("api operation routes", () => {
 
     expect(logs).toContain("DELETE : 2 containers deleted for image repo/app:1.0");
     expect(logs).toContain("DELETE : image repo/app:1.0: deleted id=image-1");
+  });
+
+  test("delete unregisters Keycloak redirect urls before removing the container", async () => {
+    const authPayload = { url: "https://guide.curioo.city", callback_path: "/api/auth/callback" };
+    const requests = [];
+    class NetBoxClient {
+      async list() {
+        return [{ id: "container-1", name: "guide", host: "host-a", labels: { auth_payload: authPayload } }];
+      }
+      async request(method, apiPath) {
+        requests.push(`${method} ${apiPath}`);
+        return { payload: {} };
+      }
+    }
+    const unregisterAuthRedirects = vi.fn(() => requests.push("UNREGISTER"));
+    const { routes } = createRoutes({
+      NetBoxClient,
+      deleteDnsRecord: vi.fn(),
+      unregisterAuthRedirects,
+      waitForRequest: () => true,
+    });
+
+    await routes["/delete"]({ body: { delete_mode: "instance", instance: "guide", wait: "true" } }, mockResponse());
+
+    expect(unregisterAuthRedirects).toHaveBeenCalledWith(expect.anything(), authPayload, "DELETE");
+    expect(requests).toEqual(["UNREGISTER", "DELETE /api/plugins/docker/containers/container-1/"]);
+  });
+
+  test("delete reports a skipped unregistration when the router rule is gone", async () => {
+    class NetBoxClient {
+      async list() {
+        return [{ id: "container-1", name: "guide", host: "host-a", labels: { auth_requested: true } }];
+      }
+      async request() {
+        return { payload: {} };
+      }
+    }
+    const unregisterAuthRedirects = vi.fn();
+    const { logs, routes } = createRoutes({
+      NetBoxClient,
+      deleteDnsRecord: vi.fn(),
+      unregisterAuthRedirects,
+      waitForRequest: () => true,
+    });
+
+    await routes["/delete"]({ body: { delete_mode: "instance", instance: "guide", wait: "true" } }, mockResponse());
+
+    expect(unregisterAuthRedirects).not.toHaveBeenCalled();
+    expect(logs).toContain("DELETE : redirect urls skipped for guide reason=no-public-url");
   });
 });
