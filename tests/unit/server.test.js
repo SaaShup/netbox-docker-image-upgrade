@@ -52,6 +52,11 @@ const os = require("os");
 const path = require("path");
 const { createAuthHelpers, firstHeader } = require("../../lib/auth");
 const {
+  authRedirectPayloadFromContainer,
+  authRedirectPayloadFromForm,
+  authRedirectRequested,
+  authRedirectRequestedFromForm,
+  authRedirectUrlFromLabels,
   cloudflareFilterEnabled,
   containerNetworkNames,
   dnsHostNameFromData,
@@ -1131,6 +1136,125 @@ describe("server helpers", () => {
     }, 33).labels).toEqual([{ key: "custom.label", value: "custom-value" }]);
   });
 
+  test("builds Keycloak redirect payloads from the callback path label", () => {
+    const authLabels = {
+      "saashup.auth.callback.path": "/api/auth/callback",
+      "saashup.auth.postlogout.path": "/logout",
+      "saashup.auth.client": "curio-city",
+      "saashup.auth.realm": "curioo",
+    };
+
+    expect(authRedirectPayloadFromForm({
+      instance: "guide",
+      dns_name: "guide.curioo.city",
+      label_key: Object.keys(authLabels),
+      label_value: Object.values(authLabels),
+    })).toEqual({
+      url: "https://guide.curioo.city",
+      realm: "curioo",
+      client_id: "curio-city",
+      callback_path: "/api/auth/callback",
+      postlogout_path: "/logout",
+    });
+
+    expect(authRedirectPayloadFromForm({
+      instance: "guide",
+      dns_name: "guide.curioo.city",
+      label_key: ["saashup.auth.client", "saashup.auth.realm"],
+      label_value: ["curio-city", "curioo"],
+    })).toBe(null);
+
+    expect(authRedirectPayloadFromForm({
+      instance: "guide",
+      dns_name: "guide.curioo.city",
+      traefik: "false",
+      label_key: Object.keys(authLabels),
+      label_value: Object.values(authLabels),
+    })).toBe(null);
+
+    expect(authRedirectPayloadFromForm({
+      instance: "guide",
+      label_key: Object.keys(authLabels),
+      label_value: Object.values(authLabels),
+    })).toBe(null);
+
+    expect(authRedirectPayloadFromForm({
+      instance: "guide",
+      dns_name: "guide.curioo.city/app",
+      label_key: ["saashup.auth.callback.path"],
+      label_value: ["/api/auth/callback"],
+    })).toEqual({
+      url: "https://guide.curioo.city/app",
+      realm: "",
+      client_id: "",
+      callback_path: "/api/auth/callback",
+      postlogout_path: "",
+    });
+
+    expect(authRedirectPayloadFromForm({
+      instance: "guide",
+      dns_name: "guide.curioo.city",
+      label_key: ["saashup.auth.callback.path", "saashup.auth.postlogout.path"],
+      label_value: ["api/auth/callback", "logout"],
+    })).toMatchObject({
+      callback_path: "/api/auth/callback",
+      postlogout_path: "/logout",
+    });
+  });
+
+  test("reads the registered redirect url back from the Traefik router rule", () => {
+    expect(authRedirectUrlFromLabels({
+      "traefik.http.routers.besancon3.rule": "Host(`besancon3.curioo.city`)",
+    })).toBe("https://besancon3.curioo.city");
+
+    expect(authRedirectUrlFromLabels({
+      "traefik.http.routers.guide.rule": "Host(`guide.curioo.city`) && PathPrefix(`/app`)",
+    })).toBe("https://guide.curioo.city/app");
+
+    expect(authRedirectUrlFromLabels({
+      "traefik.http.routers.guide-1758000000.rule": "Host(`guide.curioo.city`)",
+    }, "guide")).toBe("https://guide.curioo.city");
+
+    expect(authRedirectUrlFromLabels({
+      "traefik.http.routers.other.rule": "Host(`other.curioo.city`)",
+      "traefik.http.routers.guide.rule": "Host(`guide.curioo.city`)",
+    }, "guide")).toBe("https://guide.curioo.city");
+
+    expect(authRedirectUrlFromLabels({ "custom.label": "value" })).toBe("");
+    expect(authRedirectUrlFromLabels({ "traefik.http.routers.guide.rule": "PathPrefix(`/app`)" })).toBe("");
+    expect(authRedirectUrlFromLabels({ "traefik.http.routers.guide.rule": null })).toBe("");
+    expect(authRedirectUrlFromLabels({ "traefik.http.routers.guide.rule": "Host(`guide.curioo.city`) && PathPrefix(`/`)" })).toBe("https://guide.curioo.city");
+
+    expect(authRedirectPayloadFromForm({
+      instance: "guide",
+      dns_name: "guide.curioo.city",
+      label_key: ["", "saashup.auth.callback.path"],
+      label_value: ["ignored"],
+    })).toBe(null);
+
+    expect(authRedirectPayloadFromContainer({
+      "traefik.http.routers.guide.rule": "Host(`guide.curioo.city`)",
+      "saashup.auth.callback.path": "/api/auth/callback",
+      "saashup.auth.client": "curio-city",
+      "saashup.auth.realm": "curioo",
+    }, "guide")).toEqual({
+      url: "https://guide.curioo.city",
+      realm: "curioo",
+      client_id: "curio-city",
+      callback_path: "/api/auth/callback",
+      postlogout_path: "",
+    });
+
+    expect(authRedirectPayloadFromContainer({
+      "traefik.http.routers.guide.rule": "Host(`guide.curioo.city`)",
+    }, "guide")).toBe(null);
+
+    expect(authRedirectRequested({ "saashup.auth.callback.path": "/api/auth/callback" })).toBe(true);
+    expect(authRedirectRequested({ "saashup.auth.client": "curio-city" })).toBe(false);
+    expect(authRedirectRequestedFromForm({ label_key: ["saashup.auth.callback.path"], label_value: ["/api/auth/callback"] })).toBe(true);
+    expect(authRedirectRequestedFromForm({})).toBe(false);
+  });
+
   test("derives route, operation, and status metric labels", () => {
     const metrics = createMetrics();
     expect(routeLabel({ originalUrl: "" })).toBe("/");
@@ -1592,6 +1716,20 @@ describe("server helpers", () => {
     expect(readyClient.request).toHaveBeenCalledWith("POST", "/api/plugins/cloudflare/dns/records/", expect.objectContaining({
       body: expect.objectContaining({ name: "app" }),
     }));
+    const authPayload = {
+      url: "https://guide.curioo.city",
+      realm: "curioo",
+      client_id: "curio-city",
+      callback_path: "/api/auth/callback",
+      postlogout_path: "/logout",
+    };
+    await expect(helpers.registerAuthRedirects(readyClient, authPayload, "CREATE")).resolves.toBe(true);
+    expect(readyClient.request).toHaveBeenCalledWith("POST", "/api/plugins/keycloak/redirect-urls/register/", expect.objectContaining({ body: authPayload }));
+    await expect(helpers.unregisterAuthRedirects(readyClient, authPayload, "DELETE")).resolves.toBe(true);
+    expect(readyClient.request).toHaveBeenCalledWith("POST", "/api/plugins/keycloak/redirect-urls/unregister/", expect.objectContaining({ body: authPayload }));
+    expect(logs).toContain("CREATE : redirect urls registered for https://guide.curioo.city realm=curioo client=curio-city status=200");
+    expect(logs).toContain("DELETE : redirect urls removed for https://guide.curioo.city realm=curioo client=curio-city status=200");
+    await expect(helpers.registerAuthRedirects(readyClient, null)).resolves.toBe(false);
     await expect(helpers.deleteDnsRecord(readyClient, { instance: "app.example.com" })).resolves.toBeUndefined();
 
     const timeoutClient = {
@@ -1884,6 +2022,18 @@ describe("server helpers", () => {
     await expect(helpers.deleteDnsRecord({ list: vi.fn(async () => { throw {}; }) }, { instance: "app.example.com" })).resolves.toBeUndefined();
     await expect(helpers.deleteDnsRecord({ list: vi.fn(async () => { throw { message: "" }; }) }, { instance: "" })).resolves.toBeUndefined();
 
+    const authFailureClient = {
+      request: vi.fn(async () => {
+        const error = new Error("keycloak unreachable");
+        error.payload = { detail: "realm not found" };
+        throw error;
+      }),
+    };
+    await expect(helpers.registerAuthRedirects(authFailureClient, { url: "https://guide.curioo.city", realm: "curioo", client_id: "curio-city" })).resolves.toBe(false);
+    await expect(helpers.unregisterAuthRedirects({ request: vi.fn(async () => { throw {}; }) }, { url: "https://guide.curioo.city" })).resolves.toBe(false);
+
+    expect(logs.join("\n")).toContain("CREATE : redirect urls registration failed for https://guide.curioo.city keycloak unreachable payload={\"detail\":\"realm not found\"}");
+    expect(logs.join("\n")).toContain("DELETE : redirect urls removal failed for https://guide.curioo.city unknown error");
     expect(logs.join("\n")).toContain("ready status=running");
     expect(logs.join("\n")).toContain("still has state=none");
     expect(logs.join("\n")).toContain("stop timeout");

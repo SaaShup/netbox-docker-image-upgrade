@@ -17,6 +17,10 @@ const { registerSystemRoutes } = require("./api/system");
 const { authUserFromRequest, createAuthHelpers, createPublicImageAccess, maxInstancesValue } = require("./lib/auth");
 const {
   asArray,
+  authRedirectPayloadFromContainer,
+  authRedirectPayloadFromForm,
+  authRedirectRequested,
+  authRedirectRequestedFromForm,
   bindPayloadsFromForm,
   containerConfigPayloadFromForm,
   containerCreatePayloadFromForm,
@@ -110,6 +114,8 @@ const {
   createDnsRecord,
   deleteDnsRecord,
   ensureImageOnHost,
+  registerAuthRedirects,
+  unregisterAuthRedirects,
   requestContainerOperation,
   waitForContainerConfigured,
   waitForContainerStopped,
@@ -1307,6 +1313,8 @@ async function deleteContainerVolumes(client, container) {
 }
 
 const { createInstance } = createCreateHelpers({
+  authRedirectPayloadFromForm,
+  authRedirectRequestedFromForm,
   containerConfigPayloadFromForm,
   containerCreatePayloadFromForm,
   createConfigureDelayMs,
@@ -1319,6 +1327,7 @@ const { createInstance } = createCreateHelpers({
   logLine,
   NetBoxClient,
   normalizedSaashupLabelConfig,
+  registerAuthRedirects,
   requestContainerOperation,
   sendOrderReadyEmail,
   templateNameFromEnrollmentData,
@@ -1331,6 +1340,8 @@ const { createInstance } = createCreateHelpers({
 
 registerOperationRoutes(app, {
   asyncOperation,
+  authRedirectPayloadFromContainer,
+  authRedirectRequested,
   authUserFromRequest,
   bindPayloadsFromForm,
   canCreatePublicImage,
@@ -1347,6 +1358,7 @@ registerOperationRoutes(app, {
   hostName,
   instanceShort,
   isContainerRunning,
+  labelMapFromContainer,
   logLine,
   NetBoxClient,
   oidcAuth,
@@ -1354,6 +1366,7 @@ registerOperationRoutes(app, {
   recreateContainers,
   requestContainerOperation,
   selectedProfileConfig,
+  unregisterAuthRedirects,
   updateEnrollmentInstanceStatus,
   validateEnrollmentTemplate,
   validateOrderTemplate,

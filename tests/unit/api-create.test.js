@@ -6,9 +6,15 @@ function createHelpers(overrides = {}) {
     delays: [],
     logs: [],
     operations: [],
+    registeredAuth: [],
     statusUpdates: [],
   };
   const defaultDependencies = {
+    authRedirectPayloadFromForm: (data) => (data.auth_payload === undefined ? null : data.auth_payload),
+    authRedirectRequestedFromForm: (data) => data.auth_requested === true,
+    registerAuthRedirects: async (_client, payload) => {
+      calls.registeredAuth.push(payload);
+    },
     containerConfigPayloadFromForm: (data, id) => ({ id, env: [], labels: [], mounts: [] }),
     containerCreatePayloadFromForm: (data, imageId) => ({ name: data.instance || "demo", image: imageId }),
     createConfigureDelayMs: 0,
@@ -368,5 +374,65 @@ describe("api create helpers", () => {
 
     expect(requestBodies.some((call) => call.path === "/api/plugins/docker/volumes/")).toBe(false);
     expect(calls.logs).toContain("CREATE : 1 volume prepared on host-a (1 reused, 0 created)");
+  });
+
+  test("createInstance registers Keycloak redirect urls once per instance, only when ready", async () => {
+    const payload = { url: "https://guide.curioo.city", realm: "curioo", client_id: "curio-city", callback_path: "/api/auth/callback" };
+    const { calls, helpers } = createHelpers({
+      dockerHosts: async () => [{ id: "host-a", name: "host-a" }, { id: "host-b", name: "host-b" }],
+    });
+
+    await expect(helpers.createInstance({}, { instance: "guide", all_hosts: "true", auth_payload: payload }, {
+      isEnrollRequest: false,
+      isOrderRequest: false,
+      orderProfile: "prod",
+      authUser: {},
+    })).resolves.toBe(true);
+
+    expect(calls.registeredAuth).toEqual([payload]);
+  });
+
+  test("createInstance skips redirect url registration when the instance is not ready", async () => {
+    const payload = { url: "https://guide.curioo.city", callback_path: "/api/auth/callback" };
+    const { calls, helpers } = createHelpers({
+      requestContainerOperation: async () => false,
+    });
+
+    await expect(helpers.createInstance({}, { instance: "guide", auth_payload: payload, auth_requested: true }, {
+      isEnrollRequest: false,
+      isOrderRequest: false,
+      orderProfile: "prod",
+      authUser: {},
+    })).resolves.toBe(false);
+
+    expect(calls.registeredAuth).toEqual([]);
+    expect(calls.logs).toContain("CREATE : redirect urls skipped for guide reason=not-ready");
+  });
+
+  test("createInstance reports a skipped registration when the instance has no public url", async () => {
+    const { calls, helpers } = createHelpers();
+
+    await expect(helpers.createInstance({}, { instance: "guide", auth_requested: true }, {
+      isEnrollRequest: false,
+      isOrderRequest: false,
+      orderProfile: "prod",
+      authUser: {},
+    })).resolves.toBe(true);
+
+    expect(calls.registeredAuth).toEqual([]);
+    expect(calls.logs).toContain("CREATE : redirect urls skipped for guide reason=no-public-url");
+  });
+
+  test("createInstance stays silent when no Keycloak sync was requested", async () => {
+    const { calls, helpers } = createHelpers();
+
+    await expect(helpers.createInstance({}, { instance: "guide" }, {
+      isEnrollRequest: false,
+      isOrderRequest: false,
+      orderProfile: "prod",
+      authUser: {},
+    })).resolves.toBe(true);
+
+    expect(calls.logs.some((line) => line.includes("redirect urls"))).toBe(false);
   });
 });

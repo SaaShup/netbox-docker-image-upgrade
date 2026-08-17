@@ -38,6 +38,14 @@ The app is exposed at `http://127.0.0.1:3000` by default.
 - `INTEGRATION_CLOUDFLARE_ZONE`: Cloudflare DNS zone to provision in Paasbox and use as the default integration domain.
 - `INTEGRATION_CLOUDFLARE_ZONE_ID`: Cloudflare DNS zone ID to provision in Paasbox.
 - `INTEGRATION_CLOUDFLARE_API_TOKEN`: Cloudflare API token to provision in Paasbox.
+- `INTEGRATION_KEYCLOAK_URL`: Keycloak URL default `http://integration-keycloak:8080`.
+- `INTEGRATION_KEYCLOAK_SERVER_NAME`: name of the keycloak server record created in Paasbox, default `keycloak-integration`.
+- `INTEGRATION_KEYCLOAK_ADMIN` / `INTEGRATION_KEYCLOAK_PASSWORD`: Keycloak admin credentials, default `admin` / `admin`.
+- `INTEGRATION_KEYCLOAK_REALM`: realm passed in the `saashup.auth.realm` label, default `integration-realm` (imported from `keycloak-realm.json` at container start).
+- `INTEGRATION_KEYCLOAK_CLIENT`: client id passed in the `saashup.auth.client` label, default `integration-client`.
+- `INTEGRATION_KEYCLOAK_CALLBACK_PATH`: value of the `saashup.auth.callback.path` label, default `/api/auth/callback`. This label is what triggers the sync.
+- `INTEGRATION_KEYCLOAK_POSTLOGOUT_PATH`: value of the `saashup.auth.postlogout.path` label, default `/logout`.
+- `INTEGRATION_KEYCLOAK_PORT`: host port for Keycloak, default `8083`.
 - `INTEGRATION_DELETE_DELAY_MS`: delay before the cleanup test starts deleting instances, default `10000`.
 - `RECREATE_OPERATION_SETTLE_DELAY_MS`: delay after each webhook/manual image recreate before moving to the next container; integration compose sets `10000` because Paasbox can report ready before Docker has finished replacing the container.
 - `INTEGRATION_IMAGE`: image to enroll/order, default `traefik/whoami`.
@@ -63,6 +71,7 @@ The serial full-flow integration tests:
 8. When `INTEGRATION_WEBHOOK_IMAGE_VERSION` is set, triggers `/registry-webhook/<profile>/secret` and verifies the ready email is written to `tests/integration/smtp-out/messages.jsonl`.
 9. Deletes the ordered instance, deletes the enrolled instance, and removes the enrolled template.
 10. Verifies `/order/limit` and `/enroll/limit` no longer return the deleted records.
+11. When the Paasbox build serves the keycloak plugin, enrolls with the `saashup.auth.*` labels and checks the instance URL is added to the realm on create and removed on delete. Skipped when `keycloak/servers/` answers `404`.
 
 If a run is interrupted before the delete steps, you may need to clean up
 `it-enroll-*`, `it-order-*`, or `it-template-*` records manually.
