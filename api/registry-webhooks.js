@@ -1,3 +1,5 @@
+const { toLogPayload } = require("../lib/operations");
+
 function registerRegistryWebhookRoutes(app, {
   logLine,
   recreateContainers,
@@ -46,16 +48,33 @@ function registerRegistryWebhookRoutes(app, {
     }
   }
 
+  function webhookImages(events) {
+    return events.map((event) => `${event.image}:${event.tag}`).join(",") || "none";
+  }
+
+  function webhookAudit(req, events, outcome, reason = "") {
+    const profile = req.params.profile || "";
+    const reasonText = reason ? ` reason=${reason}` : "";
+    logLine(`REGISTRY_WEBHOOK : ${outcome} profile=${profile}${reasonText} url=${req.originalUrl || req.url || ""} events=${events.length} images=${webhookImages(events)} body=${toLogPayload(req.body)}`);
+  }
+
   app.post([
     "/registry-webhook/:profile",
     "/registry-webhook/:profile/:secret",
     "/registry-webhook/:profile/:template/:secret",
   ], (req, res) => {
     const events = registryWebhookEvents(req.body);
-    if (!registryWebhookAllowed(req, events)) return res.status(403).json({ detail: "invalid webhook secret" });
+    webhookAudit(req, events, "received");
+    if (!registryWebhookAllowed(req, events)) {
+      webhookAudit(req, events, "rejected", "invalid-secret");
+      return res.status(403).json({ detail: "invalid webhook secret" });
+    }
     res.status(202).json({ status: "accepted" });
     const upgradeEvents = events.filter((event) => event.tag !== "latest");
-    if (!upgradeEvents.length) return;
+    if (!upgradeEvents.length) {
+      webhookAudit(req, events, "ignored", events.length ? "latest-tag" : "no-events");
+      return;
+    }
     const config = selectedProfileConfig({ profile: req.params.profile });
     Promise.resolve()
       .then(async () => {

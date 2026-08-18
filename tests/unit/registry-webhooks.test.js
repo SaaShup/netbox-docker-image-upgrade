@@ -40,7 +40,7 @@ function response() {
 }
 
 function request(body = {}, profile = "prod") {
-  return { body, params: { profile } };
+  return { body, params: { profile }, originalUrl: `/registry-webhook/${profile}/hook-secret` };
 }
 
 describe("registry webhook route helper", () => {
@@ -173,6 +173,37 @@ describe("registry webhook route helper", () => {
     await vi.waitFor(() => expect(notReady.deps.recreateContainers).toHaveBeenCalled());
     await new Promise((resolve) => setImmediate(resolve));
     expect(notReady.deps.sendImageUpgradeEmail).not.toHaveBeenCalled();
+  });
+
+  test("audits registry webhook call with its profile and events", async () => {
+    const { deps, handler } = createRoute();
+
+    handler(request({ repository: { repo_name: "saashup/tile" }, push_data: { tag: "v2.0.0" } }), response());
+
+    expect(deps.logLine).toHaveBeenCalledWith('REGISTRY_WEBHOOK : received profile=prod url=/registry-webhook/prod/hook-secret events=1 images=saashup/tile:v2.0.0 body={"repository":{"repo_name":"saashup/tile"},"push_data":{"tag":"v2.0.0"}}');
+  });
+
+  test("audits a refused registry webhook when secret is invalid", async () => {
+    const { deps, handler } = createRoute({ registryWebhookAllowed: vi.fn(() => false) });
+    const res = response();
+
+    handler({ body: { repository: { repo_name: "saashup/tile" } }, params: { profile: "prod" }, originalUrl: "/registry-webhook/prod/saashup-secret%20" }, res);
+
+    expect(res.statusCode).toBe(403);
+    expect(deps.logLine).toHaveBeenCalledWith(
+      'REGISTRY_WEBHOOK : rejected profile=prod reason=invalid-secret url=/registry-webhook/prod/saashup-secret%20 events=1 images=saashup/tile:v2.0.0 body={"repository":{"repo_name":"saashup/tile"}}',
+    );
+  });
+
+  test("audits ignored registry webhook calls, keeping the body when no event was read", async () => {
+    const latest = createRoute({ registryWebhookEvents: vi.fn(() => [{ image: "saashup/tile", tag: "latest" }]) });
+    latest.handler(request(), response());
+    expect(latest.deps.logLine).toHaveBeenCalledWith("REGISTRY_WEBHOOK : ignored profile=prod reason=latest-tag url=/registry-webhook/prod/hook-secret events=1 images=saashup/tile:latest body={}");
+
+    const unreadable = createRoute({ registryWebhookEvents: vi.fn(() => []) });
+    unreadable.handler(request({ unexpected: "something" }), response());
+    expect(unreadable.deps.logLine).toHaveBeenCalledWith('REGISTRY_WEBHOOK : received profile=prod url=/registry-webhook/prod/hook-secret events=0 images=none body={"unexpected":"something"}');
+    expect(unreadable.deps.logLine).toHaveBeenCalledWith('REGISTRY_WEBHOOK : ignored profile=prod reason=no-events url=/registry-webhook/prod/hook-secret events=0 images=none body={"unexpected":"something"}');
   });
 
   test("logs when the async registry webhook recreate flow fails", async () => {
