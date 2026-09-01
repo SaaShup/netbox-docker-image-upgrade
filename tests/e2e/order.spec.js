@@ -126,20 +126,27 @@ test("order page creates an instance from the requested template", async ({ page
   expect(imageUrls).toHaveLength(0);
   expect(instanceUrls).toHaveLength(0);
 
+  await page.route(`http://${generatedName}.daily.paashup.cloud/**`, (route) => route.fulfill({
+    status: 200,
+    contentType: "text/html",
+    body: "<html><body>instance up</body></html>",
+  }));
+
   await page.locator("#submitBtn").click();
 
   await expect.poll(() => createBody).toContain(`instance=${generatedName}`);
   expect(createBody).toContain(`dns_name=${generatedName}.daily.paashup.cloud%2Fapp`);
   await expect(page.locator("#orderActions")).toBeHidden();
-  await expect(page.locator("#orderStatus")).toHaveClass(/success/);
-  await expect(page.locator("#orderStatus")).toHaveText(`Thank you, your instance installation has been requested for ${generatedName}.daily.paashup.cloud/app.`);
-  await expect(page.locator("#orderStatus")).toHaveText("You can request another instance for this config.", { timeout: 5000 });
+  await expect(page.locator(".order-loading-text")).toContainText(/you will be redirected when it is ready|is ready — redirecting in/);
+  await expect(page).toHaveURL(`http://${generatedName}.daily.paashup.cloud/`, { timeout: 15_000 });
+
+  await page.goto("/order?template=curiootiles");
   await expect(page.locator("#orderActions")).toBeVisible();
   await expect(page.locator("#instance")).not.toHaveValue(generatedName);
   const orderCard = page.locator(".order-instance-card").first();
   await expect(orderCard.locator(".order-instance-copy strong")).toHaveText("curiootiles");
   await expect(orderCard.locator(".order-instance-copy small").first()).toHaveText(generatedName);
-  await expect(orderCard.locator(".order-instance-open")).toHaveAttribute("href", `https://${generatedName}.daily.paashup.cloud`);
+  await expect(orderCard.locator(".order-instance-open")).toHaveAttribute("href", `http://${generatedName}.daily.paashup.cloud`);
   await expect(orderCard.locator(".order-instance-state")).toHaveText("Ready");
   await expect(orderCard.locator(".order-instance-delete")).toBeVisible();
   page.on("dialog", (dialog) => dialog.accept());
@@ -248,7 +255,7 @@ test("order page informs the user when the max instance limit is reached", async
   expect(Math.round(orderInstancesBox.width)).toBe(760);
   await expect(page.locator("#orderInstances")).toContainText("demo-1.daily.paashup.cloud");
   await expect(page.locator(".order-instance-card").first().locator(".order-instance-copy strong")).toHaveText("demo");
-  await expect(page.locator(".order-instance-card").first().locator(".order-instance-open")).toHaveAttribute("href", "https://demo-1.daily.paashup.cloud");
+  await expect(page.locator(".order-instance-card").first().locator(".order-instance-open")).toHaveAttribute("href", "http://demo-1.daily.paashup.cloud");
   await expect(page.locator(".order-instance-card").first().locator(".order-instance-delete")).toBeVisible();
   await expect(page.locator(".order-instance-card").first().locator(".order-instance-state")).toHaveText("Ready");
   await expect(page.locator(".order-instance-card").nth(1).locator(".order-instance-delete")).toBeHidden();
@@ -257,9 +264,7 @@ test("order page informs the user when the max instance limit is reached", async
   await expect(page.locator(".order-instance-card").nth(2).locator(".order-instance-delete")).toBeHidden();
   await expect(page.locator(".order-instance-card").nth(2).locator(".order-instance-status-failed")).toBeVisible();
   await expect(page.locator(".order-instance-card").nth(2).locator(".order-instance-state")).toHaveText("Failed");
-  await expect(page.locator("#orderStatus")).toHaveClass(/error/);
-  await expect(page.locator("#orderStatus")).toContainText("You have reached your maximum of 3 instances.");
-  await expect(page.locator("#orderStatus .order-status-home")).toHaveCount(0);
+  await expect(page.locator("#orderStatus")).toBeHidden();
   expect(createCalled).toBe(false);
 
   page.on("dialog", (dialog) => dialog.accept());
@@ -595,7 +600,7 @@ test("order page generates and submits an instance name when the template has no
   const generatedName = submitted.get("instance");
   expect(generatedName).toMatch(/^tile-[a-z0-9]{16}$/);
   expect(submitted.get("dns_name")).toBe(`${generatedName}.daily.paashup.cloud`);
-  await expect(page.locator("#orderStatus")).toHaveText(`Thank you, your instance installation has been requested for ${generatedName}.daily.paashup.cloud.`);
+  await expect(page.locator(".order-loading-text")).toContainText(`Creating ${generatedName}.daily.paashup.cloud`);
 });
 
 test("order page hides the order form when the requested template is missing", async ({ page }) => {

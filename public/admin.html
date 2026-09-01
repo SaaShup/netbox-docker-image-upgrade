@@ -40,6 +40,10 @@
           <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h16"></path><path d="M4 12h16"></path><path d="M4 17h16"></path><path d="M8 7v10"></path></svg></span>
           <span class="nav-label">Environment</span>
         </a>
+        <a href="#" class="menu nav-item" data-action="branding" id="menu_branding" title="Branding">
+          <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.1 0 2-.9 2-2 0-.6-.2-1-.6-1.4-.3-.4-.5-.8-.5-1.3 0-1.1.9-2 2-2h2.2c2.1 0 3.9-1.8 3.9-3.9A7.6 7.6 0 0 0 12 3z"></path><circle cx="7.5" cy="11.5" r="1"></circle><circle cx="11" cy="7.5" r="1"></circle><circle cx="15.5" cy="9.5" r="1"></circle></svg></span>
+          <span class="nav-label">Branding</span>
+        </a>
         <a href="#" class="menu nav-item active" data-action="config" id="menu_config" title="Config">
           <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M4.6 7.5l2.6 1.5M16.8 15l2.6 1.5M4.6 16.5 7.2 15M16.8 9l2.6-1.5"></path><circle cx="12" cy="12" r="4"></circle></svg></span>
           <span class="nav-label">Profiles</span>
@@ -109,6 +113,7 @@
         <button type="button" class="btn btn-primary" id="testBtn">Test connection</button>
         <button type="button" class="btn btn-primary hidden" id="testEmailBtn">Test email</button>
         <button type="button" class="btn btn-danger hidden" id="deleteConfigBtn">Delete config</button>
+        <button type="button" class="btn btn-danger hidden" id="deleteBrandingBtn">Delete branding</button>
         <button type="button" class="btn btn-secondary hidden" id="exportConfigBtn">Export</button>
         <button type="button" class="btn btn-secondary hidden" id="importConfigBtn">Import</button>
         <button type="button" class="btn btn-secondary hidden" id="clearCacheBtn">Clear cache</button>
@@ -237,6 +242,70 @@
               <label class="field checkbox-field" data-field="cloudflare_filter">
                 <input type="checkbox" id="cloudflare_filter" name="cloudflare_filter" value="true" checked>
                 <span class="field-label">Restrict Traefik access to Cloudflare IPs <span class="profile-help-btn" data-profile-help="cloudflare_filter" role="button" tabindex="0" aria-label="Explain Cloudflare IP restriction">?</span></span>
+              </label>
+
+              <label class="field" data-field="profile_branding">
+                <span class="field-label">Branding <span class="profile-help-btn" data-profile-help="profile_branding" role="button" tabindex="0" aria-label="Explain Branding">?</span></span>
+                <select id="profile_branding" name="profile_branding">
+                  <option value="">SaaShup</option>
+                </select>
+              </label>
+
+              <label class="field" data-field="branding_select">
+                <span class="field-label">Branding <span class="profile-help-btn" data-profile-help="branding_select" role="button" tabindex="0" aria-label="Explain Branding selection">?</span></span>
+                <select id="branding_select" name="branding_select">
+                  <option value="">New branding…</option>
+                </select>
+              </label>
+
+              <label class="field" data-field="branding_name">
+                <span class="field-label">Branding name <span class="profile-help-btn" data-profile-help="branding_name" role="button" tabindex="0" aria-label="Explain Branding name">?</span></span>
+                <input type="text" id="branding_name" name="branding_name" placeholder="acme">
+              </label>
+
+              <div class="field" data-field="brand_logo">
+                <span class="field-label">Brand logo <span class="profile-help-btn" data-profile-help="brand_logo" role="button" tabindex="0" aria-label="Explain Brand logo">?</span></span>
+                <div class="brand-upload-row">
+                  <img id="brandLogoPreviewImg" class="brand-upload-preview hidden" alt="Logo preview">
+                  <button type="button" class="btn btn-secondary" id="brandLogoUploadBtn">Upload logo</button>
+                  <button type="button" class="btn btn-danger-outline hidden" id="brandLogoRemoveBtn">Remove</button>
+                  <input type="file" id="brandLogoFile" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden>
+                  <input type="hidden" id="brand_logo" name="brand_logo">
+                </div>
+              </div>
+
+              <div class="field" data-field="brand_primary">
+                <span class="field-label">Primary color <span class="profile-help-btn" data-profile-help="brand_primary" role="button" tabindex="0" aria-label="Explain Primary color">?</span></span>
+                <div class="brand-color-row">
+                  <input type="text" id="brand_primary" name="brand_primary" placeholder="#246bfe" autocomplete="off" spellcheck="false">
+                  <span class="brand-color-preview" id="brandPrimaryPreview" aria-hidden="true"></span>
+                </div>
+                <div class="brand-swatches hidden" id="brandPrimarySwatches" role="group" aria-label="Colors suggested from the logo"></div>
+              </div>
+
+              <div class="field" data-field="brand_secondary">
+                <span class="field-label">Secondary color <span class="profile-help-btn" data-profile-help="brand_secondary" role="button" tabindex="0" aria-label="Explain Secondary color">?</span></span>
+                <div class="brand-color-row">
+                  <input type="text" id="brand_secondary" name="brand_secondary" placeholder="#1d55c9" autocomplete="off" spellcheck="false">
+                  <span class="brand-color-preview" id="brandSecondaryPreview" aria-hidden="true"></span>
+                </div>
+                <div class="brand-swatches hidden" id="brandSecondarySwatches" role="group" aria-label="Colors suggested from the logo"></div>
+              </div>
+
+              <div class="field" data-field="brand_background">
+                <span class="field-label">Brand background <span class="profile-help-btn" data-profile-help="brand_background" role="button" tabindex="0" aria-label="Explain Brand background">?</span></span>
+                <div class="brand-upload-row">
+                  <img id="brandBackgroundPreviewImg" class="brand-upload-preview hidden" alt="Background preview">
+                  <button type="button" class="btn btn-secondary" id="brandBackgroundUploadBtn">Upload background</button>
+                  <button type="button" class="btn btn-danger-outline hidden" id="brandBackgroundRemoveBtn">Remove</button>
+                  <input type="file" id="brandBackgroundFile" accept="image/png,image/jpeg,image/webp" hidden>
+                  <input type="hidden" id="brand_background" name="brand_background">
+                </div>
+              </div>
+
+              <label class="field" data-field="brand_welcome">
+                <span class="field-label">Welcome text <span class="profile-help-btn" data-profile-help="brand_welcome" role="button" tabindex="0" aria-label="Explain Welcome text">?</span></span>
+                <input type="text" id="brand_welcome" name="brand_welcome" placeholder="Welcome to your instance dashboard">
               </label>
 
               <label class="field" data-field="network">
@@ -651,6 +720,7 @@
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/node-vibrant@3.2.1-alpha.1/dist/vibrant.min.js" integrity="sha384-d5HTGYQv92nRpLgKtdNQzKHi2cyioHH+IPjGED83aysiFwcF9yn/mw7i4o1xcZqh" crossorigin="anonymous"></script>
   <script src="js/main.js"></script>
   <script src="js/version.js"></script>
 </body>

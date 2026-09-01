@@ -1,4 +1,5 @@
 const { selectImageAwareHost } = require("../lib/host-selection");
+const { setCreationProgress, clearCreationProgress, markCreationFailed } = require("../lib/creation-progress");
 
 function createCreateHelpers({
   authRedirectPayloadFromForm,
@@ -99,8 +100,22 @@ function createCreateHelpers({
     return selection.selected;
   }
 
-  async function createInstance(req, data, { isOrderRequest, isEnrollRequest, orderProfile, authUser }) {
+  async function createInstance(req, data, context) {
     data = normalizedSaashupLabelConfig(data);
+    const progressKeys = [data.dns_name, data.instance].filter(Boolean);
+    setCreationProgress(progressKeys, 1, "Selecting host");
+    try {
+      const ready = await createInstanceSteps(req, data, context, progressKeys);
+      if (ready) clearCreationProgress(progressKeys);
+      else markCreationFailed(progressKeys);
+      return ready;
+    } catch (error) {
+      markCreationFailed(progressKeys);
+      throw error;
+    }
+  }
+
+  async function createInstanceSteps(req, data, { isOrderRequest, isEnrollRequest, orderProfile, authUser }, progressKeys) {
     const enrollTemplateName = isEnrollRequest ? templateNameFromEnrollmentData(data) : "";
     const client = new NetBoxClient(data);
     const hosts = await dockerHosts(client, data.tag);
@@ -117,6 +132,7 @@ function createCreateHelpers({
       const selected = await selectCreateHost(client, hosts, existingContainers, data);
       targetHosts = [selected].filter(Boolean);
     }
+    setCreationProgress(progressKeys, 2, "Preparing image");
     let readyCount = 0;
 
     function normalizedContainerConfig(config) {
@@ -144,6 +160,7 @@ function createCreateHelpers({
         const details = reused ? ` (${reused} reused, ${missing.length} created)` : "";
         logLine(`CREATE : ${volumes.length} volume${volumes.length === 1 ? "" : "s"} prepared on ${hostName(selectedHost)}${details}`);
       }
+      setCreationProgress(progressKeys, 3, "Creating container");
       const containerConfigPayload = normalizedContainerConfig(containerConfigPayloadFromForm(data));
       const { id: _unusedConfigId, ...containerCreateConfig } = containerConfigPayload;
       const containerPayload = {
@@ -153,12 +170,14 @@ function createCreateHelpers({
       const { payload } = await client.request("POST", "/api/plugins/docker/containers/", { body: containerPayload, expected: [200, 201, 202] });
       const container = Array.isArray(payload) ? payload[0] : payload;
       logLine(`CREATE : container ${containerPayload.name} created on ${hostName(selectedHost)}`);
+      setCreationProgress(progressKeys, 4, "Configuring");
       if (createConfigureDelayMs > 0) await delay(createConfigureDelayMs);
       const containerConfig = { ...containerConfigPayload, id: container.id };
       await client.request("PATCH", "/api/plugins/docker/containers/", { body: [containerConfig] });
       logLine(`CREATE : container ${containerPayload.name} configured on ${hostName(selectedHost)} env=${containerConfig.env.length} labels=${containerConfig.labels.length} mounts=${containerConfig.mounts.length}`);
       if (createRecreateDelayMs > 0) await delay(createRecreateDelayMs);
       await waitForContainerConfigured(client, container.id, `${hostName(container)}/${valueText(container.display || container.name)}`);
+      setCreationProgress(progressKeys, 5, "Starting");
       const ready = await requestContainerOperation(client, container, "recreate", "CREATE");
       if (ready) readyCount += 1;
     }

@@ -97,6 +97,95 @@ function createRoutes(overrides = {}) {
 }
 
 describe("api config helpers", () => {
+  test("branding save requires a name", async () => {
+    const { routes } = createRoutes({});
+    const res = mockResponse();
+    await routes["POST /admin/brandings"]({ body: { brand_primary: "#e11d48" } }, res);
+    expect(res.statusCode).toBe(400);
+  });
+
+  test("branding delete detaches it from the profiles that reference it", async () => {
+    const { routes, getState, setState } = createRoutes({});
+    setState({
+      config: {
+        profile: "prod",
+        profiles: {
+          prod: { tag: "prod", branding: "acme" },
+          dev: { tag: "dev", branding: "other" },
+        },
+      },
+      brandings: { acme: { brand_primary: "#e11d48" } },
+      templates: {},
+      workflows: {},
+      logs: "",
+    });
+
+    const res = mockResponse();
+    await routes["DELETE /admin/brandings/:name"]({ params: { name: "acme" } }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(getState().brandings.acme).toBeUndefined();
+    expect(getState().config.profiles.prod.branding).toBeUndefined();
+    expect(getState().config.profiles.dev.branding).toBe("other");
+  });
+
+  test("branding image lifecycle: replace refreshes the version, remove unlinks, id stays stable", async () => {
+    const fs = require("fs");
+    const os = require("os");
+    const path = require("path");
+    const dataPath = fs.mkdtempSync(path.join(os.tmpdir(), "branding-lifecycle-"));
+    const { routes } = createRoutes({ dataPath });
+    const webpBase64 = Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(4), Buffer.from("WEBP"), Buffer.alloc(16)]).toString("base64");
+
+    const first = mockResponse();
+    await routes["POST /admin/brandings"]({ body: { name: "acme", logo_upload: webpBase64 } }, first);
+    const firstBranding = first.body.branding;
+    const filePath = path.join(dataPath, "branding", `${firstBranding.id}-logo.webp`);
+    expect(fs.existsSync(filePath)).toBe(true);
+
+    await new Promise((resolve) => { setTimeout(resolve, 5); });
+    const second = mockResponse();
+    await routes["POST /admin/brandings"]({ body: { name: "acme", logo_upload: webpBase64 } }, second);
+    const secondBranding = second.body.branding;
+    expect(secondBranding.id).toBe(firstBranding.id);
+    expect(secondBranding.brand_logo).not.toBe(firstBranding.brand_logo);
+    expect(secondBranding.brand_logo.split("?")[0]).toBe(firstBranding.brand_logo.split("?")[0]);
+
+    const third = mockResponse();
+    await routes["POST /admin/brandings"]({ body: { name: "acme", logo_remove: true } }, third);
+    expect(third.body.branding.brand_logo).toBeUndefined();
+    expect(third.body.branding.id).toBe(firstBranding.id);
+    expect(fs.existsSync(filePath)).toBe(false);
+
+    fs.rmSync(dataPath, { recursive: true, force: true });
+  });
+
+  test("branding assets route only serves safe file names", async () => {
+    const { routes } = createRoutes({});
+    const assetResponse = () => ({
+      ...mockResponse(),
+      headers: {},
+      sentFile: "",
+      ended: false,
+      set(name, value) { this.headers[name] = value; return this; },
+      sendFile(filePath) { this.sentFile = filePath; },
+      end() { this.ended = true; return this; },
+    });
+
+    for (const file of ["../../etc/passwd", "abc123abc123-logo.png", "ABC123ABC123-logo.webp", "abc123abc123-other.webp", "abc-logo.webp"]) {
+      const res = assetResponse();
+      await routes["GET /branding-assets/:file"]({ params: { file } }, res);
+      expect(res.statusCode).toBe(404);
+      expect(res.sentFile).toBe("");
+    }
+
+    const ok = assetResponse();
+    await routes["GET /branding-assets/:file"]({ params: { file: "abc123abc123-logo.webp" } }, ok);
+    expect(ok.sentFile.endsWith("/branding/abc123abc123-logo.webp")).toBe(true);
+    expect(ok.headers["X-Content-Type-Options"]).toBe("nosniff");
+    expect(ok.headers["Cache-Control"]).toContain("max-age");
+  });
+
   test("normalizeImportedProfiles migrates legacy limits and drops max_templates", () => {
     const profiles = {
       prod: { max_templates: 5, customer_name: "Acme" },
@@ -181,6 +270,165 @@ describe("api config helpers", () => {
     expect(sanitized.token).toBeUndefined();
     expect(sanitized.proxy).toBeUndefined();
     expect(sanitized.smtp_config).toBeUndefined();
+  });
+
+  test("publicConfigForResponse keeps legacy profile branding fields", () => {
+    const config = {
+      customer_name: "Acme",
+      profile: "prod",
+      profiles: {
+        prod: {
+          netbox: "https://netbox.example.com",
+          token: "secret",
+          tag: "tile",
+          saashup_visible: true,
+          brand_logo: "https://cdn.example.com/logo.svg",
+          brand_primary: "#e11d48",
+        },
+      },
+    };
+
+    const sanitized = configHelpers.publicConfigForResponse(
+      config,
+      ({ profile }) => ({ ...config.profiles[profile], profile }),
+      (profiles) => profiles,
+      (profiles) => profiles,
+      plainObject,
+    );
+
+    expect(sanitized.profiles.prod).toMatchObject({
+      brand_logo: "https://cdn.example.com/logo.svg",
+      brand_primary: "#e11d48",
+    });
+    expect(JSON.stringify(sanitized)).not.toContain("secret");
+  });
+
+  test("publicConfigForResponse resolves the profile branding reference", () => {
+    const config = {
+      customer_name: "Acme",
+      profile: "prod",
+      profiles: {
+        prod: {
+          netbox: "https://netbox.example.com",
+          token: "secret",
+          tag: "tile",
+          saashup_visible: true,
+          branding: "acme",
+          brand_welcome: "Legacy inline welcome",
+        },
+      },
+    };
+    const brandings = {
+      acme: {
+        id: "abc123abc123",
+        brand_logo: "https://cdn.example.com/logo.svg",
+        brand_primary: "#e11d48",
+        brand_secondary: "#7c3aed",
+        brand_background: "https://cdn.example.com/bg.jpg",
+        brand_welcome: "Welcome to Acme Cloud",
+      },
+    };
+
+    const sanitized = configHelpers.publicConfigForResponse(
+      config,
+      ({ profile }) => ({ ...config.profiles[profile], profile }),
+      (profiles) => profiles,
+      (profiles) => profiles,
+      plainObject,
+      { brandings },
+    );
+
+    expect(sanitized.profiles.prod).toMatchObject({
+      brand_logo: "https://cdn.example.com/logo.svg",
+      brand_primary: "#e11d48",
+      brand_secondary: "#7c3aed",
+      brand_background: "https://cdn.example.com/bg.jpg",
+      brand_welcome: "Welcome to Acme Cloud",
+    });
+    expect(sanitized.profiles.prod.branding).toBeUndefined();
+    expect(sanitized.profiles.prod.id).toBeUndefined();
+    expect(JSON.stringify(sanitized)).not.toContain("secret");
+  });
+
+  test("brandingForStore trims fields, drops invalid colors and ignores client image urls", () => {
+    const branding = configHelpers.brandingForStore({
+      brand_logo: "https://evil.example.com/logo.svg",
+      brand_background: "https://evil.example.com/bg.jpg",
+      brand_primary: "#E11D48",
+      brand_secondary: "not-a-color",
+      brand_welcome: "  Welcome!  ",
+      extra_key: "ignored",
+    }, plainObject);
+
+    expect(branding).toEqual({
+      brand_primary: "#e11d48",
+      brand_welcome: "Welcome!",
+    });
+  });
+
+  test("decodedBrandingImage validates size and WebP magic bytes", () => {
+    const webpBuffer = Buffer.concat([
+      Buffer.from("RIFF"),
+      Buffer.alloc(4),
+      Buffer.from("WEBP"),
+      Buffer.alloc(32),
+    ]);
+    const valid = configHelpers.decodedBrandingImage(webpBuffer.toString("base64"));
+    expect(valid.error).toBeUndefined();
+    expect(valid.buffer.equals(webpBuffer)).toBe(true);
+
+    const withPrefix = configHelpers.decodedBrandingImage(`data:image/webp;base64,${webpBuffer.toString("base64")}`);
+    expect(withPrefix.buffer.equals(webpBuffer)).toBe(true);
+
+    const png = Buffer.concat([Buffer.from([0x89]), Buffer.from("PNG"), Buffer.alloc(32)]);
+    expect(configHelpers.decodedBrandingImage(png.toString("base64")).error).toBe("image must be WebP encoded");
+
+    const huge = Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(4), Buffer.from("WEBP"), Buffer.alloc(1024 * 1024)]);
+    expect(configHelpers.decodedBrandingImage(huge.toString("base64")).error).toBe("image exceeds the 1MB limit");
+
+    expect(configHelpers.decodedBrandingImage("").buffer).toBeNull();
+  });
+
+  test("branding upload writes the asset file and delete removes it", async () => {
+    const fs = require("fs");
+    const os = require("os");
+    const path = require("path");
+    const dataPath = fs.mkdtempSync(path.join(os.tmpdir(), "branding-test-"));
+    const { routes, getState } = createRoutes({ dataPath });
+
+    const webpBase64 = Buffer.concat([
+      Buffer.from("RIFF"),
+      Buffer.alloc(4),
+      Buffer.from("WEBP"),
+      Buffer.alloc(16),
+    ]).toString("base64");
+
+    const saveRes = mockResponse();
+    await routes["POST /admin/brandings"]({
+      body: { name: "acme", brand_primary: "#e11d48", logo_upload: webpBase64 },
+    }, saveRes);
+
+    expect(saveRes.statusCode).toBe(200);
+    const saved = saveRes.body.branding;
+    expect(saved.id).toMatch(/^[a-f0-9]{12}$/);
+    expect(saved.brand_logo).toMatch(new RegExp(`^/branding-assets/${saved.id}-logo\\.webp\\?v=\\d+$`));
+    const filePath = path.join(dataPath, "branding", `${saved.id}-logo.webp`);
+    expect(fs.existsSync(filePath)).toBe(true);
+    expect(getState().brandings.acme.brand_primary).toBe("#e11d48");
+
+    const rejectRes = mockResponse();
+    await routes["POST /admin/brandings"]({
+      body: { name: "acme", logo_upload: Buffer.from("not an image").toString("base64") },
+    }, rejectRes);
+    expect(rejectRes.statusCode).toBe(400);
+
+    const deleteRes = mockResponse();
+    await routes["DELETE /admin/brandings/:name"]({ params: { name: "acme" } }, deleteRes);
+    expect(deleteRes.statusCode).toBe(200);
+    expect(fs.existsSync(filePath)).toBe(false);
+    expect(getState().brandings.acme).toBeUndefined();
+
+    fs.rmSync(dataPath, { recursive: true, force: true });
   });
 
   test("publicConfigForResponse adds selected profile metadata when profiles omit it", () => {

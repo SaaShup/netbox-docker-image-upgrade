@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 
@@ -51,7 +52,43 @@ function expandedConfigForResponse(config, selectedProfileConfig, parseProfiles,
   };
 }
 
-function publicConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject, { includeHidden = false } = {}) {
+const brandingFields = ["brand_logo", "brand_primary", "brand_secondary", "brand_background", "brand_welcome"];
+
+function hexColorValue(value) {
+  const hex = String(value || "").trim().toLowerCase();
+  return /^#[0-9a-f]{6}$/.test(hex) ? hex : "";
+}
+
+function brandingForStore(input, plainObject) {
+  const data = plainObject(input);
+  const text = (value, max) => String(value || "").trim().slice(0, max);
+  const branding = {
+    brand_primary: hexColorValue(data.brand_primary),
+    brand_secondary: hexColorValue(data.brand_secondary),
+    brand_welcome: text(data.brand_welcome, 500),
+  };
+  return Object.fromEntries(Object.entries(branding).filter(([, value]) => value));
+}
+
+const BRANDING_IMAGE_MAX_BYTES = 1024 * 1024;
+
+function decodedBrandingImage(value) {
+  const base64 = String(value || "").replace(/^data:[^;]+;base64,/, "").trim();
+  if (!base64) return { buffer: null };
+  if (base64.length > Math.ceil((BRANDING_IMAGE_MAX_BYTES * 4) / 3) + 16) {
+    return { error: "image exceeds the 1MB limit" };
+  }
+  const buffer = Buffer.from(base64, "base64");
+  if (!buffer.length) return { error: "invalid image encoding" };
+  if (buffer.length > BRANDING_IMAGE_MAX_BYTES) return { error: "image exceeds the 1MB limit" };
+  const isWebp = buffer.length > 12
+    && buffer.toString("ascii", 0, 4) === "RIFF"
+    && buffer.toString("ascii", 8, 12) === "WEBP";
+  if (!isWebp) return { error: "image must be WebP encoded" };
+  return { buffer };
+}
+
+function publicConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject, { includeHidden = false, brandings = {} } = {}) {
   const expanded = expandedConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject);
   const publicProfileFields = [
     "domain",
@@ -70,10 +107,15 @@ function publicConfigForResponse(config, selectedProfileConfig, parseProfiles, p
   };
   const publicProfile = (profile) => {
     const data = plainObject(profile);
+    const branding = plainObject(plainObject(brandings)[String(data.branding || "").trim()]);
+    const brandingSource = Object.keys(branding).length ? branding : data;
     return {
       ...Object.fromEntries(publicProfileFields
         .filter((key) => data[key] !== undefined)
         .map((key) => [key, data[key]])),
+      ...Object.fromEntries(brandingFields
+        .filter((key) => brandingSource[key] !== undefined && brandingSource[key] !== "")
+        .map((key) => [key, brandingSource[key]])),
       ...Object.fromEntries(Object.entries(credentialFields)
         .map(([key, flag]) => [flag, Boolean(data[key] || data[flag])])),
     };
@@ -271,6 +313,7 @@ function registerConfigRoutes(app, {
   processEnv = process.env,
   readDockerfile = (dockerfilePath) => fs.readFileSync(dockerfilePath, "utf8"),
   dockerfilePath = path.join(process.cwd(), "Dockerfile"),
+  dataPath = path.join(process.cwd(), "data"),
   profilesWithSingleDefault,
   publicApiGuard,
   readState,
@@ -309,12 +352,101 @@ function registerConfigRoutes(app, {
     res.json({ variables: environmentVariablesForResponse(processEnv, dockerfileText) });
   });
   app.get("/config", (req, res) => {
-    const config = readState().config || {};
+    const state = readState();
+    const config = state.config || {};
     if (!Object.keys(plainObject(config)).length) {
       res.json({});
       return;
     }
-    res.json(publicConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject));
+    res.json(publicConfigForResponse(config, selectedProfileConfig, parseProfiles, profilesWithSingleDefault, plainObject, {
+      brandings: plainObject(state.brandings),
+    }));
+  });
+  app.get("/admin/brandings", requireAdmin, (req, res) => {
+    res.json({ brandings: plainObject(readState().brandings) });
+  });
+  app.post("/admin/brandings", requireAdmin, (req, res) => {
+    const body = plainObject(req.body);
+    const name = String(body.name || "").trim().slice(0, 80);
+    if (!name) {
+      res.status(400).json({ error: "Branding name is required" });
+      return;
+    }
+    const existing = plainObject(plainObject(readState().brandings)[name]);
+    const id = /^[a-f0-9]{12}$/.test(String(existing.id || "")) ? existing.id : crypto.randomBytes(6).toString("hex");
+    const branding = { id, ...brandingForStore(body, plainObject) };
+    const brandingDir = path.join(dataPath, "branding");
+    const imageKinds = [
+      { suffix: "logo", uploadKey: "logo_upload", removeKey: "logo_remove", field: "brand_logo" },
+      { suffix: "bg", uploadKey: "background_upload", removeKey: "background_remove", field: "brand_background" },
+    ];
+
+    for (const kind of imageKinds) {
+      const filePath = path.join(brandingDir, `${id}-${kind.suffix}.webp`);
+      if (body[kind.uploadKey]) {
+        const { buffer, error } = decodedBrandingImage(body[kind.uploadKey]);
+        if (error || !buffer) {
+          res.status(400).json({ error: `${kind.field}: ${error || "invalid image"}` });
+          return;
+        }
+        fs.mkdirSync(brandingDir, { recursive: true });
+        fs.writeFileSync(filePath, buffer);
+        branding[kind.field] = `/branding-assets/${id}-${kind.suffix}.webp?v=${Date.now()}`;
+      } else if (body[kind.removeKey] === true) {
+        try { fs.unlinkSync(filePath); } catch { /* already absent */ }
+      } else if (existing[kind.field]) {
+        branding[kind.field] = existing[kind.field];
+      }
+    }
+
+    writeState((state) => {
+      state.brandings = { ...plainObject(state.brandings), [name]: branding };
+      return state;
+    });
+    res.json({ name, branding });
+  });
+  app.get("/branding-assets/:file", (req, res) => {
+    const file = String(req.params.file || "");
+    if (!/^[a-f0-9]{12}-(logo|bg)\.webp$/.test(file)) {
+      res.status(404).end();
+      return;
+    }
+    res.set("X-Content-Type-Options", "nosniff");
+    res.set("Cache-Control", "public, max-age=86400");
+    res.sendFile(path.join(dataPath, "branding", file), (error) => {
+      if (error) res.status(404).end();
+    });
+  });
+  app.delete("/admin/brandings/:name", requireAdmin, (req, res) => {
+    const name = String(req.params.name || "").trim();
+    if (!name) {
+      res.status(400).json({ error: "Branding name is required" });
+      return;
+    }
+    const existing = plainObject(plainObject(readState().brandings)[name]);
+    const existingId = String(existing.id || "");
+    if (/^[a-f0-9]{12}$/.test(existingId)) {
+      ["logo", "bg"].forEach((suffix) => {
+        try { fs.unlinkSync(path.join(dataPath, "branding", `${existingId}-${suffix}.webp`)); } catch { /* already absent */ }
+      });
+    }
+    writeState((state) => {
+      const brandings = { ...plainObject(state.brandings) };
+      delete brandings[name];
+      state.brandings = brandings;
+      const config = plainObject(state.config);
+      const profiles = parseProfiles(config.profiles);
+      Object.entries(profiles).forEach(([profileName, profile]) => {
+        const data = plainObject(profile);
+        if (String(data.branding || "").trim() === name) {
+          delete data.branding;
+          profiles[profileName] = data;
+        }
+      });
+      state.config = { ...config, profiles };
+      return state;
+    });
+    res.json({ deleted: name });
   });
   app.get("/mail-settings", requireAdmin, (req, res) => res.json({ owner_email_configured: Boolean(appOwnerEmail) }));
   app.get("/registry-webhook-secret", requireAdmin, (req, res) => {
@@ -580,6 +712,8 @@ module.exports = {
   cleanStoredConfig,
   expandedConfigForResponse,
   publicConfigForResponse,
+  brandingForStore,
+  decodedBrandingImage,
   workflowsForVisibleTemplates,
   enrollmentTemplateUsage,
   dockerfileEnvEntries,

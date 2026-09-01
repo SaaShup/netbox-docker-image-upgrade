@@ -954,7 +954,9 @@ const {
 
 app.disable("x-powered-by");
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
-app.use(express.json({ limit: "1mb" }));
+const defaultJsonParser = express.json({ limit: "1mb" });
+const brandingJsonParser = express.json({ limit: "4mb" });
+app.use((req, res, next) => (req.path === "/admin/brandings" ? brandingJsonParser(req, res, next) : defaultJsonParser(req, res, next)));
 registerMetricsMiddleware(app, { metrics });
 
 registerRegistryWebhookRoutes(app, {
@@ -1022,6 +1024,7 @@ const {
 registerConfigRoutes(app, {
   appOwnerEmail,
   authUserFromRequest,
+  dataPath,
   maxInstancesValue,
   parseProfiles,
   plainObject,

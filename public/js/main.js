@@ -3,7 +3,38 @@ const actionFromUrl = urlParams.get("action");
 const isOrderPage = document.body?.classList.contains("order-page");
 const isEnrollPage = document.body?.classList.contains("enroll-page");
 const isCatalogPage = document.body?.classList.contains("catalog-page");
+const isClientPage = isOrderPage || isEnrollPage || isCatalogPage;
 const orderTemplateName = urlParams.get("template") || "";
+
+const navigationParam = urlParams.get("navigation");
+if (isClientPage && navigationParam !== null) {
+  try {
+    sessionStorage.setItem("saashup_navigation", navigationParam === "false" ? "false" : "true");
+  } catch {}
+}
+
+function sessionProfileName() {
+  try {
+    return sessionStorage.getItem("saashup_profile") || "";
+  } catch {
+    return "";
+  }
+}
+
+function navigationHidden() {
+  try {
+    return sessionStorage.getItem("saashup_navigation") === "false";
+  } catch {
+    return false;
+  }
+}
+
+function applyNavigationVisibility() {
+  if (!isClientPage) return;
+  const hidden = navigationHidden();
+  document.querySelector(".order-page-menu")?.classList.toggle("hidden", hidden);
+  document.querySelector(".top-left-bar .brand-badge")?.classList.toggle("hidden", hidden);
+}
 
 const form = document.getElementById("instanceForm");
 const appShell = document.querySelector(".app-shell");
@@ -19,6 +50,7 @@ const deleteImageBtn = document.getElementById("deleteImageBtn");
 const testBtn = document.getElementById("testBtn");
 const testEmailBtn = document.getElementById("testEmailBtn");
 const deleteConfigBtn = document.getElementById("deleteConfigBtn");
+const deleteBrandingBtn = document.getElementById("deleteBrandingBtn");
 const exportConfigBtn = document.getElementById("exportConfigBtn");
 const importConfigBtn = document.getElementById("importConfigBtn");
 const importConfigFile = document.getElementById("importConfigFile");
@@ -179,6 +211,12 @@ let currentReportView = "images";
 let lastReportData = null;
 let environmentLoaded = false;
 let orderStatusPollTimer = null;
+let orderRedirectTarget = "";
+let orderRedirectSince = 0;
+let orderRedirectTemplateName = "";
+let orderPendingProgressActive = false;
+let orderPendingFailed = false;
+let orderLastProgressStep = 0;
 let enrollmentStatusPollTimer = null;
 let mailSettings = { owner_email_configured: false };
 let registryWebhookDefaultSecret = "";
@@ -251,6 +289,38 @@ const profileFieldHelp = {
     title: "SMTP config",
     body: "Optional SMTP connection string for this profile in the format user:pwd@host:port.",
   },
+  profile_branding: {
+    title: "Branding",
+    body: "Attaches a saved branding to this profile. The branding is applied on the customer pages (order, catalog, enroll). Manage brandings from the Branding menu entry.",
+  },
+  branding_select: {
+    title: "Branding",
+    body: "Pick a saved branding to edit it, or choose New branding to create one.",
+  },
+  branding_name: {
+    title: "Branding name",
+    body: "Names the branding so profiles can reference it.",
+  },
+  brand_logo: {
+    title: "Brand logo",
+    body: "Optional logo image (PNG, JPEG, WebP or SVG, converted to WebP and resized to 1000x1000 max) shown as a large translucent watermark on the customer pages, and used to suggest brand colors.",
+  },
+  brand_primary: {
+    title: "Primary color",
+    body: "Optional hex color (for example #246bfe) applied to buttons and accents on the customer pages. Set a logo URL first to get suggestions extracted from the logo.",
+  },
+  brand_secondary: {
+    title: "Secondary color",
+    body: "Optional hex color used with the primary color to build the background gradient when no background image is set.",
+  },
+  brand_background: {
+    title: "Brand background",
+    body: "Optional background image (PNG, JPEG or WebP, converted to WebP and resized to 2560x1440 max) applied to the customer pages. Without it, the brand colors build a gradient background.",
+  },
+  brand_welcome: {
+    title: "Welcome text",
+    body: "Optional welcome message shown above the instances list on the order page.",
+  },
   operate_action: {
     title: "Action",
     body: "Choose the container operation to request. Start, stop, restart and kill can be applied to one instance or to all containers using the selected image version.",
@@ -301,7 +371,7 @@ const profileFieldHelp = {
   },
 };
 
-const configFields = ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "enrollment_limit", "owner_env_var", "cloudflare_filter", "smtp_config"];
+const configFields = ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "enrollment_limit", "owner_env_var", "cloudflare_filter", "smtp_config", "profile_branding"];
 
 function isCreateFormAction(action = currentAction) {
   return action === "create" || action === "template";
@@ -334,7 +404,17 @@ const actions = {
     description: "Save the NetBox URL, token, optional proxy, domain and host tag used by the automation.",
     submitLabel: "Save config",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "enrollment_limit", "owner_env_var", "cloudflare_filter", "smtp_config"],
+    fields: ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "enrollment_limit", "owner_env_var", "cloudflare_filter", "smtp_config", "profile_branding"],
+  },
+  branding: {
+    endpoint: "/admin/brandings",
+    method: "post",
+    menu: "menu_branding",
+    title: "Branding",
+    description: "Create reusable brandings (logo, colors, texts) and attach them to profiles from the Profiles form.",
+    submitLabel: "Save branding",
+    buttonClass: "btn btn-primary",
+    fields: ["branding_select", "branding_name", "brand_logo", "brand_primary", "brand_secondary", "brand_background", "brand_welcome"],
   },
   create: {
     endpoint: "/create",
@@ -987,6 +1067,7 @@ function normalizedProfileForSync(profile = {}) {
     cloudflare_filter: checkboxValue(profile.cloudflare_filter, true),
     smtp_config: smtpConfigValue(profile),
     saashup_visible: profile.saashup_visible === true || profile.saashup_default === true,
+    branding: profile.branding || "",
   };
 }
 
@@ -1002,6 +1083,7 @@ function currentProfileFieldValues() {
     cloudflare_filter: fieldChecked("cloudflare_filter", true),
     smtp_config: fieldValue("smtp_config"),
     saashup_visible: Boolean(configDefaultInput?.checked),
+    branding: fieldValue("profile_branding"),
   };
 }
 
@@ -1541,6 +1623,7 @@ function applyDeletedProfileFilter(profiles) {
 }
 
 function persistProfiles() {
+  if (isClientPage) return;
   localStorage.setItem("config_profiles", JSON.stringify(configProfiles));
   if (currentConfigProfile) {
     localStorage.setItem("current_config_profile", currentConfigProfile);
@@ -1566,6 +1649,7 @@ function profileCredentials(name = currentConfigProfile) {
     cloudflare_filter: checkboxValue(profile.cloudflare_filter, true),
     smtp_config: smtpConfigValue(profile),
     smtp_configured: Boolean(profile.smtp_config || profile.smtp_configured),
+    branding: profile.branding || "",
   };
 }
 
@@ -1600,9 +1684,12 @@ function templateMaxInstancesValue(template = {}) {
   return normalizeMaxInstances(template.max_instances);
 }
 
-async function orderLimitForProfile() {
+async function orderLimitForProfile(profile = "") {
   const query = new URLSearchParams();
+  const profileName = String(profile || selectedProfileCredentials().profile || currentConfigProfile || "").trim();
+  if (profileName) query.set("profile", profileName);
   if (orderTemplateName) query.set("template", orderTemplateName);
+  if (orderRedirectTarget) query.set("pending", orderRedirectTarget);
   const response = await fetch(`/order/limit?${query.toString()}`, {
     headers: { Accept: "application/json" },
   });
@@ -1687,6 +1774,431 @@ function updateReportProfileOptions() {
     : names[0];
 }
 
+function hexColorValue(value) {
+  const hex = String(value || "").trim().toLowerCase();
+  return /^#[0-9a-f]{6}$/.test(hex) ? hex : "";
+}
+
+function hexToRgb(hex) {
+  return [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16));
+}
+
+function rgbToHex(rgb) {
+  return `#${rgb.map((channel) => Math.round(Math.min(255, Math.max(0, channel))).toString(16).padStart(2, "0")).join("")}`;
+}
+
+function mixHexColors(hex, targetHex, amount) {
+  const from = hexToRgb(hex);
+  const to = hexToRgb(targetHex);
+  return rgbToHex(from.map((channel, index) => channel + (to[index] - channel) * amount));
+}
+
+function brandThemeCss(primary, secondary, withGradient) {
+  const primaryDark = mixHexColors(primary, "#000000", 0.22);
+  const [r, g, b] = hexToRgb(primary);
+  let css = `:root { --primary: ${primary}; --primary-dark: ${primaryDark}; }\n`
+    + `html[data-theme="dark"] { --primary: ${mixHexColors(primary, "#ffffff", 0.35)}; --primary-dark: ${primary}; }\n`;
+  if (withGradient) {
+    const [sr, sg, sb] = hexToRgb(secondary || primaryDark);
+    css += "body.order-page, body.enroll-page, body.catalog-page { background-image: "
+      + `linear-gradient(160deg, rgba(${r}, ${g}, ${b}, 0.20), transparent 55%), `
+      + `radial-gradient(circle at bottom right, rgba(${sr}, ${sg}, ${sb}, 0.18), transparent 34rem); }\n`;
+  }
+  return css;
+}
+
+function applyProfileBranding(profile = {}) {
+  if (!isClientPage) return;
+  const brandLogo = String(profile.brand_logo || "").trim();
+  const brandBackground = String(profile.brand_background || "").trim();
+  const brandWelcome = String(profile.brand_welcome || "").trim();
+  const brandPrimary = hexColorValue(profile.brand_primary);
+  const brandSecondary = hexColorValue(profile.brand_secondary);
+
+  let brandThemeStyle = document.getElementById("brandThemeStyle");
+  if (brandPrimary && !brandThemeStyle) {
+    brandThemeStyle = document.createElement("style");
+    brandThemeStyle.id = "brandThemeStyle";
+    document.head.appendChild(brandThemeStyle);
+  }
+  if (brandThemeStyle) {
+    brandThemeStyle.textContent = brandPrimary ? brandThemeCss(brandPrimary, brandSecondary, !brandBackground) : "";
+  }
+
+  if (brandLogo) {
+    document.body.style.setProperty("--brand-watermark", `url("${encodeURI(brandLogo)}")`);
+    document.body.classList.add("brand-watermark");
+  } else {
+    document.body.classList.remove("brand-watermark");
+    document.body.style.removeProperty("--brand-watermark");
+  }
+  if (brandBackground) {
+    document.body.style.setProperty("--brand-bg-image", `url("${encodeURI(brandBackground)}")`);
+    document.body.classList.add("brand-bg");
+  } else {
+    document.body.classList.remove("brand-bg");
+    document.body.style.removeProperty("--brand-bg-image");
+  }
+
+  const welcomeEl = document.getElementById("brandWelcome");
+  if (welcomeEl) {
+    welcomeEl.textContent = brandWelcome;
+    welcomeEl.classList.toggle("hidden", !brandWelcome);
+  }
+
+}
+
+const brandPaletteState = { url: "", colors: [] };
+
+function updateBrandColorPreviews() {
+  [["brand_primary", "brandPrimaryPreview"], ["brand_secondary", "brandSecondaryPreview"]].forEach(([name, previewId]) => {
+    const preview = document.getElementById(previewId);
+    if (!preview) return;
+    const hex = hexColorValue(fieldValue(name));
+    preview.style.backgroundColor = hex || "transparent";
+    preview.classList.toggle("brand-color-preview-empty", !hex);
+  });
+}
+
+function renderBrandSwatches(colors) {
+  [["brandPrimarySwatches", "brand_primary"], ["brandSecondarySwatches", "brand_secondary"]].forEach(([containerId, fieldName]) => {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.innerHTML = "";
+    colors.forEach(({ name, hex }) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "brand-swatch";
+      button.style.backgroundColor = hex;
+      button.title = `${name} ${hex}`;
+      button.setAttribute("aria-label", `Use ${name} ${hex}`);
+      button.addEventListener("click", () => {
+        setFieldValue(fieldName, hex);
+        updateBrandColorPreviews();
+        updateProfileSyncWarning();
+      });
+      container.appendChild(button);
+    });
+    container.classList.toggle("hidden", !colors.length);
+  });
+}
+
+async function extractBrandPaletteFromImage(image) {
+  if (!image || typeof Vibrant === "undefined") return;
+  try {
+    const palette = await Vibrant.from(image).getPalette();
+    const colors = ["Vibrant", "DarkVibrant", "LightVibrant", "Muted", "DarkMuted"]
+      .map((name) => ({ name, swatch: palette[name] }))
+      .filter(({ swatch }) => swatch)
+      .map(({ name, swatch }) => ({ name, hex: hexColorValue(typeof swatch.getHex === "function" ? swatch.getHex() : swatch.hex) }))
+      .filter(({ hex }) => hex);
+    brandPaletteState.colors = colors;
+    renderBrandSwatches(colors);
+    if (!colors.length) return;
+    if (!hexColorValue(fieldValue("brand_primary"))) setFieldValue("brand_primary", colors[0].hex);
+    if (!hexColorValue(fieldValue("brand_secondary")) && colors[1]) setFieldValue("brand_secondary", colors[1].hex);
+    updateBrandColorPreviews();
+    updateProfileSyncWarning();
+  } catch {
+    renderBrandSwatches([]);
+    setNotice("Color extraction from the logo failed", "error");
+  }
+}
+
+const BRAND_IMAGE_MAX_BYTES = 1024 * 1024;
+const brandUploadKinds = {
+  logo: {
+    field: "brand_logo",
+    maxWidth: 1000,
+    maxHeight: 1000,
+    fileInputId: "brandLogoFile",
+    uploadBtnId: "brandLogoUploadBtn",
+    removeBtnId: "brandLogoRemoveBtn",
+    previewId: "brandLogoPreviewImg",
+    uploadKey: "logo_upload",
+    removeKey: "logo_remove",
+  },
+  background: {
+    field: "brand_background",
+    maxWidth: 2560,
+    maxHeight: 1440,
+    fileInputId: "brandBackgroundFile",
+    uploadBtnId: "brandBackgroundUploadBtn",
+    removeBtnId: "brandBackgroundRemoveBtn",
+    previewId: "brandBackgroundPreviewImg",
+    uploadKey: "background_upload",
+    removeKey: "background_remove",
+  },
+};
+const brandUploadState = {
+  logo: { data: "", remove: false },
+  background: { data: "", remove: false },
+};
+
+function loadBrandImageElement(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => resolve({ image, url });
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("unreadable image"));
+    };
+    image.src = url;
+  });
+}
+
+async function processBrandImageFile(file, { maxWidth, maxHeight }) {
+  const { image, url } = await loadBrandImageElement(file);
+  try {
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+    if (!width || !height) throw new Error("unreadable image");
+    const scale = Math.min(1, maxWidth / width, maxHeight / height);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+    canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+
+    for (const quality of [0.85, 0.75, 0.6, 0.45]) {
+      const dataUrl = canvas.toDataURL("image/webp", quality);
+      const base64 = dataUrl.split(",")[1] || "";
+      if (!dataUrl.startsWith("data:image/webp")) throw new Error("WebP encoding is not supported by this browser");
+      if (Math.ceil(base64.length * 3 / 4) <= BRAND_IMAGE_MAX_BYTES) {
+        return { base64, dataUrl, image };
+      }
+    }
+    throw new Error("image is still over 1MB after compression");
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function updateBrandUploadWidget(kindName) {
+  const kind = brandUploadKinds[kindName];
+  const preview = document.getElementById(kind.previewId);
+  const removeBtn = document.getElementById(kind.removeBtnId);
+  if (!preview || !removeBtn) return;
+
+  const pending = brandUploadState[kindName];
+  const storedUrl = fieldValue(kind.field).trim();
+  const shownUrl = pending.data ? `data:image/webp;base64,${pending.data}` : (pending.remove ? "" : storedUrl);
+  preview.src = shownUrl || "";
+  preview.classList.toggle("hidden", !shownUrl);
+  removeBtn.classList.toggle("hidden", !shownUrl);
+}
+
+function resetBrandUploads() {
+  Object.keys(brandUploadState).forEach((kindName) => {
+    brandUploadState[kindName] = { data: "", remove: false };
+    const input = document.getElementById(brandUploadKinds[kindName].fileInputId);
+    if (input) input.value = "";
+    updateBrandUploadWidget(kindName);
+  });
+}
+
+async function handleBrandImageSelection(kindName) {
+  const kind = brandUploadKinds[kindName];
+  const input = document.getElementById(kind.fileInputId);
+  const file = input?.files?.[0];
+  if (!file) return;
+
+  try {
+    const { base64, image } = await processBrandImageFile(file, kind);
+    brandUploadState[kindName] = { data: base64, remove: false };
+    updateBrandUploadWidget(kindName);
+    if (kindName === "logo") await extractBrandPaletteFromImage(image);
+  } catch (error) {
+    input.value = "";
+    setNotice(`Image processing failed: ${error.message || "unknown error"}`, "error");
+  }
+}
+
+let savedBrandings = {};
+let brandingsLoaded = false;
+
+const brandingFieldNames = ["brand_logo", "brand_primary", "brand_secondary", "brand_background", "brand_welcome"];
+
+function updateBrandingOptions() {
+  const names = Object.keys(savedBrandings).sort((a, b) => a.localeCompare(b));
+  const brandingSelect = field("branding_select");
+  if (brandingSelect) {
+    const selected = brandingSelect.value;
+    brandingSelect.innerHTML = "";
+    brandingSelect.appendChild(new Option("New branding…", ""));
+    names.forEach((name) => brandingSelect.appendChild(new Option(name, name)));
+    brandingSelect.value = names.includes(selected) ? selected : "";
+  }
+  const profileBrandingSelect = field("profile_branding");
+  if (profileBrandingSelect) {
+    const selected = profileBrandingSelect.value;
+    profileBrandingSelect.innerHTML = "";
+    profileBrandingSelect.appendChild(new Option("SaaShup", ""));
+    names.forEach((name) => profileBrandingSelect.appendChild(new Option(name, name)));
+    profileBrandingSelect.value = names.includes(selected) ? selected : "";
+  }
+}
+
+async function loadBrandings({ force = false } = {}) {
+  if (brandingsLoaded && !force) return;
+  try {
+    const response = await fetch("/admin/brandings", { headers: { Accept: "application/json" } });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    savedBrandings = plainObject((await response.json()).brandings);
+    brandingsLoaded = true;
+  } catch {
+    savedBrandings = {};
+  }
+  updateBrandingOptions();
+  setFieldValue("profile_branding", profileCredentials(currentConfigProfile).branding);
+}
+
+function applyBrandingToFields(name = "") {
+  const branding = plainObject(savedBrandings[name]);
+  setFieldValue("branding_name", name);
+  brandingFieldNames.forEach((fieldName) => setFieldValue(fieldName, branding[fieldName] || ""));
+  renderBrandSwatches([]);
+  updateBrandColorPreviews();
+  resetBrandUploads();
+}
+
+function profileBrandingData(name = currentConfigProfile) {
+  const profile = plainObject(knownProfileEntries()[name]);
+  const branding = plainObject(savedBrandings[String(profile.branding || "").trim()]);
+  return Object.keys(branding).length ? branding : profile;
+}
+
+let orderButtonModalTemplate = "";
+let orderButtonModalProfile = "";
+
+function openOrderButtonModal(templateName, profileName = "") {
+  orderButtonModalTemplate = String(templateName || "").trim();
+  orderButtonModalProfile = String(profileName || "").trim();
+  const hideNavigation = document.getElementById("embed_hide_navigation");
+  if (hideNavigation) hideNavigation.checked = false;
+  updateBrandButtonSnippet();
+  document.getElementById("orderButtonModal")?.classList.remove("hidden");
+}
+
+function closeOrderButtonModal() {
+  document.getElementById("orderButtonModal")?.classList.add("hidden");
+}
+
+function updateBrandButtonSnippet() {
+  const snippetField = document.getElementById("brandButtonSnippet");
+  const preview = document.getElementById("brandButtonPreview");
+  if (!snippetField && !preview) return;
+
+  const profile = (orderButtonModalProfile || selectedProfileCredentials().profile || currentConfigProfile || "").trim();
+  const template = orderButtonModalTemplate;
+  const brandingData = profileBrandingData(profile);
+  const primary = hexColorValue(brandingData.brand_primary) || "#246bfe";
+  const primaryDark = mixHexColors(primary, "#000000", 0.22);
+  const [r, g, b] = hexToRgb(primary);
+  const label = template ? `Order ${template}` : "Order now";
+
+  const params = new URLSearchParams();
+  if (template) params.set("template", template);
+  if (fieldChecked("embed_hide_navigation", false)) params.set("navigation", "false");
+  const query = params.toString();
+  const url = `${window.location.origin}/order${query ? `?${query}` : ""}`;
+
+  const style = [
+    "display:inline-block",
+    "padding:13px 26px",
+    "border-radius:12px",
+    `background:${primary}`,
+    "color:#ffffff",
+    "font:700 16px/1.2 Inter,ui-sans-serif,system-ui,sans-serif",
+    "text-decoration:none",
+    `box-shadow:0 8px 18px rgba(${r}, ${g}, ${b}, 0.25)`,
+    `border:1px solid ${primaryDark}`,
+  ].join(";");
+
+  const snippet = `<a href="${url}" target="_blank" rel="noopener" style="${style}">${escapeHtml(label)}</a>`;
+  if (snippetField) snippetField.value = snippet;
+  if (preview) preview.innerHTML = snippet;
+}
+
+async function copyBrandButtonSnippet() {
+  const snippetField = document.getElementById("brandButtonSnippet");
+  const snippet = snippetField?.value || "";
+  if (!snippet) return;
+  try {
+    await navigator.clipboard.writeText(snippet);
+    setNotice("Order button snippet copied", "success");
+  } catch {
+    snippetField.select();
+    document.execCommand("copy");
+    setNotice("Order button snippet copied", "success");
+  }
+}
+
+async function saveBranding() {
+  const name = (fieldValue("branding_name") || fieldValue("branding_select") || "").trim();
+  if (!name) {
+    setNotice("Branding name is required", "error");
+    return;
+  }
+  for (const colorField of ["brand_primary", "brand_secondary"]) {
+    const value = fieldValue(colorField).trim();
+    if (value && !hexColorValue(value)) {
+      setNotice(`${colorField === "brand_primary" ? "Primary" : "Secondary"} color must be a hex value like #246bfe`, "error");
+      return;
+    }
+  }
+  const payload = { name };
+  ["brand_primary", "brand_secondary", "brand_welcome"].forEach((fieldName) => {
+    payload[fieldName] = fieldValue(fieldName).trim();
+  });
+  Object.entries(brandUploadKinds).forEach(([kindName, kind]) => {
+    const pending = brandUploadState[kindName];
+    if (pending.data) payload[kind.uploadKey] = pending.data;
+    else if (pending.remove) payload[kind.removeKey] = true;
+  });
+
+  try {
+    const response = await fetch("/admin/brandings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const saved = await response.json();
+    savedBrandings[saved.name] = plainObject(saved.branding);
+    updateBrandingOptions();
+    setFieldValue("branding_select", saved.name);
+    applyBrandingToFields(saved.name);
+    setNotice(`Branding "${saved.name}" saved`, "success");
+  } catch (error) {
+    setNotice(`Branding save failed: ${error.message || "unknown error"}`, "error");
+  }
+}
+
+async function deleteBranding() {
+  const name = fieldValue("branding_select").trim();
+  if (!name) {
+    setNotice("Select a saved branding to delete", "error");
+    return;
+  }
+  if (!confirm(`Delete branding "${name}"? Profiles using it will fall back to the default look.`)) return;
+
+  try {
+    const response = await fetch(`/admin/brandings/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    delete savedBrandings[name];
+    updateBrandingOptions();
+    applyBrandingToFields("");
+    await loadSavedConfig();
+    setNotice(`Branding "${name}" deleted`, "success");
+  } catch (error) {
+    setNotice(`Branding delete failed: ${error.message || "unknown error"}`, "error");
+  }
+}
+
 function applyProfileToFields(name = currentConfigProfile, { syncNetwork = true } = {}) {
   currentConfigProfile = name || "";
   const credentials = profileCredentials(currentConfigProfile);
@@ -1704,6 +2216,8 @@ function applyProfileToFields(name = currentConfigProfile, { syncNetwork = true 
   setFieldValue("owner_env_var", credentials.owner_env_var);
   setFieldValue("cloudflare_filter", credentials.cloudflare_filter);
   setFieldValue("smtp_config", credentials.smtp_config);
+  setFieldValue("profile_branding", credentials.branding);
+  applyProfileBranding(knownProfileEntries()[currentConfigProfile] || {});
   if (isTemplateAction()) applyRegistryDefaultSecret();
   persistProfiles();
   if (syncNetwork) syncCreateNetwork();
@@ -2498,6 +3012,49 @@ function orderInstanceStatusTextClass(item) {
   return `order-instance-state order-instance-state-${normalizedOrderInstanceStatus(item)}`;
 }
 
+function refreshPendingProgressState(limit, instances) {
+  if (!orderRedirectTarget) {
+    orderPendingProgressActive = false;
+    orderPendingFailed = false;
+    return null;
+  }
+  const targetHost = orderInstanceTargetHost(orderRedirectTarget);
+  const progress = limit?.pending_progress
+    || (Array.isArray(instances) ? instances : []).find((item) => item?.progress && orderInstanceMatchesTarget(item, targetHost))?.progress
+    || null;
+  orderPendingFailed = Boolean(progress?.failed);
+  orderPendingProgressActive = Boolean(progress) && !progress.failed;
+  if (orderPendingProgressActive) orderLastProgressStep = Math.max(orderLastProgressStep, Number(progress.step) || 0);
+  return orderPendingProgressActive ? progress : null;
+}
+
+function mappedOrderInstancesForRender(instances) {
+  const redirectTargetHost = orderRedirectTarget ? orderInstanceTargetHost(orderRedirectTarget) : "";
+  const redirectElapsed = orderRedirectSince ? Date.now() - orderRedirectSince : 0;
+  const redirectGraceActive = orderRedirectTarget && orderRedirectSince && !orderPendingFailed
+    && (orderPendingProgressActive || redirectElapsed < 60 * 1000);
+  const mapped = (Array.isArray(instances) ? instances : []).map((item) => {
+    if (orderDeletingInstances.has(item?.instance)) return { ...item, status: "deleting" };
+    if (redirectGraceActive
+      && normalizedOrderInstanceStatus(item) === "failed"
+      && orderInstanceMatchesTarget(item, redirectTargetHost)) {
+      return { ...item, status: "creating" };
+    }
+    return item;
+  });
+  if (orderRedirectTarget && !mapped.some((item) => orderInstanceMatchesTarget(item, redirectTargetHost))) {
+    mapped.push({
+      instance: orderRedirectTarget,
+      template: orderRedirectTemplateName || orderTemplateName,
+      image: fieldValue("image"),
+      version: fieldValue("version"),
+      status: "creating",
+      source: "local-pending",
+    });
+  }
+  return mapped;
+}
+
 async function refreshOrderInstanceStatuses() {
   if (!isOrderPage || !orderInstances) return;
 
@@ -2508,12 +3065,15 @@ async function refreshOrderInstanceStatuses() {
     Array.from(orderDeletingInstances).forEach((instance) => {
       if (!visibleInstances.has(instance)) orderDeletingInstances.delete(instance);
     });
-    renderOrderInstances(instances.map((item) => (
-      orderDeletingInstances.has(item?.instance) ? { ...item, status: "deleting" } : item
-    )), limit);
+    const pendingProgress = refreshPendingProgressState(limit, instances);
+    const mappedInstances = mappedOrderInstancesForRender(instances);
+    renderOrderInstances(mappedInstances, limit);
+    if (orderRedirectTarget) updateOrderProgress(pendingProgress);
+    else if (!orderRedirectCountdownActive) updateOrderProgress(null);
+    maybeRedirectToReadyInstance();
     const hasCreating = orderInstanceCards.some((item) => normalizedOrderInstanceStatus(item) === "creating");
     const hasOrderUsage = Number(limit.used || 0) > 0 || instances.length > 0;
-    if (hasOrderUsage && !hasCreating && orderStatus?.dataset.reason === "order-requested") {
+    if (hasOrderUsage && !hasCreating && !orderRedirectCountdownActive && orderStatus?.dataset.reason === "order-requested") {
       if (limit.reached) setOrderLimitStatus(limit);
       else {
         prepareNextOrderRequest();
@@ -2528,7 +3088,7 @@ async function refreshOrderInstanceStatuses() {
 
 function syncOrderStatusPolling() {
   if (!isOrderPage) return;
-  const hasPending = orderInstanceCards.some(isPendingOrderInstance);
+  const hasPending = orderInstanceCards.some(isPendingOrderInstance) || Boolean(orderRedirectTarget);
 
   if (!hasPending && orderStatusPollTimer) {
     clearInterval(orderStatusPollTimer);
@@ -2645,7 +3205,7 @@ function renderEnrollmentInstances(instances = enrollmentCards, limit = enrollme
           ${isEnrollmentTemplateTerminal(item) ? `
             <span class="order-instance-actions">
               ${isEnrollmentTemplateReady(item) ? `
-                <button type="button" class="icon-btn order-template-copy" data-order-template-copy="${escapeHtml(item.instance)}" title="Copy order button HTML" aria-label="Copy order button HTML for ${escapeHtml(item.instance)}">
+                <button type="button" class="icon-btn order-template-copy" data-order-template-copy="${escapeHtml(item.instance)}" data-order-template-profile="${escapeHtml(item.profile || item.config_profile || "")}" title="Copy order button HTML" aria-label="Copy order button HTML for ${escapeHtml(item.instance)}">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="10" height="10" rx="2"></rect><path d="M5 15V7a2 2 0 0 1 2-2h8"></path></svg>
                 </button>
                 <button type="button" class="icon-btn template-webhook-copy" data-template-webhook-copy="${escapeHtml(item.instance)}" title="Copy webhook URL" aria-label="Copy webhook URL for ${escapeHtml(item.instance)}">
@@ -2880,7 +3440,9 @@ function orderInstanceHref(item) {
   const target = String(item?.dns_name || item?.instance || "").trim();
   if (!target) return "";
   const host = target.replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
-  return host ? `https://${host}` : "";
+  if (!host) return "";
+  const protocol = window.location.protocol === "http:" ? "http:" : "https:";
+  return `${protocol}//${host}`;
 }
 
 function orderInstanceOpenButton(item) {
@@ -2999,6 +3561,151 @@ function hideOrderLoading() {
   orderLoading?.classList.add("hidden");
 }
 
+function setOrderLoadingText(message) {
+  const text = orderLoading?.querySelector(".order-loading-text");
+  if (text) text.textContent = message;
+}
+
+function showOrderRedirectLoading(fqdn) {
+  setOrderLoadingText(`Creating ${fqdn} — you will be redirected when it is ready`);
+  orderLoading?.classList.remove("hidden");
+}
+
+function hideOrderRedirectLoading() {
+  setOrderLoadingText("Loading instances");
+  updateOrderProgress(null);
+  orderLoading?.classList.add("hidden");
+}
+
+let orderRedirectCountdownActive = false;
+
+function startOrderRedirectCountdown(target, href) {
+  orderRedirectCountdownActive = true;
+  updateOrderProgress({ step: 5, total: 5, label: "Ready", done: true });
+  let remaining = 3;
+  const tick = () => {
+    if (remaining === 0) {
+      window.location.assign(href);
+      return;
+    }
+    setOrderLoadingText(`${target} is ready — redirecting in ${remaining}…`);
+    remaining -= 1;
+    window.setTimeout(tick, 1000);
+  };
+  tick();
+}
+
+function updateOrderProgress(progress) {
+  const wrapper = document.getElementById("orderProgress");
+  const fill = document.getElementById("orderProgressFill");
+  const label = document.getElementById("orderProgressLabel");
+  if (!wrapper || !fill || !label) return;
+
+  const step = Number(progress?.step || 0);
+  const total = Number(progress?.total || 0);
+  if (!step || !total) {
+    wrapper.classList.add("hidden");
+    fill.style.width = "0";
+    label.textContent = "";
+    return;
+  }
+
+  wrapper.classList.remove("hidden");
+  fill.style.width = progress.done ? "100%" : `${Math.round(((step - 0.5) / total) * 100)}%`;
+  label.textContent = progress.done ? (progress.label || "Ready") : `Step ${step}/${total} — ${progress.label || ""}`;
+}
+
+function persistOrderRedirect() {
+  try {
+    if (orderRedirectTarget) {
+      sessionStorage.setItem("saashup_pending_order", JSON.stringify({ target: orderRedirectTarget, since: orderRedirectSince, step: orderLastProgressStep, template: orderRedirectTemplateName }));
+    } else {
+      sessionStorage.removeItem("saashup_pending_order");
+    }
+  } catch {}
+}
+
+function restorePendingOrderRedirect() {
+  if (!isOrderPage) return;
+  try {
+    const stored = JSON.parse(sessionStorage.getItem("saashup_pending_order") || "null");
+    const target = String(stored?.target || "").trim();
+    const since = Number(stored?.since || 0);
+    if (!target || !since || Date.now() - since > 10 * 60 * 1000) {
+      sessionStorage.removeItem("saashup_pending_order");
+      return;
+    }
+    const storedTemplate = String(stored?.template || "").trim();
+    if (storedTemplate && orderTemplateName && storedTemplate !== orderTemplateName) return;
+    orderRedirectTarget = target;
+    orderRedirectSince = since;
+    orderLastProgressStep = Number(stored?.step || 0);
+    orderRedirectTemplateName = storedTemplate;
+    showOrderRedirectLoading(target);
+  } catch {}
+}
+
+function orderInstanceTargetHost(value) {
+  return String(value || "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+}
+
+function orderInstanceMatchesTarget(item, targetHost) {
+  const dns = orderInstanceTargetHost(item?.dns_name);
+  const name = String(item?.instance || "").trim().toLowerCase();
+  return (dns && dns === targetHost) || name === targetHost || (name && targetHost.startsWith(`${name}.`));
+}
+
+function abandonOrderRedirect(message, reason) {
+  const target = orderRedirectTarget;
+  orderRedirectTarget = "";
+  persistOrderRedirect();
+  hideOrderRedirectLoading();
+  setOrderStatus(message.replace("%s", target), "error", reason);
+}
+
+function maybeRedirectToReadyInstance() {
+  if (!orderRedirectTarget) return;
+
+  const elapsed = orderRedirectSince ? Date.now() - orderRedirectSince : 0;
+  if (elapsed > 10 * 60 * 1000) {
+    abandonOrderRedirect("%s is taking longer than expected — it will appear in your instances once ready.", "order-slow");
+    return;
+  }
+
+  if (orderPendingFailed) {
+    abandonOrderRedirect("Instance creation failed for %s.", "order-failed");
+    return;
+  }
+
+  const targetHost = orderInstanceTargetHost(orderRedirectTarget);
+  const match = orderInstanceCards.find((item) => orderInstanceMatchesTarget(item, targetHost) && item?.source !== "local-pending");
+  if (!match) {
+    if (!orderPendingProgressActive && orderLastProgressStep < 5 && elapsed > 90 * 1000) {
+      abandonOrderRedirect("Instance creation failed for %s.", "order-failed");
+    }
+    return;
+  }
+
+  const status = normalizedOrderInstanceStatus(match);
+  if (status === "creating" || status === "deleting") return;
+
+  if (status === "failed") {
+    if (orderPendingProgressActive || elapsed < 60 * 1000) return;
+    abandonOrderRedirect("Instance creation failed for %s.", "order-failed");
+    return;
+  }
+
+  const target = orderRedirectTarget;
+  orderRedirectTarget = "";
+  persistOrderRedirect();
+  const href = orderInstanceHref(match);
+  if (href) {
+    startOrderRedirectCountdown(target, href);
+    return;
+  }
+  hideOrderRedirectLoading();
+}
+
 function showEnrollLoading() {
   if (!isEnrollPage) return;
   document.body?.classList.add("enroll-loading-active");
@@ -3062,6 +3769,10 @@ function setAction(actionName, { skipAutoRefresh = false } = {}) {
   submitBtn.value = actionName === "restart" ? "image" : "";
 
   deleteConfigBtn?.classList.toggle("hidden", actionName !== "config");
+  deleteBrandingBtn?.classList.toggle("hidden", actionName !== "branding");
+  if (actionName === "branding") {
+    loadBrandings().then(() => applyBrandingToFields(fieldValue("branding_select")));
+  }
   updateTestEmailVisibility();
   exportConfigBtn?.classList.toggle("hidden", actionName !== "config");
   importConfigBtn?.classList.toggle("hidden", actionName !== "config");
@@ -3441,7 +4152,9 @@ function applyEnrollProfileSelection() {
 function configureEnrollDefaultConfig() {
   if (!isEnrollPage) return false;
 
-  const profileName = visibleConfigProfileName();
+  const sessionProfile = sessionProfileName();
+  const profileName = (Object.hasOwn(knownProfileEntries(), sessionProfile) ? sessionProfile : "")
+    || visibleConfigProfileName();
   updateImportProfileOptions();
   if (importProfileSelect) importProfileSelect.value = profileName;
   if (profileName && currentConfigProfile !== profileName) applyProfileToFields(profileName, { syncNetwork: false });
@@ -4486,13 +5199,6 @@ function orderTemplateUrl(name) {
   return `${window.location.origin}/order?${query.toString()}`;
 }
 
-function orderTemplateEmbedHtml(name) {
-  const url = orderTemplateUrl(name);
-  if (!url) return "";
-
-  const imageUrl = `${window.location.origin}/assets/deploy.svg`;
-  return `<a href="${escapeHtml(url)}"><img src="${escapeHtml(imageUrl)}" alt="Deploy with SaaShup"></a>`;
-}
 
 function enrolledTemplateEntry(name) {
   const requested = String(name || "").trim().toLowerCase();
@@ -4571,6 +5277,14 @@ async function applyOrderTemplate({ reveal = true } = {}) {
     return false;
   }
 
+  const orderTemplateProfile = String(entry.template.config_profile || entry.template.profile || "").trim();
+  if (orderTemplateProfile && Object.hasOwn(knownProfileEntries(), orderTemplateProfile)) {
+    if (orderTemplateProfile !== currentConfigProfile) applyProfileToFields(orderTemplateProfile, { syncNetwork: false });
+    try {
+      sessionStorage.setItem("saashup_profile", orderTemplateProfile);
+    } catch {}
+  }
+
   if (reveal) showOrderActions();
   const templateDnsPath = dnsParts(entry.template.dns_name).path;
   applyCreateTemplate(entry.template);
@@ -4609,10 +5323,13 @@ async function applyOrderTemplate({ reveal = true } = {}) {
 
   try {
     const limit = await orderLimitForProfile(selectedProfileCredentials().profile);
-    renderOrderInstances(limit.instances, limit);
+    refreshPendingProgressState(limit, limit.instances);
+    renderOrderInstances(mappedOrderInstancesForRender(limit.instances), limit);
     if (limit.reached) {
       hideOrderActions();
-      setOrderLimitStatus(limit);
+      const stillCreating = Boolean(orderRedirectTarget)
+        || orderInstanceCards.some((item) => normalizedOrderInstanceStatus(item) === "creating");
+      if (!stillCreating) setOrderLimitStatus(limit);
       return false;
     }
   } catch {
@@ -4903,7 +5620,13 @@ function loadSavedConfig() {
       if (profile && !deletedProfiles().includes(profile) && Object.hasOwn(serverProfiles, profile)) {
         const storedProfile = localStorage.getItem("current_config_profile") || "";
         const storedProfileSynced = Object.hasOwn(serverProfiles, storedProfile);
-        currentConfigProfile = (isEnrollPage || isOrderPage || !storedProfileSynced) ? profile : storedProfile;
+        currentConfigProfile = (isClientPage || !storedProfileSynced) ? profile : storedProfile;
+      }
+      if (isClientPage) {
+        const sessionProfile = sessionProfileName();
+        if (sessionProfile && Object.hasOwn(serverProfiles, sessionProfile) && !deletedProfiles().includes(sessionProfile)) {
+          currentConfigProfile = sessionProfile;
+        }
       }
 
       updateProfileOptions();
@@ -5057,6 +5780,7 @@ async function saveConfig() {
   const cloudflare_filter = fieldChecked("cloudflare_filter", true);
   const smtp_config = fieldValue("smtp_config");
   const saashup_visible = Boolean(configDefaultInput?.checked);
+  const branding = fieldValue("profile_branding").trim();
   const existingCredentials = profileCredentials(profile);
   const hasExistingNetBoxCredentials = profileHasNetBoxCredentials(existingCredentials);
 
@@ -5100,6 +5824,7 @@ async function saveConfig() {
     owner_env_var,
     cloudflare_filter,
     ...(saashup_visible ? { saashup_visible: true } : {}),
+    ...(branding ? { branding } : {}),
   };
   if (saashup_visible) markVisibleConfig(profile);
   currentConfigProfile = profile;
@@ -5656,7 +6381,17 @@ async function submitAction(config, submitter) {
     if (response.status === 202) {
       hideOrderActions();
       addOrderInstanceCard(createdInstanceFqdn);
-      setOrderStatus(`Thank you, your instance installation has been requested for ${createdInstanceFqdn}.`, "success", "order-requested");
+      orderRedirectTarget = createdInstanceFqdn;
+      orderRedirectSince = Date.now();
+      orderLastProgressStep = 0;
+      orderRedirectTemplateName = orderTemplateName;
+      persistOrderRedirect();
+      showOrderRedirectLoading(createdInstanceFqdn);
+      if (orderStatus) {
+        orderStatus.className = "order-status hidden";
+        orderStatus.dataset.reason = "order-requested";
+        orderStatus.replaceChildren();
+      }
     } else {
       const text = await response.text();
       let detail = "";
@@ -6135,6 +6870,11 @@ form?.addEventListener("submit", async (event) => {
     return;
   }
 
+  if (currentAction === "branding") {
+    saveBranding();
+    return;
+  }
+
   if (isEnrollPage) {
     const imported = await applyDockerRunCommand();
     if (!imported) {
@@ -6455,6 +7195,28 @@ document.addEventListener("click", (event) => {
 });
 refreshInstancesBtn?.addEventListener("click", refreshInstances);
 refreshImagesBtn?.addEventListener("click", refreshImages);
+["brand_primary", "brand_secondary"].forEach((name) => {
+  field(name)?.addEventListener("input", updateBrandColorPreviews);
+});
+templateSelect?.addEventListener("change", updateBrandButtonSnippet);
+document.getElementById("embed_hide_navigation")?.addEventListener("change", updateBrandButtonSnippet);
+document.getElementById("brandButtonSnippet")?.addEventListener("input", () => {
+  const preview = document.getElementById("brandButtonPreview");
+  if (preview) preview.innerHTML = document.getElementById("brandButtonSnippet").value;
+});
+document.getElementById("copyBrandButtonBtn")?.addEventListener("click", copyBrandButtonSnippet);
+field("branding_select")?.addEventListener("change", () => applyBrandingToFields(fieldValue("branding_select")));
+deleteBrandingBtn?.addEventListener("click", deleteBranding);
+Object.entries(brandUploadKinds).forEach(([kindName, kind]) => {
+  document.getElementById(kind.uploadBtnId)?.addEventListener("click", () => document.getElementById(kind.fileInputId)?.click());
+  document.getElementById(kind.fileInputId)?.addEventListener("change", () => handleBrandImageSelection(kindName));
+  document.getElementById(kind.removeBtnId)?.addEventListener("click", () => {
+    brandUploadState[kindName] = { data: "", remove: true };
+    const input = document.getElementById(kind.fileInputId);
+    if (input) input.value = "";
+    updateBrandUploadWidget(kindName);
+  });
+});
 configFields.forEach((name) => {
   const control = field(name);
   control?.addEventListener("input", () => {
@@ -6547,17 +7309,9 @@ enrollInstances?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-order-template-copy]");
   if (!button) return;
 
-  const templateName = button.dataset.orderTemplateCopy || "";
-  const html = orderTemplateEmbedHtml(templateName);
-  if (!html) {
-    setNotice("Order button HTML unavailable", "error");
-    return;
-  }
-
-  copyTextToClipboard(html)
-    .then(() => setNotice(`Order button HTML copied for "${templateName}"`, "success"))
-    .catch(() => setNotice(html, "info", false));
+  openOrderButtonModal(button.dataset.orderTemplateCopy || "", button.dataset.orderTemplateProfile || "");
 });
+document.getElementById("orderButtonCloseBtn")?.addEventListener("click", closeOrderButtonModal);
 enrollInstances?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-template-webhook-copy]");
   if (!button) return;
@@ -6583,6 +7337,9 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !profileHelpModal?.classList.contains("hidden")) {
     closeProfileHelp();
   }
+  if (event.key === "Escape" && !document.getElementById("orderButtonModal")?.classList.contains("hidden")) {
+    closeOrderButtonModal();
+  }
 });
 window.addEventListener("pageshow", () => {
   if (isEnrollPage) updateEnrollSubmitState({ notify: false });
@@ -6602,12 +7359,18 @@ async function initializePage() {
   try {
     initializeSidebar();
     renderCachedAuthUser();
+    applyNavigationVisibility();
     const authReady = loadAuthUser();
-    if (isOrderPage || isEnrollPage || isCatalogPage) await authReady;
-    if (!isOrderPage && !isEnrollPage && !isCatalogPage) await loadMailSettings();
+    if (isClientPage) await authReady;
+    if (!isClientPage) {
+      await loadMailSettings();
+      loadBrandings();
+    }
     await loadSavedConfig();
     if (isOrderPage || isCatalogPage) {
-      const profileName = visibleConfigProfileName() || currentConfigProfile;
+      const sessionProfile = sessionProfileName();
+      const profileName = (Object.hasOwn(knownProfileEntries(), sessionProfile) ? sessionProfile : "")
+        || visibleConfigProfileName() || currentConfigProfile;
       if (profileName) applyProfileToFields(profileName, { syncNetwork: !isOrderPage });
     }
     if (!isEnrollPage && !isCatalogPage) await loadCreateTemplates({ useCache: !isOrderPage });
@@ -6629,9 +7392,11 @@ async function initializePage() {
 
     if (isOrderPage) {
       hideOrderActions();
+      restorePendingOrderRedirect();
       const orderReady = await applyOrderTemplate({ reveal: false });
-      hideOrderLoading();
-      if (orderReady) showOrderActions();
+      if (orderRedirectTarget) showOrderRedirectLoading(orderRedirectTarget);
+      else hideOrderLoading();
+      if (orderReady && !orderRedirectTarget) showOrderActions();
     } else if (isCatalogPage) {
       await refreshCatalog();
     } else if (actionFromUrl) {
