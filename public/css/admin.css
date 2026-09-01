@@ -1041,6 +1041,125 @@ h2 {
   gap: 7px;
 }
 
+.field-section-title {
+  grid-column: 1 / -1;
+  margin: 12px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.brand-color-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  gap: 8px;
+  align-items: center;
+}
+
+.brand-color-preview {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+}
+
+.brand-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.brand-swatch {
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+
+.brand-swatch:hover,
+.brand-swatch:focus-visible {
+  transform: scale(1.12);
+}
+
+.brand-upload-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-upload-preview {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background:
+    repeating-conic-gradient(var(--button-soft) 0% 25%, var(--panel) 0% 50%) 0 0 / 16px 16px;
+}
+
+.brand-embed {
+  grid-column: 1 / -1;
+  gap: 12px;
+}
+
+.brand-embed-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 18px;
+}
+
+.brand-embed-option {
+  display: grid;
+  gap: 7px;
+}
+
+.brand-embed-option select {
+  min-width: 220px;
+}
+
+.brand-embed-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 10px;
+}
+
+.brand-embed-preview {
+  display: grid;
+  place-items: center;
+  padding: 26px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: var(--field-bg);
+}
+
+.brand-embed-preview a {
+  pointer-events: none;
+}
+
+.brand-embed-snippet {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  resize: vertical;
+  font: 0.82rem/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--text);
+  background: var(--field-bg);
+}
+
+.brand-embed-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .field span {
   font-size: 0.88rem;
   font-weight: 700;

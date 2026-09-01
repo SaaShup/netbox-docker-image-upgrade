@@ -35,6 +35,8 @@
       <button type="button" class="theme-toggle order-theme" data-theme-toggle aria-label="Toggle theme" title="Toggle theme">☾</button>
     </div>
 
+    <p class="order-welcome hidden" id="brandWelcome"></p>
+
     <form id="instanceForm" action="/create" method="post">
       <div hidden>
         <label data-field="config_profile">
@@ -123,6 +125,10 @@
       <div class="order-loading" id="orderLoading" role="status">
         <span class="order-spinner" aria-hidden="true"></span>
         <span class="order-loading-text">Loading instances</span>
+        <div class="order-progress hidden" id="orderProgress">
+          <div class="order-progress-track"><span class="order-progress-fill" id="orderProgressFill"></span></div>
+          <small id="orderProgressLabel"></small>
+        </div>
       </div>
 
       <div class="form-actions hidden" id="orderActions">

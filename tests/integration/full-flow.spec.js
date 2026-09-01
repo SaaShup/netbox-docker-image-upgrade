@@ -408,7 +408,7 @@ test("create keycloak server in paasbox", async ({ request }) => {
   expect(keycloakClientId).toBeTruthy();
 });
 
-async function saveIntegrationConfig(request) {
+async function saveIntegrationConfig(request, extraProfileFields = {}) {
   const profileConfig = {
     netbox: netboxUrl,
     token: netboxToken,
@@ -420,6 +420,7 @@ async function saveIntegrationConfig(request) {
     cloudflare_filter: false,
     saashup_visible: true,
     smtp_config: "integration-smtp:587",
+    ...extraProfileFields,
   };
   const response = await request.get("/webhook", {
     params: {
@@ -1265,3 +1266,88 @@ test("deletes them", async ({ request }) => {
   await expectEnrollmentListed(request, resolvedTemplateName, false);
 });
 
+
+test.describe("branding", () => {
+  const brandingName = `it-brand-${suffix}`;
+  const brandPrimary = "#e11d48";
+  const brandWelcome = "Bienvenue Integration";
+  let savedBranding = null;
+
+  test("creates a branding with an uploaded logo through the admin UI", async ({ page, request }) => {
+    await page.goto("/admin");
+    await page.waitForLoadState("networkidle");
+
+    const pngBuffer = await page.screenshot();
+
+    await page.click("#menu_branding");
+    await page.fill("#branding_name", brandingName);
+    await page.setInputFiles("#brandLogoFile", { name: "logo.png", mimeType: "image/png", buffer: pngBuffer });
+
+    await expect(page.locator("#brandLogoPreviewImg")).toBeVisible();
+    await page.click("#submitBtn");
+    await expect(page.locator("#notif")).toContainText(`Branding "${brandingName}" saved`);
+
+    const listed = await (await request.get("/admin/brandings", { headers: defaultUserHeaders })).json();
+    savedBranding = listed.brandings[brandingName];
+    expect(savedBranding).toBeTruthy();
+    expect(savedBranding.id).toMatch(/^[a-f0-9]{12}$/);
+    expect(savedBranding.brand_logo).toMatch(new RegExp(`^/branding-assets/${savedBranding.id}-logo\\.webp\\?v=\\d+$`));
+
+    const asset = await request.get(savedBranding.brand_logo);
+    await expectOk(asset, "fetch uploaded logo");
+    expect(asset.headers()["content-type"]).toContain("image/webp");
+    expect(asset.headers()["x-content-type-options"]).toBe("nosniff");
+  });
+
+  test("rejects unsafe branding asset paths", async ({ request }) => {
+    for (const file of ["..%2F..%2Fetc%2Fpasswd", "abc-logo.webp", "aaaaaaaaaaaa-logo.png", "aaaaaaaaaaaa-logo.webp"]) {
+      const response = await request.get(`/branding-assets/${file}`);
+      expect(response.status(), `asset path ${file}`).toBe(404);
+    }
+  });
+
+  test("applies the branding attached to the integration profile on the order page", async ({ page, request }) => {
+    const update = await request.post("/admin/brandings", {
+      headers: defaultUserHeaders,
+      data: { name: brandingName, brand_primary: brandPrimary, brand_secondary: "#7c3aed", brand_welcome: brandWelcome },
+    });
+    await expectOk(update, "update branding");
+    expect((await update.json()).branding.brand_logo).toBe(savedBranding.brand_logo);
+
+    await saveIntegrationConfig(request, { branding: brandingName });
+
+    await page.goto("/order");
+    await page.waitForLoadState("networkidle");
+
+    await expect(page.locator("#brandWelcome")).toHaveText(brandWelcome);
+    await expect.poll(async () => page.evaluate(() => (
+      getComputedStyle(document.documentElement).getPropertyValue("--primary").trim()
+    ))).toBe(brandPrimary);
+    const watermark = await page.evaluate(() => ({
+      active: document.body.classList.contains("brand-watermark"),
+      value: document.body.style.getPropertyValue("--brand-watermark"),
+    }));
+    expect(watermark.active).toBe(true);
+    expect(watermark.value).toContain(savedBranding.id);
+  });
+
+  test("deleting the branding removes the asset, detaches the profile and restores the default look", async ({ page, request }) => {
+    const deletion = await request.delete(`/admin/brandings/${encodeURIComponent(brandingName)}`, { headers: defaultUserHeaders });
+    await expectOk(deletion, "delete branding");
+
+    const asset = await request.get(savedBranding.brand_logo);
+    expect(asset.status()).toBe(404);
+
+    const publicConfig = await (await request.get("/config")).json();
+    expect(publicConfig.profiles[profile].brand_primary).toBeUndefined();
+
+    await page.goto("/order");
+    await page.waitForLoadState("networkidle");
+    await expect.poll(async () => page.evaluate(() => (
+      getComputedStyle(document.documentElement).getPropertyValue("--primary").trim()
+    ))).toBe("#246bfe");
+    expect(await page.evaluate(() => document.body.classList.contains("brand-watermark"))).toBe(false);
+
+    await saveIntegrationConfig(request);
+  });
+});

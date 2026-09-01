@@ -1,3 +1,5 @@
+const { creationProgressFor } = require("../lib/creation-progress");
+
 function createOrderHelpers({
   authUserFromRequest,
   containerEnvValue,
@@ -160,7 +162,17 @@ function registerOrderRoutes(app, {
   currentUsage,
 }) {
   app.get("/order/limit", async (req, res) => {
-    res.json(await currentUsage(req, req.query.profile || req.query.config_profile || ""));
+    const usage = await currentUsage(req, req.query.profile || req.query.config_profile || "");
+    usage.instances = (usage.instances || []).map((item) => {
+      const progress = creationProgressFor(item.dns_name || item.instance);
+      return progress ? { ...item, progress } : item;
+    });
+    const pending = String(req.query.pending || "").trim();
+    if (pending) {
+      const pendingProgress = creationProgressFor(pending);
+      if (pendingProgress) usage.pending_progress = pendingProgress;
+    }
+    res.json(usage);
   });
 }
 

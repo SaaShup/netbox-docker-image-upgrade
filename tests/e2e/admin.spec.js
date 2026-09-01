@@ -99,7 +99,8 @@ test("environment menu shows read-only server environment variables", async ({ p
   });
 
   await expect(page.locator(".nav .nav-label").nth(0)).toHaveText("Environment");
-  await expect(page.locator(".nav .nav-label").nth(1)).toHaveText("Profiles");
+  await expect(page.locator(".nav .nav-label").nth(1)).toHaveText("Branding");
+  await expect(page.locator(".nav .nav-label").nth(2)).toHaveText("Profiles");
 
   await page.getByRole("link", { name: "Environment" }).click();
 
@@ -609,6 +610,7 @@ test("report menu shows image usage for one config", async ({ page }) => {
   await openAdmin(page, config);
   await expect(page.locator(".sidebar .nav-label")).toHaveText([
     "Environment",
+    "Branding",
     "Profiles",
     "Template",
     "Create",

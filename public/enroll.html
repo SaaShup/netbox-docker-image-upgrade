@@ -150,6 +150,25 @@
     </footer>
   </main>
 
+  <div class="modal-backdrop hidden" id="orderButtonModal" role="dialog" aria-modal="true" aria-labelledby="orderButtonTitle">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="orderButtonTitle">Order button</h3>
+        <button type="button" class="icon-btn" id="orderButtonCloseBtn" aria-label="Close order button modal">&times;</button>
+      </div>
+      <label class="modal-check brand-toggle">
+        <input type="checkbox" id="embed_hide_navigation">
+        <span class="brand-toggle-track" aria-hidden="true"></span>
+        <span>Hide navigation</span>
+      </label>
+      <div class="brand-embed-preview" id="brandButtonPreview" aria-label="Button preview"></div>
+      <textarea id="brandButtonSnippet" class="brand-embed-snippet" rows="4" spellcheck="false" aria-label="Order button HTML snippet"></textarea>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-primary" id="copyBrandButtonBtn">Copy HTML</button>
+      </div>
+    </div>
+  </div>
+
   <script src="js/main.js"></script>
   <script src="js/version.js"></script>
 </body>
