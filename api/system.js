@@ -28,7 +28,7 @@ function registerSystemRoutes(app, {
   });
   app.get("/login", (req, res, next) => Promise.resolve(oidcAuth.login(req, res)).catch(next));
   app.get("/oidc/callback", oidcAuth.callback);
-  app.get("/logout", oidcAuth.logout);
+  app.get("/logout", (req, res, next) => Promise.resolve(oidcAuth.logout(req, res)).catch(next));
   app.get("/version", (req, res) => res.json({ name: packageJson.name, version: packageJson.version }));
 
   app.get("/admin", oidcAuth.loginRequired, requireAdmin, (req, res) => res.sendFile(path.join(publicPath, "admin.html")));
