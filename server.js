@@ -65,6 +65,7 @@ const {
   adminAllowedEmails,
   appOwnerEmail,
   blockedEnrollmentImages,
+  brandingLimit,
   createConfigureDelayMs,
   createRecreateDelayMs,
   dataPath,
@@ -1024,6 +1025,7 @@ const {
 registerConfigRoutes(app, {
   appOwnerEmail,
   authUserFromRequest,
+  brandingLimit,
   dataPath,
   maxInstancesValue,
   parseProfiles,

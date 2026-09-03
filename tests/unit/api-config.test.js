@@ -104,6 +104,59 @@ describe("api config helpers", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  test("branding listing exposes the configured limit", async () => {
+    const defaultRes = mockResponse();
+    await createRoutes({}).routes["GET /admin/brandings"]({}, defaultRes);
+    expect(defaultRes.body.limit).toBe(1);
+
+    const raisedRes = mockResponse();
+    await createRoutes({ brandingLimit: 3 }).routes["GET /admin/brandings"]({}, raisedRes);
+    expect(raisedRes.body.limit).toBe(3);
+  });
+
+  test("branding creation is capped at one branding by default, updates stay allowed", async () => {
+    const { routes, getState } = createRoutes({});
+
+    const first = mockResponse();
+    await routes["POST /admin/brandings"]({ body: { name: "acme", brand_primary: "#e11d48" } }, first);
+    expect(first.statusCode).toBe(200);
+
+    const second = mockResponse();
+    await routes["POST /admin/brandings"]({ body: { name: "globex", brand_primary: "#7c3aed" } }, second);
+    expect(second.statusCode).toBe(409);
+    expect(second.body.error).toContain("Branding limit reached (1 branding max)");
+    expect(getState().brandings.globex).toBeUndefined();
+
+    const update = mockResponse();
+    await routes["POST /admin/brandings"]({ body: { name: "acme", brand_primary: "#111111" } }, update);
+    expect(update.statusCode).toBe(200);
+    expect(getState().brandings.acme.brand_primary).toBe("#111111");
+
+    const deletion = mockResponse();
+    await routes["DELETE /admin/brandings/:name"]({ params: { name: "acme" } }, deletion);
+    expect(deletion.statusCode).toBe(200);
+
+    const replacement = mockResponse();
+    await routes["POST /admin/brandings"]({ body: { name: "globex", brand_primary: "#7c3aed" } }, replacement);
+    expect(replacement.statusCode).toBe(200);
+  });
+
+  test("branding limit follows the configured brandingLimit value", async () => {
+    const { routes } = createRoutes({ brandingLimit: 2 });
+
+    for (const [index, name] of ["acme", "globex"].entries()) {
+      const res = mockResponse();
+      await routes["POST /admin/brandings"]({ body: { name } }, res);
+      expect(res.statusCode).toBe(200);
+      expect(index).toBeLessThan(2);
+    }
+
+    const third = mockResponse();
+    await routes["POST /admin/brandings"]({ body: { name: "initech" } }, third);
+    expect(third.statusCode).toBe(409);
+    expect(third.body.error).toContain("Branding limit reached (2 brandings max)");
+  });
+
   test("branding delete detaches it from the profiles that reference it", async () => {
     const { routes, getState, setState } = createRoutes({});
     setState({
@@ -326,6 +379,8 @@ describe("api config helpers", () => {
         brand_secondary: "#7c3aed",
         brand_background: "https://cdn.example.com/bg.jpg",
         brand_welcome: "Welcome to Acme Cloud",
+        brand_url: "https://www.acme.example",
+        brand_footer: "Acme © 2026",
       },
     };
 
@@ -344,6 +399,8 @@ describe("api config helpers", () => {
       brand_secondary: "#7c3aed",
       brand_background: "https://cdn.example.com/bg.jpg",
       brand_welcome: "Welcome to Acme Cloud",
+      brand_url: "https://www.acme.example",
+      brand_footer: "Acme © 2026",
     });
     expect(sanitized.profiles.prod.branding).toBeUndefined();
     expect(sanitized.profiles.prod.id).toBeUndefined();
@@ -357,12 +414,24 @@ describe("api config helpers", () => {
       brand_primary: "#E11D48",
       brand_secondary: "not-a-color",
       brand_welcome: "  Welcome!  ",
+      brand_url: "javascript:alert(1)",
+      brand_footer: "  Acme © 2026  ",
       extra_key: "ignored",
     }, plainObject);
 
     expect(branding).toEqual({
       brand_primary: "#e11d48",
       brand_welcome: "Welcome!",
+      brand_footer: "Acme © 2026",
+    });
+  });
+
+  test("brandingForStore keeps http and https website links only", () => {
+    const httpsBranding = configHelpers.brandingForStore({ brand_url: "  https://www.acme.example/site  " }, plainObject);
+    expect(httpsBranding).toEqual({ brand_url: "https://www.acme.example/site" });
+
+    ["ftp://acme.example", "www.acme.example", "https://", "data:text/html,x"].forEach((value) => {
+      expect(configHelpers.brandingForStore({ brand_url: value }, plainObject)).toEqual({});
     });
   });
 

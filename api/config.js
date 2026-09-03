@@ -52,11 +52,16 @@ function expandedConfigForResponse(config, selectedProfileConfig, parseProfiles,
   };
 }
 
-const brandingFields = ["brand_logo", "brand_primary", "brand_secondary", "brand_background", "brand_welcome"];
+const brandingFields = ["brand_logo", "brand_primary", "brand_secondary", "brand_background", "brand_welcome", "brand_url", "brand_footer"];
 
 function hexColorValue(value) {
   const hex = String(value || "").trim().toLowerCase();
   return /^#[0-9a-f]{6}$/.test(hex) ? hex : "";
+}
+
+function httpUrlValue(value) {
+  const url = String(value || "").trim().slice(0, 300);
+  return /^https?:\/\/\S+$/i.test(url) ? url : "";
 }
 
 function brandingForStore(input, plainObject) {
@@ -66,6 +71,8 @@ function brandingForStore(input, plainObject) {
     brand_primary: hexColorValue(data.brand_primary),
     brand_secondary: hexColorValue(data.brand_secondary),
     brand_welcome: text(data.brand_welcome, 500),
+    brand_url: httpUrlValue(data.brand_url),
+    brand_footer: text(data.brand_footer, 120),
   };
   return Object.fromEntries(Object.entries(branding).filter(([, value]) => value));
 }
@@ -307,6 +314,7 @@ async function templatesResponseForRequest(req, {
 function registerConfigRoutes(app, {
   appOwnerEmail,
   authUserFromRequest,
+  brandingLimit = 1,
   maxInstancesValue,
   parseProfiles,
   plainObject,
@@ -363,7 +371,7 @@ function registerConfigRoutes(app, {
     }));
   });
   app.get("/admin/brandings", requireAdmin, (req, res) => {
-    res.json({ brandings: plainObject(readState().brandings) });
+    res.json({ brandings: plainObject(readState().brandings), limit: brandingLimit });
   });
   app.post("/admin/brandings", requireAdmin, (req, res) => {
     const body = plainObject(req.body);
@@ -372,7 +380,13 @@ function registerConfigRoutes(app, {
       res.status(400).json({ error: "Branding name is required" });
       return;
     }
-    const existing = plainObject(plainObject(readState().brandings)[name]);
+    const storedBrandings = plainObject(readState().brandings);
+    if (!Object.hasOwn(storedBrandings, name) && Object.keys(storedBrandings).length >= brandingLimit) {
+      const brandingNoun = brandingLimit === 1 ? "branding" : "brandings";
+      res.status(409).json({ error: `Branding limit reached (${brandingLimit} ${brandingNoun} max). Delete an existing branding or raise the BRANDING_LIMIT environment variable.` });
+      return;
+    }
+    const existing = plainObject(storedBrandings[name]);
     const id = /^[a-f0-9]{12}$/.test(String(existing.id || "")) ? existing.id : crypto.randomBytes(6).toString("hex");
     const branding = { id, ...brandingForStore(body, plainObject) };
     const brandingDir = path.join(dataPath, "branding");
