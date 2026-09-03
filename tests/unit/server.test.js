@@ -1395,12 +1395,12 @@ describe("server helpers", () => {
     const sessionCookie = headerValues(callbackRes.headers["set-cookie"]).find((value) => value.startsWith("saashup_session=")).split(";")[0];
     expect(auth.sessionUser({ headers: { cookie: sessionCookie } })).toEqual({ email: "id@example.com", user: "iduser", name: "iduser" });
     const logoutRes = mockResponse();
-    auth.logout({ headers: { cookie: sessionCookie }, query: { rd: "/signed-out" } }, logoutRes);
+    await auth.logout({ headers: { cookie: sessionCookie }, query: { rd: "/signed-out" } }, logoutRes);
     expect(logoutRes.redirectUrl).toBe("/signed-out");
     expect(auth.sessionUser({ headers: { cookie: sessionCookie } })).toBeNull();
     const logoutNoSessionRes = mockResponse();
     logoutNoSessionRes.headers["set-cookie"] = ["existing=1"];
-    auth.logout({ headers: { cookie: "" }, query: { rd: "//evil.example.com" } }, logoutNoSessionRes);
+    await auth.logout({ headers: { cookie: "" }, query: { rd: "//evil.example.com" } }, logoutNoSessionRes);
     expect(logoutNoSessionRes.redirectUrl).toBe("/");
     expect(logoutNoSessionRes.headers["set-cookie"][0]).toBe("existing=1");
 
