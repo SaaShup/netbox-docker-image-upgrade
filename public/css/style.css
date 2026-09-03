@@ -11,6 +11,7 @@
   --border: #d9e2ef;
   --primary: #246bfe;
   --primary-dark: #1d55c9;
+  --primary-rgb: 36, 107, 254;
   --danger: #dc2626;
   --danger-soft: #fee2e2;
   --success: #16a34a;
@@ -32,6 +33,7 @@ html[data-theme="dark"] {
   --border: #283548;
   --primary: #6aa2ff;
   --primary-dark: #3b82f6;
+  --primary-rgb: 106, 162, 255;
   --danger-soft: rgba(220, 38, 38, 0.16);
   --success-soft: rgba(22, 163, 74, 0.16);
   --shadow: 0 18px 45px rgba(0, 0, 0, 0.34);
@@ -45,7 +47,7 @@ body {
   margin: 0;
   color: var(--text);
   background:
-    radial-gradient(circle at top left, rgba(36, 107, 254, 0.12), transparent 32rem),
+    radial-gradient(circle at top left, rgba(var(--primary-rgb), 0.12), transparent 32rem),
     var(--bg);
 }
 
@@ -103,6 +105,17 @@ body {
 .brand-badge img {
   width: 20px;
   height: 20px;
+}
+
+.brand-badge.brand-badge-custom img {
+  width: auto;
+  max-width: 140px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.brand-badge.brand-badge-custom span {
+  display: none;
 }
 
 .top-left-bar {
@@ -281,7 +294,7 @@ body.enroll-page .order-auth {
 .btn-primary {
   color: white;
   background: var(--primary);
-  box-shadow: 0 8px 18px rgba(36, 107, 254, 0.22);
+  box-shadow: 0 8px 18px rgba(var(--primary-rgb), 0.22);
 }
 
 .btn-primary:hover:not(:disabled) {
@@ -351,7 +364,7 @@ body.enroll-page .order-auth {
 
 .modal-textarea:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 4px rgba(36, 107, 254, 0.12);
+  box-shadow: 0 0 0 4px rgba(var(--primary-rgb), 0.12);
   outline: none;
 }
 
@@ -517,7 +530,7 @@ body.catalog-page.brand-watermark::before {
 }
 
 .brand-toggle input:focus-visible + .brand-toggle-track {
-  box-shadow: 0 0 0 4px rgba(36, 107, 254, 0.18);
+  box-shadow: 0 0 0 4px rgba(var(--primary-rgb), 0.18);
 }
 
 .brand-embed-preview {
@@ -1143,7 +1156,7 @@ body.enroll-page .order-instances.hidden {
   padding: 0 12px;
   border-radius: 999px;
   color: var(--primary);
-  background: rgba(36, 107, 254, 0.10);
+  background: rgba(var(--primary-rgb), 0.10);
   font-size: 0.95rem;
   font-weight: 900;
   white-space: nowrap;
@@ -1218,7 +1231,7 @@ body.enroll-page .order-instances.hidden {
 .order-instance-state-creating,
 .order-instance-state-deleting {
   color: var(--primary-dark);
-  background: rgba(36, 107, 254, 0.12);
+  background: rgba(var(--primary-rgb), 0.12);
 }
 
 .order-instance-state-failed {

@@ -295,7 +295,7 @@ const profileFieldHelp = {
   },
   branding_select: {
     title: "Branding",
-    body: "Pick a saved branding to edit it, or choose New branding to create one.",
+    body: "Pick a saved branding to edit it, or choose New branding to create one. New branding is hidden once the branding limit is reached (BRANDING_LIMIT environment variable); delete a branding to free a slot.",
   },
   branding_name: {
     title: "Branding name",
@@ -320,6 +320,14 @@ const profileFieldHelp = {
   brand_welcome: {
     title: "Welcome text",
     body: "Optional welcome message shown above the instances list on the order page.",
+  },
+  brand_url: {
+    title: "Website link",
+    body: "Optional customer website URL opened by the top-left logo badge on the customer pages instead of saashup.com.",
+  },
+  brand_footer: {
+    title: "Footer text",
+    body: "Optional text shown in the footer of the customer pages instead of \"SaaShup © 2026\".",
   },
   operate_action: {
     title: "Action",
@@ -414,7 +422,7 @@ const actions = {
     description: "Create reusable brandings (logo, colors, texts) and attach them to profiles from the Profiles form.",
     submitLabel: "Save branding",
     buttonClass: "btn btn-primary",
-    fields: ["branding_select", "branding_name", "brand_logo", "brand_primary", "brand_secondary", "brand_background", "brand_welcome"],
+    fields: ["branding_select", "branding_name", "brand_logo", "brand_primary", "brand_secondary", "brand_background", "brand_welcome", "brand_url", "brand_footer"],
   },
   create: {
     endpoint: "/create",
@@ -635,7 +643,7 @@ function updateAccountMenuAccess(user = {}) {
   if (enrollLink) enrollLink.classList.toggle("hidden", !canEnrollImages);
 }
 
-function renderAuthUser(user, { updateMenu = true } = {}) {
+function renderAuthUser(user) {
   if (!authUser) return false;
 
   const normalized = normalizeAuthUser(user);
@@ -648,7 +656,7 @@ function renderAuthUser(user, { updateMenu = true } = {}) {
   if (authName) authName.textContent = normalized.name;
   if (authEmail) authEmail.textContent = normalized.email && normalized.email !== normalized.name ? normalized.email : "";
   if (authAvatar) authAvatar.textContent = userInitials(normalized.name);
-  if (updateMenu) updateAccountMenuAccess(normalized);
+  updateAccountMenuAccess(normalized);
 
   authUser.classList.remove("hidden");
   return true;
@@ -668,7 +676,7 @@ function publicImageDisabledMessage() {
 
 function renderCachedAuthUser() {
   const user = cachedAuthUser();
-  return user ? renderAuthUser(user, { updateMenu: false }) : false;
+  return user ? renderAuthUser(user) : false;
 }
 
 async function loadAuthUser() {
@@ -1779,6 +1787,27 @@ function hexColorValue(value) {
   return /^#[0-9a-f]{6}$/.test(hex) ? hex : "";
 }
 
+function httpUrlValue(value) {
+  const url = String(value || "").trim();
+  return /^https?:\/\/\S+$/i.test(url) ? url : "";
+}
+
+function brandBadgeLabel(url) {
+  try {
+    return new URL(url).hostname || "Website";
+  } catch {
+    return "Website";
+  }
+}
+
+let defaultDocumentTitle = "";
+
+function brandedDocumentTitle(customerName) {
+  if (isEnrollPage) return `Enroll ${customerName}`;
+  if (isCatalogPage) return `${customerName} Catalog`;
+  return `Order ${customerName}`;
+}
+
 function hexToRgb(hex) {
   return [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16));
 }
@@ -1796,8 +1825,9 @@ function mixHexColors(hex, targetHex, amount) {
 function brandThemeCss(primary, secondary, withGradient) {
   const primaryDark = mixHexColors(primary, "#000000", 0.22);
   const [r, g, b] = hexToRgb(primary);
-  let css = `:root { --primary: ${primary}; --primary-dark: ${primaryDark}; }\n`
-    + `html[data-theme="dark"] { --primary: ${mixHexColors(primary, "#ffffff", 0.35)}; --primary-dark: ${primary}; }\n`;
+  const darkThemePrimary = mixHexColors(primary, "#ffffff", 0.35);
+  let css = `:root { --primary: ${primary}; --primary-dark: ${primaryDark}; --primary-rgb: ${r}, ${g}, ${b}; }\n`
+    + `html[data-theme="dark"] { --primary: ${darkThemePrimary}; --primary-dark: ${primary}; --primary-rgb: ${hexToRgb(darkThemePrimary).join(", ")}; }\n`;
   if (withGradient) {
     const [sr, sg, sb] = hexToRgb(secondary || primaryDark);
     css += "body.order-page, body.enroll-page, body.catalog-page { background-image: "
@@ -1832,6 +1862,16 @@ function applyProfileBranding(profile = {}) {
     document.body.classList.remove("brand-watermark");
     document.body.style.removeProperty("--brand-watermark");
   }
+
+  const favicon = document.querySelector('link[rel="icon"]');
+  if (favicon) {
+    if (favicon.dataset.defaultHref === undefined) favicon.dataset.defaultHref = favicon.getAttribute("href") || "";
+    favicon.href = brandLogo || favicon.dataset.defaultHref;
+  }
+
+  const customerName = String(savedConfig.customer_name || "").trim();
+  if (!defaultDocumentTitle) defaultDocumentTitle = document.title;
+  document.title = customerName ? brandedDocumentTitle(customerName) : defaultDocumentTitle;
   if (brandBackground) {
     document.body.style.setProperty("--brand-bg-image", `url("${encodeURI(brandBackground)}")`);
     document.body.classList.add("brand-bg");
@@ -1846,6 +1886,47 @@ function applyProfileBranding(profile = {}) {
     welcomeEl.classList.toggle("hidden", !brandWelcome);
   }
 
+  const brandUrl = httpUrlValue(profile.brand_url);
+  const brandBadge = document.querySelector(".top-left-bar .brand-badge");
+  if (brandBadge) {
+    if (brandBadge.dataset.defaultHref === undefined) brandBadge.dataset.defaultHref = brandBadge.getAttribute("href") || "";
+    brandBadge.setAttribute("href", brandUrl || brandBadge.dataset.defaultHref);
+    const badgeImage = brandBadge.querySelector("img");
+    if (badgeImage) {
+      if (badgeImage.dataset.defaultSrc === undefined) badgeImage.dataset.defaultSrc = badgeImage.getAttribute("src") || "";
+      badgeImage.src = brandLogo || badgeImage.dataset.defaultSrc;
+    }
+    brandBadge.classList.toggle("brand-badge-custom", Boolean(brandLogo));
+    if (brandLogo) brandBadge.setAttribute("aria-label", brandBadgeLabel(brandUrl));
+    else brandBadge.removeAttribute("aria-label");
+  }
+
+  const brandFooter = String(profile.brand_footer || "").trim();
+  const footerBrand = document.querySelector("[data-brand-footer]");
+  if (footerBrand) {
+    if (footerBrand.dataset.defaultText === undefined) footerBrand.dataset.defaultText = footerBrand.textContent;
+    footerBrand.textContent = brandFooter || footerBrand.dataset.defaultText;
+  }
+
+  cachePageBranding({
+    themeCss: brandThemeStyle?.textContent || "",
+    logo: brandLogo,
+    background: brandBackground,
+    welcome: brandWelcome,
+    url: brandUrl,
+    footer: brandFooter,
+    customerName,
+  });
+}
+
+function cachePageBranding(entry) {
+  try {
+    if (Object.values(entry).some((value) => value)) {
+      localStorage.setItem("saashup_page_branding", JSON.stringify(entry));
+    } else {
+      localStorage.removeItem("saashup_page_branding");
+    }
+  } catch {}
 }
 
 const brandPaletteState = { url: "", colors: [] };
@@ -2015,19 +2096,21 @@ async function handleBrandImageSelection(kindName) {
 }
 
 let savedBrandings = {};
+let savedBrandingLimit = Infinity;
 let brandingsLoaded = false;
 
-const brandingFieldNames = ["brand_logo", "brand_primary", "brand_secondary", "brand_background", "brand_welcome"];
+const brandingFieldNames = ["brand_logo", "brand_primary", "brand_secondary", "brand_background", "brand_welcome", "brand_url", "brand_footer"];
 
 function updateBrandingOptions() {
   const names = Object.keys(savedBrandings).sort((a, b) => a.localeCompare(b));
   const brandingSelect = field("branding_select");
   if (brandingSelect) {
+    const canCreateBranding = names.length < savedBrandingLimit;
     const selected = brandingSelect.value;
     brandingSelect.innerHTML = "";
-    brandingSelect.appendChild(new Option("New branding…", ""));
+    if (canCreateBranding) brandingSelect.appendChild(new Option("New branding…", ""));
     names.forEach((name) => brandingSelect.appendChild(new Option(name, name)));
-    brandingSelect.value = names.includes(selected) ? selected : "";
+    brandingSelect.value = names.includes(selected) ? selected : (canCreateBranding ? "" : names[0] || "");
   }
   const profileBrandingSelect = field("profile_branding");
   if (profileBrandingSelect) {
@@ -2044,7 +2127,9 @@ async function loadBrandings({ force = false } = {}) {
   try {
     const response = await fetch("/admin/brandings", { headers: { Accept: "application/json" } });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    savedBrandings = plainObject((await response.json()).brandings);
+    const data = plainObject(await response.json());
+    savedBrandings = plainObject(data.brandings);
+    savedBrandingLimit = Number.isInteger(data.limit) && data.limit >= 0 ? data.limit : Infinity;
     brandingsLoaded = true;
   } catch {
     savedBrandings = {};
@@ -2147,8 +2232,13 @@ async function saveBranding() {
       return;
     }
   }
+  const brandUrl = fieldValue("brand_url").trim();
+  if (brandUrl && !httpUrlValue(brandUrl)) {
+    setNotice("Website link must start with http:// or https://", "error");
+    return;
+  }
   const payload = { name };
-  ["brand_primary", "brand_secondary", "brand_welcome"].forEach((fieldName) => {
+  ["brand_primary", "brand_secondary", "brand_welcome", "brand_url", "brand_footer"].forEach((fieldName) => {
     payload[fieldName] = fieldValue(fieldName).trim();
   });
   Object.entries(brandUploadKinds).forEach(([kindName, kind]) => {
@@ -2163,7 +2253,10 @@ async function saveBranding() {
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify(payload),
     });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    if (!response.ok) {
+      const detail = (await response.json().catch(() => ({}))).error;
+      throw new Error(detail || `HTTP ${response.status}`);
+    }
     const saved = await response.json();
     savedBrandings[saved.name] = plainObject(saved.branding);
     updateBrandingOptions();

@@ -78,7 +78,7 @@ const { createPublicApiGuard } = require("../../lib/public-api");
 const { checkRegistryImageExists, parseRegistryImageRef, setRegistryFetchForTests } = require("../../lib/registry");
 const { createRegistryWebhookHelpers } = require("../../lib/registry-webhooks");
 const { createStateStore, defaultState, readJson, writeJson } = require("../../lib/state");
-const { publicApiOriginVariants } = require("../../lib/env");
+const { brandingLimitValue, publicApiOriginVariants } = require("../../lib/env");
 
 function jsonResponse(payload, status = 200) {
   return {
@@ -201,6 +201,14 @@ describe("server helpers", () => {
     expect(publicApiOriginVariants("https://saashup.com")).toEqual(["https://saashup.com", "https://www.saashup.com"]);
     expect(publicApiOriginVariants("https://saashup.com:8443")).toEqual(["https://saashup.com:8443", "https://www.saashup.com:8443"]);
     expect(publicApiOriginVariants("https://www.saashup.com:8443")).toEqual(["https://www.saashup.com:8443", "https://saashup.com:8443"]);
+
+    expect(brandingLimitValue(undefined)).toBe(1);
+    expect(brandingLimitValue("")).toBe(1);
+    expect(brandingLimitValue("5")).toBe(5);
+    expect(brandingLimitValue(0)).toBe(0);
+    expect(brandingLimitValue("-2")).toBe(1);
+    expect(brandingLimitValue("2.5")).toBe(1);
+    expect(brandingLimitValue("many")).toBe(1);
 
     expect(containerEnvValue({
       env: [null, "bad", { var_name: "OWNER", value: "owner@example.com" }],

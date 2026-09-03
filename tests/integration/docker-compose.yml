@@ -83,6 +83,7 @@ services:
       LOCAL_DEV_EMAIL: admin@local.test
       OIDC_ENABLED: false
       PUBLIC_IMAGE: true
+      BRANDING_LIMIT: 5
       NODE_TLS_REJECT_UNAUTHORIZED: 0
     ports:
       - "${INTEGRATION_APP_PORT:-3000}:1880"
