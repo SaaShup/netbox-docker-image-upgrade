@@ -1691,7 +1691,7 @@ describe("server helpers", () => {
       return { status: 200, text: async () => "{}" };
     });
 
-    const client = new NetBoxClient({ netbox: "https://saashup.client.domain/paasbox/", token: "secret" });
+    const client = new NetBoxClient({ netbox: "https://netbox.example.com/paasbox", token: "secret" });
     await expect(client.request("GET", "/api/status/")).resolves.toMatchObject({ statusCode: 200 });
     expect(calls.at(-1)).toBe("https://netbox.example.com/paasbox/api/status/");
 
