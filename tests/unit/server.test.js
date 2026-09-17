@@ -1682,6 +1682,26 @@ describe("server helpers", () => {
     setNetBoxFetchForTests();
   });
 
+  test("NetBox client preserves a base URL path prefix", async () => {
+    const calls = [];
+    setNetBoxFetchForTests(async (url) => {
+      calls.push(String(url));
+      if (String(url).includes("/hosts/") && String(url).includes("page=2")) return { status: 200, text: async () => '{"next":null,"results":[{"id":2}]}' };
+      if (String(url).includes("/hosts/")) return { status: 200, text: async () => '{"next":"https://netbox.example.com/paasbox/api/plugins/docker/hosts/?page=2","results":[{"id":1}]}' };
+      return { status: 200, text: async () => "{}" };
+    });
+
+    const client = new NetBoxClient({ netbox: "https://saashup.client.domain/paasbox/", token: "secret" });
+    await expect(client.request("GET", "/api/status/")).resolves.toMatchObject({ statusCode: 200 });
+    expect(calls.at(-1)).toBe("https://netbox.example.com/paasbox/api/status/");
+
+    await expect(client.list("/api/plugins/docker/hosts/")).resolves.toEqual([{ id: 1 }, { id: 2 }]);
+    expect(calls).toContain("https://netbox.example.com/paasbox/api/plugins/docker/hosts/");
+    expect(calls).toContain("https://netbox.example.com/paasbox/api/plugins/docker/hosts/?page=2");
+
+    setNetBoxFetchForTests();
+  });
+
   test("operation helpers cover wait, image, and DNS branches", async () => {
     vi.useFakeTimers();
     const logs = [];
