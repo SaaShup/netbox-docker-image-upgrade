@@ -281,6 +281,10 @@ const profileFieldHelp = {
     title: "Cloudflare IP restriction",
     body: "When enabled, created containers receive the Traefik IP allow-list label for Cloudflare source ranges. Disable it to create routes without that allow-list label.",
   },
+  parallel_upgrade: {
+    title: "Parallel upgrade",
+    body: "When enabled, upgrades recreate containers on different Docker hosts at the same time. Containers on the same host are still recreated one at a time. Disabled by default.",
+  },
   registry_webhook_secret: {
     title: "Registry webhook password",
     body: "Optional template-specific password for registry webhooks that target this template image. Leave it empty to use the REGISTRY_WEBHOOK_SECRET environment default.",
@@ -379,7 +383,7 @@ const profileFieldHelp = {
   },
 };
 
-const configFields = ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "enrollment_limit", "owner_env_var", "cloudflare_filter", "smtp_config", "profile_branding"];
+const configFields = ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "enrollment_limit", "owner_env_var", "cloudflare_filter", "parallel_upgrade", "smtp_config", "profile_branding"];
 
 function isCreateFormAction(action = currentAction) {
   return action === "create" || action === "template";
@@ -412,7 +416,7 @@ const actions = {
     description: "Save the NetBox URL, token, optional proxy, domain and host tag used by the automation.",
     submitLabel: "Save config",
     buttonClass: "btn btn-primary",
-    fields: ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "enrollment_limit", "owner_env_var", "cloudflare_filter", "smtp_config", "profile_branding"],
+    fields: ["config_profile", "config_name", "customer_name", "netbox", "token", "proxy", "domain", "tag", "enrollment_limit", "owner_env_var", "cloudflare_filter", "parallel_upgrade", "smtp_config", "profile_branding"],
   },
   branding: {
     endpoint: "/admin/brandings",
@@ -535,6 +539,7 @@ const allFieldNames = [
   "remove_old_images",
   "remove_image",
   "cloudflare_filter",
+  "parallel_upgrade",
   "registry_webhook_secret",
   "smtp_config",
   "var_env_key",
@@ -1073,6 +1078,7 @@ function normalizedProfileForSync(profile = {}) {
     enrollment_limit: enrollmentLimitValue(profile),
     owner_env_var: ownerEnvVarValue(profile.owner_env_var),
     cloudflare_filter: checkboxValue(profile.cloudflare_filter, true),
+    parallel_upgrade: checkboxValue(profile.parallel_upgrade, false),
     smtp_config: smtpConfigValue(profile),
     saashup_visible: profile.saashup_visible === true || profile.saashup_default === true,
     branding: profile.branding || "",
@@ -1089,6 +1095,7 @@ function currentProfileFieldValues() {
     enrollment_limit: fieldValue("enrollment_limit"),
     owner_env_var: fieldValue("owner_env_var"),
     cloudflare_filter: fieldChecked("cloudflare_filter", true),
+    parallel_upgrade: fieldChecked("parallel_upgrade", false),
     smtp_config: fieldValue("smtp_config"),
     saashup_visible: Boolean(configDefaultInput?.checked),
     branding: fieldValue("profile_branding"),
@@ -1655,6 +1662,7 @@ function profileCredentials(name = currentConfigProfile) {
     enrollment_limit: enrollmentLimitValue(profile),
     owner_env_var: ownerEnvVarValue(profile.owner_env_var),
     cloudflare_filter: checkboxValue(profile.cloudflare_filter, true),
+    parallel_upgrade: checkboxValue(profile.parallel_upgrade, false),
     smtp_config: smtpConfigValue(profile),
     smtp_configured: Boolean(profile.smtp_config || profile.smtp_configured),
     branding: profile.branding || "",
@@ -2308,6 +2316,7 @@ function applyProfileToFields(name = currentConfigProfile, { syncNetwork = true 
   setFieldValue("enrollment_limit", credentials.enrollment_limit);
   setFieldValue("owner_env_var", credentials.owner_env_var);
   setFieldValue("cloudflare_filter", credentials.cloudflare_filter);
+  setFieldValue("parallel_upgrade", credentials.parallel_upgrade);
   setFieldValue("smtp_config", credentials.smtp_config);
   setFieldValue("profile_branding", credentials.branding);
   applyProfileBranding(knownProfileEntries()[currentConfigProfile] || {});
@@ -5871,6 +5880,7 @@ async function saveConfig() {
   const enrollment_limit = normalizeMaxInstances(fieldValue("enrollment_limit"));
   const owner_env_var = ownerEnvVarValue(fieldValue("owner_env_var"));
   const cloudflare_filter = fieldChecked("cloudflare_filter", true);
+  const parallel_upgrade = fieldChecked("parallel_upgrade", false);
   const smtp_config = fieldValue("smtp_config");
   const saashup_visible = Boolean(configDefaultInput?.checked);
   const branding = fieldValue("profile_branding").trim();
@@ -5916,6 +5926,7 @@ async function saveConfig() {
     enrollment_limit,
     owner_env_var,
     cloudflare_filter,
+    parallel_upgrade,
     ...(saashup_visible ? { saashup_visible: true } : {}),
     ...(branding ? { branding } : {}),
   };
@@ -5953,7 +5964,7 @@ async function saveConfig() {
 
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
-    savedConfig = { customer_name, netbox, token, proxy, domain, tag, enrollment_limit, owner_env_var, cloudflare_filter, smtp_config, profile, profiles: configProfiles };
+    savedConfig = { customer_name, netbox, token, proxy, domain, tag, enrollment_limit, owner_env_var, cloudflare_filter, parallel_upgrade, smtp_config, profile, profiles: configProfiles };
     serverConfigProfiles = { ...configProfiles };
     applyProfileToFields(profile);
     try {
@@ -6007,6 +6018,7 @@ async function deleteConfig() {
       setFieldValue("enrollment_limit", "1");
       setFieldValue("owner_env_var", "SAASHUP_OWNER");
       setFieldValue("cloudflare_filter", true);
+      setFieldValue("parallel_upgrade", false);
       setFieldValue("smtp_config", "");
 
       const params = new URLSearchParams({

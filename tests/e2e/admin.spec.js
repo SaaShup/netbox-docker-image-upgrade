@@ -65,6 +65,11 @@ test("config tab starts without a forced default profile", async ({ page }) => {
   await expect(page.locator("#enrollment_limit")).toHaveValue("1");
   await expect(page.locator("#owner_env_var")).toHaveValue("SAASHUP_OWNER");
   await expect(page.locator("#cloudflare_filter")).toBeChecked();
+  await expect(page.locator("#parallel_upgrade")).not.toBeChecked();
+  await page.locator('[data-profile-help="parallel_upgrade"]').click();
+  await expect(page.locator("#profileHelpTitle")).toHaveText("Parallel upgrade");
+  await expect(page.locator("#profileHelpBody")).toContainText("different Docker hosts at the same time");
+  await page.locator("#profileHelpOkBtn").click();
   await page.locator('[data-field="netbox"] .field-label').click({ position: { x: 4, y: 8 } });
   await expect(page.locator("#profileHelpModal")).toBeHidden();
   await page.locator('[data-profile-help="netbox"]').click();
@@ -441,6 +446,7 @@ test("config page imports config profiles", async ({ page }) => {
           max_instances: 3,
           owner_env_var: "OWNER",
           cloudflare_filter: false,
+          parallel_upgrade: true,
         },
       },
     },
@@ -459,6 +465,7 @@ test("config page imports config profiles", async ({ page }) => {
   await expect(page.locator("#enrollment_limit")).toHaveValue("3");
   await expect(page.locator("#owner_env_var")).toHaveValue("OWNER");
   await expect(page.locator("#cloudflare_filter")).not.toBeChecked();
+  await expect(page.locator("#parallel_upgrade")).toBeChecked();
 
   const localProfiles = await page.evaluate(() => JSON.parse(localStorage.getItem("config_profiles")));
   const localTemplates = await page.evaluate(() => JSON.parse(localStorage.getItem("create_templates")));
@@ -466,6 +473,7 @@ test("config page imports config profiles", async ({ page }) => {
   expect(localProfiles.production.tag).toBe("production");
   expect(localProfiles.production.owner_env_var).toBe("OWNER");
   expect(localProfiles.production.cloudflare_filter).toBe(false);
+  expect(localProfiles.production.parallel_upgrade).toBe(true);
   expect(localTemplates.Existing.image).toBe("saashup/existing");
   expect(localTemplates.Guide).toBeUndefined();
 });

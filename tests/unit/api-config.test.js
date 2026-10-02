@@ -898,6 +898,24 @@ describe("api config routes", () => {
     expect(JSON.stringify(res.body)).not.toContain("secret");
   });
 
+  test("webhook keeps the parallel_upgrade profile option", async () => {
+    const { routes, getState } = createRoutes({ syncTemplatesToNetBoxConfigContext: vi.fn().mockResolvedValue(null) });
+    const res = mockResponse();
+    await routes["GET /webhook"]({
+      query: {
+        profile: "prod",
+        profiles: JSON.stringify({
+          prod: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", parallel_upgrade: true },
+          staging: { netbox: "https://netbox.example.com", token: "secret", tag: "staging" },
+        }),
+      },
+    }, res);
+
+    expect(res.body.profiles.prod.parallel_upgrade).toBe(true);
+    expect(res.body.profiles.staging.parallel_upgrade).toBeUndefined();
+    expect(getState().config.profiles.prod.parallel_upgrade).toBe(true);
+  });
+
   test("webhook accepts profile values from imported profiles and empty fallbacks", async () => {
     const syncTemplatesToNetBoxConfigContext = vi.fn().mockResolvedValue(null);
     const { routes } = createRoutes({ syncTemplatesToNetBoxConfigContext });
