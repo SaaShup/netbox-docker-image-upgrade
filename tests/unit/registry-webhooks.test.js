@@ -120,6 +120,23 @@ describe("registry webhook route helper", () => {
     expect(deps.imageNameFromRef).toHaveBeenCalledWith("");
   });
 
+  test("passes the profile parallel_upgrade option to recreateContainers", async () => {
+    const { deps, handler } = createRoute({
+      selectedProfileConfig: vi.fn(() => ({ tag: "tile", parallel_upgrade: true })),
+    });
+
+    handler(request(), response());
+
+    await vi.waitFor(() => expect(deps.recreateContainers).toHaveBeenCalledWith({
+      tag: "tile",
+      parallel_upgrade: true,
+      image: "saashup/tile",
+      version: "v2.0.0",
+      clean_name: false,
+    }));
+    expect(deps.selectedProfileConfig).toHaveBeenCalledWith({ profile: "prod" });
+  });
+
   test("rejects invalid webhook secrets before starting async work", async () => {
     const { deps, handler } = createRoute({
       registryWebhookAllowed: vi.fn(() => false),

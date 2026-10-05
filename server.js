@@ -1242,11 +1242,8 @@ async function recreateContainers(data) {
   }
   const removeOldImages = (data.remove_old_images === true || data.remove_old_images === "true" || data.remove_old_images === "on")
     && (!data.oldversion || String(data.oldversion) !== String(data.version));
-  let readyCount = 0;
-  let containerCount = 0;
-  for (const { container, source } of containersById.values()) {
+  const recreateOne = async ({ container, source }) => {
     const newImage = await ensureImageOnHost(client, source, data.image, data.version);
-    containerCount += 1;
     const sourceName = firstValueText(container.name, container.display);
     const targetName = (data.clean_name === true || data.clean_name === "true" || data.clean_name === "on") ? sourceName.replace(/-17[0-9]{8,}$/, "") : sourceName;
     let ready = false;
@@ -1259,7 +1256,38 @@ async function recreateContainers(data) {
       if (ready || attempt === 2) break;
       logLine(`RECREATE : ${hostName(container)}/${valueText(container.display || container.name)} retrying recreate after verification failed`);
     }
-    if (ready) readyCount += 1;
+    return ready;
+  };
+  // With parallel_upgrade, hosts run in parallel and containers of one host stay sequential.
+  // Without it, every container lands in a single group, processed one after the other.
+  const parallel = parallelUpgradeEnabled(data);
+  const containersByHost = new Map();
+  for (const entry of containersById.values()) {
+    const hostKey = parallel ? (valueText(entry.container?.host?.id || entry.container?.host) || hostName(entry.container)) : "all";
+    if (!containersByHost.has(hostKey)) containersByHost.set(hostKey, []);
+    containersByHost.get(hostKey).push(entry);
+  }
+  const hostResults = await Promise.allSettled([...containersByHost.values()].map(async (entries) => {
+    let ready = 0;
+    for (const entry of entries) {
+      if (await recreateOne(entry)) ready += 1;
+    }
+    return { containerCount: entries.length, readyCount: ready };
+  }));
+  let readyCount = 0;
+  let containerCount = 0;
+  const failures = [];
+  for (const result of hostResults) {
+    if (result.status === "fulfilled") {
+      containerCount += result.value.containerCount;
+      readyCount += result.value.readyCount;
+    } else {
+      failures.push(result.reason);
+    }
+  }
+  if (failures.length) {
+    failures.forEach((error) => logLine(`RECREATE : host failed ${error?.message || "unknown error"}`));
+    throw failures[0];
   }
   for (const oldImage of oldImages) {
     if (removeOldImages) {
@@ -1269,6 +1297,10 @@ async function recreateContainers(data) {
   }
   logLine(`RECREATE : finished ${data.image}:${data.oldversion || "all previous versions"} -> ${data.version}`);
   return containerCount > 0 && readyCount === containerCount;
+}
+
+function parallelUpgradeEnabled(data) {
+  return data.parallel_upgrade === true || data.parallel_upgrade === "true" || data.parallel_upgrade === "on";
 }
 
 function deleteVolumesEnabled(data) {

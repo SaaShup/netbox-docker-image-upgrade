@@ -5118,6 +5118,155 @@ describe("server routes", () => {
     ))).toBe(true);
   });
 
+  describe("recreate parallel_upgrade", () => {
+    const hostBContainer = {
+      id: 32,
+      name: "tiles-other",
+      display: "tiles-other",
+      host: { id: 2, display: "host-b" },
+      image: { id: 77, name: "saashup/tile", version: "v1.0.0" },
+      labels: [{ key: "saashup.template.version", value: "v1.0.0" }],
+      state: "running",
+      status: "running",
+    };
+
+    async function recreateOnTwoHosts({ body = {}, config = {}, fetchOverride } = {}) {
+      const { dataPath, fetchMock, request } = await loadServer();
+      setupNetBoxFetch(fetchMock, { recreateScanContainers: [hostBContainer] });
+      if (fetchOverride) {
+        const base = fetchMock.getMockImplementation();
+        fetchMock.mockImplementation((url, options) => fetchOverride(base, url, options));
+      }
+      writeState(dataPath, {
+        config: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", ...config },
+        templates: {},
+        order_counts: {},
+        logs: "",
+      });
+      await request.post("/recreate").send({ image: "saashup/tile", version: "v2.0.0", oldversion: "v1.0.0", ...body }).expect(202);
+      return { dataPath, fetchMock };
+    }
+
+    const happenedBefore = (logs, earlier, later) => logs.indexOf(earlier) > logs.indexOf(later);
+
+    const hostAVerified = "RECREATE : host-a/tiles verified";
+    const hostBImageSet = "RECREATE : host-b/tiles-other image set";
+
+    test("recreates containers one after the other by default", async () => {
+      const { dataPath } = await recreateOnTwoHosts();
+      await vi.waitFor(() => expect(readState(dataPath).logs).toContain("RECREATE : finished"));
+
+      const logs = readState(dataPath).logs;
+      expect(logs).toContain(hostAVerified);
+      expect(logs).toContain(hostBImageSet);
+      expect(happenedBefore(logs, hostAVerified, hostBImageSet)).toBe(true);
+    });
+
+    test("recreates hosts in parallel when parallel_upgrade is enabled in the request", async () => {
+      const { dataPath } = await recreateOnTwoHosts({ body: { parallel_upgrade: "true" } });
+      await vi.waitFor(() => expect(readState(dataPath).logs).toContain("RECREATE : finished"));
+
+      const logs = readState(dataPath).logs;
+      expect(logs).toContain(hostAVerified);
+      expect(logs).toContain(hostBImageSet);
+      expect(happenedBefore(logs, hostBImageSet, hostAVerified)).toBe(true);
+    });
+
+    test("recreates hosts in parallel when the profile enables parallel_upgrade", async () => {
+      const { dataPath } = await recreateOnTwoHosts({
+        body: { profile: "prod" },
+        config: { profile: "prod", profiles: { prod: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", parallel_upgrade: true } } },
+      });
+      await vi.waitFor(() => expect(readState(dataPath).logs).toContain("RECREATE : finished"));
+
+      const logs = readState(dataPath).logs;
+      expect(happenedBefore(logs, hostBImageSet, hostAVerified)).toBe(true);
+    });
+
+    test("keeps sequential order when the profile leaves parallel_upgrade off", async () => {
+      const { dataPath } = await recreateOnTwoHosts({
+        body: { profile: "prod" },
+        config: { profile: "prod", profiles: { prod: { netbox: "https://netbox.example.com", token: "secret", tag: "tile", parallel_upgrade: false } } },
+      });
+      await vi.waitFor(() => expect(readState(dataPath).logs).toContain("RECREATE : finished"));
+
+      const logs = readState(dataPath).logs;
+      expect(happenedBefore(logs, hostAVerified, hostBImageSet)).toBe(true);
+    });
+
+    test("registry webhook upgrades hosts in parallel when the profile enables parallel_upgrade", async () => {
+      const { dataPath, fetchMock, request } = await loadServer();
+      setupNetBoxFetch(fetchMock, { recreateScanContainers: [hostBContainer] });
+      writeState(dataPath, {
+        config: {
+          netbox: "https://netbox.example.com",
+          token: "secret",
+          profiles: { prod: { tag: "tile", parallel_upgrade: true } },
+        },
+        templates: {},
+        order_counts: {},
+        logs: "",
+      });
+
+      await request.post("/registry-webhook/prod")
+        .send({ push_data: { tag: "v2.0.0" }, repository: { repo_name: "saashup/tile" } })
+        .expect(202);
+      await vi.waitFor(() => expect(readState(dataPath).logs).toContain("RECREATE : finished"));
+
+      const logs = readState(dataPath).logs;
+      expect(logs).toContain(hostAVerified);
+      expect(happenedBefore(logs, hostBImageSet, hostAVerified)).toBe(true);
+    });
+
+    test("registry webhook upgrades one container at a time when the profile has no parallel_upgrade", async () => {
+      const { dataPath, fetchMock, request } = await loadServer();
+      setupNetBoxFetch(fetchMock, { recreateScanContainers: [hostBContainer] });
+      writeState(dataPath, {
+        config: {
+          netbox: "https://netbox.example.com",
+          token: "secret",
+          profiles: { prod: { tag: "tile" } },
+        },
+        templates: {},
+        order_counts: {},
+        logs: "",
+      });
+
+      await request.post("/registry-webhook/prod")
+        .send({ push_data: { tag: "v2.0.0" }, repository: { repo_name: "saashup/tile" } })
+        .expect(202);
+      await vi.waitFor(() => expect(readState(dataPath).logs).toContain("RECREATE : finished"));
+
+      const logs = readState(dataPath).logs;
+      expect(logs).toContain(hostBImageSet);
+      expect(happenedBefore(logs, hostAVerified, hostBImageSet)).toBe(true);
+    });
+
+    test("lets the other hosts finish when one host fails in parallel mode", async () => {
+      const { dataPath, fetchMock } = await recreateOnTwoHosts({
+        body: { parallel_upgrade: "true" },
+        fetchOverride: async (base, url, options = {}) => {
+          const parsed = new URL(String(url));
+          if (parsed.pathname === "/api/plugins/docker/containers/" && options.method === "PATCH") {
+            const body = JSON.parse(options.body);
+            if (Array.isArray(body) && body.some((item) => item.id === 32 && item.image)) {
+              return jsonResponse({ detail: "boom" }, 500);
+            }
+          }
+          return base(url, options);
+        },
+      });
+      await vi.waitFor(() => expect(readState(dataPath).logs).toContain("RECREATE : host failed"));
+
+      const logs = readState(dataPath).logs;
+      expect(logs).toContain(hostAVerified);
+      expect(logs).not.toContain("RECREATE : finished");
+      expect(parsedFetchCalls(fetchMock).some((call) => (
+        call.method === "PATCH" && Array.isArray(call.body) && call.body.some((item) => item.id === 30 && item.operation === "recreate")
+      ))).toBe(true);
+    });
+  });
+
   test("recreate retries when ready containers still report the old image", async () => {
     const { dataPath, fetchMock, request } = await loadServer({ operationTimeoutSeconds: "0.02" });
     setupNetBoxFetch(fetchMock, {

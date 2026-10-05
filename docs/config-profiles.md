@@ -6,6 +6,8 @@ NetBox v1 tokens and v2 tokens are both supported: v1 tokens are sent as `Author
 
 Create, Upgrade, Operate, Delete, host refresh, instance refresh and image refresh all use the selected profile. When a domain is set, Create turns a short instance name into an FQDN by appending that domain. When a tag is set, Create, Upgrade, Operate and refresh lists first load hosts with that tag. Create selects the matching host with the fewest containers.
 
+Each config also has an `Upgrade hosts in parallel` toggle (`parallel_upgrade`), off by default. When it is on, Upgrade and registry webhooks recreate containers on different Docker hosts at the same time, while containers on the same host are still recreated one at a time.
+
 Each config also has a `Max instances` value from 0 to 10, defaulting to 1. Orders are limited per signed-in user and config profile. The limit and usage counters are persisted in `app-state.json` under `DATAPATH` (`/data` in the Docker image). When a profile has SMTP config and `APP_OWNER_EMAIL` is set, ready emails are sent to the requester with the owner address copied.
 
 Enroll requests reject duplicate image names for the same user and config profile. To block specific images from `/enroll`, set `SAASHUP_ENROLL_BLOCKED_IMAGES` to a comma-separated list, for example `traefik,netbox-docker-agent`.
