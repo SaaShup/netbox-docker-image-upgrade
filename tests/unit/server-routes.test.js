@@ -126,6 +126,94 @@ function cookieHeader(setCookie) {
   return setCookie.map((value) => value.split(";")[0]).join("; ");
 }
 
+const multiProfileNetBoxUrl = "https://netbox.example.com";
+
+function multiProfileState() {
+  return {
+    config: {
+      profile: "alpha",
+      config_profile: "alpha",
+      profiles: {
+        alpha: { netbox: multiProfileNetBoxUrl, token: "secret", tag: "alpha", saashup_visible: true },
+        beta: { netbox: multiProfileNetBoxUrl, token: "secret", tag: "beta", saashup_visible: true },
+      },
+    },
+    templates: {},
+    workflows: {},
+    logs: "",
+  };
+}
+
+function catalogContext(id, profile, templates, workflows = {}) {
+  return {
+    id,
+    name: `saashup-template-catalog-${profile}`,
+    is_active: true,
+    data: {
+      saashup_template_catalog: true,
+      saashup_profile: profile,
+      saashup_netbox_url: multiProfileNetBoxUrl,
+      saashup_tag: profile,
+      saashup_templates: templates,
+      saashup_workflows: workflows,
+    },
+  };
+}
+
+function setupMultiProfileNetBox(fetchMock, { contexts = [], hosts = [], containers = [] } = {}) {
+  const store = [...contexts];
+  fetchMock.mockImplementation(async (url, options = {}) => {
+    const parsed = new URL(String(url));
+    const method = options.method || "GET";
+    const pathname = parsed.pathname;
+
+    if (pathname === "/api/extras/config-contexts/" && method === "GET") {
+      const q = String(parsed.searchParams.get("q") || "").toLowerCase();
+      return jsonResponse({ results: store.filter((context) => !q || context.name.toLowerCase().includes(q)) });
+    }
+    if (pathname === "/api/extras/config-contexts/" && method === "POST") {
+      const next = { id: 900 + store.length, ...JSON.parse(options.body) };
+      store.push(next);
+      return jsonResponse(next, 201);
+    }
+    if (/^\/api\/extras\/config-contexts\/\d+\/$/.test(pathname) && method === "PATCH") {
+      const id = Number(pathname.split("/").filter(Boolean).at(-1));
+      const next = { id, ...JSON.parse(options.body) };
+      const index = store.findIndex((context) => context.id === id);
+      if (index >= 0) store[index] = next;
+      return jsonResponse(next);
+    }
+    if (pathname === "/api/plugins/docker/hosts/") return jsonResponse({ results: hosts });
+    if (pathname === "/api/plugins/docker/containers/") {
+      const hostIds = parsed.searchParams.getAll("host_id");
+      return jsonResponse({ results: containers.filter((container) => !hostIds.length || hostIds.includes(String(container.host.id))) });
+    }
+    return jsonResponse({ results: [] });
+  });
+}
+
+function catalogWritesByProfile(fetchMock) {
+  return Object.fromEntries(parsedFetchCalls(fetchMock)
+    .filter((call) => (
+      (call.method === "POST" && call.url.pathname === "/api/extras/config-contexts/")
+      || (call.method === "PATCH" && /^\/api\/extras\/config-contexts\/\d+\/$/.test(call.url.pathname))
+    ))
+    .map((call) => [call.body.data.saashup_profile, call.body.data]));
+}
+
+function templateContainer(id, hostId, name, image) {
+  return {
+    id,
+    name: `${name}-${id}`,
+    image: { id, name: image, version: "1.0.0" },
+    host: { id: hostId },
+    labels: [
+      { key: "saashup.template.name", value: name },
+      { key: "saashup.template.owner", value: "owner@example.com" },
+    ],
+  };
+}
+
 function setupNetBoxFetch(fetchMock, {
   containerPostArray = false,
   containerHostAsId = false,
@@ -2099,6 +2187,118 @@ describe("server routes", () => {
           config_profile: "alpha",
           steps: [{ template: "Tile" }],
         });
+      });
+  });
+
+  test("templates save writes each visible profile's entries into its own config context", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupMultiProfileNetBox(fetchMock);
+    writeState(dataPath, multiProfileState());
+
+    await request.post("/templates")
+      .query({ profile: "alpha", include_workflows: "true" })
+      .send({
+        templates: {
+          central: { image: "saashup/central", config_profile: "alpha" },
+          gym: { image: "saashup/gym", config_profile: "beta" },
+        },
+        workflows: {
+          "alpha::templates": { config_profile: "alpha", steps: [{ template: "central" }] },
+          "beta::templates": { config_profile: "beta", steps: [{ template: "gym" }] },
+        },
+      })
+      .expect(200);
+
+    const writes = catalogWritesByProfile(fetchMock);
+    expect(Object.keys(writes.alpha.saashup_templates)).toEqual(["central"]);
+    expect(Object.keys(writes.alpha.saashup_workflows)).toEqual(["alpha::templates"]);
+    expect(Object.keys(writes.beta.saashup_templates)).toEqual(["gym"]);
+    expect(Object.keys(writes.beta.saashup_workflows)).toEqual(["beta::templates"]);
+  });
+
+  test("templates read prefers the owning profile's copy over a stale copy in another context", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupMultiProfileNetBox(fetchMock, {
+      contexts: [
+        catalogContext(1, "alpha",
+          { gym: { image: "saashup/gym", config_profile: "beta", max_instances: 1 } },
+          { "beta::templates": { config_profile: "beta", steps: [{ template: "gym" }], stale: true } }),
+        catalogContext(2, "beta",
+          { gym: { image: "saashup/gym", config_profile: "beta", max_instances: 5 } },
+          { "beta::templates": { config_profile: "beta", steps: [{ template: "gym" }] } }),
+      ],
+    });
+    writeState(dataPath, multiProfileState());
+
+    await request.get("/templates")
+      .query({ include_workflows: "true" })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.templates.gym).toMatchObject({ config_profile: "beta", max_instances: 5 });
+        expect(res.body.workflows["beta::templates"].stale).toBeUndefined();
+      });
+  });
+
+  test("templates save rejects a name already used by another visible profile", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupMultiProfileNetBox(fetchMock, {
+      contexts: [catalogContext(2, "beta", { gym: { image: "saashup/gym", config_profile: "beta" } })],
+    });
+    writeState(dataPath, multiProfileState());
+
+    await request.post("/templates")
+      .query({ profile: "alpha", include_workflows: "true" })
+      .send({ templates: { Gym: { image: "saashup/gym", config_profile: "alpha" } }, workflows: {} })
+      .expect(409)
+      .expect((res) => {
+        expect(res.body).toMatchObject({ code: "template_name_taken", template: "Gym", profile: "beta" });
+      });
+
+    expect(catalogWritesByProfile(fetchMock)).toEqual({});
+  });
+
+  test("templates save empties another profile's context when its last template is deleted", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupMultiProfileNetBox(fetchMock, {
+      contexts: [
+        catalogContext(1, "alpha", { central: { image: "saashup/central", config_profile: "alpha" } }),
+        catalogContext(2, "beta", { gym: { image: "saashup/gym", config_profile: "beta" } }),
+      ],
+    });
+    writeState(dataPath, multiProfileState());
+
+    await request.post("/templates")
+      .query({ profile: "alpha", include_workflows: "true" })
+      .send({ templates: { central: { image: "saashup/central", config_profile: "alpha" } }, workflows: {} })
+      .expect(200);
+
+    const writes = catalogWritesByProfile(fetchMock);
+    expect(Object.keys(writes.alpha.saashup_templates)).toEqual(["central"]);
+    expect(writes.beta.saashup_templates).toEqual({});
+  });
+
+  test("containers on a host shared by visible profiles only yield templates their profile declares", async () => {
+    const { dataPath, fetchMock, request } = await loadServer();
+    setupMultiProfileNetBox(fetchMock, {
+      contexts: [catalogContext(2, "beta", { gym: { image: "saashup/gym", config_profile: "beta" } })],
+      hosts: [
+        { id: 1, name: "shared", tags: [{ slug: "alpha" }, { slug: "beta" }] },
+        { id: 2, name: "alpha-only", tags: [{ slug: "alpha" }] },
+      ],
+      containers: [
+        templateContainer(10, 1, "gym", "saashup/gym"),
+        templateContainer(11, 2, "solo", "saashup/solo"),
+      ],
+    });
+    writeState(dataPath, multiProfileState());
+
+    await request.get("/enroll/limit")
+      .set("x-auth-request-email", "owner@example.com")
+      .query({ owner_only: "false" })
+      .expect(200)
+      .expect((res) => {
+        const instances = res.body.instances.map((item) => [item.instance, item.profile]).sort();
+        expect(instances).toEqual([["gym", "beta"], ["solo", "alpha"]]);
       });
   });
 

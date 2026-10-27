@@ -372,11 +372,15 @@ async function netboxTemplateEntriesForUser(req, profile, state, creator, option
     if (hostFilter.host_id === "__none__") return [...templates.values()];
     const containers = await client.list("/api/plugins/docker/containers/", { limit: 1000, ...hostFilter });
     const imageCounts = await imageContainerCountsByImage(client, hostFilter, containers);
+    const declaredNames = new Set(catalogEntries.map((entry) => entry.name.toLowerCase()));
+    const sharedHostIds = await sharedProfileHostIds(client, profile, config);
 
     containers.forEach((container) => {
       const labels = labelMapFromContainer(container);
       const entry = netboxTemplateEntryFromContainer(container, labels, ownerEnvNameValue, creator, profile);
       if (!entry) return;
+      // On a host shared with another visible profile, container labels can't tell which profile owns the template.
+      if (sharedHostIds.has(valueText(container?.host?.id ?? container?.host)) && !declaredNames.has(entry.name.toLowerCase())) return;
 
       const key = entry.name.toLowerCase();
       const existing = templates.get(key) || entry;
@@ -405,6 +409,21 @@ async function netboxTemplateEntriesForUser(req, profile, state, creator, option
     logLine(`ENROLL : NetBox template discovery failed ${error.message || "unknown error"}`);
     return [];
   }
+}
+
+async function sharedProfileHostIds(client, profile, config) {
+  const netbox = templateCatalogScope(profile, config).netbox;
+  const otherTags = visibleProfileNames()
+    .filter((name) => name !== profile)
+    .map((name) => selectedProfileConfig({ profile: name, config_profile: name }))
+    .filter((other) => other.tag && templateCatalogScope("", other).netbox === netbox)
+    .map((other) => other.tag);
+  if (!otherTags.length) return new Set();
+
+  const hosts = await dockerHosts(client, config.tag);
+  return new Set(hosts
+    .filter((host) => otherTags.some((tag) => hostMatchesTag(host, tag)))
+    .map((host) => valueText(host.id)));
 }
 
 async function syncTemplatesToNetBoxConfigContext(req, profile, templates, workflows = {}, options = {}) {
@@ -477,7 +496,12 @@ async function templatesForVisibleProfiles(req, options = {}) {
     const templates = await templatesForRequest(req, profile, options);
     Object.entries(templates).forEach(([name, template]) => {
       const key = name.toLowerCase();
-      if (!merged.has(key)) merged.set(key, { name, template: { ...plainObject(template), config_profile: plainObject(template).config_profile || profile } });
+      const value = plainObject(template);
+      const owned = !value.config_profile || value.config_profile === profile;
+      // A copy stored in another profile's context must not hide the owning profile's copy.
+      if (!merged.has(key) || (owned && !merged.get(key).owned)) {
+        merged.set(key, { name, template: { ...value, config_profile: value.config_profile || profile }, owned });
+      }
     });
   }
   return Object.fromEntries([...merged.values()].map(({ name, template }) => [name, template]));
@@ -515,7 +539,11 @@ async function workflowsForVisibleProfiles(req) {
     const workflows = await workflowsForRequest(req, profile);
     Object.entries(workflows).forEach(([name, workflow]) => {
       const key = name.toLowerCase();
-      if (!merged.has(key)) merged.set(key, { name, workflow: { ...plainObject(workflow), config_profile: plainObject(workflow).config_profile || profile } });
+      const value = plainObject(workflow);
+      const owned = !value.config_profile || value.config_profile === profile;
+      if (!merged.has(key) || (owned && !merged.get(key).owned)) {
+        merged.set(key, { name, workflow: { ...value, config_profile: value.config_profile || profile }, owned });
+      }
     });
   }
   return Object.fromEntries([...merged.values()].map(({ name, workflow }) => [name, workflow]));

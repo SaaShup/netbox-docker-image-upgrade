@@ -196,6 +196,35 @@ function workflowsWithoutTemplate(workflows, templateName, plainObject) {
     .filter(([, workflow]) => !Array.isArray(workflow.steps) || workflow.steps.length));
 }
 
+// The UI saves templates merged across visible profiles; each profile's config context must only hold its own entries.
+function catalogEntriesByProfile(entries, defaultProfile, plainObject) {
+  const groups = {};
+  Object.entries(plainObject(entries)).forEach(([name, entry]) => {
+    const value = plainObject(entry);
+    const profile = String(value.config_profile || value.profile || defaultProfile || "");
+    groups[profile] = { ...groups[profile], [name]: entry };
+  });
+  return groups;
+}
+
+// A template name (case-insensitive) may only belong to one profile.
+function templateNameConflict(templatesByProfile, existingByProfile) {
+  const owners = new Map();
+  Object.entries(existingByProfile).forEach(([profile, entries]) => {
+    Object.keys(entries).forEach((name) => owners.set(name.toLowerCase(), profile));
+  });
+  const claimed = new Map();
+  for (const [profile, entries] of Object.entries(templatesByProfile)) {
+    for (const name of Object.keys(entries)) {
+      const key = name.toLowerCase();
+      const owner = claimed.get(key) ?? owners.get(key);
+      if (owner !== undefined && owner !== profile) return { name, profile: owner };
+      claimed.set(key, profile);
+    }
+  }
+  return null;
+}
+
 function unquoteDockerfileEnvValue(value) {
   const text = String(value);
   if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
@@ -601,8 +630,32 @@ function registerConfigRoutes(app, {
     const profile = req.query.profile || req.query.config_profile || payload.profile || payload.config_profile || state.config?.profile || state.config?.config_profile || "";
     const workflows = plainObject(hasCatalogShape ? payload.workflows : state.workflows);
     const templates = templatesWithCreatorEmails(hasCatalogShape ? payload.templates : payload, plainObject(state.templates), creatorEmail);
+    const templatesByProfile = catalogEntriesByProfile(templates, profile, plainObject);
+    const workflowsByProfile = catalogEntriesByProfile(workflows, profile, plainObject);
+    const visibleProfiles = visibleProfileNames();
     try {
-      const syncResult = await syncTemplatesToNetBoxConfigContext(req, profile, templates, workflows);
+      const existingTemplates = visibleProfiles.length > 1 ? await templatesForVisibleProfiles(req) : {};
+      const conflict = templateNameConflict(templatesByProfile, catalogEntriesByProfile(existingTemplates, profile, plainObject));
+      if (conflict) {
+        res.status(409).json({
+          code: "template_name_taken",
+          detail: `Template "${conflict.name}" already exists in profile "${conflict.profile}".`,
+          template: conflict.name,
+          profile: conflict.profile,
+        });
+        return;
+      }
+      // Profiles that currently hold templates are synced too, so deleting a profile's last template empties its context.
+      const otherProfiles = [...new Set([
+        ...Object.keys(templatesByProfile),
+        ...Object.keys(workflowsByProfile),
+        ...Object.values(existingTemplates).map((template) => String(plainObject(template).config_profile || "")),
+      ])].filter((name) => name !== String(profile) && visibleProfiles.includes(name));
+
+      const syncResult = await syncTemplatesToNetBoxConfigContext(req, profile, templatesByProfile[profile] || {}, workflowsByProfile[profile] || {});
+      for (const otherProfile of otherProfiles) {
+        await syncTemplatesToNetBoxConfigContext(req, otherProfile, templatesByProfile[otherProfile] || {}, workflowsByProfile[otherProfile] || {});
+      }
       if (!syncResult) {
         writeState((state) => {
           state.templates = templates;

@@ -104,6 +104,17 @@ function createEnrollHelpers({
   }
 
   async function validateEnrollmentTemplate(req, res, profile = "", data = {}) {
+    const templateKey = templateNameFromEnrollmentData(data).toLowerCase();
+    const otherProfiles = templateKey ? visibleProfileNames().filter((name) => name !== String(profile || "")) : [];
+    for (const otherProfile of otherProfiles) {
+      const templates = await templatesForRequest(req, otherProfile);
+      const taken = Object.keys(plainObject(templates)).find((name) => name.toLowerCase() === templateKey);
+      if (taken) {
+        res.status(409).json({ code: "template_name_taken", detail: `Template "${taken}" already exists in profile "${otherProfile}".`, template: taken, profile: otherProfile });
+        return false;
+      }
+    }
+
     const image = normalizedEnrollImageName(data.image);
     if (!image) return true;
 
