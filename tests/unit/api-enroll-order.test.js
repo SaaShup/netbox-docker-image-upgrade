@@ -90,6 +90,22 @@ describe("api/enroll helpers", () => {
     expect(validRes.statusCode).toBe(200);
   });
 
+  test("validateEnrollmentTemplate rejects a template name used by another visible profile", async () => {
+    const helpers = createEnroll({
+      visibleProfileNames: () => ["alpha", "beta"],
+      templatesForRequest: async (_req, profile) => (profile === "beta" ? { Gym: { image: "saashup/gym" } } : {}),
+    });
+
+    const takenRes = mockResponse();
+    await expect(helpers.validateEnrollmentTemplate({}, takenRes, "alpha", { image: "saashup/gym:1.0" })).resolves.toBe(false);
+    expect(takenRes.statusCode).toBe(409);
+    expect(takenRes.body).toMatchObject({ code: "template_name_taken", template: "Gym", profile: "beta" });
+
+    const sameProfileRes = mockResponse();
+    await expect(helpers.validateEnrollmentTemplate({}, sameProfileRes, "beta", { image: "saashup/other:1.0", order_template: "gym" })).resolves.toBe(true);
+    expect(sameProfileRes.statusCode).toBe(200);
+  });
+
   test("currentEnrollmentUsage computes used, max, remaining, and reached", async () => {
     const helpers = createEnroll({
       selectedProfileConfig: () => ({ enrollment_limit: 4 }),

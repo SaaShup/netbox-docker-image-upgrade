@@ -1220,10 +1220,23 @@ function persistCreateTemplates() {
       templates: createTemplates,
       workflows: createWorkflows,
     }),
-  }).then((response) => {
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  }).then(async (response) => {
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      const error = new Error(data.detail || `HTTP ${response.status}`);
+      error.code = data.code || "";
+      throw error;
+    }
     return response.json().catch(() => ({ templates: createTemplates, workflows: createWorkflows }));
   });
+}
+
+function templateNameOwnedByOtherProfile(name, profile) {
+  const key = String(name || "").trim().toLowerCase();
+  const match = Object.entries(createTemplates).find(([templateName]) => templateName.toLowerCase() === key);
+  if (!match) return "";
+  const owner = String(match[1]?.config_profile || match[1]?.profile || "");
+  return owner && owner !== String(profile || "") ? owner : "";
 }
 
 async function loadMailSettings() {
@@ -5192,8 +5205,15 @@ async function saveCreateTemplate() {
   const name = (prompt("Template name", suggested) || "").trim();
   if (!name) return;
 
+  const template = currentCreateTemplate();
+  const owner = templateNameOwnedByOtherProfile(name, template.config_profile);
+  if (owner) {
+    setNotice(`Template "${name}" already exists in profile "${owner}"`, "error");
+    return;
+  }
+
   const previousTemplates = { ...createTemplates };
-  createTemplates[name] = currentCreateTemplate();
+  createTemplates[name] = template;
 
   try {
     const savedCatalog = templateCatalogFromPayload(await persistCreateTemplates());
@@ -5203,11 +5223,11 @@ async function saveCreateTemplate() {
     localStorage.setItem("create_workflows", JSON.stringify(createWorkflows));
     updateTemplateOptions(name);
     setNotice(`Template "${name}" saved`, "success");
-  } catch {
+  } catch (error) {
     createTemplates = previousTemplates;
     localStorage.setItem("create_templates", JSON.stringify(createTemplates));
     updateTemplateOptions();
-    setNotice("Template save failed", "error");
+    setNotice(error.code === "template_name_taken" ? error.message : "Template save failed", "error");
   }
 }
 
