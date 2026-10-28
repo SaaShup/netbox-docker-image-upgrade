@@ -105,8 +105,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Pull Playwright image
-        run: docker pull "$PLAYWRIGHT_IMAGE"
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
 
       - name: Start integration stack
         run: |
@@ -124,14 +124,7 @@ jobs:
           INTEGRATION_CLOUDFLARE_ZONE: ${{ secrets.INTEGRATION_CLOUDFLARE_ZONE }}
           INTEGRATION_CLOUDFLARE_ZONE_ID: ${{ secrets.INTEGRATION_CLOUDFLARE_ZONE_ID }}
           INTEGRATION_CLOUDFLARE_API_TOKEN: ${{ secrets.INTEGRATION_CLOUDFLARE_API_TOKEN }}
-        run: |
-          docker run --rm --network host --ipc=host \
-            -v "$PWD:$PWD" -w "$PWD" \
-            -e CI \
-            -e INTEGRATION_CLOUDFLARE_ZONE \
-            -e INTEGRATION_CLOUDFLARE_ZONE_ID \
-            -e INTEGRATION_CLOUDFLARE_API_TOKEN \
-            "$PLAYWRIGHT_IMAGE" npm run test:integration
+        run: npm run test:integration
 
       - name: Show integration logs
         if: failure()
