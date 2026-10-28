@@ -1051,7 +1051,7 @@ test("compose import reads SaaShup labels from map labels", async ({ page }) => 
     "    labels:",
     "      saashup_traefik: false",
     "  saashup:",
-    "    image: saashup/netbox-docker-image-upgrade:v2.4.2",
+    "    image: saashup/saashup:v2.4.2",
     "    container_name: saashup",
     "    labels:",
     "      saashup_traefik: true",

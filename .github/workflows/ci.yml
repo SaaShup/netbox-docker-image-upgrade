@@ -19,11 +19,16 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
+env:
+  PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.64.1-noble
+
 jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble
 
     steps:
       - name: Checkout
@@ -37,9 +42,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
 
       - name: Check JavaScript syntax
         run: |
@@ -84,6 +86,28 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  integration:
+    name: Integration
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Pull Playwright image
+        run: docker pull "$PLAYWRIGHT_IMAGE"
+
       - name: Start integration stack
         run: |
           npm run integration:down || true
@@ -100,7 +124,14 @@ jobs:
           INTEGRATION_CLOUDFLARE_ZONE: ${{ secrets.INTEGRATION_CLOUDFLARE_ZONE }}
           INTEGRATION_CLOUDFLARE_ZONE_ID: ${{ secrets.INTEGRATION_CLOUDFLARE_ZONE_ID }}
           INTEGRATION_CLOUDFLARE_API_TOKEN: ${{ secrets.INTEGRATION_CLOUDFLARE_API_TOKEN }}
-        run: npm run test:integration
+        run: |
+          docker run --rm --network host --ipc=host \
+            -v "$PWD:$PWD" -w "$PWD" \
+            -e CI \
+            -e INTEGRATION_CLOUDFLARE_ZONE \
+            -e INTEGRATION_CLOUDFLARE_ZONE_ID \
+            -e INTEGRATION_CLOUDFLARE_API_TOKEN \
+            "$PLAYWRIGHT_IMAGE" npm run test:integration
 
       - name: Show integration logs
         if: failure()
