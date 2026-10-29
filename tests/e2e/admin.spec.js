@@ -574,7 +574,7 @@ test("metrics endpoint exposes prometheus runtime metrics", async ({ request }) 
   expect(response.status()).toBe(200);
   expect(response.headers()["content-type"]).toContain("text/plain");
   expect(body).toContain("# HELP saashup_app_info Application build information.");
-  expect(body).toContain('saashup_app_info{name="netbox-docker-image-upgrade"');
+  expect(body).toContain('saashup_app_info{name="saashup"');
   expect(body).toContain("saashup_process_uptime_seconds");
   expect(body).toContain('saashup_process_memory_bytes{type="rss"}');
   expect(body).toContain('saashup_http_requests_total{route="/metrics"}');
