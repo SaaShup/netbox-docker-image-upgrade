@@ -5082,6 +5082,60 @@ function repeatValues(list, rowSelector, keyName, valueName) {
     .filter((item) => item.key || item.value);
 }
 
+function duplicateRowKeys(list, rowSelector, keyName) {
+  const seen = new Set();
+  const duplicates = new Set();
+  repeatRows(list, rowSelector).forEach((row) => {
+    const key = String(row.querySelector(`[name="${keyName}"]`)?.value || "").trim();
+    if (!key) return;
+    if (seen.has(key)) duplicates.add(key);
+    seen.add(key);
+  });
+  return [...duplicates];
+}
+
+function markDuplicateRows(list, rowSelector, keyName, keys = []) {
+  repeatRows(list, rowSelector).forEach((row) => {
+    const input = row.querySelector(`[name="${keyName}"]`);
+    const duplicate = keys.includes(String(input?.value || "").trim());
+    row.classList.toggle("row-duplicate", duplicate);
+    if (duplicate) input?.setAttribute("aria-invalid", "true");
+    else input?.removeAttribute("aria-invalid");
+  });
+}
+
+function clearDuplicateRows() {
+  markDuplicateRows(envList, ".env-row", "var_env_key");
+  markDuplicateRows(labelList, ".repeat-row", "label_key");
+}
+
+function showConfigConflict(conflict) {
+  clearDuplicateRows();
+  if (conflict.code === "duplicate_env_var") markDuplicateRows(envList, ".env-row", "var_env_key", conflict.keys || []);
+  if (conflict.code === "duplicate_label") markDuplicateRows(labelList, ".repeat-row", "label_key", conflict.keys || []);
+}
+
+// Mirrors containerConfigConflict in lib/docker.js so duplicates are caught before /create runs.
+function repeatKeyConflict() {
+  const envKeys = duplicateRowKeys(envList, ".env-row", "var_env_key");
+  if (envKeys.length) {
+    return {
+      code: "duplicate_env_var",
+      detail: `Duplicate environment variable${envKeys.length === 1 ? "" : "s"}: ${envKeys.join(", ")}`,
+      keys: envKeys,
+    };
+  }
+  const labelKeys = duplicateRowKeys(labelList, ".repeat-row", "label_key");
+  if (labelKeys.length) {
+    return {
+      code: "duplicate_label",
+      detail: `Duplicate label${labelKeys.length === 1 ? "" : "s"}: ${labelKeys.join(", ")}`,
+      keys: labelKeys,
+    };
+  }
+  return null;
+}
+
 function portValues() {
   return repeatRows(portList, ".repeat-row")
     .map((row) => ({ value: row.querySelector('[name="port_value"]')?.value || "" }))
@@ -5200,6 +5254,13 @@ function applyCreateTemplate(template) {
 
 async function saveCreateTemplate() {
   if (!isTemplateAction()) setAction("template");
+
+  const conflict = repeatKeyConflict();
+  showConfigConflict(conflict || {});
+  if (conflict) {
+    setNotice(conflict.detail, "error");
+    return;
+  }
 
   const suggested = selectedTemplateName();
   const name = (prompt("Template name", suggested) || "").trim();
@@ -6524,6 +6585,7 @@ async function submitAction(config, submitter) {
       try {
         const data = text ? JSON.parse(text) : {};
         detail = data.detail || data.error || data.message || "";
+        showConfigConflict(data);
       } catch {
         detail = text;
       }
@@ -6545,6 +6607,7 @@ async function submitAction(config, submitter) {
       try {
         const data = text ? JSON.parse(text) : {};
         detail = data.detail || data.error || data.message || "";
+        showConfigConflict(data);
       } catch {
         detail = text;
       }
@@ -6555,6 +6618,15 @@ async function submitAction(config, submitter) {
       setNotice(detail || `Creation request failed (${response.status})`, "error");
     }
     return;
+  }
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    showConfigConflict(data);
+    if (data.code === "duplicate_env_var" || data.code === "duplicate_label") {
+      setNotice(data.detail, "error", false);
+      return;
+    }
   }
 
   const type = response.ok ? "success" : "error";
@@ -6963,6 +7035,14 @@ volumeList?.addEventListener("click", (event) => {
   updateVolumeRemoveButtons();
 });
 
+envList?.addEventListener("input", (event) => {
+  if (event.target.matches('[name="var_env_key"]')) markDuplicateRows(envList, ".env-row", "var_env_key");
+});
+
+labelList?.addEventListener("input", (event) => {
+  if (event.target.matches('[name="label_key"]')) markDuplicateRows(labelList, ".repeat-row", "label_key");
+});
+
 volumeList?.addEventListener("input", (event) => {
   if (event.target.matches('[name="volume_source"]')) syncVolumeNames();
 });
@@ -7076,6 +7156,15 @@ form?.addEventListener("submit", async (event) => {
 
     if (!fieldValue("version") && !selectedCreateTemplate?.template?.version) {
       setSubmitValidationError("Version not found for this image");
+      return;
+    }
+  }
+
+  if (currentAction === "create") {
+    const conflict = repeatKeyConflict();
+    showConfigConflict(conflict || {});
+    if (conflict) {
+      setSubmitValidationError(conflict.detail);
       return;
     }
   }

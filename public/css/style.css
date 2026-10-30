@@ -1629,3 +1629,8 @@ body.order-page #orderCancelBtn {
     width: 42px;
   }
 }
+
+.row-duplicate input[aria-invalid="true"] {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}

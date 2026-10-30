@@ -5,6 +5,7 @@ function registerOperationRoutes(app, {
   authUserFromRequest,
   bindPayloadsFromForm,
   canCreatePublicImage,
+  containerConfigConflict,
   isAdminAllowed,
   currentEnrollmentUsage,
   currentUsage,
@@ -140,6 +141,11 @@ function registerOperationRoutes(app, {
         code: "bind_mount_not_allowed",
         detail: "Bind mounts are not allowed for enrollment. Use a named Docker volume like flowg-data:/data.",
       });
+    }
+    const configConflict = containerConfigConflict?.(data);
+    if (configConflict) {
+      logLine(`CREATE : rejected ${valueText(data.instance) || "instance"} ${configConflict.detail}`);
+      return res.status(400).json(configConflict);
     }
     const enrollUsage = isEnrollRequest ? await currentEnrollmentUsage(req, orderProfile) : { reached: false };
     if (isOrderRequest && !await validateOrderTemplate(req, res, orderProfile)) return;
