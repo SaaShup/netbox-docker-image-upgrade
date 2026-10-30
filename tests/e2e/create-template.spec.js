@@ -1539,3 +1539,51 @@ test("create template order button opens the selected order page", async ({ page
 
   await expect(page).toHaveURL(/\/order\?template=Guide%20App$/);
 });
+
+test("template save highlights duplicate env vars and labels", async ({ page }) => {
+  let templateSaveCount = 0;
+  await page.route("**/templates**", async (route) => {
+    if (route.request().method() === "POST") templateSaveCount += 1;
+    await route.fallback();
+  });
+
+  await openAdmin(page, {
+    profiles: JSON.stringify({
+      production: {
+        netbox: "https://netbox.example.com",
+        token: "secret",
+        proxy: "",
+        tag: "production",
+      },
+    }),
+  });
+
+  await page.getByRole("link", { name: "Template" }).click();
+  await page.locator("#image").fill("saashup/guide");
+  await page.locator("#port_value").fill("3000");
+  await page.locator("#var_env_key").fill("OIDC_ISSUER");
+  await page.locator("#addEnvBtn").click();
+  await page.locator('#envList [name="var_env_key"]').nth(1).fill("OIDC_ISSUER");
+
+  await page.locator("#saveTemplateBtn").click();
+  await expect(page.locator("#notif")).toContainText("Duplicate environment variable: OIDC_ISSUER");
+  await expect(page.locator("#envList .env-row.row-duplicate")).toHaveCount(2);
+  await expect(page.locator('#envList [name="var_env_key"][aria-invalid="true"]')).toHaveCount(2);
+
+  await page.locator('#envList [name="var_env_key"]').nth(1).fill("OIDC_CLIENT");
+  await expect(page.locator("#envList .row-duplicate")).toHaveCount(0);
+
+  await page.locator("#label_key").fill("custom.label");
+  await page.locator("#addLabelBtn").click();
+  await page.locator('#labelList [name="label_key"]').nth(1).fill("custom.label");
+  await page.locator("#saveTemplateBtn").click();
+  await expect(page.locator("#notif")).toContainText("Duplicate label: custom.label");
+  await expect(page.locator("#labelList .repeat-row.row-duplicate")).toHaveCount(2);
+  expect(templateSaveCount).toBe(0);
+
+  await page.locator('#labelList [name="label_key"]').nth(1).fill("traefik.enable");
+  page.once("dialog", (dialog) => dialog.accept("Guide"));
+  await page.locator("#saveTemplateBtn").click();
+  await expect(page.locator("#notif")).toContainText('Template "Guide" saved');
+  await expect(page.locator(".row-duplicate")).toHaveCount(0);
+});

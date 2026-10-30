@@ -58,6 +58,7 @@ const {
   authRedirectRequestedFromForm,
   authRedirectUrlFromLabels,
   cloudflareFilterEnabled,
+  containerConfigConflict,
   containerNetworkNames,
   dnsHostNameFromData,
   dnsNameFromData,
@@ -880,7 +881,6 @@ describe("server helpers", () => {
           value: "173.245.48.0/20, 103.21.244.0/22, 103.22.200.0/22, 103.31.4.0/22, 141.101.64.0/18, 108.162.192.0/18, 190.93.240.0/20, 188.114.96.0/20, 197.234.240.0/22, 198.41.128.0/17, 162.158.0.0/15, 104.16.0.0/13, 104.24.0.0/14, 172.64.0.0/13, 131.0.72.0/22, 2400:cb00::/32, 2606:4700::/32, 2803:f800::/32, 2405:b500::/32, 2405:8100::/32, 2a06:98c0::/29, 2c0f:f248::/32",
         },
         { key: "traefik.http.routers.tiles.middlewares", value: "force-https-header" },
-        { key: "traefik.http.routers.tiles.middlewares", value: "true" },
       ],
       mounts: [
         {
@@ -1142,6 +1142,54 @@ describe("server helpers", () => {
       label_key: ["traefik.enable", "custom.label"],
       label_value: ["true", "custom-value"],
     }, 33).labels).toEqual([{ key: "custom.label", value: "custom-value" }]);
+  });
+
+  test("keeps generated Traefik labels over user labels with the same key", () => {
+    const labels = containerConfigPayloadFromForm({
+      instance: "app.example.com",
+      port_value: ["8080"],
+      label_key: ["traefik.enable", " traefik.http.routers.app.rule", "traefik.http.routers.app.tls", "custom.label"],
+      label_value: ["false", "Host(`evil.example.com`)", "true", "custom-value"],
+    }, 34).labels;
+
+    expect(labels.filter((label) => label.key === "traefik.enable")).toEqual([{ key: "traefik.enable", value: "true" }]);
+    expect(labels.filter((label) => label.key.trim() === "traefik.http.routers.app.rule")).toEqual([
+      { key: "traefik.http.routers.app.rule", value: "Host(`app.example.com`)" },
+    ]);
+    expect(labels).toContainEqual({ key: "traefik.http.routers.app.tls", value: "true" });
+    expect(labels).toContainEqual({ key: "custom.label", value: "custom-value" });
+  });
+
+  test("reports duplicate env vars and labels before create", () => {
+    expect(containerConfigConflict({
+      instance: "app",
+      port_value: ["8080"],
+      var_env_key: ["OIDC_ISSUER", "APP_ENV", "OIDC_ISSUER "],
+      var_env_value: ["https://a", "prod", "https://b"],
+    })).toEqual({
+      code: "duplicate_env_var",
+      detail: "Duplicate environment variable: OIDC_ISSUER",
+      keys: ["OIDC_ISSUER"],
+    });
+
+    expect(containerConfigConflict({
+      instance: "app",
+      port_value: ["8080"],
+      label_key: ["custom.one", "custom.two", "custom.one", "custom.two"],
+      label_value: ["a", "b", "c", "d"],
+    })).toEqual({
+      code: "duplicate_label",
+      detail: "Duplicate labels: custom.one, custom.two",
+      keys: ["custom.one", "custom.two"],
+    });
+
+    expect(containerConfigConflict({
+      instance: "app",
+      port_value: ["8080"],
+      var_env_key: ["APP_ENV", ""],
+      label_key: ["traefik.enable", "custom.label"],
+      label_value: ["true", "x"],
+    })).toBeNull();
   });
 
   test("builds Keycloak redirect payloads from the callback path label", () => {

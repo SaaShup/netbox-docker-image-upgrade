@@ -1,4 +1,5 @@
 const { registerOperationRoutes } = require("../../api/operations");
+const { containerConfigConflict } = require("../../lib/docker");
 
 function mockResponse() {
   return {
@@ -246,6 +247,45 @@ describe("api operation routes", () => {
     await routes["/create"]({ body: { enroll_request: "true", instance: "instance-template", profile: "prod" } }, mockResponse());
     await expect(asyncOperations.at(-1)).rejects.toThrow("async failed");
     expect(asyncUpdateEnrollmentInstanceStatus).toHaveBeenCalledWith(expect.any(Object), "prod", "instance-template", "failed");
+  });
+
+  test("create rejects duplicate env vars before any side effect", async () => {
+    const createInstance = vi.fn();
+    const recordEnrollment = vi.fn();
+    const { logs, routes } = createRoutes({ containerConfigConflict, createInstance, recordEnrollment });
+    const res = mockResponse();
+
+    await routes["/create"]({
+      body: {
+        enroll_request: "true",
+        instance: "app",
+        port_value: "8080",
+        var_env_key: ["OIDC_ISSUER", "OIDC_ISSUER"],
+        var_env_value: ["https://a", "https://b"],
+      },
+    }, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({
+      code: "duplicate_env_var",
+      detail: "Duplicate environment variable: OIDC_ISSUER",
+      keys: ["OIDC_ISSUER"],
+    });
+    expect(createInstance).not.toHaveBeenCalled();
+    expect(recordEnrollment).not.toHaveBeenCalled();
+    expect(logs).toContain("CREATE : rejected app Duplicate environment variable: OIDC_ISSUER");
+  });
+
+  test("create rejects duplicate labels", async () => {
+    const createInstance = vi.fn();
+    const { routes } = createRoutes({ containerConfigConflict, createInstance });
+    const res = mockResponse();
+
+    await routes["/create"]({ body: { instance: "app", port_value: "8080", label_key: ["custom", "custom"], label_value: ["a", "b"] } }, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({ code: "duplicate_label", detail: "Duplicate label: custom", keys: ["custom"] });
+    expect(createInstance).not.toHaveBeenCalled();
   });
 
   test("create reports enrollment catalog sync failures before creating instances", async () => {
